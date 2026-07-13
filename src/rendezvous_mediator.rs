@@ -835,9 +835,9 @@ async fn direct_server(server: ServerPtr) {
     let mut listener = None;
     let mut port = 0;
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    let mut mapped_port = None;
+    let mut mapped_port: Option<u16> = None;
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    let mut mapped_at = None;
+    let mut mapped_at: Option<Instant> = None;
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let mut mapping_refresh_after = Duration::from_secs(30 * 60);
     loop {
