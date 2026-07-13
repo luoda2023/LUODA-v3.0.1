@@ -114,37 +114,66 @@ class ToolbarState {
 
 class _ToolbarTheme {
   static const Color blueColor = MyTheme.button;
-  static const Color hoverBlueColor = MyTheme.accent;
-  static Color inactiveColor = Colors.grey[800]!;
-  static Color hoverInactiveColor = Colors.grey[850]!;
+  static const Color hoverBlueColor = MyTheme.primaryHover;
+  static const Color inactiveColor = MyTheme.mutedLight;
+  static const Color hoverInactiveColor = MyTheme.textLight;
 
-  static const Color redColor = Colors.redAccent;
-  static const Color hoverRedColor = Colors.red;
+  static const Color redColor = Color(0xFFD93025);
+  static const Color hoverRedColor = Color(0xFFB3261E);
   // kMinInteractiveDimension
-  static const double height = 20.0;
+  static const double height = 40.0;
   static const double dividerHeight = 12.0;
 
-  static const double buttonSize = 32;
+  static const double buttonSize = 40;
+  static const double iconSize = 20;
   static const double buttonHMargin = 2;
-  static const double buttonVMargin = 6;
+  static const double buttonVMargin = 2;
   static const double iconRadius = 8;
-  static const double elevation = 3;
+  static const double elevation = 2;
 
   static double dividerSpaceToAction = isWindows ? 8 : 14;
 
-  static double menuBorderRadius = isWindows ? 5.0 : 7.0;
+  static const double menuBorderRadius = 8;
   static EdgeInsets menuPadding = isWindows
-      ? EdgeInsets.fromLTRB(4, 12, 4, 12)
-      : EdgeInsets.fromLTRB(6, 14, 6, 14);
-  static const double menuButtonBorderRadius = 3.0;
+      ? const EdgeInsets.symmetric(horizontal: 4, vertical: 8)
+      : const EdgeInsets.symmetric(horizontal: 6, vertical: 10);
+  static const double menuButtonBorderRadius = 6;
 
   static Color borderColor(BuildContext context) =>
-      MyTheme.color(context).border3 ?? MyTheme.border;
+      MyTheme.color(context).border ?? MyTheme.border;
 
   static Color? dividerColor(BuildContext context) =>
       MyTheme.color(context).divider;
 
+  static Color surfaceColor(BuildContext context) =>
+      Theme.of(context).colorScheme.surface;
+
+  static Color resolveForeground(BuildContext context, Color source) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    if (source == blueColor || source == hoverBlueColor) {
+      return source == hoverBlueColor && !isDark
+          ? MyTheme.primaryHover
+          : theme.colorScheme.primary;
+    }
+    if (source == inactiveColor) {
+      return isDark ? MyTheme.mutedDark : MyTheme.mutedLight;
+    }
+    if (source == hoverInactiveColor) {
+      return theme.colorScheme.onSurface;
+    }
+    if (source == redColor || source == hoverRedColor) {
+      return isDark ? const Color(0xFFFF7B72) : source;
+    }
+    return source;
+  }
+
   static MenuStyle defaultMenuStyle(BuildContext context) => MenuStyle(
+        backgroundColor: MaterialStatePropertyAll(surfaceColor(context)),
+        elevation: const MaterialStatePropertyAll(4),
+        shadowColor: MaterialStatePropertyAll(
+          Theme.of(context).shadowColor.withOpacity(0.18),
+        ),
         side: MaterialStateProperty.all(BorderSide(
           width: 1,
           color: borderColor(context),
@@ -154,11 +183,40 @@ class _ToolbarTheme {
                 BorderRadius.circular(_ToolbarTheme.menuBorderRadius))),
         padding: MaterialStateProperty.all(_ToolbarTheme.menuPadding),
       );
-  static final defaultMenuButtonStyle = ButtonStyle(
-    backgroundColor: MaterialStatePropertyAll(Colors.transparent),
-    padding: MaterialStatePropertyAll(EdgeInsets.zero),
-    overlayColor: MaterialStatePropertyAll(Colors.transparent),
-  );
+
+  static ButtonStyle iconButtonStyle(
+    BuildContext context,
+    Color feedbackColor,
+  ) {
+    final resolvedFeedback = resolveForeground(context, feedbackColor);
+    return ButtonStyle(
+      minimumSize: const MaterialStatePropertyAll(Size(buttonSize, buttonSize)),
+      padding: const MaterialStatePropertyAll(EdgeInsets.zero),
+      overlayColor: const MaterialStatePropertyAll(Colors.transparent),
+      backgroundColor: MaterialStateProperty.resolveWith((states) {
+        if (states.contains(MaterialState.disabled)) {
+          return Colors.transparent;
+        }
+        if (states.contains(MaterialState.pressed)) {
+          return resolvedFeedback.withOpacity(0.18);
+        }
+        if (states.contains(MaterialState.focused)) {
+          return resolvedFeedback.withOpacity(0.12);
+        }
+        if (states.contains(MaterialState.hovered)) {
+          return resolvedFeedback.withOpacity(0.10);
+        }
+        return Colors.transparent;
+      }),
+      side: MaterialStateProperty.resolveWith((states) =>
+          states.contains(MaterialState.focused)
+              ? BorderSide(color: Theme.of(context).colorScheme.primary)
+              : BorderSide.none),
+      shape: MaterialStatePropertyAll(RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(iconRadius),
+      )),
+    );
+  }
 
   static Widget borderWrapper(
       BuildContext context, Widget child, BorderRadius borderRadius) {
@@ -174,7 +232,6 @@ class _ToolbarTheme {
     );
   }
 }
-
 typedef DismissFunc = void Function();
 
 class RemoteMenuEntry {
@@ -341,8 +398,8 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
       if (collapse.isFalse && _dragging.isFalse) {
         triggerAutoHide();
       }
-      final borderRadius = BorderRadius.vertical(
-        bottom: Radius.circular(5),
+      const borderRadius = BorderRadius.vertical(
+        bottom: Radius.circular(_ToolbarTheme.iconRadius),
       );
       return Align(
         alignment: FractionalOffset(_fractionX.value, 0),
@@ -350,8 +407,9 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
           offstage: _dragging.isTrue,
           child: Material(
             elevation: _ToolbarTheme.elevation,
-            shadowColor: MyTheme.color(context).shadow,
+            shadowColor: Theme.of(context).shadowColor.withOpacity(0.18),
             borderRadius: borderRadius,
+            color: _ToolbarTheme.surfaceColor(context),
             child: _DraggableShowHide(
               id: widget.id,
               sessionId: widget.ffi.sessionId,
@@ -405,19 +463,16 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
     }
     if (!isWeb) toolbarItems.add(_RecordMenu());
     toolbarItems.add(_CloseMenu(id: widget.id, ffi: widget.ffi));
-    final toolbarBorderRadius = BorderRadius.all(Radius.circular(4.0));
+    const toolbarBorderRadius =
+        BorderRadius.all(Radius.circular(_ToolbarTheme.iconRadius));
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         Material(
           elevation: _ToolbarTheme.elevation,
-          shadowColor: MyTheme.color(context).shadow,
+          shadowColor: Theme.of(context).shadowColor.withOpacity(0.18),
           borderRadius: toolbarBorderRadius,
-          color: Theme.of(context)
-              .menuBarTheme
-              .style
-              ?.backgroundColor
-              ?.resolve(MaterialState.values.toSet()),
+          color: _ToolbarTheme.surfaceColor(context),
           child: SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Theme(
@@ -444,9 +499,9 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
     return Theme.of(context).copyWith(
       menuButtonTheme: MenuButtonThemeData(
         style: ButtonStyle(
-          minimumSize: MaterialStatePropertyAll(Size(64, 32)),
-          textStyle: MaterialStatePropertyAll(
-            TextStyle(fontWeight: FontWeight.normal),
+          minimumSize: const MaterialStatePropertyAll(Size(64, 40)),
+          textStyle: const MaterialStatePropertyAll(
+            TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
           ),
           shape: MaterialStatePropertyAll(RoundedRectangleBorder(
               borderRadius:
@@ -461,10 +516,12 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
           style: MenuStyle(
         padding: MaterialStatePropertyAll(EdgeInsets.zero),
         elevation: MaterialStatePropertyAll(0),
-        shape: MaterialStatePropertyAll(BeveledRectangleBorder()),
-      ).copyWith(
-              backgroundColor:
-                  Theme.of(context).menuBarTheme.style?.backgroundColor)),
+        shape: MaterialStatePropertyAll(RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(_ToolbarTheme.iconRadius),
+        )),
+        backgroundColor:
+            MaterialStatePropertyAll(_ToolbarTheme.surfaceColor(context)),
+      )),
     );
   }
 }
@@ -2269,52 +2326,45 @@ class _IconMenuButtonState extends State<_IconMenuButton> {
   @override
   Widget build(BuildContext context) {
     assert(widget.assetName != null || widget.icon != null);
-    final icon = widget.icon ??
-        SvgPicture.asset(
-          widget.assetName!,
-          colorFilter: ColorFilter.mode(Colors.white, BlendMode.srcIn),
-          width: _ToolbarTheme.buttonSize,
-          height: _ToolbarTheme.buttonSize,
-        );
-    var button = SizedBox(
+    final enabled = widget.onPressed != null;
+    final sourceColor = hover ? widget.hoverColor : widget.color;
+    final foregroundColor = _ToolbarTheme.resolveForeground(
+      context,
+      sourceColor,
+    ).withOpacity(enabled ? 1 : 0.45);
+    final icon = ColorFiltered(
+      colorFilter: ColorFilter.mode(foregroundColor, BlendMode.srcIn),
+      child: widget.icon ??
+          SvgPicture.asset(
+            widget.assetName!,
+            width: _ToolbarTheme.iconSize,
+            height: _ToolbarTheme.iconSize,
+          ),
+    );
+    final button = SizedBox(
       width: widget.width ?? _ToolbarTheme.buttonSize,
       height: _ToolbarTheme.buttonSize,
       child: MenuItemButton(
-          style: ButtonStyle(
-              backgroundColor: MaterialStatePropertyAll(Colors.transparent),
-              padding: MaterialStatePropertyAll(EdgeInsets.zero),
-              overlayColor: MaterialStatePropertyAll(Colors.transparent)),
-          onHover: (value) => setState(() {
-                hover = value;
-              }),
-          onPressed: widget.onPressed,
-          child: Tooltip(
-            message: translate(widget.tooltip),
-            child: Material(
-                type: MaterialType.transparency,
-                child: Ink(
-                    decoration: BoxDecoration(
-                      borderRadius:
-                          BorderRadius.circular(_ToolbarTheme.iconRadius),
-                      color: hover ? widget.hoverColor : widget.color,
-                    ),
-                    child: icon)),
-          )),
+        style: _ToolbarTheme.iconButtonStyle(context, widget.hoverColor),
+        onHover: (value) => setState(() {
+          hover = value;
+        }),
+        onPressed: widget.onPressed,
+        child: Tooltip(
+          message: translate(widget.tooltip),
+          child: Center(child: icon),
+        ),
+      ),
     ).marginSymmetric(
-        horizontal: widget.hMargin ?? _ToolbarTheme.buttonHMargin,
-        vertical: widget.vMargin ?? _ToolbarTheme.buttonVMargin);
-    button = Tooltip(
-      message: widget.tooltip,
-      child: button,
+      horizontal: widget.hMargin ?? _ToolbarTheme.buttonHMargin,
+      vertical: widget.vMargin ?? _ToolbarTheme.buttonVMargin,
     );
     if (widget.topLevel) {
       return MenuBar(children: [button]);
-    } else {
-      return button;
     }
+    return button;
   }
 }
-
 class _IconSubmenuButton extends StatefulWidget {
   final String tooltip;
   final String? svg;
@@ -2354,46 +2404,45 @@ class _IconSubmenuButtonState extends State<_IconSubmenuButton> {
   @override
   Widget build(BuildContext context) {
     assert(widget.svg != null || widget.icon != null);
-    final icon = widget.icon ??
-        SvgPicture.asset(
-          widget.svg!,
-          colorFilter: ColorFilter.mode(Colors.white, BlendMode.srcIn),
-          width: _ToolbarTheme.buttonSize,
-          height: _ToolbarTheme.buttonSize,
-        );
+    final sourceColor = hover ? widget.hoverColor : widget.color;
+    final foregroundColor =
+        _ToolbarTheme.resolveForeground(context, sourceColor);
+    final icon = ColorFiltered(
+      colorFilter: ColorFilter.mode(foregroundColor, BlendMode.srcIn),
+      child: widget.icon ??
+          SvgPicture.asset(
+            widget.svg!,
+            width: _ToolbarTheme.iconSize,
+            height: _ToolbarTheme.iconSize,
+          ),
+    );
     final button = SizedBox(
-        width: widget.width ?? _ToolbarTheme.buttonSize,
-        height: _ToolbarTheme.buttonSize,
-        child: SubmenuButton(
-            menuStyle:
-                widget.menuStyle ?? _ToolbarTheme.defaultMenuStyle(context),
-            style: _ToolbarTheme.defaultMenuButtonStyle,
-            onHover: (value) => setState(() {
-                  hover = value;
-                }),
-            child: Tooltip(
-                message: translate(widget.tooltip),
-                child: Material(
-                    type: MaterialType.transparency,
-                    child: Ink(
-                        decoration: BoxDecoration(
-                          borderRadius:
-                              BorderRadius.circular(_ToolbarTheme.iconRadius),
-                          color: hover ? widget.hoverColor : widget.color,
-                        ),
-                        child: icon))),
-            menuChildren: widget
-                .menuChildrenGetter(this)
-                .map((e) => _buildPointerTrackWidget(e, widget.ffi))
-                .toList()));
+      width: widget.width ?? _ToolbarTheme.buttonSize,
+      height: _ToolbarTheme.buttonSize,
+      child: SubmenuButton(
+        menuStyle: widget.menuStyle ?? _ToolbarTheme.defaultMenuStyle(context),
+        style: _ToolbarTheme.iconButtonStyle(context, widget.hoverColor),
+        onHover: (value) => setState(() {
+          hover = value;
+        }),
+        menuChildren: widget
+            .menuChildrenGetter(this)
+            .map((e) => _buildPointerTrackWidget(e, widget.ffi))
+            .toList(),
+        child: Tooltip(
+          message: translate(widget.tooltip),
+          child: Center(child: icon),
+        ),
+      ),
+    );
     return MenuBar(children: [
       button.marginSymmetric(
-          horizontal: _ToolbarTheme.buttonHMargin,
-          vertical: _ToolbarTheme.buttonVMargin)
+        horizontal: _ToolbarTheme.buttonHMargin,
+        vertical: _ToolbarTheme.buttonVMargin,
+      )
     ]);
   }
 }
-
 class _SubmenuButton extends StatelessWidget {
   final List<Widget> menuChildren;
   final Widget? child;
@@ -2575,10 +2624,16 @@ class _DraggableShowHideState extends State<_DraggableShowHide> {
   Widget _buildDraggable(BuildContext context) {
     return Draggable(
       axis: Axis.horizontal,
-      child: Icon(
-        Icons.drag_indicator,
-        size: 20,
-        color: MyTheme.color(context).drag_indicator,
+      child: SizedBox(
+        width: _ToolbarTheme.buttonSize,
+        height: _ToolbarTheme.buttonSize,
+        child: Center(
+          child: Icon(
+            Icons.drag_indicator,
+            size: _ToolbarTheme.iconSize,
+            color: MyTheme.color(context).drag_indicator,
+          ),
+        ),
       ),
       feedback: widget,
       onDragStarted: (() {
@@ -2613,26 +2668,48 @@ class _DraggableShowHideState extends State<_DraggableShowHide> {
   @override
   Widget build(BuildContext context) {
     final ButtonStyle buttonStyle = ButtonStyle(
-      minimumSize: MaterialStateProperty.all(const Size(0, 0)),
-      padding: MaterialStateProperty.all(EdgeInsets.zero),
+      minimumSize: const MaterialStatePropertyAll(
+        Size(_ToolbarTheme.buttonSize, _ToolbarTheme.buttonSize),
+      ),
+      padding: const MaterialStatePropertyAll(EdgeInsets.zero),
+      foregroundColor:
+          MaterialStatePropertyAll(Theme.of(context).colorScheme.onSurface),
+      shape: MaterialStateProperty.resolveWith((states) =>
+          RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(_ToolbarTheme.iconRadius),
+            side: states.contains(MaterialState.focused)
+                ? BorderSide(color: Theme.of(context).colorScheme.primary)
+                : BorderSide.none,
+          )),
     );
     final isFullscreen = stateGlobal.fullscreen;
     const double iconSize = 20;
 
     buttonWrapper(VoidCallback? onPressed, Widget child,
         {Color hoverColor = _ToolbarTheme.blueColor}) {
-      final bgColor = buttonStyle.backgroundColor?.resolve({});
+      final feedbackColor =
+          _ToolbarTheme.resolveForeground(context, hoverColor);
       return TextButton(
         onPressed: onPressed,
-        child: child,
         style: buttonStyle.copyWith(
+          foregroundColor: MaterialStatePropertyAll(feedbackColor),
           backgroundColor: MaterialStateProperty.resolveWith((states) {
-            if (states.contains(MaterialState.hovered)) {
-              return (bgColor ?? hoverColor).withOpacity(0.15);
+            if (states.contains(MaterialState.disabled)) {
+              return Colors.transparent;
             }
-            return bgColor;
+            if (states.contains(MaterialState.pressed)) {
+              return feedbackColor.withOpacity(0.18);
+            }
+            if (states.contains(MaterialState.focused)) {
+              return feedbackColor.withOpacity(0.12);
+            }
+            if (states.contains(MaterialState.hovered)) {
+              return feedbackColor.withOpacity(0.10);
+            }
+            return Colors.transparent;
           }),
         ),
+        child: child,
       );
     }
 
@@ -2707,11 +2784,7 @@ class _DraggableShowHideState extends State<_DraggableShowHide> {
       data: TextButtonThemeData(style: buttonStyle),
       child: Container(
         decoration: BoxDecoration(
-          color: Theme.of(context)
-              .menuBarTheme
-              .style
-              ?.backgroundColor
-              ?.resolve(MaterialState.values.toSet()),
+          color: _ToolbarTheme.surfaceColor(context),
           border: Border.all(
             color: _ToolbarTheme.borderColor(context),
             width: 1,
@@ -2719,7 +2792,7 @@ class _DraggableShowHideState extends State<_DraggableShowHide> {
           borderRadius: widget.borderRadius,
         ),
         child: SizedBox(
-          height: 20,
+          height: _ToolbarTheme.buttonSize,
           child: child,
         ),
       ),

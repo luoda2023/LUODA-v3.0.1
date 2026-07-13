@@ -1,0 +1,145 @@
+{
+    "schemaVersion":  2,
+    "generatedAt":  "2026-07-13T04:09:34.3791390Z",
+    "title":  "Design System: LUODA Remote Center",
+    "extensions":  {
+                       "colorMeta":  {
+                                         "primary":  {
+                                                         "role":  "primary",
+                                                         "displayName":  "Control Blue",
+                                                         "canonical":  "#0B6EF3",
+                                                         "tonalRamp":  [
+                                                                           "#071A35",
+                                                                           "#0A3268",
+                                                                           "#0B4B9D",
+                                                                           "#0B6EF3",
+                                                                           "#4C96F7",
+                                                                           "#89BAFA",
+                                                                           "#C4DDFD",
+                                                                           "#EAF2FF"
+                                                                       ]
+                                                     },
+                                         "canvas":  {
+                                                        "role":  "neutral",
+                                                        "displayName":  "Cool Canvas",
+                                                        "canonical":  "#F5F8FC",
+                                                        "tonalRamp":  [
+                                                                          "#171A1F",
+                                                                          "#343941",
+                                                                          "#555D68",
+                                                                          "#7A8593",
+                                                                          "#A4AFBC",
+                                                                          "#C9D2DC",
+                                                                          "#E4EAF1",
+                                                                          "#F5F8FC"
+                                                                      ]
+                                                    }
+                                     },
+                       "typographyMeta":  {
+                                              "headline":  {
+                                                               "displayName":  "Headline",
+                                                               "purpose":  "Page titles and primary panel headings."
+                                                           },
+                                              "body":  {
+                                                           "displayName":  "Body",
+                                                           "purpose":  "Settings descriptions and device metadata."
+                                                       }
+                                          },
+                       "shadows":  [
+                                       {
+                                           "name":  "menu",
+                                           "value":  "0 4px 8px rgba(20,26,36,0.14)",
+                                           "purpose":  "Menus and transient overlays only."
+                                       }
+                                   ],
+                       "motion":  [
+                                      {
+                                          "name":  "state",
+                                          "value":  "180ms ease-out",
+                                          "purpose":  "Selection, hover, and disclosure state changes."
+                                      }
+                                  ],
+                       "breakpoints":  [
+                                           {
+                                               "name":  "compact",
+                                               "value":  "900px"
+                                           },
+                                           {
+                                               "name":  "wide",
+                                               "value":  "1180px"
+                                           }
+                                       ]
+                   },
+    "components":  [
+                       {
+                           "name":  "Primary Button",
+                           "kind":  "button",
+                           "refersTo":  "button-primary",
+                           "description":  "Primary remote connection action.",
+                           "html":  "\u003cbutton class=\"ds-btn-primary\"\u003eConnect\u003c/button\u003e",
+                           "css":  ".ds-btn-primary{height:44px;padding:0 18px;border:0;border-radius:8px;background:#0B6EF3;color:#fff;font:600 14px Segoe UI,sans-serif}.ds-btn-primary:hover{background:#095FCC}.ds-btn-primary:focus-visible{outline:2px solid #0B6EF3;outline-offset:2px}"
+                       },
+                       {
+                           "name":  "Remote ID Input",
+                           "kind":  "input",
+                           "refersTo":  "input",
+                           "description":  "Remote device ID entry.",
+                           "html":  "\u003cinput class=\"ds-input\" placeholder=\"Enter Remote ID\"\u003e",
+                           "css":  ".ds-input{height:44px;padding:0 14px;border:1px solid #DCE5F2;border-radius:8px;background:#fff;color:#141A24;font:400 15px Segoe UI,sans-serif}.ds-input:focus{border-color:#0B6EF3;outline:1px solid #0B6EF3}.ds-input:disabled{background:#F5F8FC;color:#5D687A}"
+                       },
+                       {
+                           "name":  "Settings Navigation",
+                           "kind":  "nav",
+                           "refersTo":  "navigation",
+                           "description":  "Responsive category navigation.",
+                           "html":  "\u003cnav class=\"ds-nav\"\u003e\u003cbutton class=\"ds-nav-active\"\u003eSettings\u003c/button\u003e\u003c/nav\u003e",
+                           "css":  ".ds-nav{padding:12px;background:#fff}.ds-nav button{height:44px;padding:0 14px;border:0;border-radius:8px;background:transparent;color:#141A24}.ds-nav .ds-nav-active{background:#EAF2FF;color:#0B6EF3;font-weight:600}.ds-nav button:focus-visible{outline:2px solid #0B6EF3}"
+                       },
+                       {
+                           "name":  "Settings Section",
+                           "kind":  "card",
+                           "refersTo":  "card",
+                           "description":  "Full-width settings group.",
+                           "html":  "\u003csection class=\"ds-card\"\u003e\u003ch2\u003eSecurity\u003c/h2\u003e\u003c/section\u003e",
+                           "css":  ".ds-card{padding:24px;border:1px solid #DCE5F2;border-radius:8px;background:#fff;color:#141A24}.ds-card h2{margin:0;font:600 18px Segoe UI,sans-serif}"
+                       },
+                       {
+                           "name":  "Device Card",
+                           "kind":  "custom",
+                           "refersTo":  "card",
+                           "description":  "Platform, identity, status, favorite, and actions.",
+                           "html":  "\u003carticle class=\"ds-device\"\u003e\u003cstrong\u003eDevice\u003c/strong\u003e\u003cspan\u003eOnline\u003c/span\u003e\u003c/article\u003e",
+                           "css":  ".ds-device{aspect-ratio:1.55/1;padding:18px;border-radius:8px;background:#A9CEFA;color:#17233A}.ds-device:focus-visible{outline:2px solid #0B6EF3;outline-offset:2px}.ds-device span{display:block;margin-top:8px;font-size:12px}"
+                       }
+                   ],
+    "narrative":  {
+                      "northStar":  "The Quiet Control Room",
+                      "overview":  "A calm, focused control surface for repeated remote-access work. Identity, connectivity, devices, and security remain explicit while visual emphasis is reserved for the next useful action.",
+                      "keyCharacteristics":  [
+                                                 "Restrained blue accent",
+                                                 "Dense but calm hierarchy",
+                                                 "Familiar desktop controls",
+                                                 "Responsive structural layout"
+                                             ],
+                      "rules":  [
+                                    {
+                                        "name":  "The One Accent Rule",
+                                        "body":  "Control Blue is used for actions and state, never ambient decoration.",
+                                        "section":  "colors"
+                                    },
+                                    {
+                                        "name":  "The Flat Workspace Rule",
+                                        "body":  "Permanent cards use an outline or tonal separation, never a wide decorative shadow.",
+                                        "section":  "elevation"
+                                    }
+                                ],
+                      "dos":  [
+                                  "Do keep the primary remote connection action visible without scrolling.",
+                                  "Do preserve every permission, platform condition, and disabled state."
+                              ],
+                      "donts":  [
+                                    "Do not remove legacy functionality when restyling.",
+                                    "Do not use decorative glass effects, gradient text, or oversized typography."
+                                ]
+                  }
+}
