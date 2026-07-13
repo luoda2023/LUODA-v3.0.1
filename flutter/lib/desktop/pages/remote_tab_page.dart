@@ -354,7 +354,7 @@ class _ConnectionTabPageState extends State<ConnectionTabPage> {
       items: menu
           .map((entry) => entry.build(
               context,
-              const MenuConfig(
+              MenuConfig(
                 commonColor: Theme.of(context).colorScheme.primary,
                 height: _MenuTheme.height,
                 dividerHeight: _MenuTheme.dividerHeight,
