@@ -416,6 +416,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final publicIP = bind.mainGetOptionSync(key: 'public-ip');
     final lanIP = bind.mainGetOptionSync(key: 'lan-ip');
     final port = bind.mainGetOptionSync(key: kOptionDirectAccessPort);
+    final upnpStatus = bind.mainGetOptionSync(key: 'upnp-status');
     String address(String ip) {
       if (ip.isEmpty || port.isEmpty) return ip;
       final host = ip.contains(':') && !ip.startsWith('[') ? '[$ip]' : ip;
@@ -463,6 +464,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             context,
             translate('Public IP:port'),
             address(publicIP),
+            status: upnpStatus,
+            statusColor: _directStatusColor(upnpStatus),
+            statusTooltip: translate(_directStatusTip(upnpStatus)),
           ),
           const SizedBox(height: 10),
           _addressValue(context, translate('LAN IP:port'), address(lanIP)),
@@ -557,7 +561,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     );
   }
 
-  Widget _addressValue(BuildContext context, String label, String value) {
+  Widget _addressValue(BuildContext context, String label, String value,
+      {String? status, Color? statusColor, String? statusTooltip}) {
     final available = value.isNotEmpty;
     final displayValue = available ? value : translate('Not available');
     return Column(
@@ -582,6 +587,18 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               onPressed: available ? () => _copyValue(value) : null,
               icon: const Icon(Icons.copy_rounded, size: 16),
             ),
+            if (available && statusColor != null)
+              Tooltip(
+                message: statusTooltip ?? '',
+                child: Semantics(
+                  label: statusTooltip,
+                  child: Icon(
+                    _directStatusIcon(status ?? ''),
+                    size: 15,
+                    color: statusColor,
+                  ),
+                ),
+              ),
           ],
         ),
         const SizedBox(height: 2),
@@ -607,6 +624,26 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     if (value.isEmpty) return;
     Clipboard.setData(ClipboardData(text: value));
     showToast(translate('Copied'));
+  }
+
+  Color _directStatusColor(String status) {
+    if (status == 'ok') return Colors.green;
+    if (status == 'fail') return Colors.orange;
+    return Colors.grey;
+  }
+
+  IconData _directStatusIcon(String status) {
+    if (status == 'ok') return Icons.check_circle_outline_rounded;
+    if (status == 'fail') return Icons.error_outline_rounded;
+    if (status == 'disabled') return Icons.pause_circle_outline_rounded;
+    return Icons.help_outline_rounded;
+  }
+
+  String _directStatusTip(String status) {
+    if (status == 'ok') return 'upnp_mapping_ready_tip';
+    if (status == 'fail') return 'upnp_mapping_failed_tip';
+    if (status == 'disabled') return 'direct_listener_disabled_tip';
+    return 'upnp_mapping_unknown_tip';
   }
 
   Widget buildLeftPane(BuildContext context) {
@@ -1181,7 +1218,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final directPort = bind.mainGetOptionSync(key: kOptionDirectAccessPort);
     // UPnP 状态：通过 option "upnp-status" 读取（在 rust 侧 direct_server 启动后设置）
     final upnpStatus = bind.mainGetOptionSync(key: 'upnp-status');
-    final upnpOk = upnpStatus == 'ok';
     final textColor = Theme.of(context).textTheme.titleLarge?.color;
 
     // 显示用："地址:端口"，没有则只显示地址，再没有则"Not available"
@@ -1216,7 +1252,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             addr: publicAddr,
             hasAddr: publicAddr.isNotEmpty,
             textColor: textColor,
-            upnpOk: upnpOk,
+            upnpStatus: upnpStatus,
             showUpnp: true,
           ),
           SizedBox(height: 6),
@@ -1227,7 +1263,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             addr: lanAddr,
             hasAddr: lanAddr.isNotEmpty,
             textColor: textColor,
-            upnpOk: false,
+            upnpStatus: '',
             showUpnp: false,
           ),
         ],
@@ -1243,16 +1279,14 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     required String addr,
     required bool hasAddr,
     required Color? textColor,
-    required bool upnpOk,
+    required String upnpStatus,
     required bool showUpnp,
   }) {
     final naText = translate('Not available');
     final displayText = addr.isNotEmpty ? addr : naText;
     // Tooltip 完整文本，悬停弹窗显示用，UPnP 状态一并放入弹窗
     final tooltipText = showUpnp && addr.isNotEmpty
-        ? (upnpOk
-              ? '$addr\n${translate('upnp_mapping_ready_tip')}'
-              : '$addr\n${translate('upnp_mapping_failed_tip')}')
+        ? '$addr\n${translate(_directStatusTip(upnpStatus))}'
         : (addr.isNotEmpty ? addr : naText);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
@@ -1316,12 +1350,12 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                     ),
                     if (showUpnp && addr.isNotEmpty) ...[
                       SizedBox(width: 4),
-                      Container(
-                        width: 6,
-                        height: 6,
-                        decoration: BoxDecoration(
-                          color: upnpOk ? Colors.green : Colors.orange,
-                          shape: BoxShape.circle,
+                      Semantics(
+                        label: translate(_directStatusTip(upnpStatus)),
+                        child: Icon(
+                          _directStatusIcon(upnpStatus),
+                          size: 13,
+                          color: _directStatusColor(upnpStatus),
                         ),
                       ),
                     ],

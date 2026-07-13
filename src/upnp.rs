@@ -8,6 +8,8 @@
 
 use hbb_common::log::{info, warn};
 
+pub const PORT_MAPPING_LEASE_SECONDS: u32 = 60 * 60;
+
 /// 尝试为指定端口添加 UPnP 端口映射（TCP）。
 /// 返回是否成功添加了映射。
 pub fn add_port_mapping(port: u16) -> bool {
@@ -38,7 +40,7 @@ pub fn remove_port_mapping(port: u16) -> bool {
 }
 
 fn try_add_mapping(port: u16) -> Result<(), Box<dyn std::error::Error>> {
-    let gateway = igd_next::search_gateway(Default::default())?;
+    let gateway = igd_next::search_gateway(search_options())?;
 
     let local_ipv4 = get_local_lan_ip().ok_or("无法获取本机 LAN IP")?;
     let local_addr = std::net::SocketAddr::new(local_ipv4.into(), port);
@@ -51,7 +53,7 @@ fn try_add_mapping(port: u16) -> Result<(), Box<dyn std::error::Error>> {
         igd_next::PortMappingProtocol::TCP,
         port,
         local_addr,
-        0,
+        PORT_MAPPING_LEASE_SECONDS,
         "LUODA Remote Desktop",
     )?;
 
@@ -69,7 +71,15 @@ fn get_local_lan_ip() -> Option<std::net::Ipv4Addr> {
 }
 
 fn try_remove_mapping(port: u16) -> Result<(), Box<dyn std::error::Error>> {
-    let gateway = igd_next::search_gateway(Default::default())?;
+    let gateway = igd_next::search_gateway(search_options())?;
     gateway.remove_port(igd_next::PortMappingProtocol::TCP, port)?;
     Ok(())
+}
+
+fn search_options() -> igd_next::SearchOptions {
+    igd_next::SearchOptions {
+        timeout: Some(std::time::Duration::from_secs(2)),
+        single_search_timeout: Some(std::time::Duration::from_secs(1)),
+        ..Default::default()
+    }
 }

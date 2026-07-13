@@ -113,6 +113,19 @@ jobs:
           VCPKG_DEFAULT_TRIPLET: ${{ matrix.arch == 'x86' && 'x86-windows-static' || 'x64-windows-static' }}
           CXXFLAGS: -include cstdint
           SODIUM_LIB_DIR: C:\vcpkg\installed\${{ matrix.arch == 'x86' && 'x86-windows-static' || 'x64-windows-static' }}\lib
+      - name: Validate direct IP access
+        if: matrix.arch == 'x64'
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          cargo test --release --features flutter --lib direct_access::tests -- --nocapture
+          cargo test --release --features flutter --lib direct_endpoint_tests -- --nocapture
+          cargo test --release --features flutter --lib direct_port_tests -- --nocapture
+        env:
+          VCPKG_ROOT: C:\vcpkg
+          VCPKG_DEFAULT_TRIPLET: x64-windows-static
+          CXXFLAGS: -include cstdint
+          SODIUM_LIB_DIR: C:\vcpkg\installed\x64-windows-static\lib
       - name: Build Flutter Windows
         if: matrix.arch == 'x64'
         timeout-minutes: 15

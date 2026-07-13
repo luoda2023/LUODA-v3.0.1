@@ -756,13 +756,51 @@ impl RendezvousMediator {
 
 static DIRECT_PORT: std::sync::OnceLock<std::sync::Mutex<i32>> = std::sync::OnceLock::new();
 
+fn parse_direct_port(value: &str) -> i32 {
+    value
+        .parse::<i32>()
+        .ok()
+        .filter(|port| (1..=u16::MAX as i32).contains(port))
+        .unwrap_or(DEFAULT_DIRECT_PORT)
+}
+
+fn configured_direct_port() -> i32 {
+    parse_direct_port(&Config::get_option(OPTION_DIRECT_ACCESS_PORT))
+}
+
+#[cfg(test)]
+mod direct_port_tests {
+    use super::parse_direct_port;
+    use hbb_common::config::DEFAULT_DIRECT_PORT;
+
+    #[test]
+    fn accepts_configured_port() {
+        assert_eq!(parse_direct_port("25488"), 25488);
+        assert_eq!(parse_direct_port("65535"), 65535);
+    }
+
+    #[test]
+    fn rejects_missing_or_out_of_range_port() {
+        assert_eq!(parse_direct_port(""), DEFAULT_DIRECT_PORT);
+        assert_eq!(parse_direct_port("0"), DEFAULT_DIRECT_PORT);
+        assert_eq!(parse_direct_port("65536"), DEFAULT_DIRECT_PORT);
+    }
+}
+
 fn get_direct_port() -> i32 {
     let mtx = DIRECT_PORT.get_or_init(|| {
-        // Keep the documented port stable so entering a bare IP uses the
-        // same port. Fall back to a random port only if 21118 is occupied.
-        std::sync::Mutex::new(DEFAULT_DIRECT_PORT)
+        std::sync::Mutex::new(configured_direct_port())
     });
     *mtx.lock().unwrap()
+}
+
+fn sync_direct_port_from_config() {
+    let configured = configured_direct_port();
+    let mtx = DIRECT_PORT.get_or_init(|| std::sync::Mutex::new(configured));
+    let mut port = mtx.lock().unwrap();
+    if *port != configured {
+        *port = configured;
+    }
 }
 
 /// Mark the current port as failed (e.g. port already in use),
@@ -777,21 +815,15 @@ fn invalidate_direct_port() {
         } else {
             *port = rand::thread_rng().gen_range(20000..40000);
         }
+        Config::set_option(OPTION_DIRECT_ACCESS_PORT.to_owned(), port.to_string());
         log::info!("Direct port {} was unavailable, trying {}", failed_port, *port);
     }
 }
 
-/// Reset the direct port back to DEFAULT_DIRECT_PORT (21118).
-/// Called when the listener exits (e.g. service stopped) so the next
-/// restart will try the canonical port first instead of being stuck
-/// on a fallback port forever.
 fn reset_direct_port() {
     if let Some(mtx) = DIRECT_PORT.get() {
         let mut port = mtx.lock().unwrap();
-        if *port != DEFAULT_DIRECT_PORT {
-            log::info!("Resetting direct port from {} back to {}", *port, DEFAULT_DIRECT_PORT);
-            *port = DEFAULT_DIRECT_PORT;
-        }
+        *port = configured_direct_port();
     }
 }
 
@@ -802,16 +834,46 @@ pub fn ensure_direct_port() -> i32 {
 async fn direct_server(server: ServerPtr) {
     let mut listener = None;
     let mut port = 0;
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let mut mapped_port = None;
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let mut mapped_at = None;
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let mut mapping_refresh_after = Duration::from_secs(30 * 60);
     loop {
+        sync_direct_port_from_config();
         let disabled = !option2bool(
             OPTION_DIRECT_SERVER,
             &Config::get_option(OPTION_DIRECT_SERVER),
         ) || option2bool("stop-service", &Config::get_option("stop-service"));
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        if !disabled {
+            if let (Some(current_port), Some(last_refresh)) = (mapped_port, mapped_at) {
+                if last_refresh.elapsed() >= mapping_refresh_after {
+                    let renewed = crate::upnp::add_port_mapping(current_port);
+                    Config::set_option(
+                        "upnp-status".to_owned(),
+                        if renewed { "ok" } else { "fail" }.to_owned(),
+                    );
+                    if renewed {
+                        mapped_at = Some(Instant::now());
+                        mapping_refresh_after = Duration::from_secs(30 * 60);
+                    } else {
+                        mapped_at = Some(Instant::now());
+                        mapping_refresh_after = Duration::from_secs(5 * 60);
+                    }
+                }
+            }
+        }
         if !disabled && listener.is_none() {
             port = get_direct_port();
             match hbb_common::tcp::listen_any(port as _).await {
                 Ok(l) => {
                     listener = Some(l);
+                    if configured_direct_port() != port {
+                        listener = None;
+                        continue;
+                    }
                     log::info!(
                         "Direct server listening on: {:?}",
                         listener.as_ref().map(|l| l.local_addr())
@@ -825,7 +887,20 @@ async fn direct_server(server: ServerPtr) {
                     #[cfg(not(any(target_os = "android", target_os = "ios")))]
                     {
                         let upnp_port = port as u16;
+                        if let Some(previous_port) = mapped_port.take() {
+                            if previous_port != upnp_port {
+                                crate::upnp::remove_port_mapping(previous_port);
+                            }
+                        }
+                        mapped_at = None;
                         let ret = crate::upnp::add_port_mapping(upnp_port);
+                        mapped_port = Some(upnp_port);
+                        mapped_at = Some(Instant::now());
+                        mapping_refresh_after = if ret {
+                            Duration::from_secs(30 * 60)
+                        } else {
+                            Duration::from_secs(5 * 60)
+                        };
                         Config::set_option(
                             "upnp-status".to_owned(),
                             if ret { "ok" } else { "fail" }.to_owned(),
@@ -849,6 +924,10 @@ async fn direct_server(server: ServerPtr) {
                     }
                 }
                 Err(err) => {
+                    if configured_direct_port() != port {
+                        sync_direct_port_from_config();
+                        continue;
+                    }
                     log::error!(
                         "Failed to start direct server on port: {}, error: {}",
                         port,
@@ -863,7 +942,16 @@ async fn direct_server(server: ServerPtr) {
             if disabled || port != get_direct_port() {
                 log::info!("Exit direct access listen");
                 listener = None;
-                // 重置端口到 21118，下次启动可重新使用默认端口
+                #[cfg(not(any(target_os = "android", target_os = "ios")))]
+                if let Some(previous_port) = mapped_port.take() {
+                    crate::upnp::remove_port_mapping(previous_port);
+                }
+                #[cfg(not(any(target_os = "android", target_os = "ios")))]
+                {
+                    mapped_at = None;
+                }
+                Config::set_option("upnp-status".to_owned(), "disabled".to_owned());
+                // Keep the next listener aligned with the configured port.
                 reset_direct_port();
                 continue;
             }

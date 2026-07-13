@@ -14,7 +14,7 @@ mod server;
 #[cfg(not(any(target_os = "ios")))]
 pub use self::server::*;
 mod client;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(not(target_os = "ios"))]
 mod direct_access;
 mod lan;
 #[cfg(not(any(target_os = "ios")))]

@@ -149,13 +149,14 @@ class _ConnectionPageState extends State<ConnectionPage> {
   /// Search for a peer and connect to it if the id exists.
   Widget _buildRemoteIDTextField() {
     final w = SizedBox(
-      height: 84,
+      height: 72,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 2),
         child: Ink(
           decoration: BoxDecoration(
             color: Theme.of(context).cardColor,
-            borderRadius: BorderRadius.all(Radius.circular(13)),
+            borderRadius: const BorderRadius.all(Radius.circular(8)),
+            border: Border.all(color: Theme.of(context).dividerColor),
           ),
           child: Row(
             children: <Widget>[
@@ -221,7 +222,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
                       return AutoSizeTextField(
                         controller: fieldTextEditingController,
                         focusNode: fieldFocusNode,
-                        minFontSize: 18,
+                        minFontSize: 16,
                         autocorrect: false,
                         enableSuggestions: false,
                         keyboardType: TextInputType.visiblePassword,
@@ -230,9 +231,8 @@ class _ConnectionPageState extends State<ConnectionPage> {
                           _idController.id = text;
                         },
                         style: const TextStyle(
-                          fontFamily: 'WorkSans',
                           fontWeight: FontWeight.bold,
-                          fontSize: 30,
+                          fontSize: 20,
                           color: MyTheme.idColor,
                         ),
                         decoration: InputDecoration(
@@ -241,13 +241,13 @@ class _ConnectionPageState extends State<ConnectionPage> {
                           border: InputBorder.none,
                           helperStyle: const TextStyle(
                             fontWeight: FontWeight.bold,
-                            fontSize: 16,
+                            fontSize: 13,
                             color: MyTheme.darkGray,
                           ),
                           labelStyle: const TextStyle(
                             fontWeight: FontWeight.w600,
-                            fontSize: 16,
-                            letterSpacing: 0.2,
+                            fontSize: 13,
+                            letterSpacing: 0,
                             color: MyTheme.darkGray,
                           ),
                         ),
@@ -334,12 +334,20 @@ class _ConnectionPageState extends State<ConnectionPage> {
                         icon: Icon(Icons.clear, color: MyTheme.darkGray)),
                   )),
               SizedBox(
-                width: 60,
-                height: 60,
-                child: IconButton(
-                  icon: const Icon(Icons.arrow_forward,
-                      color: MyTheme.darkGray, size: 45),
-                  onPressed: onConnect,
+                width: 56,
+                height: 48,
+                child: Container(
+                  margin: const EdgeInsets.only(right: 8),
+                  decoration: BoxDecoration(
+                    color: MyTheme.accent,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: IconButton(
+                    tooltip: translate('Connect'),
+                    icon: const Icon(Icons.arrow_forward_rounded,
+                        color: Colors.white, size: 22),
+                    onPressed: onConnect,
+                  ),
                 ),
               ),
             ],
