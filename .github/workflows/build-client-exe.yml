@@ -173,6 +173,13 @@ jobs:
           cp target/release/luoda-portable-packer.exe SignOutput/LUODA-Client-x64.exe
           echo "=== Final Client EXE ==="
           ls -la SignOutput/LUODA-Client-x64.exe
+      - name: Verify Windows version metadata
+        shell: powershell
+        run: |
+          $version = (Get-Item "SignOutput\LUODA-Client-x64.exe").VersionInfo
+          if ($version.FileVersion -ne "3.0.1" -or $version.ProductVersion -ne "3.0.1") {
+            throw "Unexpected client EXE version: FileVersion=$($version.FileVersion), ProductVersion=$($version.ProductVersion)"
+          }
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:

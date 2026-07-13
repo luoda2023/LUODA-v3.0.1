@@ -5063,7 +5063,7 @@ dependencies = [
 
 [[package]]
 name = "luoda-portable-packer"
-version = "1.0.0"
+version = "3.0.1"
 dependencies = [
  "brotli",
  "dirs 5.0.1",

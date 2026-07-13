@@ -806,8 +806,8 @@ class _PeerCardState extends State<_PeerCard>
       default:
         final hsl = HSLColor.fromColor(str2color(id, 0x9F));
         return [
-          hsl.withSaturation(.62).withLightness(.34).toColor(),
-          hsl.withSaturation(.58).withLightness(.42).toColor(),
+          hsl.withSaturation(.62).withLightness(.70).toColor(),
+          hsl.withSaturation(.58).withLightness(.80).toColor(),
         ];
     }
   }
@@ -900,8 +900,7 @@ class _PeerCardState extends State<_PeerCard>
       final y = e.position.dy;
       _menuPos = RelativeRect.fromLTRB(x, y, x, y);
     },
-    onPointerUp: (_) => _showPeerMenu(peer.id),
-    child: build_more(context),
+    child: build_more(context, onTap: () => _showPeerMenu(peer.id)),
   );
 
   bool _shouldBuildPasswordIcon(Peer peer) {
@@ -1934,11 +1933,15 @@ Widget getOnline(double rightPadding, bool online) {
   );
 }
 
-Widget build_more(BuildContext context, {bool invert = false}) {
+Widget build_more(
+  BuildContext context, {
+  bool invert = false,
+  VoidCallback? onTap,
+}) {
   final RxBool hover = false.obs;
   return InkWell(
     borderRadius: BorderRadius.circular(14),
-    onTap: () {},
+    onTap: onTap,
     onHover: (value) => hover.value = value,
     child: Obx(
       () => CircleAvatar(
