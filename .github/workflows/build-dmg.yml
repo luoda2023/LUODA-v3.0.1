@@ -10,7 +10,7 @@ name: Build LUODA macOS DMG
 on:
   workflow_dispatch:
   push:
-    branches: [master,v2.0.0,v2.0.1]
+    branches: [v3.0.1]
     paths:
       - 'build.rs'
       - 'src/**'
@@ -18,12 +18,13 @@ on:
       - 'flutter/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'vcpkg.json'
       - '.github/workflows/build-dmg.yml'
 
 jobs:
   build-dmg:
     runs-on: macos-14
-    timeout-minutes: 60
+    timeout-minutes: 180
     
     steps:
       - name: Checkout
@@ -82,8 +83,20 @@ jobs:
           /tmp/vcpkg/vcpkg install
           echo "VCPKG_ROOT=/tmp/vcpkg" >> $GITHUB_ENV
           # === Diagnostic: verify all static libs exist ===
-          VCPKG_TRIPLET=$(/tmp/vcpkg/vcpkg triplet host 2>/dev/null || echo "arm64-osx")
-          VCPKG_INSTALLED="/tmp/vcpkg/installed/${VCPKG_TRIPLET}"
+          case "$(uname -m)" in
+            x86_64) VCPKG_TRIPLET="x64-osx" ;;
+            arm64) VCPKG_TRIPLET="arm64-osx" ;;
+            *)
+              echo "ERROR: unsupported macOS runner architecture: $(uname -m)"
+              exit 1
+              ;;
+          esac
+          echo "VCPKG_TRIPLET=$VCPKG_TRIPLET" >> $GITHUB_ENV
+          VCPKG_INSTALLED="$GITHUB_WORKSPACE/vcpkg_installed/${VCPKG_TRIPLET}"
+          if [ ! -d "$VCPKG_INSTALLED" ]; then
+            echo "ERROR: vcpkg install directory not found: $VCPKG_INSTALLED"
+            exit 1
+          fi
           echo "=== Checking for required static libraries ==="
           for lib in libyuv libvpx opus aom; do
             find "$VCPKG_INSTALLED" -name "*${lib}*" 2>/dev/null | head -5 || echo "WARNING: no $lib files found!"
@@ -95,8 +108,7 @@ jobs:
           # vcpkg port's cmake install may not install libyuv headers on macOS ARM64
           # (GLOB ${ly_inc_dir}/libyuv/*.h may return empty if cmake paths differ)
           # Fallback: copy headers from build tree to installed/include
-          VCPKG_TRIPLET=$(/tmp/vcpkg/vcpkg triplet host 2>/dev/null || echo "arm64-osx")
-          INSTALLED_INC="/tmp/vcpkg/installed/${VCPKG_TRIPLET}/include"
+          INSTALLED_INC="$GITHUB_WORKSPACE/vcpkg_installed/${VCPKG_TRIPLET}/include"
           BUILD_SRC=$(ls -d /tmp/vcpkg/buildtrees/libyuv/src/*/include/libyuv 2>/dev/null | head -1)
           if [ -n "$BUILD_SRC" ] && [ -d "$BUILD_SRC" ]; then
             if [ ! -f "$INSTALLED_INC/libyuv/convert.h" ]; then
@@ -116,7 +128,7 @@ jobs:
           VCPKG_INSTALLED_ROOT: ${{ github.workspace }}/vcpkg_installed
         run: |
           # Find vcpkg paths (triplet depends on architecture)
-          VCPKG_TRIPLET=$(/tmp/vcpkg/vcpkg triplet host 2>/dev/null || echo "arm64-osx")
+          : "${VCPKG_TRIPLET:?VCPKG_TRIPLET is not set}"
           # Manifest-mode vcpkg installs to vcpkg_installed/ in project root (NOT /tmp/vcpkg/installed/)
           VCPKG_MANIFEST_DIR="${{ github.workspace }}/vcpkg_installed/${VCPKG_TRIPLET}"
           VCPKG_INCLUDE="${VCPKG_MANIFEST_DIR}/include"
@@ -159,20 +171,23 @@ jobs:
           brew install create-dmg
           mkdir -p dmg_folder
           cp -r flutter/build/macos/Build/Products/Release/LUODA.app dmg_folder/
-          create-dmg --volname "LUODA" --window-size 800 400 --app-drop-link 600 185 "LUODA-1.0.dmg" dmg_folder/
+          create-dmg --volname "LUODA" --window-size 800 400 --app-drop-link 600 185 "LUODA-3.0.1.dmg" dmg_folder/
 
       - name: Upload DMG
         uses: actions/upload-artifact@v4
         with:
-          name: LUODA-DMG
-          path: LUODA-1.0.dmg
+          name: LUODA-3.0.1-DMG
+          path: LUODA-3.0.1.dmg
+          if-no-files-found: error
 
       - name: Upload to Release
-        uses: softprops/action-gh-release@v1
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/v3.0.1'
+        uses: softprops/action-gh-release@v2
         with:
-          prerelease: true
-          tag_name: nightly
-          files: LUODA-1.0.dmg
+          prerelease: false
+          draft: true
+          tag_name: v3.0.1
+          files: LUODA-3.0.1.dmg
       - name: Upload runtime logs (always)
         if: always()
         uses: actions/upload-artifact@v4

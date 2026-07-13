@@ -2,7 +2,7 @@ name: Build LUODA Windows EXE
 on:
   workflow_dispatch:
   push:
-    branches: [master, v2.0.0, v2.0.1]
+    branches: [v3.0.1]
     paths:
       - 'build.rs'
       - 'src/**'
@@ -26,7 +26,7 @@ jobs:
       matrix:
         arch: [x64]
     runs-on: windows-2022
-    timeout-minutes: 60
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
         with:
@@ -120,6 +120,26 @@ jobs:
           cd flutter
           flutter clean
           flutter build windows --release
+      - name: Verify Flutter font assets
+        if: matrix.arch == 'x64'
+        shell: powershell
+        run: |
+          $assetRoot = "flutter\build\windows\x64\runner\Release\data\flutter_assets"
+          $requiredFonts = @(
+            "fonts\MaterialIcons-Regular.otf",
+            "assets\gestures.ttf",
+            "assets\tabbar.ttf",
+            "assets\peer_searchbar.ttf",
+            "assets\address_book.ttf",
+            "assets\device_group.ttf",
+            "assets\more.ttf"
+          )
+          foreach ($font in $requiredFonts) {
+            $fontPath = Join-Path $assetRoot $font
+            if (-not (Test-Path -LiteralPath $fontPath -PathType Leaf)) {
+              throw "Required Flutter font asset is missing: $fontPath"
+            }
+          }
       - name: Sign executable with LUODA icon
         shell: bash
         run: |
@@ -179,18 +199,20 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LUODA-Portable-${{ matrix.arch }}
-          path: SignOutput/
+          name: LUODA-3.0.1-Portable-${{ matrix.arch }}
+          path: SignOutput/LUODA-portable-x64.exe
+          if-no-files-found: error
       - name: Upload runtime logs (always)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: runtime-logs-${{ matrix.arch }}
           path: .auto_build_logs/
-      - name: Upload to Release (nightly x64 only)
-        if: matrix.arch == 'x64'
-        uses: softprops/action-gh-release@v1
+      - name: Upload to v3.0.1 Release (x64 only)
+        if: matrix.arch == 'x64' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/v3.0.1'
+        uses: softprops/action-gh-release@v2
         with:
-          prerelease: true
-          tag_name: nightly
+          prerelease: false
+          draft: true
+          tag_name: v3.0.1
           files: SignOutput/LUODA-portable-x64.exe

@@ -10,7 +10,7 @@ name: Build LUODA Windows MSI
 on:
   workflow_dispatch:
   push:
-    branches: [master,v2.0.0,v2.0.1]
+    branches: [v3.0.1]
     paths:
       - 'build.rs'
       - 'src/**'
@@ -19,12 +19,14 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/build-msi.yml'
+      - 'res/**'
+      - 'vcpkg.json'
       - 'vdi/**'
 
 jobs:
   build-msi:
     runs-on: windows-2022
-    timeout-minutes: 90
+    timeout-minutes: 180
     
     steps:
       - name: Checkout
@@ -142,6 +144,26 @@ jobs:
           flutter clean
           flutter build windows --release
 
+      - name: Verify Flutter font assets
+        shell: powershell
+        run: |
+          $assetRoot = "flutter\build\windows\x64\runner\Release\data\flutter_assets"
+          $requiredFonts = @(
+            "fonts\MaterialIcons-Regular.otf",
+            "assets\gestures.ttf",
+            "assets\tabbar.ttf",
+            "assets\peer_searchbar.ttf",
+            "assets\address_book.ttf",
+            "assets\device_group.ttf",
+            "assets\more.ttf"
+          )
+          foreach ($font in $requiredFonts) {
+            $fontPath = Join-Path $assetRoot $font
+            if (-not (Test-Path -LiteralPath $fontPath -PathType Leaf)) {
+              throw "Required Flutter font asset is missing: $fontPath"
+            }
+          }
+
       - name: Install WiX Toolset
         run: dotnet tool install --global wix --version 4.0.5
 
@@ -209,14 +231,17 @@ jobs:
       - name: Upload MSI
         uses: actions/upload-artifact@v4
         with:
-          name: LUODA-MSI
+          name: LUODA-3.0.1-MSI
           path: res/msi/dist/*.msi
+          if-no-files-found: error
 
       - name: Upload to Release
-        uses: softprops/action-gh-release@v1
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/v3.0.1'
+        uses: softprops/action-gh-release@v2
         with:
-          prerelease: true
-          tag_name: nightly
+          prerelease: false
+          draft: true
+          tag_name: v3.0.1
           files: res/msi/dist/*.msi
       - name: Upload runtime logs (always)
         if: always()

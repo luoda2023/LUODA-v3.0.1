@@ -28,7 +28,28 @@ import '../../common.dart';
 import '../../models/platform_model.dart';
 
 class PeerTabPage extends StatefulWidget {
-  const PeerTabPage({Key? key}) : super(key: key);
+  final bool showTabStrip;
+
+  static final GlobalKey<_PeerTabPageState> _desktopPageKey =
+      GlobalKey<_PeerTabPageState>();
+
+  static Key get desktopKey => _desktopPageKey;
+
+  static Future<void> selectDesktopTab(int tabIndex) async {
+    final state = _desktopPageKey.currentState;
+    if (state != null) {
+      await state.handleTabSelection(tabIndex);
+    } else {
+      gFFI.peerTabModel.setCurrentTab(tabIndex);
+    }
+    await bind.setLocalFlutterOption(
+      k: kOptionPeerTabIndex,
+      v: tabIndex.toString(),
+    );
+  }
+
+  const PeerTabPage({Key? key, this.showTabStrip = true})
+      : super(key: key);
   @override
   State<PeerTabPage> createState() => _PeerTabPageState();
 }
@@ -130,9 +151,14 @@ class _PeerTabPageState extends State<PeerTabPage>
                   child: selectionWrap(Row(
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      Expanded(
+                      if (widget.showTabStrip)
+                        Expanded(
                           child: visibleContextMenuListener(
-                              _createSwitchBar(context))),
+                            _createSwitchBar(context),
+                          ),
+                        )
+                      else
+                        const Spacer(),
                       if (stateGlobal.isPortrait.isTrue)
                         ..._portraitRightActions(context)
                       else
@@ -173,7 +199,7 @@ class _PeerTabPageState extends State<PeerTabPage>
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             SizedBox(height: 32),
-            Text('No visible tabs',
+            Text(translate('No visible tabs'),
                 style: TextStyle(
                     color: Theme.of(context).disabledColor, fontSize: 14)),
             SizedBox(height: 8),
@@ -183,7 +209,7 @@ class _PeerTabPageState extends State<PeerTabPage>
                   model.setTabVisible(i, true);
                 }
               },
-              child: Text('Reset all tabs to visible'),
+              child: Text(translate('Reset all tabs to visible')),
             ),
           ],
         ),

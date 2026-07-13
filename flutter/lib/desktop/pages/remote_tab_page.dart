@@ -24,9 +24,8 @@ import '../../common/widgets/dialog.dart';
 import '../../models/platform_model.dart';
 
 class _MenuTheme {
-  static const Color blueColor = MyTheme.button;
   // kMinInteractiveDimension
-  static const double height = 20.0;
+  static const double height = 40.0;
   static const double dividerHeight = 12.0;
 }
 
@@ -130,8 +129,13 @@ class _ConnectionTabPageState extends State<ConnectionTabPage> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+    final tabCanvas = isDark ? MyTheme.canvasDark : MyTheme.canvasLight;
+    final tabSurface = isDark ? MyTheme.surfaceDark : MyTheme.surfaceLight;
     final child = Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.background,
+      backgroundColor: colorScheme.background,
       body: DesktopTab(
         controller: tabController,
         onWindowCloseButton: handleWindowCloseButton,
@@ -142,7 +146,9 @@ class _ConnectionTabPageState extends State<ConnectionTabPage> {
             const AddButton(),
           ],
         ),
-        selectedBorderColor: MyTheme.accent,
+        selectedBorderColor: colorScheme.primary,
+        selectedTabBackgroundColor: tabSurface,
+        unSelectedTabBackgroundColor: tabCanvas,
         pageViewBuilder: (pageView) => pageView,
         labelGetter: DesktopTab.tablabelGetter,
         tabBuilder: (key, icon, label, themeConf) => Obx(() {
@@ -349,7 +355,7 @@ class _ConnectionTabPageState extends State<ConnectionTabPage> {
           .map((entry) => entry.build(
               context,
               const MenuConfig(
-                commonColor: _MenuTheme.blueColor,
+                commonColor: Theme.of(context).colorScheme.primary,
                 height: _MenuTheme.height,
                 dividerHeight: _MenuTheme.dividerHeight,
               )))
@@ -591,29 +597,43 @@ class _RelativeMouseModeHint extends StatelessWidget {
         return const SizedBox.shrink();
       }
 
+      final isDark = Theme.of(context).brightness == Brightness.dark;
+      final warningForeground =
+          isDark ? const Color(0xFFFFC46B) : const Color(0xFF8A4B00);
+      final warningBackground =
+          isDark ? const Color(0xFF3A2B19) : const Color(0xFFFFF4E5);
+      final warningBorder =
+          isDark ? const Color(0xFF76552B) : const Color(0xFFF3C27B);
+
       return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        constraints: const BoxConstraints(minHeight: 32, maxWidth: 260),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
         margin: const EdgeInsets.only(right: 8),
         decoration: BoxDecoration(
-          color: Colors.orange.withOpacity(0.2),
-          borderRadius: BorderRadius.circular(4),
-          border: Border.all(color: Colors.orange.withOpacity(0.5)),
+          color: warningBackground,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: warningBorder),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              Icons.mouse,
-              size: 14,
-              color: Colors.orange[700],
+              Icons.mouse_outlined,
+              size: 16,
+              color: warningForeground,
             ),
-            const SizedBox(width: 4),
-            Text(
-              translate(
-                  'rel-mouse-exit-{${isMacOS ? "Cmd+G" : "Ctrl+Alt"}}-tip'),
-              style: TextStyle(
-                fontSize: 11,
-                color: Colors.orange[700],
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                translate(
+                    'rel-mouse-exit-{${isMacOS ? "Cmd+G" : "Ctrl+Alt"}}-tip'),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: warningForeground,
+                ),
               ),
             ),
           ],

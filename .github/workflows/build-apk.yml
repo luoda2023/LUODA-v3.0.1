@@ -10,14 +10,16 @@ name: Build LUODA Android APK
 on:
   workflow_dispatch:
   push:
-    branches: [master,v2.0.0,v2.0.1]
+    branches: [v3.0.1]
     paths:
       - 'build.rs'
       - 'src/**'
       - 'libs/**'
       - 'flutter/**'
+      - 'res/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'vcpkg.json'
       - '.github/workflows/build-apk.yml'
 
 env:
@@ -26,7 +28,7 @@ env:
 jobs:
   build-apk:
     runs-on: ubuntu-22.04
-    timeout-minutes: 120
+    timeout-minutes: 150
     
     steps:
       - name: Checkout
@@ -203,21 +205,33 @@ jobs:
 
             echo "Installing vcpkg packages for $VCPKG_TRIPLET..."
             export VCPKG_BINARY_SOURCES="clear;files,$VCPKG/archives,readwrite"
+            VCPKG_INSTALL_OK=false
             for i in 1 2 3; do
               echo "vcpkg install attempt $i/3 for $VCPKG_TRIPLET..."
-              # timeout 20min: prevent vcpkg from hanging indefinitely
-              timeout 2100 $VCPKG/vcpkg install \
-                --triplet=$VCPKG_TRIPLET \
-                --x-install-root="$VCPKG/installed" \
-                --clean-after-build && break
-              RET=$?
-              if [ $RET -eq 124 ]; then
-                echo "vcpkg timed out (20 min), retrying..."
+              # timeout 35min: prevent vcpkg from hanging indefinitely
+              if timeout 2100 $VCPKG/vcpkg install \
+                  --triplet=$VCPKG_TRIPLET \
+                  --x-install-root="$VCPKG/installed" \
+                  --clean-after-build; then
+                VCPKG_INSTALL_OK=true
+                break
               else
-                echo "Attempt $i failed (exit=$RET), retrying in 15s..."
+                RET=$?
               fi
-              sleep 15
+              if [ $RET -eq 124 ]; then
+                echo "vcpkg timed out (35 min)."
+              else
+                echo "Attempt $i failed (exit=$RET)."
+              fi
+              if [ "$i" -lt 3 ]; then
+                echo "Retrying in 15s..."
+                sleep 15
+              fi
             done
+            if [ "$VCPKG_INSTALL_OK" != true ]; then
+              echo "ERROR: vcpkg install failed after 3 attempts for $VCPKG_TRIPLET"
+              exit 1
+            fi
 
             VCPKG_INCLUDE_FLAG=""
             if [ -d "$VCPKG/installed/$VCPKG_TRIPLET/include" ]; then
@@ -227,8 +241,8 @@ jobs:
 
             VCPKG_LIB_FLAG=""
             if [ -d "$VCPKG/installed/$VCPKG_TRIPLET/lib" ]; then
-              VCPKG_LIB_FLAG="-L$VCPKG/installed-$VCPKG_TRIPLET/$VCPKG_TRIPLET/lib"
-              echo "vcpkg lib: $VCPKG/installed-$VCPKG_TRIPLET/$VCPKG_TRIPLET/lib"
+              VCPKG_LIB_FLAG="-L$VCPKG/installed/$VCPKG_TRIPLET/lib"
+              echo "vcpkg lib: $VCPKG/installed/$VCPKG_TRIPLET/lib"
             fi
 
             BINDGEN_EXTRA_CLANG_ARGS="--sysroot=$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot -I$OPUS_INCLUDE -I$VPX_INCLUDE $VCPKG_INCLUDE_FLAG" \
@@ -271,35 +285,68 @@ jobs:
         run: python3 flutter/android/fix_plugin_agp8_compat.py
         shell: bash
 
-      - name: Generate signing keystore for APK
+      - name: Configure APK release signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          # 按官方 rustdesk 方式：生成测试用的 keystore（签名一致性保持一版一版相同）
-          # 如果后续有正式 keystore，替换 key.properties 和 keystore.jks 文件即可
-          KEYSTORE_FILE="flutter/android/app/keystore.jks"
-          if [ ! -f "$KEYSTORE_FILE" ]; then
-            keytool -genkey -v -keystore "$KEYSTORE_FILE" \
-              -alias rustdesk -keyalg RSA -keysize 2048 -validity 10000 \
-              -storepass rustdesk123 -keypass rustdesk123 \
-              -dname "CN=RustDesk, OU=RustDesk, O=RustDesk, L=Unknown, ST=Unknown, C=CN" 2>/dev/null
-            echo "OK: Generated keystore at $KEYSTORE_FILE"
-          else
-            echo "OK: Keystore already exists at $KEYSTORE_FILE"
+          set -euo pipefail
+          missing=()
+          [ -n "${ANDROID_KEYSTORE_BASE64:-}" ] || missing+=(ANDROID_KEYSTORE_BASE64)
+          [ -n "${ANDROID_KEYSTORE_PASSWORD:-}" ] || missing+=(ANDROID_KEYSTORE_PASSWORD)
+          [ -n "${ANDROID_KEY_ALIAS:-}" ] || missing+=(ANDROID_KEY_ALIAS)
+          [ -n "${ANDROID_KEY_PASSWORD:-}" ] || missing+=(ANDROID_KEY_PASSWORD)
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "ERROR: required GitHub Actions secrets are missing: ${missing[*]}"
+            exit 1
           fi
-          # 始终重写 key.properties，避免上次 CI 残留但 key.properties 丢失
-          echo "storeFile=keystore.jks" > flutter/android/key.properties
-          echo "storePassword=rustdesk123" >> flutter/android/key.properties
-          echo "keyAlias=rustdesk" >> flutter/android/key.properties
-          echo "keyPassword=rustdesk123" >> flutter/android/key.properties
+
+          KEYSTORE_FILE="flutter/android/app/keystore.jks"
+          if ! printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_FILE"; then
+            echo "ERROR: ANDROID_KEYSTORE_BASE64 is not valid Base64"
+            exit 1
+          fi
+          if ! keytool -list -keystore "$KEYSTORE_FILE" \
+              -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+              -alias "$ANDROID_KEY_ALIAS" >/dev/null 2>&1; then
+            echo "ERROR: APK signing keystore, password, or alias is invalid"
+            exit 1
+          fi
+          {
+            printf 'storeFile=keystore.jks\n'
+            printf 'storePassword=%s\n' "$ANDROID_KEYSTORE_PASSWORD"
+            printf 'keyAlias=%s\n' "$ANDROID_KEY_ALIAS"
+            printf 'keyPassword=%s\n' "$ANDROID_KEY_PASSWORD"
+          } > flutter/android/key.properties
+          echo "OK: APK release signing configured from GitHub Actions secrets"
         shell: bash
 
       - name: Verify signing config
         run: |
-          echo "=== key.properties ==="
-          cat flutter/android/key.properties
+          set -euo pipefail
+          for property in storeFile storePassword keyAlias keyPassword; do
+            grep -q "^${property}=" flutter/android/key.properties || {
+              echo "ERROR: missing ${property} in key.properties"
+              exit 1
+            }
+          done
+          echo "OK: all required signing properties are present"
           echo "=== signingConfig in build.gradle.kts ==="
-          grep -n 'signingConfig' ./flutter/android/app/build.gradle.kts || true
+          grep -n 'signingConfig' ./flutter/android/app/build.gradle.kts
           echo "=== keystore file ==="
           ls -lh flutter/android/app/keystore.jks
+        shell: bash
+
+      - name: Validate Gradle signing config
+        working-directory: flutter/android
+        run: |
+          if [ -x ./gradlew ]; then
+            ./gradlew :app:signingReport
+          else
+            echo "WARN: Gradle wrapper is unavailable; Flutter will initialize Gradle during APK build."
+          fi
         shell: bash
 
       - name: Build APK (split per ABI)
@@ -346,15 +393,17 @@ jobs:
       - name: Upload APK artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: LUODA-APK
+          name: LUODA-3.0.1-APK
           path: flutter/build/app/outputs/dist-apk/*.apk
           if-no-files-found: error
 
       - name: Upload to Release
-        uses: softprops/action-gh-release@v1
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/v3.0.1'
+        uses: softprops/action-gh-release@v2
         with:
-          prerelease: true
-          tag_name: nightly
+          prerelease: false
+          draft: true
+          tag_name: v3.0.1
           files: flutter/build/app/outputs/dist-apk/*.apk
       - name: Upload runtime logs (always)
         if: always()
