@@ -185,8 +185,14 @@ class _ServerPageState extends State<ServerPage> {
   @override
   void initState() {
     super.initState();
+    if (isAndroid) {
+      unawaited(bind.mainCheckConnectStatus());
+    }
     _updateTimer = periodic_immediate(const Duration(seconds: 3), () async {
       await gFFI.serverModel.fetchID();
+      if (isAndroid && mounted) {
+        setState(() {});
+      }
     });
     gFFI.serverModel.checkAndroidPermission();
   }
@@ -576,16 +582,63 @@ class ServerInfo extends StatelessWidget {
   /// 与桌面端 buildDirectAccessBoard 一致，让手机用户也能
   /// 把自己的 IP 告诉对方进行直连。
   Widget _buildDirectAccessInfo(BuildContext context) {
+    if (isWeb) return const SizedBox.shrink();
     final publicIP = bind.mainGetOptionSync(key: 'public-ip');
     final lanIP = bind.mainGetOptionSync(key: 'lan-ip');
     final directPort = bind.mainGetOptionSync(key: kOptionDirectAccessPort);
     final upnpStatus = bind.mainGetOptionSync(key: 'upnp-status');
     final upnpOk = upnpStatus == 'ok';
+    final upnpColor = upnpOk
+        ? Colors.green
+        : (upnpStatus == 'fail' ? Colors.orange : Colors.grey);
+    final upnpTip = upnpStatus == 'unsupported'
+        ? 'upnp_mapping_unsupported_tip'
+        : upnpStatus == 'disabled'
+            ? 'direct_listener_disabled_tip'
+            : upnpStatus == 'fail'
+                ? 'upnp_mapping_failed_tip'
+                : upnpStatus == 'ok'
+                    ? 'upnp_mapping_ready_tip'
+                    : 'upnp_mapping_unknown_tip';
     String publicAddr = '';
     String lanAddr = '';
-    if (directPort.isNotEmpty) {
-      if (publicIP.isNotEmpty) publicAddr = '$publicIP:$directPort';
-      if (lanIP.isNotEmpty) lanAddr = '$lanIP:$directPort';
+    List<int>? ipv4Octets(String value) {
+      final parts = value.split('.');
+      if (parts.length != 4) return null;
+      final octets = parts.map(int.tryParse).toList();
+      if (octets.any((octet) => octet == null || octet < 0 || octet > 255)) {
+        return null;
+      }
+      return octets.cast<int>();
+    }
+
+    bool isLanIpv4(List<int> octets) =>
+        octets[0] == 10 ||
+        (octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31) ||
+        (octets[0] == 192 && octets[1] == 168);
+
+    bool isPublicIpv4(List<int> octets) =>
+        octets[0] > 0 &&
+        octets[0] < 224 &&
+        octets[0] != 127 &&
+        !(octets[0] == 169 && octets[1] == 254) &&
+        !(octets[0] == 100 && octets[1] >= 64 && octets[1] <= 127) &&
+        !(octets[0] == 192 && octets[1] == 0 && octets[2] == 2) &&
+        !(octets[0] == 198 && octets[1] >= 18 && octets[1] <= 19) &&
+        !(octets[0] == 198 && octets[1] == 51 && octets[2] == 100) &&
+        !(octets[0] == 203 && octets[1] == 0 && octets[2] == 113) &&
+        !isLanIpv4(octets);
+
+    final port = int.tryParse(directPort);
+    final publicOctets = ipv4Octets(publicIP);
+    final lanOctets = ipv4Octets(lanIP);
+    if (port != null && port > 0 && port <= 65535) {
+      if (publicOctets != null && isPublicIpv4(publicOctets)) {
+        publicAddr = '$publicIP:$port';
+      }
+      if (lanOctets != null && isLanIpv4(lanOctets)) {
+        lanAddr = '$lanIP:$port';
+      }
     }
     final hasAny = publicAddr.isNotEmpty || lanAddr.isNotEmpty;
     if (!hasAny) return SizedBox.shrink();
@@ -595,7 +648,7 @@ class ServerInfo extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'IP直连',
+            translate('Direct IP Access'),
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.bold,
@@ -603,7 +656,7 @@ class ServerInfo extends StatelessWidget {
             ),
           ),
           SizedBox(height: 4),
-          _mobileIpRow('公网', publicAddr),
+          _mobileIpRow(translate('Public network'), publicAddr),
           SizedBox(height: 2),
           if (publicAddr.isNotEmpty && directPort.isNotEmpty)
             Row(
@@ -613,26 +666,21 @@ class ServerInfo extends StatelessWidget {
                   height: 6,
                   margin: EdgeInsets.only(right: 6, left: 4),
                   decoration: BoxDecoration(
-                    color: upnpStatus == 'unsupported'
-                        ? Colors.grey
-                        : (upnpOk ? Colors.green : Colors.orange),
+                    color: upnpColor,
                     shape: BoxShape.circle,
                   ),
                 ),
                 Expanded(
                   child: Text(
-                    upnpStatus == 'unsupported'
-                        ? '当前平台不支持 UPnP，可用 ID 模式连接'
-                        : upnpOk
-                            ? '端口已映射，外网可直连'
-                            : '端口映射未成功，需手动配置路由器端口转发',
-                    style: TextStyle(fontSize: 10, color: Colors.grey),
+                    translate(upnpTip),
+                    style: TextStyle(
+                        fontSize: 12, height: 1.3, color: Colors.grey),
                   ),
                 ),
               ],
             ),
           SizedBox(height: 4),
-          _mobileIpRow('内网', lanAddr),
+          _mobileIpRow(translate('Local network'), lanAddr),
         ],
       ),
     );
@@ -643,7 +691,7 @@ class ServerInfo extends StatelessWidget {
     return Row(
       children: [
         SizedBox(
-          width: 36,
+          width: 56,
           child: Text(
             label,
             style: TextStyle(
@@ -923,7 +971,7 @@ class PaddingCard extends StatelessWidget {
         width: double.maxFinite,
         child: Card(
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(13),
+            borderRadius: BorderRadius.circular(8),
           ),
           margin: const EdgeInsets.fromLTRB(12.0, 10.0, 12.0, 0),
           child: Padding(

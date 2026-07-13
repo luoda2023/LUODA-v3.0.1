@@ -163,10 +163,17 @@ class WebHomePage extends StatelessWidget {
     stateGlobal.isInMainPage = true;
     handleUnilink(context);
     return Scaffold(
-      // backgroundColor: MyTheme.grayBg,
       appBar: AppBar(
-        centerTitle: true,
-        title: Text("${bind.mainGetAppNameSync()} (Preview)"),
+        centerTitle: false,
+        elevation: 0,
+        surfaceTintColor: Colors.transparent,
+        title: Text(
+          bind.mainGetAppNameSync(),
+          style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0),
+        ),
         actions: connectionPage.appBarActions,
       ),
       body: connectionPage,

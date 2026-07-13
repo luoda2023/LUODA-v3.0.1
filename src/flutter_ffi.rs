@@ -1148,42 +1148,47 @@ pub fn main_get_connect_status() -> String {
 pub fn main_check_connect_status() {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     start_option_status_sync(); // avoid multi calls
-    // Pre-generate direct-access-port upfront so Flutter UI can display it immediately
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[cfg(target_os = "android")]
+    crate::ui_interface::set_option("upnp-status".to_owned(), "unsupported".to_owned());
+    #[cfg(not(target_os = "ios"))]
     {
+        // Make the listener port available before the asynchronous status refresh.
         let port = crate::rendezvous_mediator::ensure_direct_port();
         crate::ui_interface::set_option("direct-access-port".to_owned(), port.to_string());
     }
-    // Get the LAN IP.
-    // 优先级（依次）：
-    //   1) 网卡上 192.168.x.x 的 IPv4 地址（家用/小型办公网络最常见）
-    //   2) 网卡上 10.x.x.x 的 IPv4 地址（企业内网）
-    //   3) 网卡上 172.16~172.31.x.x 的 IPv4 地址（私有地址段B）
-    //   4) 兜底：UDP connect 8.8.8.8 取默认路由出口 IP
-    //
-    // 必须用 default-net crate 枚举所有网卡，UDP connect 法只能拿默认路由
-    // 出口 IP，多网卡/VPN 环境下会拿错（例如真实网卡是 192.168.x.x 但默认路由
-    // 走的是 10.x.x.x 网卡，UDP connect 法返回的就只能是 10.x.x.x）。
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    // Enumerate interfaces so VPN and virtual adapters cannot replace the active LAN address.
+    #[cfg(not(target_os = "ios"))]
     {
-        // 用 direct_access 模块智能选择内网IP：
-        // 1. 枚举所有网卡，避开VPN/WSL/Docker/Hyper-V等虚拟网卡
-        // 2. 物理网卡+400分, 有网关+200, 默认路由+100
-        // 3. 优先192.168.x.x（家用最常见），其次10.x.x.x（企业网）
+        crate::ui_interface::set_option("lan-ip".to_owned(), String::new());
         let ifaces: Vec<default_net::interface::Interface> =
             default_net::interface::get_interfaces();
+        let default_interface = default_net::interface::get_default_interface_name();
         let candidates: Vec<crate::direct_access::LanAddressCandidate> = ifaces
             .iter()
             .flat_map(|iface| {
+                let name = format!(
+                    "{} {} {}",
+                    iface.name,
+                    iface.friendly_name.as_deref().unwrap_or_default(),
+                    iface.description.as_deref().unwrap_or_default()
+                );
+                let is_default = default_interface.as_deref() == Some(iface.name.as_str());
+                let is_physical = !matches!(
+                    iface.if_type,
+                    default_net::interface::InterfaceType::Ppp
+                        | default_net::interface::InterfaceType::Loopback
+                        | default_net::interface::InterfaceType::Tunnel
+                        | default_net::interface::InterfaceType::Wman
+                        | default_net::interface::InterfaceType::Wwanpp
+                        | default_net::interface::InterfaceType::Wwanpp2
+                );
                 iface.ipv4.iter().map(move |ipnet| {
                     crate::direct_access::LanAddressCandidate {
                         address: ipnet.addr,
-                        name: iface.name.clone(),
-                        // default_net 当前版本没有 is_default() API，设为 false
-                        is_default: false,
+                        name: name.clone(),
+                        is_default,
                         has_gateway: iface.gateway.is_some(),
-                        is_physical: !iface.name.to_lowercase().contains("virtual")
-                            && !iface.name.to_lowercase().contains("loopback"),
+                        is_physical,
                     }
                 })
             })
@@ -1192,24 +1197,12 @@ pub fn main_check_connect_status() {
         if let Some(ip) = crate::direct_access::choose_lan_ipv4(&candidates) {
             log::info!("LAN IP detected via direct_access: {}", ip);
             crate::ui_interface::set_option("lan-ip".to_owned(), ip.to_string());
-        } else {
-            // 兜底：UDP connect 8.8.8.8 取默认路由出口 IP
-            if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
-                if socket.connect("8.8.8.8:80").is_ok() {
-                    if let Ok(addr) = socket.local_addr() {
-                        if let std::net::IpAddr::V4(v4) = addr.ip() {
-                            if !v4.is_loopback() && !v4.is_unspecified() {
-                                log::info!("LAN IP detected via UDP fallback: {}", v4);
-                                crate::ui_interface::set_option("lan-ip".to_owned(), v4.to_string());
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
     // Fetch public IP via HTTP first (most reliable), fallback to STUN
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[cfg(not(target_os = "ios"))]
+    crate::ui_interface::set_option("public-ip".to_owned(), String::new());
+    #[cfg(not(target_os = "ios"))]
     std::thread::spawn(|| {
         // Try HTTP services first (returns same IP for all machines behind same NAT)
         let http_sources = [
@@ -1225,9 +1218,12 @@ pub fn main_check_connect_status() {
                 Ok(client) => match client.get(url).send() {
                     Ok(resp) => {
                         if let Ok(text) = resp.text() {
-                            let ip = text.trim().to_string();
-                            if !ip.is_empty() && ip.chars().all(|c| c.is_ascii_digit() || c == '.') {
-                                public_ip = ip;
+                            let ip = text.trim().parse::<std::net::Ipv4Addr>();
+                            if let Ok(ip) = ip {
+                                if !crate::direct_access::is_public_ipv4(ip) {
+                                    continue;
+                                }
+                                public_ip = ip.to_string();
                                 log::info!("Got public IP from {}: {}", url, public_ip);
                                 crate::ui_interface::set_option(
                                     "public-ip".to_owned(),
@@ -1252,8 +1248,14 @@ pub fn main_check_connect_status() {
             use hbb_common::tokio;
             if let Ok(rt) = tokio::runtime::Runtime::new() {
                 if let Ok((addr, _)) = rt.block_on(crate::common::test_nat_ipv4()) {
-                    let ip = addr.ip().to_string();
-                    crate::ui_interface::set_option("public-ip".to_owned(), ip);
+                    if let std::net::IpAddr::V4(ip) = addr.ip() {
+                        if crate::direct_access::is_public_ipv4(ip) {
+                            crate::ui_interface::set_option(
+                                "public-ip".to_owned(),
+                                ip.to_string(),
+                            );
+                        }
+                    }
                 }
             }
         }

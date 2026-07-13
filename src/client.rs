@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     ffi::c_void,
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     ops::Deref,
     str::FromStr,
     sync::{
@@ -177,6 +177,45 @@ lazy_static::lazy_static! {
 
 const PUBLIC_SERVER: &str = "public";
 
+fn explicit_direct_endpoint(peer: &str) -> Option<String> {
+    SocketAddr::from_str(peer)
+        .ok()
+        .filter(|address| address.port() > 0)
+        .map(|address| address.to_string())
+}
+
+fn bare_direct_ip(peer: &str) -> Option<IpAddr> {
+    IpAddr::from_str(peer).ok()
+}
+
+#[cfg(test)]
+mod direct_endpoint_tests {
+    use super::{bare_direct_ip, explicit_direct_endpoint};
+
+    #[test]
+    fn parses_ipv4_with_port() {
+        assert_eq!(
+            explicit_direct_endpoint("192.168.1.20:21118").as_deref(),
+            Some("192.168.1.20:21118")
+        );
+    }
+
+    #[test]
+    fn parses_bracketed_ipv6_with_port() {
+        assert_eq!(
+            explicit_direct_endpoint("[2001:db8::1]:21118").as_deref(),
+            Some("[2001:db8::1]:21118")
+        );
+    }
+
+    #[test]
+    fn distinguishes_bare_addresses_from_endpoints() {
+        assert!(bare_direct_ip("10.0.0.8").is_some());
+        assert!(bare_direct_ip("2001:db8::1").is_some());
+        assert!(explicit_direct_endpoint("10.0.0.8:0").is_none());
+    }
+}
+
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn get_key_state(key: enigo::Key) -> bool {
     use enigo::KeyboardControllable;
@@ -267,33 +306,25 @@ impl Client {
         if config::is_incoming_only() {
             bail!("Incoming only mode");
         }
-        // to-do: remember the port for each peer, so that we can retry easier
-        // Support IP:port format like "192.168.31.39:25488" for direct LAN connection
-        // split once on ':' — safe for IPv4, for IPv6 we check is_ip_str first (no port)
-        if let Some(pos) = peer.rfind(':') {
-            let ip_part = &peer[..pos];
-            let port_part = &peer[pos+1..];
-            if hbb_common::is_ip_str(ip_part) && port_part.chars().all(|c| c.is_ascii_digit()) {
-                let host = format!("{}:{}", ip_part, port_part);
-                return Ok((
-                    (
-                        connect_tcp_local(&*host, None, CONNECT_TIMEOUT).await?,
-                        true,
-                        None,
-                        None,
-                        "TCP",
-                    ),
-                    (0, "".to_owned()),
-                    false,
-                ));
-            }
+        if let Some(endpoint) = explicit_direct_endpoint(peer) {
+            return Ok((
+                (
+                    connect_tcp_local(endpoint.as_str(), None, CONNECT_TIMEOUT).await?,
+                    true,
+                    None,
+                    None,
+                    "TCP",
+                ),
+                (0, "".to_owned()),
+                false,
+            ));
         }
-        if hbb_common::is_ip_str(peer) {
+        if let Some(ip) = bare_direct_ip(peer) {
             // LUODA 定制版: 裸 IP 直连时并发尝试 21118-21128 共 11 个候选端口，
             // 解决被控端 21118 被占用导致端口回退到 21119/21120 后客户端硬编码连不上。
             // 用 select_ok 哪个先成功就用哪个，整体超时仍受 CONNECT_TIMEOUT 控制。
             let hosts: Vec<String> = (DEFAULT_DIRECT_PORT..DEFAULT_DIRECT_PORT + 11)
-                .map(|p| format!("{}:{}", peer, p))
+                .map(|port| SocketAddr::new(ip, port as u16).to_string())
                 .collect();
             let futures: Vec<_> = hosts
                 .iter()
