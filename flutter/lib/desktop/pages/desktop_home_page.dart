@@ -284,7 +284,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               ),
               itemBuilder: (context) => [
                 for (var tabIndex = 0;
-                    tabIndex < PeerTabModel.maxTabCount;
+                    tabIndex < items.length;
                     tabIndex++)
                   if (model.isEnabled[tabIndex])
                     CheckedPopupMenuItem<int>(
@@ -371,7 +371,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                           child: ElevatedButton.icon(
                             onPressed: ConnectionPage.focusRemoteId,
                             icon: const Icon(
-                              Icons.add_to_desktop_rounded,
+                              Icons.add_rounded,
                               size: 20,
                             ),
                             label: Text(translate('Join Session')),
