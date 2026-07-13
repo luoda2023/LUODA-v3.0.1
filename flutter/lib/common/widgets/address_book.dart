@@ -317,8 +317,11 @@ class _AddressBookState extends State<AddressBook> {
               final y = e.position.dy;
               menuPos = RelativeRect.fromLTRB(x, y, x, y);
             },
-            onPointerUp: (_) => _showMenu(menuPos),
-            child: build_more(context, invert: true)),
+            child: build_more(
+              context,
+              invert: true,
+              onTap: () => _showMenu(menuPos),
+            )),
       ],
     );
   }

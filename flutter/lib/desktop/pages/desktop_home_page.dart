@@ -629,6 +629,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   Color _directStatusColor(String status) {
     if (status == 'ok') return Colors.green;
     if (status == 'fail') return Colors.orange;
+    if (status == 'unsupported') return Colors.blueGrey;
     return Colors.grey;
   }
 
@@ -636,6 +637,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     if (status == 'ok') return Icons.check_circle_outline_rounded;
     if (status == 'fail') return Icons.error_outline_rounded;
     if (status == 'disabled') return Icons.pause_circle_outline_rounded;
+    if (status == 'unsupported') return Icons.info_outline_rounded;
     return Icons.help_outline_rounded;
   }
 
@@ -643,6 +645,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     if (status == 'ok') return 'upnp_mapping_ready_tip';
     if (status == 'fail') return 'upnp_mapping_failed_tip';
     if (status == 'disabled') return 'direct_listener_disabled_tip';
+    if (status == 'unsupported') return 'upnp_mapping_unsupported_tip';
     return 'upnp_mapping_unknown_tip';
   }
 
