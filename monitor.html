@@ -145,19 +145,18 @@
         <div class="header">
             <h1>🚀 LUODA CI 构建监控</h1>
             <p style="color: #718096; margin-top: 10px;">
-                实时监控构建状态，快速响应构建问题
-            </p>
+                实时监控构建状态，快速响应构建问�?            </p>
         </div>
 
-        <!-- 状态卡片 -->
+        <!-- 状态卡�?-->
         <div class="status-card">
-            <h2 style="margin-bottom: 20px;">📊 构建状态</h2>
+            <h2 style="margin-bottom: 20px;">📊 构建状�?/h2>
             <div class="status-item">
-                <span class="status-label">当前状态</span>
-                <span class="status-value status-running" id="build-status">准备中...</span>
+                <span class="status-label">当前状�?/span>
+                <span class="status-value status-running" id="build-status">准备�?..</span>
             </div>
             <div class="status-item">
-                <span class="status-label">流水线 ID</span>
+                <span class="status-label">流水�?ID</span>
                 <span class="status-value" id="pipeline-id">-</span>
             </div>
             <div class="status-item">
@@ -165,7 +164,7 @@
                 <span class="status-value" id="trigger-type">-</span>
             </div>
             <div class="status-item">
-                <span class="status-label">开始时间</span>
+                <span class="status-label">开始时�?/span>
                 <span class="status-value" id="start-time">-</span>
             </div>
             <div class="status-item">
@@ -180,9 +179,9 @@
         <!-- 操作按钮 -->
         <div class="status-card">
             <h2 style="margin-bottom: 20px;">🎮 操作</h2>
-            <button class="btn" onclick="triggerBuild()">🚀 触发新构建</button>
-            <button class="btn btn-secondary" onclick="refreshStatus()">🔄 刷新状态</button>
-            <a href="https://gitee.com/soulemo_1/dicad/pipelines" class="btn btn-secondary" target="_blank">📋 Gitee 流水线</a>
+            <button class="btn" onclick="triggerBuild()">🚀 触发新构�?/button>
+            <button class="btn btn-secondary" onclick="refreshStatus()">🔄 刷新状�?/button>
+            <a href="https://github.com/luoda2023/LUODA-v3.0.1/actions" class="btn btn-secondary" target="_blank">📋 GitHub 流水�?/a>
         </div>
 
         <!-- 实时日志 -->
@@ -193,13 +192,13 @@
             </div>
         </div>
 
-        <!-- 快速链接 -->
+        <!-- 快速链�?-->
         <div class="quick-links">
-            <a href="https://gitee.com/soulemo_1/dicad" class="link-card" target="_blank">
+            <a href="https://github.com/luoda2023/LUODA-v3.0.1" class="link-card" target="_blank">
                 <h3>📁 代码仓库</h3>
-                <p>查看 LUODA 源代码</p>
+                <p>查看 LUODA 源代�?/p>
             </a>
-            <a href="https://gitee.com/soulemo_1/dicad/releases" class="link-card" target="_blank">
+            <a href="https://github.com/luoda2023/LUODA-v3.0.1/releases" class="link-card" target="_blank">
                 <h3>📦 发布版本</h3>
                 <p>下载构建产物</p>
             </a>
@@ -209,27 +208,27 @@
             </a>
             <a href="BRANDING_SUMMARY.md" class="link-card" target="_blank">
                 <h3>🎨 品牌文档</h3>
-                <p>查看品牌化说明</p>
+                <p>查看品牌化说�?/p>
             </a>
         </div>
 
         <!-- 刷新信息 -->
         <div class="refresh-info">
-            <p>页面将每 10 秒自动刷新 | 最后更新：<span id="last-update">-</span></p>
+            <p>页面将每 10 秒自动刷�?| 最后更新：<span id="last-update">-</span></p>
         </div>
     </div>
 
     <script>
-        let pipelineId = null;
+        let runId = null;
         let autoRefresh = null;
 
         // 触发构建
         async function triggerBuild() {
             const btn = event.target;
             btn.disabled = true;
-            btn.textContent = '⏳ 触发中...';
+            btn.textContent = '�?触发�?..';
             
-            addLog('正在触发新构建...', 'info');
+            addLog('正在触发新构�?..', 'info');
             
             // 使用 Python 脚本触发
             fetch('ci-logger.py', {
@@ -240,34 +239,33 @@
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    pipelineId = data.pipeline_id;
-                    document.getElementById('pipeline-id').textContent = pipelineId;
-                    addLog(`构建已触发！ID: ${pipelineId}`, 'success');
+                    runId = data.run_id;
+                    document.getElementById('pipeline-id').textContent = runId;
+                    addLog(`构建已触发！ID: ${runId}`, 'success');
                     startMonitoring();
                 } else {
-                    addLog('触发失败：' + data.error, 'error');
+                    addLog('触发失败�? + data.error, 'error');
                 }
             })
             .catch(error => {
-                addLog('触发失败：' + error, 'error');
-                addLog('请手动访问 https://gitee.com/soulemo_1/dicad/pipelines 触发', 'warning');
+                addLog('触发失败�? + error, 'error');
+                addLog('请手动访�?https://github.com/luoda2023/LUODA-v3.0.1/actions 触发', 'warning');
             })
             .finally(() => {
                 btn.disabled = false;
-                btn.textContent = '🚀 触发新构建';
+                btn.textContent = '🚀 触发新构�?;
             });
         }
 
-        // 刷新状态
-        async function refreshStatus() {
-            if (!pipelineId) {
+        // 刷新状�?        async function refreshStatus() {
+            if (!runId) {
                 // 获取最新流水线
-                fetch('https://gitee.com/api/v5/repos/soulemo_1/dicad/pipelines?page=1&per_page=1')
+                fetch('https://api.github.com/repos/luoda2023/LUODA-v3.0.1/actions/runs?page=1&per_page=1')
                     .then(response => response.json())
                     .then(data => {
                         if (data && data.length > 0) {
-                            pipelineId = data[0].id;
-                            document.getElementById('pipeline-id').textContent = pipelineId;
+                            runId = data[0].id;
+                            document.getElementById('pipeline-id').textContent = runId;
                             updateStatus(data[0]);
                         }
                     })
@@ -275,8 +273,7 @@
                         addLog('获取状态失败：' + error, 'error');
                     });
             } else {
-                // 更新指定流水线
-                fetch(`https://gitee.com/api/v5/repos/soulemo_1/dicad/pipelines/${pipelineId}`)
+                // 更新指定流水�?                fetch(`https://api.github.com/repos/luoda2023/LUODA-v3.0.1/actions/runs/${runId}`)
                     .then(response => response.json())
                     .then(data => updateStatus(data))
                     .catch(error => {
@@ -285,8 +282,7 @@
             }
         }
 
-        // 更新状态显示
-        function updateStatus(pipeline) {
+        // 更新状态显�?        function updateStatus(pipeline) {
             const statusEl = document.getElementById('build-status');
             statusEl.textContent = getStatusText(pipeline.state);
             statusEl.className = 'status-value status-' + pipeline.state;
@@ -295,21 +291,19 @@
             document.getElementById('start-time').textContent = formatTime(pipeline.start_time);
             document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
             
-            // 更新进度条
-            updateProgress(pipeline.state);
+            // 更新进度�?            updateProgress(pipeline.state);
             
             // 记录日志
             if (pipeline.state === 'success') {
-                addLog('✅ 构建成功！', 'success');
+                addLog('�?构建成功�?, 'success');
                 stopMonitoring();
             } else if (pipeline.state === 'failure') {
-                addLog('❌ 构建失败！', 'error');
+                addLog('�?构建失败�?, 'error');
                 stopMonitoring();
             }
         }
 
-        // 更新进度条
-        function updateProgress(state) {
+        // 更新进度�?        function updateProgress(state) {
             const progress = document.getElementById('progress');
             const widths = {
                 'pending': '10%',
@@ -331,30 +325,26 @@
             logOutput.scrollTop = logOutput.scrollHeight;
         }
 
-        // 获取状态文本
-        function getStatusText(state) {
+        // 获取状态文�?        function getStatusText(state) {
             const texts = {
-                'pending': '等待中',
-                'running': '运行中',
+                'pending': '等待�?,
+                'running': '运行�?,
                 'success': '成功',
                 'failure': '失败',
-                'cancelled': '已取消',
+                'cancelled': '已取�?,
                 'timeout': '超时'
             };
             return texts[state] || state;
         }
 
-        // 格式化时间
-        function formatTime(timeStr) {
+        // 格式化时�?        function formatTime(timeStr) {
             if (!timeStr) return '-';
             return new Date(timeStr).toLocaleString('zh-CN');
         }
 
-        // 开始监控
-        function startMonitoring() {
+        // 开始监�?        function startMonitoring() {
             if (autoRefresh) clearInterval(autoRefresh);
-            autoRefresh = setInterval(refreshStatus, 10000); // 10 秒刷新
-            addLog('开始自动监控...', 'info');
+            autoRefresh = setInterval(refreshStatus, 10000); // 10 秒刷�?            addLog('开始自动监�?..', 'info');
         }
 
         // 停止监控
@@ -366,8 +356,7 @@
             }
         }
 
-        // 页面加载时获取最新状态
-        window.onload = function() {
+        // 页面加载时获取最新状�?        window.onload = function() {
             refreshStatus();
             startMonitoring();
         };

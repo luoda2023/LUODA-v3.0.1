@@ -14,10 +14,11 @@ Apply the version bump consistently across these canonical sources:
 | `flutter/pubspec.yaml` | `version: X.Y.Z+N` |
 | `flutter/windows/runner/Runner.rc` | `VERSION_AS_STRING "X.Y.Z"` |
 | `flutter/macos/Runner/Configs/AppInfo.xcconfig` | `CFBundleShortVersionString` |
-| `res/luoda-setup.iss` | `#define MyAppVersion "X.Y.Z"` |
-| `res/msi/Package/Package.wixproj` | `<ProductVersion>` |
+| `res/msi/preprocess.py` | dynamic via `--version` flag, falls back to `cargo run --version` output (drives the `Version`/`DisplayVersion` registry fields, NOT the file name) |
+| `res/msi/Package/Package.wixproj` | `<OutputName>LUODA-X.Y.Z-Setup</OutputName>` (controls the produced `*.msi` file name; bump in lockstep with `Cargo.toml` version) |
+| `res/luoda-setup.iss` | `#define MyAppVersion "X.Y.Z"` AND `OutputBaseFilename=LUODA-X.Y.Z-Setup` (Inno fallback path, kept in sync) |
 
-CI workflows (`build-*.yml`) reference the version inside the_release artifact
+CI workflows (`build-*.yml`) reference the version inside the release artifact
 names (`LUODA-X.Y.Z-*`). When bumping the version, also search for any hardcoded
 `3.0.1` references inside `.github/workflows/` and update them in the same
 commit.
@@ -49,17 +50,19 @@ git push origin-ssh v<X.Y.Z-branch>
 
 Each `build-*.yml` workflow triggers on:
 
-- `push` to `v<X.Y.Z-branch>` (build only, no release upload)
+- `push` to `v<X.Y.Z-branch>` (build + release upload)
 - `workflow_dispatch` to `v<X.Y.Z-branch>` (build + release upload)
 
 The release upload step is gated by:
 
 ```yaml
-if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/v<X.Y.Z-branch>'
+if: matrix.arch == 'x64' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push')
 ```
 
-This keeps intermediate pushes from polluting the GitHub Release. To publish a
-release, dispatch each workflow once the release commit is in place.
+Both `push` and `workflow_dispatch` upload assets to the `vX.Y.Z` draft release
+(gated to `x64` matrix to avoid duplicate uploads from x86 matrix variants).
+Use `push` for the automated release flow; `workflow_dispatch` is retained for
+manual re-runs.
 
 ## 5. Release Asset Upload
 

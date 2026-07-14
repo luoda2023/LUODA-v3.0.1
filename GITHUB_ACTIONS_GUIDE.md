@@ -200,24 +200,31 @@ A: 访问：https://github.com/luoda2023/LUODA-v3.0.1/actions
 
 ---
 
-## 📁 文件说明
+## 📁 文件说明（实际仓库现状）
 
 | 文件 | 说明 |
 |------|------|
-| `.github/workflows/build.yml` | GitHub Actions CI 配置 |
-| `trigger-github-build.py` | 触发构建脚本 |
-| `monitor-github-build.py` | 监控构建脚本 |
-| `auto-fix-github-build.py` | 错误分析修复脚本 |
+| `.github/workflows/build-*.yml` | 各平台构建 workflow：`build-exe.yml`、`build-msi.yml`、`build-apk.yml`、`build-deb.yml`、`build-dmg.yml`、`build-web.yml` |
+| `auto_build_and_test.py` | 触发并轮询 dispatch 构建、汇总产物 |
+| `monitor_builds.ps1` / `monitor-ci.sh` | 本地监控 dispatch 构建进度与 release 资产 |
+| `publish_release.ps1` | 本地发布 release 资产 |
+| `ci_auto_heal.py` | 自动分析构建日志并尝试修复 |
+| `push-changes.sh` | 推送 `v3.0.1` 到远端并触发官方 push 触发式 workflow |
+| `Dockerfile` / `entrypoint.sh` | Linux/macOS 构建容器镜像入口 |
+| `CI_GUIDE.md` | CI 配置与凭据安全约束（权威） |
 | `GITHUB_ACTIONS_GUIDE.md` | 本指南 |
+
+> 早期版本提到的 `trigger-github-build.py`、`monitor-github-build.py`、`auto-fix-github-build.py`、`.github/workflows/build.yml` 已重构为上述分平台结构与命名，不再存在。
 
 ---
 
 ## 🎯 下一步
 
-1. **生成新 Token**（如果你还没做）
-2. **创建 GitHub 仓库**
-3. **推送代码**
-4. **等待构建完成**
-5. **下载产物测试**
+1. **生成 GitHub PAT**（Settings → Developer settings → Personal access tokens）并赋权 `repo`、`workflow`
+2. **以环境变量方式注入**：`[Environment]::SetEnvironmentVariable("GH_TOKEN","ghp_xxx...","User")`（持久但**不入仓库**）或 `$env:GH_TOKEN="ghp_xxx..."`（仅当前会话）
+3. **GitHub Actions 中**：在仓库 Settings → Secrets and variables → Actions 新建 `GH_TOKEN` secret，workflow 内用 `${{ secrets.GH_TOKEN }}` 引用
+4. 推送 `v3.0.1` 分支，CI 自动构建（详见 `push-changes.sh`、`auto_build_and_test.py`）
+5. 等待 `monitor_builds.ps1` 或 Actions 页面显示全部 completed
+6. 在 release 页下载 `LUODA-3.0.1-*` 产物并人工校验
 
-准备好后告诉我，我会帮你监控构建进度！🚀
+详细凭据约束与脚本清单见 `CI_GUIDE.md` 末尾"🔐 凭据与本地脚本约束"段。

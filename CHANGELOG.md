@@ -45,8 +45,9 @@ build pipeline with the `LUODA-3.0.1-*` artifact naming scheme.
 
 ### Infrastructure
 
-- 8 GitHub Actions workflows (`build-apk.yml`, `build-client-exe.yml`, `build-deb.yml`, `build-dmg.yml`, `build-exe.yml`, `build-msi.yml`, `build-sciter.yml`, `build-web.yml`) all trigger on `push` to `v3.0.1` and on `workflow_dispatch`, with release asset upload gated on `workflow_dispatch && refs/heads/v3.0.1`.
-- BOM consistency preserved across all 38 modified files (0 mismatches vs HEAD).
+- 8 GitHub Actions workflows (`build-apk.yml`, `build-client-exe.yml`, `build-deb.yml`, `build-dmg.yml`, `build-exe.yml`, `build-msi.yml`, `build-sciter.yml`, `build-web.yml`) all trigger on `push` to `v3.0.1` and on `workflow_dispatch`, with release asset upload gated on `push || workflow_dispatch` on the `v3.0.1` branch (`matrix.arch == 'x64'` additionally gates the multi-arch `build-exe.yml` and `build-client-exe.yml` to avoid duplicate uploads from x86 matrix variants).
+- UTF-8 BOM preserved on `CHANGELOG.md`, `README.md`, and `docs/RELEASE.md` to match the existing v3.0.1 documentation set.
+- Documentation realignment: `docs/RELEASE.md` and `CI_GUIDE.md` now describe the actual GitHub Actions trigger/release-upload gates (`push` and `workflow_dispatch` both upload; multi-arch workflows gated on `matrix.arch == 'x64'`) and the dynamic MSI version injection path via `res/msi/preprocess.py` (the previously listed `<ProductVersion>` in `Package.wixproj` does not exist).
 
 ### Release Artifacts
 
