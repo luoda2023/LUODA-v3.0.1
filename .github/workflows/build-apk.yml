@@ -398,7 +398,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload to Release
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/v3.0.1'
+        if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
           prerelease: false

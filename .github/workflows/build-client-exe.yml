@@ -193,7 +193,7 @@ jobs:
           name: runtime-logs-${{ matrix.arch }}
           path: .auto_build_logs/
       - name: Upload to v3.0.1 Release (client)
-        if: matrix.arch == 'x64' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/v3.0.1'
+        if: matrix.arch == 'x64' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push')
         uses: softprops/action-gh-release@v2
         with:
           prerelease: false
