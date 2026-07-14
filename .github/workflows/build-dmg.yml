@@ -1,4 +1,4 @@
-﻿permissions:
+permissions:
   contents: write
   actions: read
   checks: read
@@ -171,23 +171,23 @@ jobs:
           brew install create-dmg
           mkdir -p dmg_folder
           cp -r flutter/build/macos/Build/Products/Release/LUODA.app dmg_folder/
-          create-dmg --volname "LUODA" --window-size 800 400 --app-drop-link 600 185 "LUODA-3.0.1.dmg" dmg_folder/
+          create-dmg --volname "LUODA" --window-size 800 400 --app-drop-link 600 185 "LUODA-3.1.1.dmg" dmg_folder/
 
       - name: Upload DMG
         uses: actions/upload-artifact@v4
         with:
-          name: LUODA-3.0.1-DMG
-          path: LUODA-3.0.1.dmg
+          name: LUODA-3.1.1-DMG
+          path: LUODA-3.1.1.dmg
           if-no-files-found: error
 
       - name: Upload to Release
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/v3.0.1'
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/3.1.1'
         uses: softprops/action-gh-release@v2
         with:
           prerelease: false
           draft: true
-          tag_name: v3.0.1
-          files: LUODA-3.0.1.dmg
+          tag_name: v3.1.1
+          files: LUODA-3.1.1.dmg
       - name: Upload runtime logs (always)
         if: always()
         uses: actions/upload-artifact@v4

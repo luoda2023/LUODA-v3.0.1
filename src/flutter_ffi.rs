@@ -1,4 +1,4 @@
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+﻿#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use crate::keyboard::input_source::{change_input_source, get_cur_session_input_source};
 #[cfg(target_os = "linux")]
 use crate::platform::linux::is_x11;
@@ -712,6 +712,65 @@ pub fn session_input_string(session_id: SessionID, value: String) {
 pub fn session_send_chat(session_id: SessionID, text: String) {
     if let Some(session) = sessions::get_session_by_session_id(&session_id) {
         session.send_chat(text);
+    }
+}
+
+// viewer_control (LUODA 3.1.1) ----------------------------------------------
+// Host-side viewer controls. Each one builds the relevant protobuf and
+// pushes it through the session's control channel; the host's transport
+// loop is then responsible for delivery to the viewer.
+//
+// `host_id` is the controlled peer's id (`session.lc.read().get_id()`),
+// `viewer_id` is the uuid the viewer generated on join.
+pub fn session_send_chat_to_viewer(session_id: SessionID, to_viewer_id: String, text: String) {
+    if let Some(session) = sessions::get_session_by_session_id(&session_id) {
+        session.send_chat_to_viewer(to_viewer_id, text);
+    }
+}
+
+pub fn session_kick_viewer(session_id: SessionID, viewer_id: String, reason: String) {
+    if let Some(session) = sessions::get_session_by_session_id(&session_id) {
+        session.kick_viewer(viewer_id, reason);
+    }
+}
+
+pub fn session_promote_viewer(session_id: SessionID, viewer_id: String) {
+    if let Some(session) = sessions::get_session_by_session_id(&session_id) {
+        session.promote_viewer(viewer_id);
+    }
+}
+
+pub fn session_raise_hand(session_id: SessionID, viewer_id: String, raised: bool) {
+    if let Some(session) = sessions::get_session_by_session_id(&session_id) {
+        let host_id = session.lc.read().unwrap().get_id().to_string();
+        session.raise_hand(host_id, viewer_id, raised);
+    }
+}
+
+pub fn session_request_invite_token(session_id: SessionID, ttl_minutes: i32, one_shot: bool) {
+    if let Some(session) = sessions::get_session_by_session_id(&session_id) {
+        session.request_invite_token(ttl_minutes.max(0) as u32, one_shot);
+    }
+}
+
+/// Viewer -> host: announce the caller as a viewer using an invite token
+/// (12-char Crockford short-code or full token). The Flutter layer is
+/// responsible for generating a fresh `viewer_id` (UUID v4). Returns
+/// nothing; the result comes back asynchronously via the
+/// `INVITE_TOKEN` / `VIEWER_LIST` events surfaced by io_loop.
+pub fn session_join_as_viewer(
+    session_id: SessionID,
+    token: String,
+    viewer_id: String,
+    display_name: String,
+) {
+    if let Some(session) = sessions::get_session_by_session_id(&session_id) {
+        session.join_as_viewer(token, viewer_id, display_name);
+    } else {
+        log::error!(
+            "[flutter_ffi] Session not found for session_id: {} (join_as_viewer)",
+            session_id
+        );
     }
 }
 

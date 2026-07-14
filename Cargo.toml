@@ -231,6 +231,7 @@ os-version = "0.2"
 [dev-dependencies]
 hound = "3.5"
 docopt = "1.1"
+tokio = { version = "1.44", features = ["macros", "rt-multi-thread"] }
 
 [package.metadata.bundle]
 name = "LUODA"

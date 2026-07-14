@@ -1,4 +1,4 @@
-﻿permissions:
+permissions:
   contents: write
   actions: read
   checks: read
@@ -231,18 +231,23 @@ jobs:
       - name: Upload MSI
         uses: actions/upload-artifact@v4
         with:
-          name: LUODA-3.0.1-MSI
+          name: LUODA-3.1.1-MSI
           path: res/msi/dist/*.msi
           if-no-files-found: error
 
+      - name: Rename MSI for release
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/3.1.1'
+        shell: pwsh
+        run: |
+          Get-ChildItem 'res/msi/dist/*.msi' | ForEach-Object { Copy-Item $_.FullName ($_.DirectoryName + '/LUODA-3.1.1-Setup.msi') }
       - name: Upload to Release
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/v3.0.1'
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/3.1.1'
         uses: softprops/action-gh-release@v2
         with:
           prerelease: false
           draft: true
-          tag_name: v3.0.1
-          files: res/msi/dist/*.msi
+          tag_name: v3.1.1
+          files: res/msi/dist/LUODA-3.1.1-Setup.msi
       - name: Upload runtime logs (always)
         if: always()
         uses: actions/upload-artifact@v4

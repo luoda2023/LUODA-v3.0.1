@@ -1,4 +1,4 @@
-﻿name: Build LUODA Client EXE
+name: Build LUODA Client EXE
 on:
   workflow_dispatch:
   push:
@@ -177,13 +177,13 @@ jobs:
         shell: powershell
         run: |
           $version = (Get-Item "SignOutput\LUODA-Client-x64.exe").VersionInfo
-          if ($version.FileVersion -ne "3.0.1" -or $version.ProductVersion -ne "3.0.1") {
+          if ($version.FileVersion -ne "3.1.1" -or $version.ProductVersion -ne "3.1.1") {
             throw "Unexpected client EXE version: FileVersion=$($version.FileVersion), ProductVersion=$($version.ProductVersion)"
           }
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LUODA-3.0.1-Client-${{ matrix.arch }}
+          name: LUODA-3.1.1-Client-${{ matrix.arch }}
           path: SignOutput/LUODA-Client-x64.exe
           if-no-files-found: error
       - name: Upload runtime logs (always)
@@ -192,11 +192,16 @@ jobs:
         with:
           name: runtime-logs-${{ matrix.arch }}
           path: .auto_build_logs/
-      - name: Upload to v3.0.1 Release (client)
-        if: matrix.arch == 'x64' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/v3.0.1'
+      - name: Rename Client EXE for release
+        if: matrix.arch == 'x64'
+        shell: pwsh
+        run: |
+          Copy-Item 'SignOutput/LUODA-Client-x64.exe' 'SignOutput/LUODA-3.1.1-Client-x64.exe'
+      - name: Upload to v3.1.1 Release (client)
+        if: matrix.arch == 'x64' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/3.1.1'
         uses: softprops/action-gh-release@v2
         with:
           prerelease: false
           draft: true
-          tag_name: v3.0.1
-          files: SignOutput/LUODA-Client-x64.exe
+          tag_name: v3.1.1
+          files: SignOutput/LUODA-3.1.1-Client-x64.exe

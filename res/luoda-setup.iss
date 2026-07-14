@@ -1,6 +1,6 @@
 ; LUODA Remote Desktop - Inno Setup Script
 #define MyAppName "LUODA"
-#define MyAppVersion "3.0.1"
+#define MyAppVersion "3.1.1"
 #define MyAppPublisher "LUODA Team"
 #define MyAppURL "https://dicad.cn"
 #define MyAppExeName "luoda.exe"

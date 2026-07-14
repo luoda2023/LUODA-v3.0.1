@@ -1,4 +1,4 @@
-﻿permissions:
+permissions:
   contents: write
   actions: read
   checks: read
@@ -153,7 +153,7 @@ jobs:
           cp res/luoda.service tmpdeb/usr/share/luoda/files/systemd/
           cat > tmpdeb/DEBIAN/control << EOF
           Package: luoda
-          Version: 3.0.1
+          Version: 3.1.1
           Architecture: amd64
           Maintainer: LUODA
           Description: LUODA Remote Desktop
@@ -174,27 +174,32 @@ jobs:
       - name: Upload DEB
         uses: actions/upload-artifact@v4
         with:
-          name: LUODA-3.0.1-DEB
+          name: LUODA-3.1.1-DEB
           path: luoda.deb
           if-no-files-found: error
 
       - name: Upload RPM
         uses: actions/upload-artifact@v4
         with:
-          name: LUODA-3.0.1-RPM
+          name: LUODA-3.1.1-RPM
           path: luoda.rpm
           if-no-files-found: error
 
+      - name: Rename DEB/RPM for release
+        shell: pwsh
+        run: |
+          Copy-Item 'luoda.deb'  'LUODA-3.1.1.deb'
+          Copy-Item 'luoda.rpm'  'LUODA-3.1.1.rpm'
       - name: Upload to Release
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/v3.0.1'
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/3.1.1'
         uses: softprops/action-gh-release@v2
         with:
           prerelease: false
           draft: true
-          tag_name: v3.0.1
+          tag_name: v3.1.1
           files: |
-            luoda.deb
-            luoda.rpm
+            LUODA-3.1.1.deb
+            LUODA-3.1.1.rpm
       - name: Upload runtime logs (always)
         if: always()
         uses: actions/upload-artifact@v4

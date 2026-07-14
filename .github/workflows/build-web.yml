@@ -1,4 +1,4 @@
-﻿permissions:
+permissions:
   contents: write
   actions: read
   checks: read
@@ -71,18 +71,23 @@ jobs:
       - name: Upload Web
         uses: actions/upload-artifact@v4
         with:
-          name: LUODA-3.0.1-Web
+          name: LUODA-3.1.1-Web
           path: flutter/build/LUODA-web.tar.gz
           if-no-files-found: error
 
+      - name: Rename web tarball for release
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/3.1.1'
+        shell: pwsh
+        run: |
+          Copy-Item 'flutter/build/LUODA-web.tar.gz' 'flutter/build/LUODA-3.1.1-web.tar.gz'
       - name: Upload to Release
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/v3.0.1'
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/3.1.1'
         uses: softprops/action-gh-release@v2
         with:
           prerelease: false
           draft: true
-          tag_name: v3.0.1
-          files: flutter/build/LUODA-web.tar.gz
+          tag_name: v3.1.1
+          files: flutter/build/LUODA-3.1.1-web.tar.gz
       - name: Upload runtime logs (always)
         if: always()
         uses: actions/upload-artifact@v4

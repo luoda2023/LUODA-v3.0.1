@@ -13,3 +13,14 @@
 target/
 !target/.rustc_info.json
 !target/CACHEDIR.TAG
+
+# LUODA 3.1.1 local helper / runtime files (not part of source tree)
+.aom-check.log
+.build_status.log
+.build_status.txt
+.build_stop.txt
+.failed-dmg-logs-extract/
+build-check.log
+monitor_builds.ps1
+publish_release.ps1
+temp_orig_utf8.txt

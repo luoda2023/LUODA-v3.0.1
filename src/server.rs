@@ -32,6 +32,13 @@ use video_service::VideoSource;
 
 use crate::ipc::Data;
 
+pub mod viewer_registry;
+pub mod viewer_direct_channel;
+pub mod chat_broadcast;
+pub mod viewer_fanout;
+pub mod invite_code;
+mod viewer_state;
+
 pub mod audio_service;
 #[cfg(target_os = "windows")]
 pub mod terminal_helper;
@@ -607,6 +614,11 @@ pub async fn start_server(is_server: bool, no_server: bool) {
         }
         #[cfg(windows)]
         hbb_common::platform::windows::start_cpu_performance_monitor();
+        // 3.1.1: spawn the per-host viewer registry GC loop so invite
+        // tokens expire on the TTL boundary. The loop is a no-op when no
+        // hosts are active, and safe to start even if no viewers ever
+        // connect.
+        crate::server::viewer_registry::start_gc_loop();
     });
 
     if is_server {
@@ -628,7 +640,7 @@ pub async fn start_server(is_server: bool, no_server: bool) {
                         continue;
                     }
                     log::error!(
-                        "Failed to start ipc after {} attempts, NOT exiting â€“ rendezvous will still run",
+                        "Failed to start ipc after {} attempts, NOT exiting ¨C rendezvous will still run",
                         attempts
                     );
                     // Do NOT exit here. Previously exit(-1) killed the entire
@@ -638,7 +650,7 @@ pub async fn start_server(is_server: bool, no_server: bool) {
                     // a loop, creating a crash loop.
                     break;
                 }
-                // ipc::start() loops forever on success â€“ we never reach here.
+                // ipc::start() loops forever on success ¨C we never reach here.
             }
         });
         input_service::fix_key_down_timeout_loop();

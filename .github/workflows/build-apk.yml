@@ -1,4 +1,4 @@
-﻿permissions:
+permissions:
   contents: write
   actions: read
   checks: read
@@ -379,10 +379,10 @@ jobs:
           for apk in "${apks[@]}"; do
             name="$(basename "$apk")"
             case "$name" in
-              app-release.apk) out="LUODA-universal.apk" ;;
-              app-arm64-v8a-release.apk) out="LUODA-arm64-v8a.apk" ;;
-              app-x86_64-release.apk) out="LUODA-x86_64.apk" ;;
-              *) out="LUODA-${name#app-}" ;;
+              app-release.apk) out="LUODA-3.1.1-universal.apk" ;;
+              app-arm64-v8a-release.apk) out="LUODA-3.1.1-arm64-v8a.apk" ;;
+              app-x86_64-release.apk) out="LUODA-3.1.1-x86_64.apk" ;;
+              *) out="LUODA-3.1.1-${name#app-}" ;;
             esac
             cp "$apk" "$DIST_DIR/$out"
           done
@@ -393,17 +393,17 @@ jobs:
       - name: Upload APK artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: LUODA-3.0.1-APK
+          name: LUODA-3.1.1-APK
           path: flutter/build/app/outputs/dist-apk/*.apk
           if-no-files-found: error
 
       - name: Upload to Release
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/v3.0.1'
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/3.1.1'
         uses: softprops/action-gh-release@v2
         with:
           prerelease: false
           draft: true
-          tag_name: v3.0.1
+          tag_name: v3.1.1
           files: flutter/build/app/outputs/dist-apk/*.apk
       - name: Upload runtime logs (always)
         if: always()

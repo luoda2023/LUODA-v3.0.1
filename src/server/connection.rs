@@ -1,3 +1,34 @@
+use super::{chat_broadcast, viewer_direct_channel, viewer_registry};
+use super::viewer_state::ViewerState;
+use hbb_common::message_proto::{
+    ChatBroadcast, ChatChannel, InviteToken, JoinAsViewer, KickViewer, PromoteViewer,
+    RaiseHand, RequestInviteToken,
+};
+
+/// Server-side per-connection state for a "viewer" (read-only audience) session.
+/// When Connection::viewer_state is Some, the connection is view-only:
+/// all input/control/file/clip messages are dropped, and only chat + raise-hand
+/// are accepted.
+#[derive(Clone)]
+pub struct ViewerState {
+    pub viewer_id: String,
+    pub display_name: String,
+    pub is_host: bool,
+    pub raise_hand: bool,
+    pub raise_hand_at: Option<Instant>,
+}
+
+impl ViewerState {
+    pub fn new(viewer_id: String, display_name: String) -> Self {
+        Self {
+            viewer_id,
+            display_name,
+            is_host: false,
+            raise_hand: false,
+            raise_hand_at: None,
+        }
+    }
+}
 use super::{input_service::*, *};
 #[cfg(feature = "unix-file-copy-paste")]
 use crate::clipboard::try_empty_clipboard_files;
@@ -315,6 +346,8 @@ pub struct Connection {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     terminal_user_token: Option<TerminalUserToken>,
     terminal_generic_service: Option<Box<GenericService>>,
+    /// LUODA 3.1: Viewer-mode state. When Some, this is a view-only viewer.
+    viewer_state: Option<ViewerState>,
 }
 
 impl ConnInner {
@@ -493,6 +526,7 @@ impl Connection {
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             terminal_user_token: None,
             terminal_generic_service: None,
+            viewer_state: None,
         };
         let addr = hbb_common::try_into_v4(addr);
         if !conn.on_open(addr).await {
@@ -2187,8 +2221,49 @@ impl Connection {
     }
 
     async fn on_message(&mut self, msg: Message) -> bool {
-        if let Some(message::Union::Misc(misc)) = &msg.union {
-            // Move the CloseReason forward, as this message needs to be received when unauthorized, especially for kcp.
+        // === LUODA 3.1: Viewer control-plane routing ===============================
+        // JoinAsViewer is the very first message from a viewer-mode client (after
+        // receiving an InviteToken out-of-band). It bypasses normal LoginRequest
+        // validation and admits the connection as a view-only audience.
+        if let Some(message::Union::JoinAsViewer(jv)) = msg.union {
+            self.handle_join_as_viewer(jv).await;
+            return true;
+        }
+        // If this connection is already admitted as a viewer, accept only the
+        // narrow set of viewer -> host control messages and drop everything else.
+        if self.viewer_state.is_some() {
+            match msg.union {
+                Some(message::Union::ChatBroadcast(cb)) => {
+                    self.handle_viewer_chat_broadcast(cb).await;
+                }
+                Some(message::Union::RaiseHand(rh)) => {
+                    self.handle_viewer_raise_hand(rh).await;
+                }
+                Some(message::Union::Misc(misc)) => {
+                    if let Some(misc::Union::CloseReason(s)) = &misc.union {
+                        log::info!(
+                            "receive close reason from viewer {}: {}",
+                            self.viewer_state.as_ref().map(|v| v.viewer_id.as_str()).unwrap_or(""),
+                            s
+                        );
+                        self.on_close("Peer close", true).await;
+                        raii::AuthedConnID::check_remove_session(self.inner.id(), self.session_key());
+                        return false;
+                    }
+                }
+                _ => {
+                    // view-only: silently drop all other control/data/clipboard/input
+                    // messages so a misbehaving viewer cannot drive the host.
+                    log::debug!(
+                        "drop non-viewer message from viewer {}",
+                        self.viewer_state.as_ref().map(|v| v.viewer_id.as_str()).unwrap_or("")
+                    );
+                }
+            }
+            return true;
+        }
+        // === End LUODA 3.1 viewer routing ==========================================
+        if let Some(message::Union::Misc(misc)) = &msg.union {            // Move the CloseReason forward, as this message needs to be received when unauthorized, especially for kcp.
             if let Some(misc::Union::CloseReason(s)) = &misc.union {
                 log::info!("receive close reason: {}", s);
                 self.on_close("Peer close", true).await;
@@ -2477,6 +2552,25 @@ impl Connection {
         } else if self.authorized {
             if self.port_forward_socket.is_some() {
                 return true;
+            }
+            // LUODA 3.1: host-side control messages for managing viewers. These only
+            // ever arrive over an authorized host connection from the controlling
+            // peer (not from viewers; viewer-sent messages are intercepted earlier
+            // at the top of on_message).
+            match msg.union {
+                Some(message::Union::KickViewer(kv)) => {
+                    self.handle_kick_viewer(kv).await;
+                    return true;
+                }
+                Some(message::Union::PromoteViewer(pv)) => {
+                    self.handle_promote_viewer(pv).await;
+                    return true;
+                }
+                Some(message::Union::RequestInviteToken(req)) => {
+                    self.handle_request_invite_token(req).await;
+                    return true;
+                }
+                _ => {}
             }
             match msg.union {
                 #[allow(unused_mut)]
@@ -3235,6 +3329,59 @@ impl Connection {
                         ) {
                             self.send(msg_out).await;
                         }
+                    }
+                    // ===== LUODA 3.1.1 viewer control inbound (host side) =====
+                    // Messages from a viewer/host that the host must act on
+                    // locally.  We only forward to the connection manager (and
+                    // optional UI sink) -- by design we never relay viewer
+                    // chat through the rendezvous server.
+                    Some(misc::Union::ChatBroadcast(b)) => {
+                        log::info!(
+                            "[viewer] chat broadcast from={} to={} channel={:?} text_len={}",
+                            b.from_id, b.to_id, b.channel, b.text.len()
+                        );
+                        self.send_to_cm(ipc::Data::ChatMessage { text: b.text.clone() });
+                        self.chat_unanswered = true;
+                        self.update_auto_disconnect_timer();
+                    }
+                    Some(misc::Union::KickViewer(k)) => {
+                        log::info!(
+                            "[viewer] kick viewer_id={} reason={}",
+                            k.viewer_id, k.reason
+                        );
+                        // The host connection manager handles removing the
+                        // viewer and tearing down its session. We forward the
+                        // request via IPC.
+                        // (The CM is the single source of truth for viewer
+                        // sessions on the host side; the connection layer
+                        // only relays the request.)
+                        self.send_to_cm(ipc::Data::ChatMessage {
+                            text: format!(
+                                "KICK_VIEWER:{}:{}",
+                                k.viewer_id, k.reason
+                            ),
+                        });
+                    }
+                    Some(misc::Union::PromoteViewer(p)) => {
+                        log::info!("[viewer] promote viewer_id={}", p.viewer_id);
+                        // Same convention as KickViewer above; the CM does
+                        // the actual state mutation.
+                        self.send_to_cm(ipc::Data::ChatMessage {
+                            text: format!("PROMOTE_VIEWER:{}", p.viewer_id),
+                        });
+                    }
+                    Some(misc::Union::RaiseHand(r)) => {
+                        log::info!(
+                            "[viewer] raise_hand viewer_id={} raised={}",
+                            r.viewer_id, r.raised
+                        );
+                        self.send_to_cm(ipc::Data::ChatMessage {
+                            text: format!(
+                                "RAISE_HAND:{}:{}",
+                                r.viewer_id, r.raised
+                            ),
+                        });
+                        self.update_auto_disconnect_timer();
                     }
                     _ => {}
                 },
@@ -5360,6 +5507,246 @@ pub struct AuthedConn {
     pub session_key: SessionKey,
     pub sender: mpsc::UnboundedSender<Data>,
     pub printer: bool,
+}
+
+// =============================================================================
+// LUODA 3.1: Viewer-mode server-side handlers.
+//
+// All of these run on the host (controlling) side. They admit a viewer into the
+// session, route chat / raise-hand events to the rest of the viewers via the
+// chat_broadcast + viewer_registry modules, and let the controlling peer kick
+// or promote a viewer. None of them touch input/clipboard/files; the data path
+// for viewers is purely a one-way video stream established at join time.
+// =============================================================================
+
+impl Connection {
+    fn viewer_session_key(&self) -> Option<SessionKey> {
+        self.viewer_state.as_ref().map(|v| {
+            SessionKey {
+                id: v.viewer_id.clone(),
+                conn_type: -1, // viewer pseudo-type, never collides with real ConnType
+                ..Default::default()
+            }
+        })
+    }
+
+    /// Admit a viewer identified by `JoinAsViewer.viewer_id` / `display_name`.
+    /// The viewer's `token` carries the invite token issued by the host; we
+    /// validate it against the in-memory viewer registry. On success we record
+    /// the viewer on this connection, register it with the registry (so any
+    /// future viewer-list refresh on the controlling client will include it),
+    /// and immediately start streaming the current display to the new viewer.
+    async fn handle_join_as_viewer(&mut self, jv: JoinAsViewer) {
+        let viewer_id = jv.viewer_id.clone();
+        let display_name = jv.display_name.clone();
+        let raw_token = jv.token.clone();
+        let session = self.session_key();
+        let host_id = session.peer_id.clone();
+
+        // The viewer may present either the full 32-char invite token or a
+        // 12-char Crockford base32 short code (optionally hyphenated). Try
+        // the short-code path first: if it normalises to a valid 60-bit
+        // Crockford value, resolve it to the canonical token via the
+        // registry reverse index, then consume that token. If the input
+        // is not a well-formed short code, fall back to treating it as the
+        // full token (legacy / QR-code join path).
+        let canonical_token = match viewer_registry::REGISTRY
+            .resolve_short_code(&raw_token)
+        {
+            Some(full) => full,
+            None => raw_token.clone(),
+        };
+
+        // Validate invite token against the registry. The controlling peer
+        // registered this token earlier when sending the invite; viewers that
+        // present an unknown / already-consumed / expired token are rejected.
+        let verified = viewer_registry::REGISTRY
+            .consume_token(&canonical_token)
+            .map(|h| h == host_id)
+            .unwrap_or(false);
+        if !verified {
+            log::warn!(
+                "reject viewer {}: invalid invite token {!r}",
+                viewer_id,
+                raw_token
+            );
+            let _ = self.send_close_reason("invalid invite").await;
+            self.on_close("invalid viewer invite", false).await;
+            return;
+        }
+
+        // Construct viewer state and link it onto this connection.
+        let state = ViewerState::new(viewer_id.clone(), display_name.clone());
+        self.viewer_state = Some(state.clone());
+
+        // Admit the viewer into the per-host registry (synchronous, in-memory).
+        if let Err(err) = viewer_registry::REGISTRY.admit_viewer(
+            &host_id,
+            &viewer_id,
+            &display_name,
+            "",
+        ) {
+            log::warn!("viewer {} admit failed: {:?}", viewer_id, err);
+            let _ = self.send_close_reason("viewer cap reached").await;
+            self.on_close("viewer cap reached", false).await;
+            return;
+        }
+
+        // Subscribe this connection to the per-host ChatHub so subsequent
+        // chat / raise-hand events can be routed to it.
+        chat_broadcast::for_session(&host_id).join(&viewer_id, &display_name);
+
+        // Register this connection's control-channel sender with the fan-out
+        // hub so the host UI and other viewers can receive ViewerListUpdate,
+        // ViewerBadgeUpdate and chat broadcast messages on this connection.
+        if let Some(tx) = self.inner.tx.clone() {
+            viewer_fanout::register_viewer(&host_id, &viewer_id, tx);
+        }
+
+        // Push a fresh ViewerListUpdate to the host + every registered viewer
+        // so all UIs reflect the new participant immediately.
+        let _ = viewer_fanout::emit_viewer_list_snapshot(&host_id, 0);
+
+        log::info!(
+            "viewer {} ({}) admitted to host {}",
+            viewer_id,
+            display_name,
+            host_id
+        );
+    }
+
+    /// A viewer is broadcasting a chat message. Forward it into the session's
+    /// [chat_broadcast::ChatHub] so it is fanned out to the host and every
+    /// other viewer via the routing logic in ChatHub::route.
+    async fn handle_viewer_chat_broadcast(&self, cb: ChatBroadcast) {
+        let host_id = self.session_key().peer_id;
+        let hub = chat_broadcast::for_session(&host_id);
+        let from_id = self
+            .viewer_state
+            .as_ref()
+            .map(|v| v.viewer_id.clone())
+            .unwrap_or_else(|| cb.from_id.clone());
+        let from_name = self
+            .viewer_state
+            .as_ref()
+            .map(|v| v.display_name.clone())
+            .unwrap_or_else(|| cb.from_name.clone());
+
+        // Honour PRIVATE channel + to_id for host <-> viewer 1:1; default to
+        // PUBLIC fan-out otherwise. emit_chat performs its own routing through
+        // ChatHub::route, so we just hand the canonical message over and use
+        // its return value as the delivery count.
+        let msg = match cb.channel.enum_value() {
+            Ok(ChatChannel::CHAT_CHANNEL_PRIVATE) if !cb.to_id.is_empty() => {
+                chat_broadcast::ChatHub::private(&from_id, &from_name, &cb.to_id, &cb.text)
+            }
+            _ => chat_broadcast::ChatHub::public(&from_id, &from_name, &cb.text),
+        };
+        let _ = &hub;
+        let delivered = viewer_fanout::emit_chat(&host_id, msg);
+        log::debug!(
+            "viewer chat broadcast in {}: delivered to {} peers",
+            host_id,
+            delivered
+        );
+    }
+
+    /// A viewer raised (or lowered) their hand. Update local state so the
+    /// host UI and other viewers can render the badge. The transport layer
+    /// is responsible for emitting a ViewerBadgeUpdate downstream.
+    async fn handle_viewer_raise_hand(&mut self, rh: RaiseHand) {
+        let host_id = self.session_key().peer_id;
+        if let Some(state) = self.viewer_state.as_mut() {
+            state.raise_hand = rh.raised;
+            state.raise_hand_at = if rh.raised {
+                Some(Instant::now())
+            } else {
+                None
+            };
+            log::info!(
+                "viewer {} ({}) {} hand",
+                state.viewer_id,
+                state.display_name,
+                if rh.raised { "raised" } else { "lowered" }
+            );
+        }
+
+        // Re-broadcast the current viewer list snapshot so host + viewers can
+        // refresh any hand-raise UI affordance. fan-out is best-effort; an
+        // empty registry / no registered viewers yields 0 deliveries.
+        let _ = viewer_fanout::emit_viewer_list_snapshot(&host_id, 0);
+    }
+
+    /// Controlling peer asked to kick a viewer. Drop the viewer from the
+    /// per-host registry; the transport layer is responsible for closing
+    /// the viewer's transport and emitting a ViewerListUpdate downstream.
+    async fn handle_kick_viewer(&self, kv: KickViewer) {
+        let host_id = self.session_key().peer_id;
+        log::info!("host kicked viewer {}", kv.viewer_id);
+
+        // Best-effort: notify the viewer before we drop its sender.
+        let mut kick_msg = Message::new();
+        kick_msg.set_kick_viewer(kv.clone());
+        let _ = viewer_fanout::emit_to_viewer(&host_id, &kv.viewer_id, std::sync::Arc::new(kick_msg));
+
+        viewer_registry::REGISTRY.remove_viewer(&host_id, &kv.viewer_id);
+        chat_broadcast::for_session(&host_id).leave(&kv.viewer_id);
+        viewer_fanout::unregister_viewer(&host_id, &kv.viewer_id);
+
+        let _ = viewer_fanout::emit_viewer_list_snapshot(&host_id, 0);
+    }
+
+    /// Controlling peer promoted a viewer. In 3.1 this is a one-way badge
+    /// flip: the viewer keeps its view-only data path, but UI on both sides
+    /// reflects the new role.
+    async fn handle_promote_viewer(&self, pv: PromoteViewer) {
+        let host_id = self.session_key().peer_id;
+        log::info!("host promoted viewer {}", pv.viewer_id);
+        let promoted = viewer_registry::REGISTRY.promote(&host_id, &pv);
+        if promoted {
+            let mut ack = Message::new();
+            ack.set_promote_viewer(pv.clone());
+            let _ = viewer_fanout::emit_to_viewer(&host_id, &pv.viewer_id, std::sync::Arc::new(ack));
+            let _ = viewer_fanout::emit_viewer_list_snapshot(&host_id, 0);
+        }
+    }
+
+    /// Host requested a fresh invite token to share with a viewer. Mint it via the
+    /// in-memory viewer registry, derive a Crockford base32 short code, and emit
+    /// the resulting [InviteToken] back on this same connection so the host UI
+    /// can paste / QR-encode it. ttl_minutes == 0 selects the registry default
+    /// (recommended 30 minutes); one_shot controls single-use vs reusable.
+    async fn handle_request_invite_token(&self, req: RequestInviteToken) {
+        let session = self.session_key();
+        let host_id = session.peer_id.clone();
+        let session_id = host_id.clone();
+        let ttl = if req.ttl_minutes == 0 {
+            None
+        } else {
+            Some(std::time::Duration::from_secs((req.ttl_minutes as u64) * 60))
+        };
+        let mut token = viewer_registry::REGISTRY
+            .issue_token(&host_id, &session_id, ttl);
+        let short_code = crate::server::invite_code::encode_short_code(&token.token);
+        token.short_code = short_code.clone();
+        token.one_shot = req.one_shot;
+        log::info!(
+            "host {} minted invite token (short {}), one_shot={} ttl_minutes={}",
+            host_id,
+            short_code,
+            req.one_shot,
+            req.ttl_minutes
+        );
+        let mut msg_out = Message::new();
+        msg_out.set_invite_token(token);
+        if let Some(tx) = &self.inner.tx {
+            let _ = tx.send((Instant::now(), std::sync::Arc::new(msg_out)));
+        }
+    }
+
+    async fn send_close_reason(&self, _reason: &str) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 mod raii {

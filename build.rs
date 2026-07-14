@@ -1,4 +1,4 @@
-#[cfg(windows)]
+﻿#[cfg(windows)]
 fn build_windows() {
     // Link libsodium for Windows
     if let Ok(sodium_lib_dir) = std::env::var("SODIUM_LIB_DIR") {
@@ -38,5 +38,20 @@ fn main() {
     build_windows();
     #[cfg(target_os = "macos")]
     build_mac();
+
+    // Embed res/icon.ico into the Windows executable so the OS taskbar /
+    // Explorer / shell display the LUODA-branded icon for luoda.exe.
+    println!("cargo:rerun-if-changed=res/icon.ico");
+
+    #[cfg(windows)]
+    {
+        let mut res = winres::WindowsResource::new();
+        res.set_icon("res/icon.ico");
+        res.set("FileDescription", "LUODA Remote Desktop");
+        res.set("ProductName", "LUODA");
+        if res.compile().is_err() {
+            // Toolchain may not have rc.exe in PATH; fall back silently.
+        }
+    }
 }
 

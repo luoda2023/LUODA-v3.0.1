@@ -959,6 +959,81 @@ message DirectIdResponse {
   string hostname = 3;      // Hostname for UI display
 }
 
+
+// ===== LUODA 3.1.1: Viewer (invite-only, view-only, P2P direct, no relay data plane) =====
+
+message ViewerInfo {
+  string viewer_id = 1;
+  string display_name = 2;
+  uint64 joined_at = 3;
+  bool promoted = 4;
+  string endpoint = 5;     // P2P endpoint hint (ip:port or relay-tag), for host UI display
+  uint32 unread_chat = 6;  // host 端高亮未读消息数（仅 host 侧填充）
+}
+
+message InviteToken {
+  string token = 1;
+  uint64 expires_at = 2;   // seconds since epoch
+  string session_id = 3;   // for client to know which session to join
+  string host_id = 4;      // for display in viewer join dialog
+  string short_code = 5;   // 12-char Crockford base32 short code, see invite_code.rs
+  bool one_shot = 6;       // true = token consumed on first join, false = reusable until expiry
+}
+
+message RequestInviteToken {
+  // Sent host -> server to mint a new InviteToken viewer entry. The server
+  // replies with an InviteToken message on the same connection.
+  uint32 ttl_minutes = 1;  // 0 = server default (recommended 30 minutes)
+  bool one_shot = 2;       // true = single-use invite, false = reusable until expiry
+}
+
+message JoinAsViewer {
+  string token = 1;
+  string viewer_id = 2;     // client-generated uuid, server may override
+  string display_name = 3;
+}
+
+message ViewerListUpdate {
+  repeated ViewerInfo viewers = 1;
+  uint32 max_viewers = 2;   // current cap
+  uint64 total_uplink_bps = 3; // total uplink used by viewer streams (host-side estimate)
+}
+
+message KickViewer {
+  string viewer_id = 1;
+  string reason = 2;
+}
+
+// ===== LUODA 3.1.1: Multi-party chat (broadcast + 1:1) + on-screen viewer badge =====
+
+enum ChatChannel {
+  CHAT_CHANNEL_PUBLIC = 0;  // default, fan-out to host + all viewers
+  CHAT_CHANNEL_PRIVATE = 1; // 1:1 viewer <-> host
+}
+
+message ChatBroadcast {
+  string from_id = 1;       // viewer_id or host_id
+  string from_name = 2;
+  ChatChannel channel = 3;
+  string to_id = 4;          // only set when channel == PRIVATE
+  string text = 5;
+  uint64 sent_at = 6;
+}
+
+message RaiseHand {
+  string viewer_id = 1;
+  bool raised = 2;
+  uint64 raised_at = 3;
+}
+
+message ViewerBadgeUpdate {
+  // 用于桌面端远程控制窗口内悬浮显示在线人数 + viewer ID/IP（无需打开聊天面板）  repeated ViewerInfo viewers = 1;
+  uint32 total_viewers_count = 2;
+  uint32 online_audience_total = 3; // 包括 observer (=viewers count) + 1 host controlling 等等
+}
+message PromoteViewer {
+  string viewer_id = 1;
+}
 message Message {
   oneof union {
     SignedId signed_id = 3;
@@ -993,5 +1068,14 @@ message Message {
     TerminalResponse terminal_response = 32;
     DirectIdQuery direct_id_query = 33;
     DirectIdResponse direct_id_response = 34;
+    InviteToken invite_token = 35;
+    JoinAsViewer join_as_viewer = 36;
+    ViewerListUpdate viewer_list_update = 37;
+    KickViewer kick_viewer = 38;
+    PromoteViewer promote_viewer = 39;
+    ChatBroadcast chat_broadcast = 40;
+    RaiseHand raise_hand = 41;
+    ViewerBadgeUpdate viewer_badge_update = 42;
+    RequestInviteToken request_invite_token = 43;
   }
 }

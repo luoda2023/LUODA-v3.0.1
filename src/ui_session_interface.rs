@@ -1,4 +1,4 @@
-use crate::{
+﻿use crate::{
     common::{get_supported_keyboard_modes, is_keyboard_mode_supported},
     input::{
         MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT, MOUSE_TYPE_DOWN, MOUSE_TYPE_MASK,
@@ -778,6 +778,125 @@ impl<T: InvokeUiSession> Session<T> {
             text,
             ..Default::default()
         });
+        let mut msg_out = Message::new();
+        msg_out.set_misc(misc);
+        self.send(Data::Message(msg_out));
+    }
+
+    // ---- LUODA 3.1.1: viewer control (host side) ----
+    // These build the relevant protobuf Message and push it through the
+    // existing control channel via `self.send(Data::Message(...))`. The
+    // host's transport loop (server io_loop) is then responsible for
+    // serialising the message and dispatching it to the targeted viewer.
+
+    /// Host -> one viewer: private chat message (1:1). Public broadcast is
+    /// still delivered via `send_chat`; this is the private path.
+    pub fn send_chat_to_viewer(&self, to_viewer_id: String, text: String) {
+        let from_id = self.lc.read().unwrap().get_id().to_string();
+        let from_name = self.lc.read().unwrap().info.username.clone();
+        let mut broadcast = ChatBroadcast {
+            from_id,
+            from_name,
+            channel: ChatChannel::CHAT_CHANNEL_PRIVATE.into(),
+            to_id: to_viewer_id.clone(),
+            text,
+            sent_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
+            ..Default::default()
+        };
+        let mut misc = Misc::new();
+        misc.set_chat_broadcast(broadcast);
+        let mut msg_out = Message::new();
+        msg_out.set_misc(misc);
+        self.send(Data::Message(msg_out));
+    }
+
+    /// Host -> viewer: kick and revoke the viewer's session.
+    pub fn kick_viewer(&self, viewer_id: String, reason: String) {
+        let kick = KickViewer {
+            viewer_id,
+            reason,
+            ..Default::default()
+        };
+        let mut misc = Misc::new();
+        misc.set_kick_viewer(kick);
+        let mut msg_out = Message::new();
+        msg_out.set_misc(misc);
+        self.send(Data::Message(msg_out));
+    }
+
+    /// Host -> viewer: promotion (toggles the promoted flag; viewers stay
+    /// view-only by spec, promotion only enables private-chat priority
+    /// and raise-hand acknowledgement).
+    pub fn promote_viewer(&self, viewer_id: String) {
+        let promote = PromoteViewer {
+            viewer_id,
+            ..Default::default()
+        };
+        let mut misc = Misc::new();
+        misc.set_promote_viewer(promote);
+        let mut msg_out = Message::new();
+        msg_out.set_misc(misc);
+        self.send(Data::Message(msg_out));
+    }
+
+    /// Host-side raise-hand ack (host raises/lowers hand on behalf of a
+    /// viewer). `host_id` is the controlled peer's id; we pass it in for
+    /// symmetry with the viewer-side API.
+    pub fn raise_hand(&self, _host_id: String, viewer_id: String, raised: bool) {
+        let rh = RaiseHand {
+            viewer_id,
+            raised,
+            raised_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
+            ..Default::default()
+        };
+        let mut misc = Misc::new();
+        misc.set_raise_hand(rh);
+        let mut msg_out = Message::new();
+        msg_out.set_misc(misc);
+        self.send(Data::Message(msg_out));
+    }
+
+    /// Host -> server: mint a fresh `InviteToken` for a new viewer. The
+    /// server replies with an `InviteToken` message on the same
+    /// connection, which the host's `io_loop` then surfaces to the UI via
+    /// the `INVITE_TOKEN:` channel (see `src/client/io_loop.rs` RaiseHand
+    /// arm vicinity). `ttl_minutes` is 0 to take the server default
+    /// (typically 30 min); `one_shot` controls single-use vs reusable.
+    pub fn request_invite_token(&self, ttl_minutes: u32, one_shot: bool) {
+        let req = RequestInviteToken {
+            ttl_minutes,
+            one_shot,
+            ..Default::default()
+        };
+        let mut misc = Misc::new();
+        misc.set_request_invite_token(req);
+        let mut msg_out = Message::new();
+        msg_out.set_misc(misc);
+        self.send(Data::Message(msg_out));
+    }
+
+    /// Join a host session as a viewer. Caller is responsible for
+    /// generating a unique `viewer_id` (uuid v4). `token` is the
+    /// invite short-code (12-char Crockford base32) or full token
+    /// the host surfaced via the `INVITE_TOKEN:` event. Server-side
+    /// `connection.rs::handle_join_as_viewer` resolves the short code
+    /// first and falls back to the legacy full-token lookup before
+    /// admitting the caller into the session.
+    pub fn join_as_viewer(&self, token: String, viewer_id: String, display_name: String) {
+        let jv = JoinAsViewer {
+            token,
+            viewer_id,
+            display_name,
+            ..Default::default()
+        };
+        let mut misc = Misc::new();
+        misc.set_join_as_viewer(jv);
         let mut msg_out = Message::new();
         msg_out.set_misc(misc);
         self.send(Data::Message(msg_out));

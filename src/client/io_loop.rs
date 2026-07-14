@@ -1,4 +1,4 @@
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+﻿#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use crate::clipboard::{update_clipboard, ClipboardSide};
 #[cfg(not(any(target_os = "ios")))]
 use crate::{audio_service, clipboard::CLIPBOARD_INTERVAL, ConnInner, CLIENT_SERVER};
@@ -1900,6 +1900,117 @@ impl<T: InvokeUiSession> Remote<T> {
                     }
                     Some(misc::Union::FollowCurrentDisplay(d_idx)) => {
                         self.handler.set_current_display(d_idx);
+                    }
+                    // ===== LUODA 3.1.1 viewer control inbound (viewer side) =====
+                    // These arrive when the host (controller desktop) sends
+                    // viewer-control messages to this viewer. We hand them to
+                    // the UI handler so it can update state and present the
+                    // appropriate UX (chat toast, raise-hand animation, kick
+                    // dialog, promotion badge).
+                    Some(misc::Union::ChatBroadcast(b)) => {
+                        // Private/broadcast chat directed at this viewer.
+                        // The Flutter `SharedChatPanel` widget (see
+                        // `flutter/lib/common/widgets/shared_chat_panel.dart`)
+                        // subscribes to the event channel and parses events
+                        // whose payload begins with `BROADCAST_CHAT:`. We
+                        // emit the canonical wire form
+                        //   BROADCAST_CHAT:<from_id>:<from_name>:<ts>:<text>
+                        // so the stub parser (which preserves colons inside
+                        // the text body via `sublist(3).join(':')`)
+                        // succeeds. The channel (PUBLIC/PRIVATE) is encoded
+                        // by the host via the `to_id` field in the upstream
+                        // `ChatBroadcast` proto, and is not surfaced here so
+                        // that the wire contract stays a flat 4-segment
+                        // payload after the prefix.
+                        self.handler.new_message(format!(
+                            "BROADCAST_CHAT:{}:{}:{}:{}",
+                            b.from_id, b.from_name, b.sent_at, b.text
+                        ));
+                    }
+                    Some(misc::Union::KickViewer(k)) => {
+                        log::info!(
+                            "[viewer] received kick from host: viewer_id={} reason={}",
+                            k.viewer_id, k.reason
+                        );
+                        // Defer the actual disconnect to the UI layer so it
+                        // can show a dialog before tearing down the session.
+                        self.handler.new_message(format!(
+                            "KICK_VIEWER:{}:{}",
+                            k.viewer_id, k.reason
+                        ));
+                    }
+                    Some(misc::Union::PromoteViewer(p)) => {
+                        log::info!("[viewer] received promotion viewer_id={}", p.viewer_id);
+                        self.handler.new_message(format!("PROMOTE_VIEWER:{}", p.viewer_id));
+                    }
+                    Some(misc::Union::RaiseHand(r)) => {
+                        log::info!(
+                            "[viewer] received raise_hand viewer_id={} raised={}",
+                            r.viewer_id, r.raised
+                        );
+                        self.handler.new_message(format!(
+                            "RAISE_HAND:{}:{}",
+                            r.viewer_id, r.raised
+                        ));
+                    }
+                    // ===== LUODA 3.1.1 inbound: invite token + viewer list + badge =====
+                    // Host side emitted these. As a viewer, we surface them
+                    // to the UI via the same `new_message` channel the
+                    // existing 3.1.1 arms use; the Flutter / desktop UI is
+                    // expected to parse the well-known prefixes below.
+                    Some(misc::Union::InviteToken(t)) => {
+                        log::info!(
+                            "[viewer] received invite_token session_id={} short={} one_shot={}",
+                            t.session_id, t.short_code, t.one_shot
+                        );
+                        // Format: INVITE_TOKEN:<short_code>:<session_id>:<expires_at>:<one_shot>
+                        self.handler.new_message(format!(
+                            "INVITE_TOKEN:{}:{}:{}:{}",
+                            t.short_code, t.session_id, t.expires_at, t.one_shot
+                        ));
+                    }
+                    Some(misc::Union::RequestInviteToken(r)) => {
+                        // Echoed back from server when this viewer is also a
+                        // secondary host (rare path). Surface so UI can decide.
+                        log::info!(
+                            "[viewer] received request_invite_token ttl_minutes={} one_shot={}",
+                            r.ttl_minutes, r.one_shot
+                        );
+                        self.handler.new_message(format!(
+                            "REQUEST_INVITE_TOKEN:{}:{}",
+                            r.ttl_minutes, r.one_shot
+                        ));
+                    }
+                    Some(misc::Union::ViewerListUpdate(u)) => {
+                        log::info!(
+                            "[viewer] received viewer_list_update count={} max={}",
+                            u.viewers.len(), u.max_viewers
+                        );
+                        // Compact CSV of viewer_id|display_name|promoted|joined_at (epoch seconds).
+                        let body = u
+                            .viewers
+                            .iter()
+                            .map(|v| {
+                                format!(
+                                    "{}|{}|{}|{}",
+                                    v.viewer_id, v.display_name, v.promoted, v.joined_at
+                                )
+                            })
+                            .collect::<Vec<_>>().join(";");
+                        self.handler.new_message(format!(
+                            "VIEWER_LIST:{}:{}:{}:{}",
+                            u.max_viewers, u.total_uplink_bps, u.viewers.len(), body
+                        ));
+                    }
+                    Some(misc::Union::ViewerBadgeUpdate(b)) => {
+                        log::info!(
+                            "[viewer] received viewer_badge_update total={} online={}",
+                            b.total_viewers_count, b.online_audience_total
+                        );
+                        self.handler.new_message(format!(
+                            "VIEWER_BADGE:{}:{}:{}",
+                            b.total_viewers_count, b.online_audience_total, b.viewers.len()
+                        ));
                     }
                     _ => {}
                 },
