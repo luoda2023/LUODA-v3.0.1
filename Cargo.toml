@@ -246,6 +246,3 @@ panic = 'abort'
 strip = true
 #opt-level = 'z' # only have smaller size after strip
 rpath = true
-
-# CI trigger: retry after stuck runs (2026-05-17)
-
