@@ -651,7 +651,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Update client clipboard", "클라이언트 클립보드 업데이트"),
         ("Untagged", "태그 없음"),
         ("new-version-of-{}-tip", "{}의 새 버전을 사용할 수 있습니다"),
-        ("Accessible devices", "액세스 가능한 장치"),
+        ("Access history devices", "액세스 가능한 장치"),
         ("upgrade_remote_luoda_client_to_{}_tip", "LUODA 클라이언트를 원격 버전 {} 이상으로 업그레이드해 주세요!"),
         ("d3d_render_tip", "D3D 렌더링이 활성화되면 일부 기기에서는 원격 화면이 검은색으로 표시될 수 있습니다."),
         ("Use D3D rendering", "D3D 렌더링 사용"),

@@ -651,7 +651,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Update client clipboard", "კლიენტის გაცვლის ბუფერის განახლება"),
         ("Untagged", "უტეგო"),
         ("new-version-of-{}-tip", "ხელმისაწვდომია ახალი ვერსია {}"),
-        ("Accessible devices", "ხელმისაწვდომი მოწყობილობები"),
+        ("Access history devices", "ხელმისაწვდომი მოწყობილობები"),
         ("upgrade_remote_luoda_client_to_{}_tip", "განაახლეთ LUODA კლიენტი ვერსიამდე {} ან უფრო ახალი დისტანციურ მხარეზე!"),
         ("d3d_render_tip", "D3D ვიზუალიზაციის ჩართვისას ზოგიერთ მოწყობილობაზე დისტანციური ეკრანი შეიძლება იყოს შავი."),
         ("Use D3D rendering", "D3D ვიზუალიზაციის გამოყენება"),

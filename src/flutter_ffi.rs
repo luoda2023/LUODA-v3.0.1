@@ -1212,7 +1212,7 @@ pub fn main_check_connect_status() {
         let mut public_ip = String::new();
         for url in http_sources {
             match reqwest::blocking::Client::builder()
-                .timeout(std::time::Duration::from_secs(8))
+                .timeout(std::time::Duration::from_secs(3))
                 .build()
             {
                 Ok(client) => match client.get(url).send() {

@@ -678,7 +678,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Update client clipboard", "更新客戶端的剪貼簿"),
         ("Untagged", "無標籤"),
         ("new-version-of-{}-tip", "有新版本的 {} 可用"),
-        ("Accessible devices", "可存取的裝置"),
+        ("Access history devices", "訪問歷史設備"),
         ("upgrade_remote_luoda_client_to_{}_tip", "請將遠端 LUODA 客戶端升級到 {} 或更新版本！"),
         ("d3d_render_tip", "當啟用 D3D 渲染時，某些機器可能會無法顯示遠端畫面。"),
         ("Use D3D rendering", "使用 D3D 渲染"),

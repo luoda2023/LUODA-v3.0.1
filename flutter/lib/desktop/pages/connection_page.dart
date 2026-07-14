@@ -347,7 +347,7 @@ class _ConnectionPageState extends State<ConnectionPage>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      translate('Accessible devices'),
+                      translate('Access history devices'),
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w700,
                       ),

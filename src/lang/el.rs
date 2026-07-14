@@ -651,7 +651,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Update client clipboard", "Ενημέρωση απομακρισμένου προχείρου"),
         ("Untagged", "Χωρίς ετικέτα"),
         ("new-version-of-{}-tip", "Υπάρχει διαθέσιμη νέα έκδοση του {}"),
-        ("Accessible devices", "Προσβάσιμες συσκευές"),
+        ("Access history devices", "Προσβάσιμες συσκευές"),
         ("upgrade_remote_luoda_client_to_{}_tip", "Αναβαθμίστε τον πελάτη LUODA στην έκδοση {} ή νεότερη στην απομακρυσμένη πλευρά!"),
         ("d3d_render_tip", "Όταν είναι ενεργοποιημένη η απόδοση D3D, η οθόνη του τηλεχειριστηρίου ενδέχεται να είναι μαύρη σε ορισμένα μηχανήματα."),
         ("Use D3D rendering", "Χρήση απόδοσης D3D"),

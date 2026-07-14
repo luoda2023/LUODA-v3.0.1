@@ -651,7 +651,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Update client clipboard", "Annoa sa punta de billete de su cliente"),
         ("Untagged", "Chene tag"),
         ("new-version-of-{}-tip", "B'at una versione noa de {} a disponimentu"),
-        ("Accessible devices", "Dispositivos atzessìbiles"),
+        ("Access history devices", "Dispositivos atzessìbiles"),
         ("upgrade_remote_luoda_client_to_{}_tip", "Atualiza su cliente LUODA remotu a sa versione {} o prus noa!"),
         ("d3d_render_tip", "Cando sa renderizatzione D3D est abilitada, s'ischermu de controllu remotu diat pòdere èssere nieddu in unas cantas màchinas"),
         ("Use D3D rendering", "Imprea sa renderizatzione D3D"),

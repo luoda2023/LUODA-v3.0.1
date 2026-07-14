@@ -1,11 +1,11 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """LUODA CI Auto-Heal Engine - auto-fix builds"""
 import os,sys,json,time,re,hashlib,subprocess,urllib.request,urllib.error
 import argparse,logging,traceback
 from pathlib import Path
 from datetime import datetime
 REPO="luoda2023/LUODA-RemoteDesktop"
-BRANCH="v2.0.0"
+BRANCH="v3.1.1"
 WORKDIR=Path.cwd()
 TOKEN=os.environ.get("GH_TOKEN") or ""
 BUILD_TARGETS=["Build LUODA Windows EXE","Build LUODA Windows MSI","Build LUODA Android APK","Build LUODA Linux DEB","Build LUODA macOS DMG","Build LUODA Web"]

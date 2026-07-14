@@ -651,7 +651,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Update client clipboard", "கிளையன் கிளிப்போர்டு புதுப்பி"),
         ("Untagged", "குறிச்சொல் இல்லாத"),
         ("new-version-of-{}-tip", "{}_புதிய_பதிப்பு_குறிப்பு"),
-        ("Accessible devices", "அணுகக்கூடிய சாதனங்கள்"),
+        ("Access history devices", "அணுகக்கூடிய சாதனங்கள்"),
         ("upgrade_remote_luoda_client_to_{}_tip", "ரிமோட்_luoda_கிளையன்டை_{}_மேம்படுத்து_குறிப்பு"),
         ("d3d_render_tip", "d3d_ரெண்டர்_குறிப்பு"),
         ("Use D3D rendering", "D3D ரெண்டரிங் பயன்படுத்து"),

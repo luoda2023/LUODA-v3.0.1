@@ -651,7 +651,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Update client clipboard", "İstemci panosunu güncelle"),
         ("Untagged", "Etiketsiz"),
         ("new-version-of-{}-tip", "{}'nin yeni bir sürümü mevcut"),
-        ("Accessible devices", "Erişilebilir cihazlar"),
+        ("Access history devices", "Erişilebilir cihazlar"),
         ("upgrade_remote_luoda_client_to_{}_tip", "Lütfen uzak tarafta LUODA istemcisini {} sürümüne veya daha yenisine güncelleyin!"),
         ("d3d_render_tip", "D3D oluşturma etkinleştirildiğinde, bazı bilgisayarlarda uzak kontrol ekranı siyah görünebilir."),
         ("Use D3D rendering", "D3D oluşturmayı kullan"),

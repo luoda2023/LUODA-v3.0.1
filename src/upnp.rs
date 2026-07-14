@@ -61,8 +61,23 @@ fn try_add_mapping(port: u16) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn get_local_lan_ip() -> Option<std::net::Ipv4Addr> {
+    // Probe a small list of well-known IPv4 anycast addresses. The first
+    // reachable target lets the kernel pick the outbound interface, which
+    // is exactly the LAN IP we want to publish. Falling back across
+    // regions keeps the function working in environments where one
+    // specific anycast is firewalled (e.g. 8.8.8.8 in some corporate
+    // networks or mainland-China ISP setups).
+    for probe in ["8.8.8.8:80", "1.1.1.1:80", "114.114.114.114:80"] {
+        if let Some(ip) = probe_outbound_ipv4(probe) {
+            return Some(ip);
+        }
+    }
+    None
+}
+
+fn probe_outbound_ipv4(target: &str) -> Option<std::net::Ipv4Addr> {
     let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
-    socket.connect("8.8.8.8:80").ok()?;
+    socket.connect(target).ok()?;
     let addr = socket.local_addr().ok()?;
     match addr.ip() {
         std::net::IpAddr::V4(v4) => Some(v4),

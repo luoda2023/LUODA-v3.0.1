@@ -18,7 +18,7 @@ void main() {
                   'Favorites',
                   'Discovered',
                   'Address book',
-                  'Accessible devices',
+                  'Access history devices',
                   'VIP features',
                 ],
                 icons: const [
@@ -43,13 +43,13 @@ void main() {
       'Favorites',
       'Discovered',
       'Address book',
-      'Accessible devices',
+      'Access history devices',
       'VIP features',
     ]) {
       expect(find.byTooltip(label), findsOneWidget);
     }
 
-    await tester.tap(find.byTooltip('Accessible devices'));
+    await tester.tap(find.byTooltip('Access history devices'));
     await tester.pump();
     expect(selectedIndex, 4);
   });

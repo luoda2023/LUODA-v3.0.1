@@ -29,7 +29,7 @@ class PeerTabModel with ChangeNotifier {
     'Favorites',
     'Discovered',
     'Address book',
-    'Accessible devices',
+    'Access history devices',
     'VIP features',
   ];
   static const List<IconData> icons = [

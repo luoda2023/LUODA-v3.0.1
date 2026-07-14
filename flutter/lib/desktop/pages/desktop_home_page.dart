@@ -145,7 +145,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       1: (Icons.star_outline_rounded, 'Favorites'),
       2: (Icons.radar_rounded, 'Discovered'),
       3: (Icons.contact_page_outlined, 'Address book'),
-      4: (Icons.devices_rounded, 'Accessible devices'),
+      4: (Icons.devices_rounded, 'Access history devices'),
       5: (Icons.workspace_premium_outlined, 'VIP features'),
     };
     final model = gFFI.peerTabModel;

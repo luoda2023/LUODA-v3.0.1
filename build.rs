@@ -7,7 +7,7 @@ fn build_windows() {
     // MSVC: vcpkg installs sodium.lib => link "sodium"
     // GNU/MinGW: vcpkg installs libsodium.a => link "libsodium"
     #[cfg(target_env = "msvc")]
-    println!("cargo:rustc-link-lib=libsodium");
+    println!("cargo:rustc-link-lib=sodium");
     #[cfg(not(target_env = "msvc"))]
     println!("cargo:rustc-link-lib=libsodium");
 

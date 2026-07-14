@@ -651,7 +651,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Update client clipboard", "Osveži odjemalčevo odložišče"),
         ("Untagged", "Neoznačeno"),
         ("new-version-of-{}-tip", "Na voljo je nova različica {}"),
-        ("Accessible devices", ""),
+        ("Access history devices", ""),
         ("upgrade_remote_luoda_client_to_{}_tip", "Prosimo, nadgradite LUODA odjemalec na različico {} ali novejšo na oddaljeni strani."),
         ("d3d_render_tip", ""),
         ("Use D3D rendering", ""),

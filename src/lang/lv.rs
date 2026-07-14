@@ -651,7 +651,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Update client clipboard", "Atjaunināt klienta starpliktuvi"),
         ("Untagged", "Neatzīmēts"),
         ("new-version-of-{}-tip", "Ir pieejama jauna {} versija"),
-        ("Accessible devices", "Pieejamas ierīces"),
+        ("Access history devices", "Pieejamas ierīces"),
         ("upgrade_remote_luoda_client_to_{}_tip", "Lūdzu, jauniniet attālās puses LUODA klientu uz versiju {} vai jaunāku!"),
         ("d3d_render_tip", "Ja ir iespējota D3D renderēšana, dažās ierīcēs tālvadības pults ekrāns var būt melns."),
         ("Use D3D rendering", "Izmantot D3D renderēšanu"),

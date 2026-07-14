@@ -651,7 +651,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Update client clipboard", "Cập nhật Clipboard của khách"),
         ("Untagged", "Chưa gắn thẻ"),
         ("new-version-of-{}-tip", "Đã có phiên bản mới của {}"),
-        ("Accessible devices", "Thiết bị có thể truy cập"),
+        ("Access history devices", "Thiết bị có thể truy cập"),
         ("upgrade_remote_luoda_client_to_{}_tip", "Vui lòng nâng cấp đối tác lên {}"),
         ("d3d_render_tip", "Sử dụng D3D Rendering"),
         ("Use D3D rendering", "Sử dụng D3D Rendering"),

@@ -1,8 +1,8 @@
-name: Build LUODA Client EXE
+﻿name: Build LUODA Client EXE
 on:
   workflow_dispatch:
   push:
-    branches: [v3.0.1]
+    branches: [3.1.1]
     paths:
       - 'build.rs'
       - 'src/**'

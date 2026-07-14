@@ -651,7 +651,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Update client clipboard", "Az ügyfél vágólapjának frissítése"),
         ("Untagged", "Címkézetlen"),
         ("new-version-of-{}-tip", "A(z) {} új verziója"),
-        ("Accessible devices", "Hozzáférhető eszközök"),
+        ("Access history devices", "Hozzáférhető eszközök"),
         ("upgrade_remote_luoda_client_to_{}_tip", "Frissítse a LUODA klienst {} vagy újabb verziójára a távoli oldalon!"),
         ("d3d_render_tip", "D3D leképezés"),
         ("Use D3D rendering", "D3D leképezés használata"),

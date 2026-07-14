@@ -651,7 +651,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Update client clipboard", "تحديث حافظة العميل"),
         ("Untagged", "غير موسوم"),
         ("new-version-of-{}-tip", "تحديث جديد متاح لـ {}"),
-        ("Accessible devices", "الأجهزة القابلة للوصول"),
+        ("Access history devices", "الأجهزة القابلة للوصول"),
         ("upgrade_remote_luoda_client_to_{}_tip", "ترقية عميل LUODA البعيد إلى {}"),
         ("d3d_render_tip", "تمكين العرض باستخدام D3D"),
         ("Use D3D rendering", "استخدام عرض D3D"),

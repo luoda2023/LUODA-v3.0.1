@@ -651,7 +651,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Update client clipboard", "Päivitä asiakkaan leikepöytä"),
         ("Untagged", "Tunnisteeton"),
         ("new-version-of-{}-tip", "Uusi versio sovelluksesta {} on saatavilla"),
-        ("Accessible devices", "Käytettävissä olevat laitteet"),
+        ("Access history devices", "Käytettävissä olevat laitteet"),
         ("upgrade_remote_luoda_client_to_{}_tip", "Päivitä etä-LUODA-asiakasversioon {} yhteensopivuuden takaamiseksi"),
         ("d3d_render_tip", "Käytä Direct3D-renderöintiä paremman suorituskyvyn saavuttamiseksi"),
         ("Use D3D rendering", "Käytä D3D-renderöintiä"),
