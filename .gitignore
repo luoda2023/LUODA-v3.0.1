@@ -16,3 +16,12 @@ target/
 # Local build artifact & archive directories (not part of source tree)
 artifacts/
 _archive/
+
+# Codex agent local artifacts
+.build_status.txt
+.build_status.log
+.build_stop.txt
+.failed-dmg-logs-extract/
+failed-dmg-logs.zip
+monitor_builds.ps1
+publish_release.ps1

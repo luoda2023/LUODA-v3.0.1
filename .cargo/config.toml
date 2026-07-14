@@ -1,0 +1,8 @@
+﻿# Cargo configuration
+# Enable git-fetch-with-cli to use system git instead of libgit2.
+# This avoids intermittent SecureTransport failures on macOS when fetching
+# git submodules (e.g. chromium.googlesource.com/webm/libwebm used by rust-webm).
+# System git uses git-remote-https which is more resilient to network errors
+# and supports retry logic better than libgit2's builtin transport.
+[net]
+git-fetch-with-cli = true

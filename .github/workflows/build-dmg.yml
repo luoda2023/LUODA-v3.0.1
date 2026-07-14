@@ -1,4 +1,4 @@
-permissions:
+﻿permissions:
   contents: write
   actions: read
   checks: read
@@ -51,6 +51,32 @@ jobs:
       - name: Configure Git for private forks
         run: |
           git config --global url."https://${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Pre-warm Cargo git dependencies
+        timeout-minutes: 15
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          # Fetch all git dependencies and submodules upfront with retry logic.
+          # This avoids intermittent SecureTransport failures inside
+          # flutter_rust_bridge_codegen -> cargo metadata on macOS runners.
+          git config --global http.lowSpeedLimit 1000
+          git config --global http.lowSpeedTime 60
+          git config --global http.postBuffer 1048576000
+          export CARGO_NET_GIT_FETCH_WITH_CLI=true
+          # Retry cargo fetch up to 5 times with exponential backoff
+          for attempt in 1 2 3 4 5; do
+            echo "=== cargo fetch attempt $attempt ==="
+            if cargo fetch --locked 2>&1; then
+              echo "cargo fetch succeeded on attempt $attempt"
+              break
+            fi
+            if [ "$attempt" -eq 5 ]; then
+              echo "WARNING: cargo fetch failed after 5 attempts; continuing anyway"
+              exit 0
+            fi
+            sleep $((attempt * 10))
+          done
 
       - name: Generate FFI bridge
         timeout-minutes: 20
