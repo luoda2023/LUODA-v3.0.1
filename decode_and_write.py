@@ -1,6 +1,6 @@
 import os, sys, json, py_compile, base64
 
-fpath = r'C:\Users\Administrator\.qclaw\workspace-yw3plsutb1jupnif\tmp_check\LUODA-RemoteDesktop\auto_build_and_test.py'
+fpath = r'C:\Users\Administrator\.qclaw\workspace-yw3plsutb1jupnif\tmp_check\LUODA-v3.0.1\auto_build_and_test.py'
 
 # Read the b64 encoded data from this same file
 with open(__file__, 'r', encoding='utf-8') as f:

@@ -17,6 +17,18 @@ fn build_windows() {
     println!("cargo:rustc-link-lib=WtsApi32");
     println!("cargo:rerun-if-changed={}", file);
     println!("cargo:rerun-if-changed={}", file2);
+
+    // Embed Windows PE resource (FileVersion / ProductVersion / icon / manifest)
+    // from [package.metadata.winres] in Cargo.toml. The version fields are
+    // populated automatically from the package `version` (3.0.1) via
+    // CARGO_PKG_VERSION; values in [package.metadata.winres] take precedence.
+    // Failure is non-fatal: some toolchains may lack rc.exe/windres, in which
+    // case we emit a cargo warning and continue producing the binary.
+    let res = winres::WindowsResource::new();
+    if let Err(e) = res.compile() {
+        println!("cargo:warning=winres compile failed: {e}");
+    }
+    println!("cargo:rerun-if-changed=Cargo.toml");
 }
 
 #[cfg(target_os = "macos")]
@@ -34,9 +46,8 @@ fn build_mac() {
 }
 
 fn main() {
-    #[cfg(windows)]
+    #[cfg(target_os = "windows")]
     build_windows();
     #[cfg(target_os = "macos")]
     build_mac();
 }
-

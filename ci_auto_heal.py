@@ -4,8 +4,8 @@ import os,sys,json,time,re,hashlib,subprocess,urllib.request,urllib.error
 import argparse,logging,traceback
 from pathlib import Path
 from datetime import datetime
-REPO="luoda2023/LUODA-RemoteDesktop"
-BRANCH="v2.0.0"
+REPO="luoda2023/LUODA-v3.0.1"
+BRANCH="v3.0.1"
 WORKDIR=Path.cwd()
 TOKEN=os.environ.get("GH_TOKEN") or ""
 BUILD_TARGETS=["Build LUODA Windows EXE","Build LUODA Windows MSI","Build LUODA Android APK","Build LUODA Linux DEB","Build LUODA macOS DMG","Build LUODA Web"]
@@ -34,7 +34,7 @@ def fix_apk(log,info):
  return "fix: APK bindings"
 def fix_pubspec(log,info):
  p=WORKDIR/"flutter"/"pubspec.yaml"
- if p.exists():c=p.read_text();p.write_text(c.replace("luoda2023","rustdesk-org"))
+ if p.exists():c=p.read_text();p.write_text(c.replace("rustdesk-org","luoda2023"))
  return "fix: pubspec dependencies"
 def fix_web(log,info):
  if "getSettingsTabConfig" in log:return "fix: Web - missing getSettingsTabConfig"

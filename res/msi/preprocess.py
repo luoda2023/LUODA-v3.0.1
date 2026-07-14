@@ -27,15 +27,15 @@ g_arpsystemcomponent = {
     },
     "Contact": {
         "msi": "ARPCONTACT",
-        "v": "https://github.com/luoda2023/LUODA-RemoteDesktop",
+        "v": "https://github.com/luoda2023/LUODA-v3.0.1",
     },
     "HelpLink": {
         "msi": "ARPHELPLINK",
-        "v": "https://github.com/luoda2023/LUODA-RemoteDesktop/issues/",
+        "v": "https://github.com/luoda2023/LUODA-v3.0.1/issues/",
     },
     "ReadMe": {
         "msi": "ARPREADME",
-        "v": "https://github.com/luoda2023/LUODA-RemoteDesktop",
+        "v": "https://github.com/luoda2023/LUODA-v3.0.1",
     },
 }
 

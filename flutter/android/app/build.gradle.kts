@@ -23,7 +23,7 @@ if (localPropertiesFile.exists()) {
 }
 
 val flutterVersionCode = localProperties.getProperty("flutter.versionCode") ?: "1"
-val flutterVersionName = localProperties.getProperty("flutter.versionName") ?: "2.0"
+val flutterVersionName = localProperties.getProperty("flutter.versionName") ?: "3.0.1"
 
 fun findRustlsPlatformVerifierMavenDir(): String? {
     try {
@@ -133,7 +133,7 @@ android {
         release {
             // 与官方 rustdesk 一致：release 始终用 signingConfigs.release（而非 debug 签名）
             // 如果 key.properties 不存在或 storeFile 不存在，则为 null 签名（装不上）。
-            // 见官方：https://github.com/rustdesk/rustdesk/blob/master/flutter/android/app/build.gradle
+            // 见 LUODA 上游：https://github.com/luoda2023/LUODA-v3.0.1/blob/main/flutter/android/app/build.gradle.kts
             signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
             isShrinkResources = true

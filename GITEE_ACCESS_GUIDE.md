@@ -46,7 +46,7 @@ https://gitee.com/soulemo_1/dicad
 1. 进入流水线页面
 2. 点击「运行流水线」
 3. 选择 `luoda-full-build`
-4. 分支选择 `master`
+4. 分支选择 `v3.0.1`
 5. 点击「运行」
 
 ---
@@ -58,7 +58,7 @@ https://gitee.com/soulemo_1/dicad
 ### 方案 A：本地构建
 
 ```bash
-cd /workspace/LUODA-RemoteDesktop
+cd /workspace/LUODA-v3.0.1
 
 # Windows 构建
 cargo build --release

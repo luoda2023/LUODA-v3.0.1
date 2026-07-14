@@ -93,7 +93,7 @@ BEGIN
             VALUE "FileDescription", "LUODA Remote Desktop" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "luoda" "\0"
-            VALUE "LegalCopyright", "Copyright © 2025 LUODA. All rights reserved." "\0"
+            VALUE "LegalCopyright", "Copyright © 2025-2026 LUODA. All rights reserved." "\0"
             VALUE "OriginalFilename", "luoda.exe" "\0"
             VALUE "ProductName", "LUODA" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"

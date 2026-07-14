@@ -5,8 +5,8 @@
 CI 流水线已配置为自动触发，触发条件：
 
 ### 自动触发
-- ✅ `master` 分支推送代码
-- ✅ 创建 `v*` 标签（如 v1.0.0）
+- ✅ `v3.0.1` 分支推送代码
+- ✅ 创建 `v*` 标签（如 v3.0.1）
 - ✅ 手动触发（在 Gitee 界面）
 
 ### 支持的构建类型
@@ -32,8 +32,8 @@ CI 流水线已配置为自动触发，触发条件：
    - 或 `luoda-release` (简化构建)
 
 4. **选择分支/标签**
-   - 分支：`master`
-   - 或标签：`v1.0.0`
+   - 分支：`v3.0.1`
+   - 或标签：`v3.0.1`
 
 5. **点击 "运行" 开始构建**
 
@@ -48,7 +48,7 @@ CI 流水线已配置为自动触发，触发条件：
 export GITEE_TOKEN=your_token_here
 
 # 3. 运行监控脚本
-cd /workspace/LUODA-RemoteDesktop
+cd /workspace/LUODA-v3.0.1
 ./monitor-ci.sh
 ```
 
@@ -62,7 +62,7 @@ export GITEE_TOKEN=your_token_here
 curl -X POST \
   -H "Authorization: Bearer $GITEE_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"ref":"master","pipeline_name":"luoda-full-build","trigger_type":"manual"}' \
+  -d '{"ref":"v3.0.1","pipeline_name":"luoda-full-build","trigger_type":"manual"}' \
   "https://gitee.com/api/v5/repos/soulemo_1/dicad/pipelines"
 ```
 
@@ -92,11 +92,16 @@ curl -X POST \
 
 ## 🔧 构建配置说明
 
-### 流水线文件
+### 构建工作流（GitHub Actions）
 
-- `.workflow/luoda-full-build.yml` - 完整构建（推荐）
-- `.workflow/luoda-release.yml` - 简化构建
-- `.workflow/master-pipeline.yml` - 主分支构建
+- `.github/workflows/build-exe.yml` - Windows Portable / Client / Service / Naming EXE
+- `.github/workflows/build-msi.yml` - Windows MSI 安装包
+- `.github/workflows/build-client-exe.yml` - Windows Client 独立构建
+- `.github/workflows/build-apk.yml` - Android APK（universal / arm64-v8a / x86_64）
+- `.github/workflows/build-deb.yml` - Linux DEB / RPM
+- `.github/workflows/build-dmg.yml` - macOS DMG
+- `.github/workflows/build-web.yml` - Web 包（Flutter Web）
+- `.github/workflows/build-sciter.yml` - Sciter x86 便携版（仅手动触发）
 
 ### 构建产物
 
@@ -171,13 +176,13 @@ curl -X POST \
 
 ```bash
 # Windows
-wget https://gitee.com/soulemo_1/dicad/releases/download/v1.0.0/luoda-1.0.0.exe
+wget https://gitee.com/soulemo_1/dicad/releases/download/v3.0.1/luoda-3.0.1.exe
 
 # Android
-wget https://gitee.com/soulemo_1/dicad/releases/download/v1.0.0/luoda-1.0.0.apk
+wget https://gitee.com/soulemo_1/dicad/releases/download/v3.0.1/luoda-3.0.1.apk
 
 # Linux
-wget https://gitee.com/soulemo_1/dicad/releases/download/v1.0.0/luoda-1.0.0.deb
+wget https://gitee.com/soulemo_1/dicad/releases/download/v3.0.1/luoda-3.0.1.deb
 ```
 
 ---
@@ -189,12 +194,12 @@ wget https://gitee.com/soulemo_1/dicad/releases/download/v1.0.0/luoda-1.0.0.deb
 编辑 `Cargo.toml`:
 ```toml
 [package]
-version = "1.0.0"  # 修改这里
+version = "3.0.1"  # 修改这里
 ```
 
 编辑 `flutter/pubspec.yaml`:
 ```yaml
-version: 1.0.0+1  # 修改这里
+version: 3.0.1+1  # 修改这里
 ```
 
 ### 添加新的构建目标
@@ -216,4 +221,4 @@ version: 1.0.0+1  # 修改这里
 ---
 
 **最后更新**: 2026-05-09
-**版本**: v1.0.0
+**版本**: v3.0.1

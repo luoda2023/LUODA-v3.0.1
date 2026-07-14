@@ -156,33 +156,33 @@ jobs:
           Version: 3.0.1
           Architecture: amd64
           Maintainer: LUODA
-          Description: LUODA Remote Desktop
+          Description: LUODA Remote Desktop v3.0.1 - cross-platform remote access
           EOF
           # Include postinst/prerm scripts to auto-start service
           cp res/DEBIAN/postinst tmpdeb/DEBIAN/
           cp res/DEBIAN/prerm tmpdeb/DEBIAN/
           chmod 755 tmpdeb/DEBIAN/postinst tmpdeb/DEBIAN/prerm
-          dpkg-deb --build tmpdeb luoda.deb
+          dpkg-deb --build tmpdeb LUODA-3.0.1.deb
 
       - name: Package RPM
         run: |
           sudo apt-get install -y alien rpm
-          sudo alien --to-rpm luoda.deb --scripts
+          sudo alien --to-rpm LUODA-3.0.1.deb --scripts
           ls -la *.rpm
-          mv *.rpm luoda.rpm
+          mv *.rpm LUODA-3.0.1.rpm
 
       - name: Upload DEB
         uses: actions/upload-artifact@v4
         with:
           name: LUODA-3.0.1-DEB
-          path: luoda.deb
+          path: LUODA-3.0.1.deb
           if-no-files-found: error
 
       - name: Upload RPM
         uses: actions/upload-artifact@v4
         with:
           name: LUODA-3.0.1-RPM
-          path: luoda.rpm
+          path: LUODA-3.0.1.rpm
           if-no-files-found: error
 
       - name: Upload to Release
@@ -193,8 +193,8 @@ jobs:
           draft: true
           tag_name: v3.0.1
           files: |
-            luoda.deb
-            luoda.rpm
+            LUODA-3.0.1.deb
+            LUODA-3.0.1.rpm
       - name: Upload runtime logs (always)
         if: always()
         uses: actions/upload-artifact@v4

@@ -78,13 +78,13 @@ jobs:
           cargo build --release --target i686-pc-windows-msvc
           cd ../..
           mkdir -p SignOutput
-          mv target/i686-pc-windows-msvc/release/luoda-portable-packer.exe SignOutput/LUODA-portable-x86-sciter.exe
+          mv target/i686-pc-windows-msvc/release/luoda-portable-packer.exe SignOutput/LUODA-3.0.1-portable-x86-sciter.exe
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: LUODA-3.0.1-Sciter-x86
-          path: SignOutput/LUODA-portable-x86-sciter.exe
+          path: SignOutput/LUODA-3.0.1-portable-x86-sciter.exe
           if-no-files-found: error
 
       - name: Upload to Release
@@ -94,7 +94,7 @@ jobs:
           prerelease: false
           draft: true
           tag_name: v3.0.1
-          files: SignOutput/LUODA-portable-x86-sciter.exe
+          files: SignOutput/LUODA-3.0.1-portable-x86-sciter.exe
       - name: Upload runtime logs (always)
         if: always()
         uses: actions/upload-artifact@v4

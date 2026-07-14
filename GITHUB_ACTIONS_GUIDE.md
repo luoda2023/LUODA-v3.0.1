@@ -26,7 +26,7 @@
 ### 步骤 2：创建 GitHub 仓库
 
 1. 访问：https://github.com/new
-2. 仓库名称：`LUODA-RemoteDesktop`
+2. 仓库名称：`LUODA-v3.0.1`
 3. 可见性：Public 或 Private（都行，都免费）
 4. **不要**初始化 README/.gitignore
 5. 点击「Create repository」
@@ -34,13 +34,13 @@
 ### 步骤 3：推送代码
 
 ```bash
-cd /workspace/LUODA-RemoteDesktop
+cd /workspace/LUODA-v3.0.1
 
 # 添加 GitHub 远程仓库
-git remote add github https://github.com/luoda2023/LUODA-RemoteDesktop.git
+git remote add github https://github.com/luoda2023/LUODA-v3.0.1.git
 
 # 推送代码
-git push github master
+git push github v3.0.1
 ```
 
 ### 步骤 4：自动构建开始！
@@ -49,7 +49,7 @@ git push github master
 
 查看构建状态：
 ```
-https://github.com/luoda2023/LUODA-RemoteDesktop/actions
+https://github.com/luoda2023/LUODA-v3.0.1/actions
 ```
 
 ---
@@ -92,7 +92,7 @@ python3 auto-fix-github-build.py --token YOUR_TOKEN
 
 构建成功后，下载产物：
 
-1. 访问构建页面：https://github.com/luoda2023/LUODA-RemoteDesktop/actions
+1. 访问构建页面：https://github.com/luoda2023/LUODA-v3.0.1/actions
 2. 点击成功的构建（绿色✅）
 3. 滚动到页面底部
 4. 点击「Artifacts」下载：
@@ -112,17 +112,17 @@ python3 auto-fix-github-build.py --token YOUR_TOKEN
 
 | 操作 | 触发构建 |
 |------|---------|
-| `git push origin master` | ✅ 全平台构建 |
+| `git push origin v3.0.1` | ✅ 全平台构建 |
 | `git push origin <branch>` | ❌ 不触发 |
-| `git tag v1.0.0 && git push origin v1.0.0` | ✅ 全平台构建 + 创建 Release |
-| 创建 Pull Request 到 master | ✅ 全平台构建（测试） |
+| `git tag v3.0.1 && git push origin v3.0.1` | ✅ 全平台构建 + 创建 Release |
+| 创建 Pull Request 到 v3.0.1 | ✅ 全平台构建（测试） |
 
 ### 手动触发
 
 使用 Web 界面或 API：
 
 **Web 界面**：
-1. 访问：https://github.com/luoda2023/LUODA-RemoteDesktop/actions
+1. 访问：https://github.com/luoda2023/LUODA-v3.0.1/actions
 2. 点击左侧「LUODA Full Build」
 3. 点击「Run workflow」
 4. 选择分支和构建类型
@@ -196,7 +196,7 @@ A: GitHub Actions 提供 2000 分钟/月免费额度（Public 仓库无限免费
 
 ### Q: 如何查看构建历史？
 
-A: 访问：https://github.com/luoda2023/LUODA-RemoteDesktop/actions
+A: 访问：https://github.com/luoda2023/LUODA-v3.0.1/actions
 
 ---
 

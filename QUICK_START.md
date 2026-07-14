@@ -21,11 +21,11 @@ https://gitee.com/soulemo_1/dicad/pipelines
 
 2. **选择流水线**
    - 在下拉列表中选择 `luoda-full-build`
-   - 这是完整的构建流程（EXE + MSI + APK + DEB）
+   - 这是完整的构建流程（EXE + MSI + Client + Portable + Sciter + APK + DEB + RPM + DMG + Web）
 
 3. **选择分支**
-   - 分支：`master`
-   - 标签：（留空）
+   - 分支：`v3.0.1`
+   - 标签：（留空，自动使用最新 commit）
 
 4. **点击「运行」按钮**
    - 系统会开始排队构建
@@ -54,7 +54,7 @@ https://gitee.com/soulemo_1/dicad/pipelines
 
 ```bash
 # 运行监控脚本
-cd /workspace/LUODA-RemoteDesktop
+cd /workspace/LUODA-v3.0.1
 python3 auto-build-monitor.py
 ```
 
@@ -78,10 +78,15 @@ python3 auto-build-monitor.py
 
 | 平台 | 预计时间 | 产物 |
 |------|---------|------|
-| Windows | 15-30 分钟 | EXE + MSI |
-| Android | 10-20 分钟 | APK |
-| Linux | 10-15 分钟 | DEB |
-| **总计** | **30-60 分钟** | 全部产物 |
+| Windows EXE | 15-30 分钟 | Portable / Client / Service / Naming |
+| Windows MSI | 8-15 分钟 | MSI 安装包 |
+| Windows Sciter | 10-20 分钟 | Sciter x86 便携版 |
+| Android APK | 10-20 分钟 | universal / arm64-v8a / x86_64 |
+| Linux DEB | 10-15 分钟 | DEB |
+| Linux RPM | 5-10 分钟 | RPM（由 DEB 通过 alien 转换） |
+| macOS DMG | 10-20 分钟 | DMG |
+| Web | 3-8 分钟 | Web 包（Flutter Web） |
+| **总计** | **40-90 分钟** | 全部产物 |
 
 ---
 
@@ -186,7 +191,7 @@ https://gitee.com/soulemo_1/dicad/pipelines/[ID]/artifacts
 - [ ] 访问：https://gitee.com/soulemo_1/dicad/pipelines
 - [ ] 点击「运行流水线」
 - [ ] 选择 `luoda-full-build`
-- [ ] 选择 `master` 分支
+- [ ] 选择 `v3.0.1` 分支
 - [ ] 点击「运行」
 
 ### 监控构建

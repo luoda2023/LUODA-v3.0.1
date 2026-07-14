@@ -1,19 +1,19 @@
 #!/bin/bash
 # Script to push changes and trigger CI builds
-# Run this from the repo root: cd LUODA-RemoteDesktop && bash push-changes.sh
+# Run this from the repo root: cd LUODA-v3.0.1 && bash push-changes.sh
 # Requires: git with access to github.com
 
 set -e
 
-REPO="luoda2023/LUODA-RemoteDesktop"
+REPO="luoda2023/LUODA-v3.0.1"
 
-echo "=== Current branch: branding-ci-v2 ==="
+echo "=== Current branch: v3.0.1 ==="
 echo "The following commits will be pushed:"
-git log origin/branding-ci-v2..HEAD --oneline
+git log origin/v3.0.1..HEAD --oneline
 
 echo ""
-echo "=== Pushing branding-ci-v2 (will auto-trigger CI) ==="
-echo "CI will run: build-exe.yml + build-msi.yml"
+echo "=== Pushing v3.0.1 (will auto-trigger CI) ==="
+echo "CI will run: build-exe.yml + build-msi.yml + build-apk.yml + build-deb.yml + build-web.yml"
 echo ""
 
 read -p "Push now? (Y/n): " push_choice
@@ -22,16 +22,17 @@ if [ "$push_choice" = "n" ] || [ "$push_choice" = "N" ]; then
   exit 0
 fi
 
-git push origin branding-ci-v2 2>&1
+git push origin v3.0.1 2>&1
 
 echo ""
-echo "=== Also merge to master for stable release? ==="
-read -p "Merge branding-ci-v2 into master? (y/N): " master_choice
+echo "=== Optionally merge v3.0.1 into master for stable release? ==="
+read -p "Merge v3.0.1 into master? (y/N): " master_choice
 if [ "$master_choice" = "y" ] || [ "$master_choice" = "Y" ]; then
   git checkout master
-  git merge branding-ci-v2
+  git pull --ff-only origin master 2>/dev/null || true
+  git merge v3.0.1 --no-ff -m "Merge v3.0.1 into master for stable release"
   git push origin master
-  git checkout branding-ci-v2
+  git checkout v3.0.1
 fi
 
 echo ""

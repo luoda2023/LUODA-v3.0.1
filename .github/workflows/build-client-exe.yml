@@ -170,13 +170,13 @@ jobs:
           cargo build --release
           cd ../..
           mkdir -p SignOutput
-          cp target/release/luoda-portable-packer.exe SignOutput/LUODA-Client-x64.exe
+          cp target/release/luoda-portable-packer.exe SignOutput/LUODA-3.0.1-Client-x64.exe
           echo "=== Final Client EXE ==="
-          ls -la SignOutput/LUODA-Client-x64.exe
+          ls -la SignOutput/LUODA-3.0.1-Client-x64.exe
       - name: Verify Windows version metadata
         shell: powershell
         run: |
-          $version = (Get-Item "SignOutput\LUODA-Client-x64.exe").VersionInfo
+          $version = (Get-Item "SignOutput\LUODA-3.0.1-Client-x64.exe").VersionInfo
           if ($version.FileVersion -ne "3.0.1" -or $version.ProductVersion -ne "3.0.1") {
             throw "Unexpected client EXE version: FileVersion=$($version.FileVersion), ProductVersion=$($version.ProductVersion)"
           }
@@ -184,7 +184,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: LUODA-3.0.1-Client-${{ matrix.arch }}
-          path: SignOutput/LUODA-Client-x64.exe
+          path: SignOutput/LUODA-3.0.1-Client-x64.exe
           if-no-files-found: error
       - name: Upload runtime logs (always)
         if: always()
@@ -199,4 +199,4 @@ jobs:
           prerelease: false
           draft: true
           tag_name: v3.0.1
-          files: SignOutput/LUODA-Client-x64.exe
+          files: SignOutput/LUODA-3.0.1-Client-x64.exe

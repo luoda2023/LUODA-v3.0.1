@@ -8,7 +8,7 @@ CI 流水线已配置为以下情况自动触发：
 
 | 触发条件 | 配置 | 状态 |
 |---------|------|------|
-| Master 分支推送 | `.workflow/luoda-full-build.yml` | ✅ |
+| v3.0.1 分支推送 | `.workflow/luoda-full-build.yml` | ✅ |
 | 创建版本标签 | `tags: v*` | ✅ |
 | 手动触发 | Gitee 界面 / API / 脚本 | ✅ |
 
@@ -129,7 +129,7 @@ Node.js: 16
 
 #### 1. 构建不触发
 - 检查 `.workflow/luoda-full-build.yml` 语法
-- 确认触发条件匹配（master 分支或 v* 标签）
+- 确认触发条件匹配（v3.0.1 分支或 v* 标签）
 - 查看 Gitee 流水线设置是否启用
 
 #### 2. Token 无效
@@ -195,12 +195,12 @@ echo $GITEE_TOKEN
 triggers:
   push:
     branches:
-      include: [master]
+      include: [v3.0.1]
       exclude: [docs/**]
     tags:
       include: ["v*"]
   pull_request:
-    branches: [master]
+    branches: [v3.0.1]
   manual: [run_build]
 ```
 
@@ -239,7 +239,7 @@ artifacts:
 
 构建前检查：
 - [ ] Gitee Token 已设置
-- [ ] 分支为 master 或已创建 v* 标签
+- [ ] 分支为 v3.0.1 或已创建 v* 标签
 - [ ] CI 配置文件已推送
 - [ ] 监控工具已就绪
 
@@ -254,5 +254,5 @@ artifacts:
 ---
 
 **配置完成时间**: 2026-05-09  
-**版本**: v1.0.0  
+**版本**: v3.0.1  
 **最后更新**: 2026-05-09
