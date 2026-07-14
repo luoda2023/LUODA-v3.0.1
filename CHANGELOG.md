@@ -32,7 +32,7 @@ build pipeline with the `LUODA-3.0.1-*` artifact naming scheme.
   - `ci_auto_heal.py`, `push-changes.sh`
   - `GITHUB_ACTIONS_GUIDE.md`, `res/msi/preprocess.py`
   - `libs/hbb_common/Cargo.toml` comment, `flutter/android/app/build.gradle.kts` comment
-- CI workflow artifacts renamed to `LUODA-3.0.1-*` across all 8 `build-*.yml` workflows (MSI / EXE / Client EXE / Sciter / APK / DEB / DMG / Web).
+- CI workflow artifacts renamed to `LUODA-3.0.1-*` across all 8 `build-*.yml` workflows (MSI / EXE / Client EXE / Sciter / APK / DEB / DMG / Web). The Sciter workflow stays `workflow_dispatch`-only and does NOT upload to the public v3.0.1 release.
 - `.gitignore` now excludes `artifacts/` and `_archive/` with BOM-consistent entries.
 
 ### Fixed
