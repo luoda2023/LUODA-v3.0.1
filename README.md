@@ -1,4 +1,4 @@
-# LUODA Remote Desktop
+﻿# LUODA Remote Desktop
 
 A self-hosted remote desktop application built with Rust, providing secure and efficient remote access solution.
 
@@ -26,6 +26,9 @@ Build product names:
 | Linux DEB / RPM | `LUODA-3.0.1.deb` / `LUODA-3.0.1.rpm` |
 | macOS DMG | `LUODA-3.0.1.dmg` |
 | Web | `LUODA-3.0.1-web.tar.gz` |
+
+See [CHANGELOG.md](CHANGELOG.md) for the per-release change history
+and [docs/RELEASE.md](docs/RELEASE.md) for the full release process.
 
 ## Features
 
