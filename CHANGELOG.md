@@ -56,7 +56,9 @@ build pipeline with the `LUODA-3.0.1-*` artifact naming scheme.
 | Windows MSI | `LUODA-3.0.1-Setup.msi` |
 | Windows Portable x64 | `LUODA-3.0.1-portable-x64.exe` |
 | Windows Client x64 | `LUODA-3.0.1-Client-x64.exe` |
-| Windows Sciter x86 | `LUODA-3.0.1-portable-x86-sciter.exe` |
+| Android arm64-v8a | `LUODA-3.0.1-arm64-v8a.apk` |
+| Android armeabi-v7a | `LUODA-3.0.1-armeabi-v7a-release.apk` |
+| Android x86_64 | `LUODA-3.0.1-x86_64.apk` |
 | Android Universal | `LUODA-3.0.1-universal.apk` |
 | Linux DEB | `LUODA-3.0.1.deb` |
 | Linux RPM | `LUODA-3.0.1.rpm` |

@@ -78,11 +78,11 @@ append their assets to the same draft.
 
 ## 6. Publish the Release
 
-After all 8 assets are uploaded:
+After all 11 assets are uploaded:
 
 1. Open GitHub Releases page for the repo.
-2. Verify all expected assets are present (MSI / EXE / Client EXE / Sciter /
-   APK / DEB / DMG / Web).
+2. Verify all expected assets are present (MSI / Portable EXE / Client EXE /
+   APK (universal + 3 splits) / DEB / RPM / DMG / Web).
 3. Verify the release notes reference `CHANGELOG.md` for the version.
 4. Click **Publish** to take the release out of draft state.
 
