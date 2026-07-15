@@ -1,4 +1,4 @@
-﻿use crate::{
+use crate::{
     common::{get_supported_keyboard_modes, is_keyboard_mode_supported},
     input::{
         MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT, MOUSE_TYPE_DOWN, MOUSE_TYPE_MASK,

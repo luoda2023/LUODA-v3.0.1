@@ -1,4 +1,4 @@
-﻿//! LUODA 3.1.1 — Viewer Direct Channel
+//! LUODA 3.1.1 — Viewer Direct Channel
 //! -------------------------------------------------------------------------
 //! Viewers receive host video / audio / chat over a *direct* P2P channel.
 //! The rendezvous server is *never* used as a media relay. The host either

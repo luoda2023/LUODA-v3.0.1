@@ -1,4 +1,4 @@
-﻿# Audience Mode (观众模式) — Design Proposal for LUODA 3.1.1+
+# Audience Mode (观众模式) — Design Proposal for LUODA 3.1.1+
 
 > Status: **Design-only marker** shipped with 3.1.1. Implementation is deferred
 > until a build-capable environment (online cargo build on windows-latest,

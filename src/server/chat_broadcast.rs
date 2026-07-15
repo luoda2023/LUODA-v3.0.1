@@ -1,4 +1,4 @@
-﻿//! LUODA 3.1.1 — Multi-party chat broadcast
+//! LUODA 3.1.1 — Multi-party chat broadcast
 //! -------------------------------------------------------------------------
 //! A small, dependency-light multiparty chat hub for a host session:
 //!

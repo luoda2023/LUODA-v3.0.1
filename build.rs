@@ -1,4 +1,4 @@
-﻿#[cfg(windows)]
+#[cfg(windows)]
 fn build_windows() {
     // Link libsodium for Windows
     if let Ok(sodium_lib_dir) = std::env::var("SODIUM_LIB_DIR") {

@@ -1,4 +1,4 @@
-﻿//! Integration tests for LUODA 3.1.1 viewer-side P2P core logic.
+//! Integration tests for LUODA 3.1.1 viewer-side P2P core logic.
 //!
 //! These tests exercise the pure, dependency-free pieces of the viewer
 //! data plane and control plane:

@@ -1,4 +1,4 @@
-﻿// LUODA 3.1.1 — In-session shared chat panel contract widget.
+// LUODA 3.1.1 — In-session shared chat panel contract widget.
 //
 // Contract source: docs/3.1.1-features.md §12 item 4.
 //

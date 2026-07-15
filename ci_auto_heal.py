@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """LUODA CI Auto-Heal Engine - auto-fix builds"""
 import os,sys,json,time,re,hashlib,subprocess,urllib.request,urllib.error
 import argparse,logging,traceback

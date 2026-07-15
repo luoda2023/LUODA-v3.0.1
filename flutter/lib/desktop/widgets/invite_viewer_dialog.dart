@@ -1,4 +1,4 @@
-﻿// LUODA 3.1.1 — Host-side "Invite Viewer" dialog contract widget.
+// LUODA 3.1.1 — Host-side "Invite Viewer" dialog contract widget.
 //
 // Contract source: docs/3.1.1-features.md §12 item 1.
 //
