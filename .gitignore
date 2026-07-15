@@ -1,4 +1,4 @@
-﻿.ci_auto_heal/
+.ci_auto_heal/
 .auto_build_logs/
 .github/artifacts/
 *.zip

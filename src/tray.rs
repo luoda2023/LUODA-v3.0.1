@@ -1,4 +1,4 @@
-﻿use crate::client::translate;
+use crate::client::translate;
 #[cfg(windows)]
 use crate::ipc::Data;
 #[cfg(windows)]
