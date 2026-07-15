@@ -1,4 +1,4 @@
-//! LUODA 3.1.1 ¡ª Per-session viewer fan-out.
+//! LUODA 3.1.1 â€” Per-session viewer fan-out.
 //! -------------------------------------------------------------------------
 //! While [`crate::server::chat_broadcast::ChatHub`] only computes *who*
 //! should receive a message, this module actually ships the bytes to the
@@ -10,11 +10,11 @@
 //! On every relevant event (`{handle,emit}_*_*` in `Connection`), the
 //! fan-out hub is given the fully-built `Message`, which it forwards to
 //! the registered mpsc senders. The downstream `Connection` task picks
-//! the message up and writes it to its TCP / QUIC stream ¡ª no extra
+//! the message up and writes it to its TCP / QUIC stream â€” no extra
 //! thread is spawned here.
 //!
 //! This is deliberately a single `Mutex<HashMap<...>>` per session: chat
-//! and viewer-list rate are tiny (sub-second ¡Á sub-8) for the 3.1.1
+//! and viewer-list rate are tiny (sub-second Ã— sub-8) for the 3.1.1
 //! target of 8 viewers per host; contention is essentially nil.
 
 use std::{collections::HashMap, sync::{Arc, Mutex}};
@@ -100,7 +100,7 @@ pub fn retire_session(host_id: &str) {
 }
 
 /// Convenience wrapper: register a host-side control sender. Idempotent
-/// (re-registration overwrites the previous sender, which is fine ¡ª a
+/// (re-registration overwrites the previous sender, which is fine â€” a
 /// reconnecting host should refresh the channel).
 pub fn register_host(host_id: &str, peer_id: PeerId, tx: ControlSender) {
     let f = for_session(host_id);
@@ -243,7 +243,7 @@ mod tests {
         register_viewer(&sid, "v1", v1_tx);
         register_viewer(&sid, "v2", v2_tx);
 
-        // Chat hub does not auto-join viewers ¡ª register_viewer must call
+        // Chat hub does not auto-join viewers â€” register_viewer must call
         // chat_broadcast hub join only for host (the viewer join is done
         // by Connection::handle_join_as_viewer in production). Mirror that
         // here so route() can see v1 / v2.

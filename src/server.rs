@@ -640,7 +640,7 @@ pub async fn start_server(is_server: bool, no_server: bool) {
                         continue;
                     }
                     log::error!(
-                        "Failed to start ipc after {} attempts, NOT exiting ¨C rendezvous will still run",
+                        "Failed to start ipc after {} attempts, NOT exiting â€“ rendezvous will still run",
                         attempts
                     );
                     // Do NOT exit here. Previously exit(-1) killed the entire
@@ -650,7 +650,7 @@ pub async fn start_server(is_server: bool, no_server: bool) {
                     // a loop, creating a crash loop.
                     break;
                 }
-                // ipc::start() loops forever on success ¨C we never reach here.
+                // ipc::start() loops forever on success â€“ we never reach here.
             }
         });
         input_service::fix_key_down_timeout_loop();
