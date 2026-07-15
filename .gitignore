@@ -1,4 +1,4 @@
-.ci_auto_heal/
+﻿.ci_auto_heal/
 .auto_build_logs/
 .github/artifacts/
 *.zip
@@ -24,3 +24,6 @@ build-check.log
 monitor_builds.ps1
 publish_release.ps1
 temp_orig_utf8.txt
+_archive/
+artifacts/
+vcpkg_installed/

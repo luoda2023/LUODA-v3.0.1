@@ -4,10 +4,10 @@ fn build_windows() {
     if let Ok(sodium_lib_dir) = std::env::var("SODIUM_LIB_DIR") {
         println!("cargo:rustc-link-search=native={}", sodium_lib_dir);
     }
-    // MSVC: vcpkg installs sodium.lib => link "sodium"
+    // MSVC: vcpkg installs libsodium.lib (output of builds/msvc/vs2022/libsodium.vcxproj)
     // GNU/MinGW: vcpkg installs libsodium.a => link "libsodium"
     #[cfg(target_env = "msvc")]
-    println!("cargo:rustc-link-lib=sodium");
+    println!("cargo:rustc-link-lib=libsodium");
     #[cfg(not(target_env = "msvc"))]
     println!("cargo:rustc-link-lib=libsodium");
 
