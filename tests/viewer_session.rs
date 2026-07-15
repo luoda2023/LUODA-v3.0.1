@@ -27,7 +27,7 @@
 
 use std::time::Duration;
 
-use hbb_common::message::{ChatChannel, KickViewer, PromoteViewer};
+use hbb_common::message_proto::{ChatChannel, KickViewer, PromoteViewer};
 use luoda::{
     chat_broadcast::ChatHub,
     invite_code::format_short_code,
@@ -59,7 +59,7 @@ fn invite_token_round_trip_returns_host() {
 
     // consume_token returns the host that minted the token.
     let host = reg.consume_token(&resolved).expect("consume succeeds");
-    assert_eq!(host.as_deref(), Some(HOST));
+    assert_eq!(&host, &HOST.to_string());
     // Second consume is a no-op (token already burned).
     assert!(reg.consume_token(&resolved).is_none());
 }
@@ -72,7 +72,7 @@ fn invite_token_one_shot_is_burned_after_consume() {
     // even though the wall clock may already be past expiry, and the
     // registry never returns the same token twice.
     let host = reg.consume_token(&invite.token).expect("consume one-shot");
-    assert_eq!(host.as_deref(), Some(HOST));
+    assert_eq!(&host, &HOST.to_string());
     assert!(reg.consume_token(&invite.token).is_none());
 }
 
@@ -97,7 +97,7 @@ fn admit_viewer_records_state_and_list_viewers() {
     let reg = Registry::new();
     let invite = reg.issue_token(HOST, SESSION, None);
     let host = reg.consume_token(&invite.token).expect("consume succeeds");
-    assert_eq!(host.as_deref(), Some(HOST));
+    assert_eq!(&host, &HOST.to_string());
 
     let info = reg
         .admit_viewer(HOST, "v1", "V1", "127.0.0.1:9001")
@@ -197,7 +197,6 @@ fn kick_and_promote_mutate_registry_and_state() {
         HOST,
         &PromoteViewer {
             viewer_id: "v1".to_string(),
-            promoted: true,
             ..Default::default()
         },
     );
@@ -241,8 +240,8 @@ fn gc_drops_expired_tokens_only() {
     reg.gc_expired();
 
     // Live token + its short code remain.
-    assert!(reg.consume_token(&live.token).is_some());
     assert!(reg.resolve_short_code(&live.short_code).is_some());
+    assert!(reg.consume_token(&live.token).is_some());
 
     // Expired token (and its short-code reverse index) are gone.
     assert!(reg.consume_token(&expired.token).is_none());

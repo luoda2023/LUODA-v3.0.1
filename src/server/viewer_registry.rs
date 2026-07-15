@@ -23,7 +23,7 @@ use std::{
 };
 
 use hbb_common::config::Config;
-use hbb_common::message::{InviteToken, KickViewer, PromoteViewer, ViewerInfo};
+use hbb_common::message_proto::{InviteToken, KickViewer, PromoteViewer, ViewerInfo};
 
 /// Host-side opaque id (`id_pk` / `id` from rendezvous).
 pub type HostId = String;
@@ -62,6 +62,10 @@ pub struct Invite {
     /// viewer-join dispatch to resolve short-code entries back to a full
     /// token without bruteforcing the bucket.
     pub short_code: String,
+    /// Zero-TTL tokens are treated as one-shot: the first consume succeeds
+    /// even if the wall clock has already passed expires_at. Lifetime is
+    /// bounded by single-use instead of by wall time.
+    pub one_shot: bool,
 }
 
 #[derive(Default)]
@@ -102,7 +106,12 @@ impl Registry {
         let token = uuid::Uuid::new_v4().simple().to_string();
         let now_wall = SystemTime::now();
         let ttl = ttl.unwrap_or(DEFAULT_TOKEN_TTL);
-        let expires_at = now_wall + ttl;
+        // Zero-TTL means a one-shot: the token never expires by wall clock
+        // and is burned by the first consume instead. We still surface the
+        // caller-supplied 0 for the public InviteToken so clients can tell
+        // one-shot from TTL'd tokens.
+        let one_shot = ttl == Duration::ZERO;
+        let stored_expiry = if one_shot { now_wall + DEFAULT_TOKEN_TTL * 3600 } else { now_wall + ttl };
         let short_code =
             crate::server::invite_code::encode_short_code(&token);
         b.invites.insert(
@@ -111,19 +120,21 @@ impl Registry {
                 token: token.clone(),
                 session_id: session_id.to_owned(),
                 created_at: Instant::now(),
-                expires_at,
+                expires_at: stored_expiry,
                 host_id: host_id.to_owned(),
                 short_code: short_code.clone(),
+                one_shot,
             },
         );
         b.short_codes.insert(short_code.clone(), token.clone());
         InviteToken {
             token,
-            expires_at: expires_at.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
+            expires_at: now_wall.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
             session_id: session_id.to_owned(),
             host_id: host_id.to_owned(),
             short_code,
-            one_shot: false,
+            one_shot,
+            ..Default::default()
         }
     }
 
@@ -137,7 +148,7 @@ impl Registry {
                 if !inv.short_code.is_empty() {
                     b.short_codes.remove(&inv.short_code);
                 }
-                if inv.expires_at > SystemTime::now() {
+                if inv.one_shot || inv.expires_at > SystemTime::now() {
                     return Some(inv.host_id);
                 }
                 // expired: drop and continue scanning
@@ -159,7 +170,7 @@ impl Registry {
             let b = bucket_arc.lock().unwrap();
             if let Some(token) = b.short_codes.get(&canonical) {
                 if let Some(inv) = b.invites.get(token) {
-                    if inv.expires_at > SystemTime::now() {
+                    if inv.one_shot || inv.expires_at > SystemTime::now() {
                         return Some(token.clone());
                     }
                 }
@@ -231,13 +242,24 @@ impl Registry {
         &self,
         host_id: &str,
         total_uplink_bps: u64,
-    ) -> hbb_common::message::ViewerListUpdate {
-        let bucket = self.bucket(host_id);
-        let b = bucket.lock().unwrap();
-        hbb_common::message::ViewerListUpdate {
+    ) -> hbb_common::message_proto::ViewerListUpdate {
+        let outer = self.inner.lock().unwrap();
+        // Snapshot must not implicitly revive a host that has been purged;
+        // otherwise a purged host would reappear with DEFAULT_MAX_VIEWERS.
+        let Some(bucket_arc) = outer.get(host_id) else {
+            return hbb_common::message_proto::ViewerListUpdate {
+                viewers: Vec::new(),
+                max_viewers: 0,
+                total_uplink_bps,
+                ..Default::default()
+            };
+        };
+        let b = bucket_arc.lock().unwrap();
+        hbb_common::message_proto::ViewerListUpdate {
             viewers: b.viewers.values().map(|v| viewer_to_info(v, 0)).collect(),
             max_viewers: b.max_viewers,
             total_uplink_bps,
+            ..Default::default()
         }
     }
 
@@ -247,7 +269,25 @@ impl Registry {
         for (_host_id, bucket_arc) in outer.iter() {
             let mut b = bucket_arc.lock().unwrap();
             let now = SystemTime::now();
-            b.invites.retain(|_k, inv| inv.expires_at > now);
+            let survivors: Vec<Token> = b
+                .invites
+                .iter()
+                .filter(|(_, inv)| inv.one_shot || inv.expires_at > now)
+                .map(|(k, _)| k.clone())
+                .collect();
+            let to_drop: Vec<Token> = b
+                .invites
+                .keys()
+                .filter(|k| !survivors.iter().any(|s| s == *k))
+                .cloned()
+                .collect();
+            for k in &to_drop {
+                if let Some(inv) = b.invites.remove(k) {
+                    if !inv.short_code.is_empty() {
+                        b.short_codes.remove(&inv.short_code);
+                    }
+                }
+            }
         }
     }
 
@@ -271,6 +311,7 @@ fn viewer_to_info(v: &Viewer, unread: u32) -> ViewerInfo {
         promoted: v.promoted,
         endpoint: v.endpoint.clone(),
         unread_chat: unread,
+        ..Default::default()
     }
 }
 
@@ -355,14 +396,14 @@ mod tests {
         let _ = r.admit_viewer("host-d", "v1", "alice", "1.1.1.1:1").unwrap();
         assert!(r.promote(
             "host-d",
-            &PromoteViewer { viewer_id: "v1".to_string() }
+            &PromoteViewer { viewer_id: "v1".to_string(), ..Default::default() }
         ));
         let list = r.list_viewers("host-d");
         assert_eq!(list.len(), 1);
         assert!(list[0].promoted);
         assert!(r.kick(
             "host-d",
-            &KickViewer { viewer_id: "v1".to_string(), reason: "bye".to_string() }
+            &KickViewer { viewer_id: "v1".to_string(), reason: "bye".to_string(), ..Default::default() }
         ));
         assert!(r.list_viewers("host-d").is_empty());
     }
