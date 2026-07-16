@@ -118,7 +118,7 @@ class DirectChatService : Service() {
     }
 
     private fun decodeMessagePreview(raw: String): String? {
-        const val prefix = "LDESK_CHAT_V1:"
+        val prefix = "LDESK_CHAT_V1:"
         if (!raw.startsWith(prefix)) return raw.ifBlank { null }
         return runCatching {
             val encoded = raw.removePrefix(prefix)
