@@ -159,6 +159,17 @@ jobs:
           cd flutter
           flutter pub get
           flutter test test/ui_regression_contract_test.dart
+      - name: Normalize Windows resource encoding
+        if: matrix.arch == 'x64'
+        shell: pwsh
+        run: |
+          $path = 'flutter/windows/runner/Runner.rc'
+          $content = [IO.File]::ReadAllText($path, [Text.Encoding]::Unicode)
+          [IO.File]::WriteAllText(
+            $path,
+            $content,
+            [Text.UTF8Encoding]::new($false)
+          )
       - name: Build Flutter Windows
         if: matrix.arch == 'x64'
         timeout-minutes: 15
