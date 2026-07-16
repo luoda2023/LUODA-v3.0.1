@@ -261,6 +261,11 @@ jobs:
           if ($version.FileVersion -ne "3.1.1" -or $version.ProductVersion -ne "3.1.1") {
             throw "Unexpected portable EXE version: FileVersion=$($version.FileVersion), ProductVersion=$($version.ProductVersion)"
           }
+          if ($version.ProductName -ne "LDesk" -or
+              $version.FileDescription -ne "LDesk Direct Chat and Remote Assistance" -or
+              $version.OriginalFilename -ne "LDesk-portable-x64.exe") {
+            throw "Unexpected portable EXE branding: ProductName=$($version.ProductName), FileDescription=$($version.FileDescription), OriginalFilename=$($version.OriginalFilename)"
+          }
       - name: Build x64 installer
         if: matrix.arch == 'x64'
         shell: pwsh

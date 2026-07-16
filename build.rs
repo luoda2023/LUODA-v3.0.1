@@ -49,8 +49,8 @@ fn main() {
     {
         let mut res = winres::WindowsResource::new();
         res.set_icon("res/icon.ico");
-        res.set("FileDescription", "LUODA Remote Desktop");
-        res.set("ProductName", "LUODA");
+        res.set("FileDescription", "LDesk Direct Chat and Remote Assistance");
+        res.set("ProductName", "LDesk");
         if res.compile().is_err() {
             // Toolchain may not have rc.exe in PATH; fall back silently.
         }
