@@ -6,6 +6,7 @@ permissions:
 name: Build LDesk iOS IPA
 
 on:
+  workflow_call:
   workflow_dispatch:
   push:
     branches: [3.1.1]

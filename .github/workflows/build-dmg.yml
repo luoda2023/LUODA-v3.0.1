@@ -9,6 +9,12 @@ name: Build LDesk macOS DMG
 
 on:
   workflow_dispatch:
+    inputs:
+      include_ios:
+        description: Build the iOS IPA in the same run
+        required: false
+        default: false
+        type: boolean
   push:
     branches: [3.1.1]
     paths:
@@ -23,6 +29,11 @@ on:
       - '.github/workflows/build-dmg.yml'
 
 jobs:
+  build-ios:
+    if: ${{ inputs.include_ios }}
+    uses: ./.github/workflows/build-ios.yml
+    secrets: inherit
+
   build-dmg:
     runs-on: macos-14
     timeout-minutes: 180
