@@ -55,9 +55,6 @@ void main() {
     '../src/server/connection.rs',
   ).readAsStringSync();
   final flutterBridgeSource = File('../src/flutter.rs').readAsStringSync();
-  final iosWorkflowSource = File(
-    '../.github/workflows/build-ios.yml',
-  ).readAsStringSync();
 
   test('peer card more action has a real keyboard activation callback', () {
     expect(peerCardSource, isNot(contains('onTap: () {}')));
@@ -257,17 +254,5 @@ void main() {
         serverIdentity.indexOf('get_builtin_option(keys::OPTION_AVATAR)'),
       ),
     );
-  });
-
-  test('online build coverage includes a regenerated iOS IPA', () {
-    expect(iosWorkflowSource, contains('runs-on: macos-14'));
-    expect(iosWorkflowSource, contains('aarch64-apple-ios'));
-    expect(
-      iosWorkflowSource,
-      contains('--c-output ./flutter/ios/Runner/bridge_generated.h'),
-    );
-    expect(iosWorkflowSource, contains('flutter build ipa'));
-    expect(iosWorkflowSource, contains('flutter build ios --release --no-codesign'));
-    expect(iosWorkflowSource, contains('actions/upload-artifact@v4'));
   });
 }

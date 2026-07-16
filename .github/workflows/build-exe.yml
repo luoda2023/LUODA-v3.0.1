@@ -8,6 +8,7 @@ on:
       - 'src/**'
       - 'libs/**'
       - 'flutter/**'
+      - 'Images/**'
       - 'res/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
@@ -32,6 +33,31 @@ jobs:
         with:
           submodules: false
           token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify branded icon assets
+        shell: powershell
+        run: |
+          $checks = @(
+            @{ Source = 'Images\icon.ico'; Target = 'res\icon.ico' },
+            @{ Source = 'Images\icon.ico'; Target = 'flutter\assets\icon.ico' },
+            @{ Source = 'Images\icon.ico'; Target = 'flutter\windows\runner\resources\app_icon.ico' },
+            @{ Source = 'Images\icon-32.ico'; Target = 'res\tray-icon.ico' },
+            @{ Source = 'Images\icon-512.png'; Target = 'res\icon.png' },
+            @{ Source = 'Images\icon-512.png'; Target = 'flutter\assets\icon.png' },
+            @{ Source = 'Images\icon-512.png'; Target = 'flutter\assets\avatar.png' },
+            @{ Source = 'Images\icon-32.png'; Target = 'res\32x32.png' },
+            @{ Source = 'Images\icon-64.png'; Target = 'res\64x64.png' },
+            @{ Source = 'Images\icon-128.png'; Target = 'res\128x128.png' },
+            @{ Source = 'Images\icon-256.png'; Target = 'res\128x128@2x.png' },
+            @{ Source = 'Images\icon-master-1056.png'; Target = 'res\mac-icon.png' },
+            @{ Source = 'Images\icon-256.png'; Target = 'res\tray-icon-source.png' }
+          )
+          foreach ($check in $checks) {
+            $sourceHash = (Get-FileHash -LiteralPath $check.Source -Algorithm SHA256).Hash
+            $targetHash = (Get-FileHash -LiteralPath $check.Target -Algorithm SHA256).Hash
+            if ($sourceHash -ne $targetHash) {
+              throw "Brand icon mismatch: $($check.Target)"
+            }
+          }
       - name: Cache Cargo registry
         uses: actions/cache@v4
         with:
