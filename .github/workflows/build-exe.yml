@@ -275,13 +275,18 @@ jobs:
           if (-not (Test-Path 'SignOutput\LDesk-3.1.1-Setup-x64.exe')) {
             throw 'LDesk installer was not created'
           }
+      - name: Rename portable EXE for release
+        if: matrix.arch == 'x64'
+        shell: pwsh
+        run: |
+          Copy-Item 'SignOutput/LDesk-portable-x64.exe' 'SignOutput/LDesk-3.1.1-portable-x64.exe'
       - name: Upload x64 Windows artifacts
         if: matrix.arch == 'x64'
         uses: actions/upload-artifact@v4
         with:
           name: LDesk-3.1.1-Windows-x64
           path: |
-            SignOutput/LDesk-portable-x64.exe
+            SignOutput/LDesk-3.1.1-portable-x64.exe
             SignOutput/LDesk-3.1.1-Setup-x64.exe
           if-no-files-found: error
       - name: Upload x86 service artifacts
@@ -297,11 +302,6 @@ jobs:
         with:
           name: runtime-logs-${{ matrix.arch }}
           path: .auto_build_logs/
-      - name: Rename portable EXE for release
-        if: matrix.arch == 'x64'
-        shell: pwsh
-        run: |
-          Copy-Item 'SignOutput/LDesk-portable-x64.exe' 'SignOutput/LDesk-3.1.1-portable-x64.exe'
       - name: Upload to v3.1.1 Release (x64 only)
         if: matrix.arch == 'x64' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/3.1.1'
         uses: softprops/action-gh-release@v2
