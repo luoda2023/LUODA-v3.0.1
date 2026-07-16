@@ -15,6 +15,11 @@ on:
         required: false
         default: false
         type: boolean
+      include_dmg:
+        description: Build the macOS DMG
+        required: false
+        default: true
+        type: boolean
   push:
     branches: [3.1.1]
     paths:
@@ -35,6 +40,7 @@ jobs:
     secrets: inherit
 
   build-dmg:
+    if: github.event_name != 'workflow_dispatch' || inputs.include_dmg
     runs-on: macos-14
     timeout-minutes: 180
     
