@@ -12,6 +12,8 @@ class Peer {
   String username; // pc username
   String hostname;
   String platform;
+  String displayName;
+  String avatar;
   String alias;
   List<dynamic> tags;
   bool forceAlwaysRelay = false;
@@ -27,6 +29,9 @@ class Peer {
     if (alias != '') {
       return alias;
     }
+    if (displayName != '') {
+      return displayName;
+    }
     return id;
   }
 
@@ -37,6 +42,8 @@ class Peer {
         username = json['username'] ?? '',
         hostname = json['hostname'] ?? '',
         platform = json['platform'] ?? '',
+        displayName = json['display_name'] ?? '',
+        avatar = json['avatar'] ?? '',
         alias = json['alias'] ?? '',
         tags = json['tags'] ?? [],
         forceAlwaysRelay = json['forceAlwaysRelay'] == 'true',
@@ -55,6 +62,8 @@ class Peer {
       "username": username,
       "hostname": hostname,
       "platform": platform,
+      "display_name": displayName,
+      "avatar": avatar,
       "alias": alias,
       "tags": tags,
       "forceAlwaysRelay": forceAlwaysRelay.toString(),
@@ -100,6 +109,8 @@ class Peer {
     required this.username,
     required this.hostname,
     required this.platform,
+    this.displayName = '',
+    this.avatar = '',
     required this.alias,
     required this.tags,
     required this.forceAlwaysRelay,
@@ -135,6 +146,8 @@ class Peer {
         username == other.username &&
         hostname == other.hostname &&
         platform == other.platform &&
+        displayName == other.displayName &&
+        avatar == other.avatar &&
         alias == other.alias &&
         tags.equals(other.tags) &&
         forceAlwaysRelay == other.forceAlwaysRelay &&
@@ -153,6 +166,8 @@ class Peer {
             username: other.username,
             hostname: other.hostname,
             platform: other.platform,
+            displayName: other.displayName,
+            avatar: other.avatar,
             alias: other.alias,
             tags: other.tags.toList(),
             forceAlwaysRelay: other.forceAlwaysRelay,

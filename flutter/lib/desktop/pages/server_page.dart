@@ -349,6 +349,7 @@ Widget buildConnectionCard(Client client) {
       children: [
         _CmHeader(client: client),
         client.type_() == ClientType.file ||
+                client.type_() == ClientType.chat ||
                 client.type_() == ClientType.portForward ||
                 client.type_() == ClientType.terminal ||
                 client.disconnected
@@ -537,6 +538,7 @@ class _CmHeaderState extends State<_CmHeader>
           Offstage(
             offstage: !client.authorized ||
                 (client.type_() != ClientType.remote &&
+                    client.type_() != ClientType.chat &&
                     client.type_() != ClientType.file &&
                     client.type_() != ClientType.camera),
             child: IconButton(

@@ -43,6 +43,7 @@ pub extern "C" fn wire_session_add_sync(
     is_port_forward: bool,
     is_rdp: bool,
     is_terminal: bool,
+    is_chat: bool,
     switch_uuid: *mut wire_uint_8_list,
     force_relay: bool,
     password: *mut wire_uint_8_list,
@@ -57,6 +58,7 @@ pub extern "C" fn wire_session_add_sync(
         is_port_forward,
         is_rdp,
         is_terminal,
+        is_chat,
         switch_uuid,
         force_relay,
         password,
@@ -556,6 +558,66 @@ pub extern "C" fn wire_session_send_chat(
     text: *mut wire_uint_8_list,
 ) {
     wire_session_send_chat_impl(port_, session_id, text)
+}
+
+#[no_mangle]
+pub extern "C" fn wire_session_send_chat_to_viewer(
+    port_: i64,
+    session_id: *mut wire_uint_8_list,
+    to_viewer_id: *mut wire_uint_8_list,
+    text: *mut wire_uint_8_list,
+) {
+    wire_session_send_chat_to_viewer_impl(port_, session_id, to_viewer_id, text)
+}
+
+#[no_mangle]
+pub extern "C" fn wire_session_kick_viewer(
+    port_: i64,
+    session_id: *mut wire_uint_8_list,
+    viewer_id: *mut wire_uint_8_list,
+    reason: *mut wire_uint_8_list,
+) {
+    wire_session_kick_viewer_impl(port_, session_id, viewer_id, reason)
+}
+
+#[no_mangle]
+pub extern "C" fn wire_session_promote_viewer(
+    port_: i64,
+    session_id: *mut wire_uint_8_list,
+    viewer_id: *mut wire_uint_8_list,
+) {
+    wire_session_promote_viewer_impl(port_, session_id, viewer_id)
+}
+
+#[no_mangle]
+pub extern "C" fn wire_session_raise_hand(
+    port_: i64,
+    session_id: *mut wire_uint_8_list,
+    viewer_id: *mut wire_uint_8_list,
+    raised: bool,
+) {
+    wire_session_raise_hand_impl(port_, session_id, viewer_id, raised)
+}
+
+#[no_mangle]
+pub extern "C" fn wire_session_request_invite_token(
+    port_: i64,
+    session_id: *mut wire_uint_8_list,
+    ttl_minutes: i32,
+    one_shot: bool,
+) {
+    wire_session_request_invite_token_impl(port_, session_id, ttl_minutes, one_shot)
+}
+
+#[no_mangle]
+pub extern "C" fn wire_session_join_as_viewer(
+    port_: i64,
+    session_id: *mut wire_uint_8_list,
+    token: *mut wire_uint_8_list,
+    viewer_id: *mut wire_uint_8_list,
+    display_name: *mut wire_uint_8_list,
+) {
+    wire_session_join_as_viewer_impl(port_, session_id, token, viewer_id, display_name)
 }
 
 #[no_mangle]

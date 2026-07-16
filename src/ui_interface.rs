@@ -816,6 +816,8 @@ pub fn peer_to_map(id: String, p: PeerConfig) -> HashMap<&'static str, String> {
         ("username", p.info.username.clone()),
         ("hostname", p.info.hostname.clone()),
         ("platform", p.info.platform.clone()),
+        ("display_name", p.info.display_name.clone()),
+        ("avatar", p.info.avatar.clone()),
         (
             "alias",
             p.options.get("alias").unwrap_or(&"".to_owned()).to_owned(),

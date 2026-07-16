@@ -222,6 +222,7 @@ pub enum Data {
     Login {
         id: i32,
         is_file_transfer: bool,
+        is_chat: bool,
         is_view_camera: bool,
         is_terminal: bool,
         peer_id: String,

@@ -3,10 +3,12 @@ import 'dart:io';
 import 'dart:convert';
 
 import 'package:auto_size_text/auto_size_text.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:luoda_flutter/common.dart';
 import 'package:luoda_flutter/common/widgets/animated_rotation_widget.dart';
+import 'package:luoda_flutter/common/widgets/chat_page.dart';
 import 'package:luoda_flutter/common/widgets/custom_password.dart';
 import 'package:luoda_flutter/common/widgets/peer_tab_page.dart';
 import 'package:luoda_flutter/consts.dart';
@@ -14,6 +16,12 @@ import 'package:luoda_flutter/desktop/pages/connection_page.dart';
 import 'package:luoda_flutter/desktop/pages/desktop_setting_page.dart';
 import 'package:luoda_flutter/desktop/pages/desktop_tab_page.dart';
 import 'package:luoda_flutter/desktop/widgets/update_progress.dart';
+import 'package:luoda_flutter/desktop/widgets/desktop_primary_rail.dart';
+import 'package:luoda_flutter/models/ab_model.dart';
+import 'package:luoda_flutter/models/chat_model.dart';
+import 'package:luoda_flutter/models/file_model.dart';
+import 'package:luoda_flutter/models/model.dart';
+import 'package:luoda_flutter/models/peer_model.dart';
 import 'package:luoda_flutter/models/platform_model.dart';
 import 'package:luoda_flutter/models/server_model.dart';
 import 'package:luoda_flutter/models/state_model.dart';
@@ -31,13 +39,15 @@ class DesktopHomePage extends StatefulWidget {
   /// 如果为 true，只显示左侧内容（客户端专用版）
   final bool isClientOnly;
   const DesktopHomePage({Key? key, this.isClientOnly = false})
-    : super(key: key);
+      : super(key: key);
 
   @override
   State<DesktopHomePage> createState() => _DesktopHomePageState();
 }
 
 const borderColor = Color(0xFF2F65BA);
+
+enum _ConversationAction { fileTransfer, remoteAssist, camera, terminal, port }
 
 class _DesktopHomePageState extends State<DesktopHomePage>
     with AutomaticKeepAliveClientMixin, WidgetsBindingObserver {
@@ -58,6 +68,11 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   String _lastLanIp = '';
   String _lastPort = '';
   bool _passwordVisible = false;
+  String _selectedRailId = 'chat';
+  Peer? _selectedContact;
+  final Map<String, FFI> _directChatSessions = <String, FFI>{};
+  final Map<String, FFI> _directFileSessions = <String, FFI>{};
+  String? _activeDirectChatPeerId;
   final RxBool _settingsHover = false.obs;
   final RxBool _relayHover = false.obs;
   final RxBool _block = false.obs;
@@ -66,6 +81,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
   // ---- 客户端专用版：ID输入框 ----
   final TextEditingController _clientIdController = TextEditingController();
+  final TextEditingController _contactSearchController =
+      TextEditingController();
   final FocusNode _clientIdFocusNode = FocusNode();
 
   void _onClientConnect(String id, BuildContext buildCtx) {
@@ -117,25 +134,1123 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   Widget _buildRemoteCenter(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final showNav = constraints.maxWidth >= 900;
-        final wideNav = constraints.maxWidth >= 1440;
-        final identityWidth = wideNav ? 321.0 : 260.0;
+        final showRail = constraints.maxWidth >= 820;
+        final contactsWidth = constraints.maxWidth >= 1180 ? 316.0 : 288.0;
         final dark = Theme.of(context).brightness == Brightness.dark;
         return ColoredBox(
-          color: dark ? const Color(0xFF171B22) : const Color(0xFFF5F8FC),
+          color: dark ? const Color(0xFF191B20) : const Color(0xFFF7F7F8),
           child: Row(
             children: [
-              if (showNav) _buildDeviceNav(context, expanded: wideNav),
+              if (showRail) _buildPrimaryRail(context),
               SizedBox(
-                width: identityWidth,
-                child: _buildIdentityPane(context),
+                width: contactsWidth,
+                child: _buildContactsPane(context),
               ),
-              Expanded(child: buildRightPane(context)),
+              Expanded(child: _buildConversationWorkspace(context)),
             ],
           ),
         );
       },
     );
+  }
+
+  Widget _buildPrimaryRail(BuildContext context) {
+    const destinations = <DesktopRailDestination>[
+      DesktopRailDestination(
+        id: 'chat',
+        label: 'Chat',
+        icon: Icons.chat_bubble_outline_rounded,
+        selectedIcon: Icons.chat_bubble_rounded,
+      ),
+      DesktopRailDestination(
+        id: 'recent',
+        label: 'Recent sessions',
+        icon: Icons.history_rounded,
+      ),
+      DesktopRailDestination(
+        id: 'favorites',
+        label: 'Favorites',
+        icon: Icons.star_outline_rounded,
+        selectedIcon: Icons.star_rounded,
+      ),
+      DesktopRailDestination(
+        id: 'discovered',
+        label: 'Discovered',
+        icon: Icons.radar_rounded,
+      ),
+      DesktopRailDestination(
+        id: 'contacts',
+        label: 'Address book',
+        icon: Icons.contacts_outlined,
+        selectedIcon: Icons.contacts_rounded,
+      ),
+      DesktopRailDestination(
+        id: 'history',
+        label: 'Access history devices',
+        icon: Icons.devices_outlined,
+        selectedIcon: Icons.devices_rounded,
+      ),
+      DesktopRailDestination(
+        id: 'vip',
+        label: 'VIP features',
+        icon: Icons.workspace_premium_outlined,
+        selectedIcon: Icons.workspace_premium_rounded,
+      ),
+    ];
+    return DesktopPrimaryRail(
+      destinations: destinations,
+      selectedId: _selectedRailId,
+      avatar: _buildLocalAvatar(44),
+      onAvatarPressed: () => DesktopTabPage.onAddSetting(
+        initialPage: SettingsTabKey.account,
+      ),
+      onSelected: (id) async {
+        const indexes = <String, int>{
+          'chat': 0,
+          'recent': 0,
+          'favorites': 1,
+          'discovered': 2,
+          'contacts': 3,
+          'history': 4,
+          'vip': 5,
+        };
+        setState(() => _selectedRailId = id);
+        await PeerTabPage.selectDesktopTab(indexes[id] ?? 0);
+        await _loadContactSection(id);
+      },
+      onSettings: DesktopTabPage.onAddSetting,
+      onMore: () => _showToolsMenu(context),
+    );
+  }
+
+  Widget _buildContactsPane(BuildContext context) {
+    final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
+    return ColoredBox(
+      color: dark ? const Color(0xFF25272C) : const Color(0xFFF0F0F2),
+      child: Column(
+        children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+            child: TextField(
+              key: const ValueKey('direct-chat-address-field'),
+              controller: _clientIdController,
+              focusNode: _clientIdFocusNode,
+              textInputAction: TextInputAction.go,
+              onSubmitted: _startDirectChat,
+              decoration: InputDecoration(
+                hintText: 'ID / IP:port',
+                prefixIcon: const Icon(Icons.link_rounded, size: 19),
+                suffixIcon: IconButton(
+                  tooltip: translate('Connect'),
+                  onPressed: () => _startDirectChat(_clientIdController.text),
+                  icon: const Icon(Icons.arrow_forward_rounded, size: 20),
+                ),
+                filled: true,
+                fillColor: dark ? const Color(0xFF32343A) : Colors.white,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 12,
+                ),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 12, 8),
+            child: Row(
+              children: <Widget>[
+                Expanded(
+                  child: Text(
+                    translate('Contacts'),
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                Tooltip(
+                  message: translate('My Identity'),
+                  child: IconButton(
+                    onPressed: () => _showIdentityDialog(context),
+                    icon: const Icon(Icons.badge_outlined, size: 20),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+            child: SizedBox(
+              height: 34,
+              child: TextField(
+                controller: _contactSearchController,
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  hintText: translate('Search'),
+                  prefixIcon: const Icon(Icons.search_rounded, size: 18),
+                  filled: true,
+                  fillColor:
+                      dark ? const Color(0xFF32343A) : const Color(0xFFF9F9FA),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+            ),
+          ),
+          Divider(height: 1, color: theme.dividerColor.withOpacity(0.65)),
+          Expanded(child: _buildContactSection(context)),
+          Divider(height: 1, color: theme.dividerColor.withOpacity(0.65)),
+          SizedBox(
+            height: 50,
+            child: Row(
+              children: <Widget>[
+                const SizedBox(width: 14),
+                const Icon(Icons.shield_outlined, size: 18),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Text(
+                    translate('Direct IP Access'),
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 120, child: OnlineStatusWidget()),
+                const SizedBox(width: 8),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildConversationWorkspace(BuildContext context) {
+    final activeFfi = _activeDirectChatPeerId == null
+        ? null
+        : _directChatSessions[_activeDirectChatPeerId];
+    final activeModel = activeFfi?.chatModel ?? gFFI.chatModel;
+    Widget workspace() => ChangeNotifierProvider.value(
+          value: activeModel,
+          child: Consumer<ChatModel>(
+            builder: (context, model, _) {
+              final user = model.currentUser;
+              final selectedPeerId = _selectedContact?.id ?? '';
+              final userMatchesSelection = selectedPeerId.isEmpty ||
+                  user?.id.trim() == selectedPeerId.trim();
+              final peerId =
+                  userMatchesSelection && user?.id.trim().isNotEmpty == true
+                      ? user!.id.trim()
+                      : selectedPeerId;
+              final selectedName = _selectedContact == null
+                  ? ''
+                  : _contactName(_selectedContact!);
+              final hasConversation =
+                  user != null && userMatchesSelection && peerId.isNotEmpty;
+              return ColoredBox(
+                color: Theme.of(context).brightness == Brightness.dark
+                    ? const Color(0xFF1C1E23)
+                    : const Color(0xFFFAFAFB),
+                child: Column(
+                  children: <Widget>[
+                    _buildConversationHeader(
+                      context,
+                      title: hasConversation &&
+                              user?.firstName?.trim().isNotEmpty == true
+                          ? user!.firstName!
+                          : selectedName.isNotEmpty
+                              ? selectedName
+                              : translate('Direct chat'),
+                      peerId: peerId,
+                      enabled: hasConversation,
+                      contact: _selectedContact,
+                      avatar:
+                          user?.profileImage ?? _selectedContact?.avatar ?? '',
+                    ),
+                    Divider(height: 1, color: Theme.of(context).dividerColor),
+                    if (hasConversation)
+                      _buildActiveTransferStrip(context, peerId),
+                    Expanded(
+                      child: hasConversation
+                          ? ChatPage(
+                              chatModel: model,
+                              type: ChatPageType.desktopHome,
+                              onAttachFile: () =>
+                                  _sendFilesFromConversation(peerId),
+                              onRemoteAssist: () => connect(context, peerId),
+                            )
+                          : _buildEmptyConversation(
+                              context,
+                              contact: _selectedContact,
+                            ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        );
+    if (activeFfi == null) return workspace();
+    return AnimatedBuilder(
+      animation: activeFfi.ffiModel,
+      builder: (context, _) => workspace(),
+    );
+  }
+
+  Widget _buildConversationHeader(
+    BuildContext context, {
+    required String title,
+    required String peerId,
+    required bool enabled,
+    required Peer? contact,
+    required String avatar,
+  }) {
+    final theme = Theme.of(context);
+    final status = _directDeliveryStatus(peerId, contact: contact);
+    final initial = title.trim().isEmpty ? '?' : title.trim().characters.first;
+    return SizedBox(
+      height: 64,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 18),
+        child: Row(
+          children: <Widget>[
+            if (contact != null || enabled) ...<Widget>[
+              _buildConversationAvatar(
+                avatar: avatar,
+                name: title,
+                initial: initial,
+                size: 38,
+              ),
+              const SizedBox(width: 11),
+            ],
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  if (peerId.isNotEmpty)
+                    Row(
+                      children: <Widget>[
+                        Flexible(
+                          child: Text(
+                            peerId,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color:
+                                  theme.colorScheme.onSurface.withOpacity(0.5),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 7),
+                        Container(
+                          width: 5,
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: status.$2,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          translate(status.$1),
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: status.$2,
+                          ),
+                        ),
+                      ],
+                    )
+                  else
+                    Text(
+                      translate('Select a contact to start chatting'),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurface.withOpacity(0.5),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            _conversationActionButton(
+              context,
+              tooltip: translate('File Transfer'),
+              icon: Icons.attach_file_rounded,
+              onPressed:
+                  enabled ? () => _sendFilesFromConversation(peerId) : null,
+            ),
+            _conversationActionButton(
+              context,
+              tooltip: translate('Remote Desktop'),
+              icon: Icons.desktop_windows_outlined,
+              onPressed: enabled ? () => connect(context, peerId) : null,
+            ),
+            PopupMenuButton<_ConversationAction>(
+              tooltip: translate('More'),
+              enabled: enabled,
+              onSelected: (action) =>
+                  _handleConversationAction(context, action, peerId),
+              itemBuilder: (context) => <PopupMenuEntry<_ConversationAction>>[
+                PopupMenuItem(
+                  value: _ConversationAction.camera,
+                  child: Text(translate('View camera')),
+                ),
+                PopupMenuItem(
+                  value: _ConversationAction.terminal,
+                  child: Text(translate('Terminal')),
+                ),
+                PopupMenuItem(
+                  value: _ConversationAction.port,
+                  child: Text(translate('TCP tunneling')),
+                ),
+              ],
+              icon: const Icon(Icons.more_horiz_rounded),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _conversationActionButton(
+    BuildContext context, {
+    required String tooltip,
+    required IconData icon,
+    required VoidCallback? onPressed,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: IconButton(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 21),
+      ),
+    );
+  }
+
+  Widget _buildActiveTransferStrip(BuildContext context, String peerId) {
+    final ffi = _directFileSessions[peerId];
+    if (ffi == null) return const SizedBox.shrink();
+    return Obx(() {
+      final jobs = ffi.fileModel.jobController.jobTable;
+      if (jobs.isEmpty) return const SizedBox.shrink();
+      final job = jobs.last;
+      final color = switch (job.state) {
+        JobState.done => const Color(0xFF238A57),
+        JobState.error => const Color(0xFFD84A4A),
+        _ => Theme.of(context).colorScheme.primary,
+      };
+      final cancellable = job.state != JobState.done &&
+          job.state != JobState.error &&
+          job.state != JobState.none;
+      return Container(
+        height: 46,
+        padding: const EdgeInsets.only(left: 22, right: 12),
+        color: Theme.of(context).colorScheme.surface,
+        child: Row(
+          children: <Widget>[
+            Icon(
+              job.state == JobState.done
+                  ? Icons.check_circle_outline_rounded
+                  : job.state == JobState.error
+                      ? Icons.error_outline_rounded
+                      : Icons.upload_file_outlined,
+              size: 19,
+              color: color,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                job.fileName.isEmpty
+                    ? translate('File Transfer')
+                    : job.fileName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w500,
+                    ),
+              ),
+            ),
+            const SizedBox(width: 14),
+            SizedBox(
+              width: 104,
+              child: job.state == JobState.inProgress
+                  ? LinearProgressIndicator(
+                      value: job.totalSize > 0 ? job.percent : null,
+                      minHeight: 3,
+                      color: color,
+                    )
+                  : Text(
+                      job.state.display(),
+                      textAlign: TextAlign.right,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: color,
+                          ),
+                    ),
+            ),
+            const SizedBox(width: 8),
+            if (cancellable)
+              Tooltip(
+                message: translate('Cancel'),
+                child: IconButton(
+                  onPressed: () => unawaited(
+                    ffi.fileModel.jobController.cancelJob(job.id),
+                  ),
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                ),
+              ),
+          ],
+        ),
+      );
+    });
+  }
+
+  Widget _buildEmptyConversation(BuildContext context, {Peer? contact}) {
+    final theme = Theme.of(context);
+    final contactName = contact == null ? '' : _contactName(contact);
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(
+                contact == null ? Icons.forum_outlined : Icons.person_rounded,
+                size: 70,
+                color: contact == null
+                    ? theme.colorScheme.onSurface.withOpacity(0.13)
+                    : str2color(contactName),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                contact == null
+                    ? translate('Start a direct conversation')
+                    : contactName,
+                textAlign: TextAlign.center,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                contact == null
+                    ? translate(
+                        'Enter a device ID or IP:port in the contacts panel. Messages and files use the peer connection directly.',
+                      )
+                    : '${contact.id}\n${contact.online ? translate('Online') : translate('Offline')}',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurface.withOpacity(0.56),
+                ),
+              ),
+              const SizedBox(height: 18),
+              FilledButton.icon(
+                onPressed: contact == null
+                    ? () => _clientIdFocusNode.requestFocus()
+                    : () => _startDirectChat(contact.id),
+                icon: Icon(
+                  contact == null
+                      ? Icons.add_link_rounded
+                      : Icons.chat_bubble_outline_rounded,
+                  size: 19,
+                ),
+                label: Text(
+                  translate(
+                    contact == null ? 'Connect by ID / IP' : 'Connect and chat',
+                  ),
+                ),
+              ),
+              if (contact != null) ...<Widget>[
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  children: <Widget>[
+                    OutlinedButton.icon(
+                      onPressed: () => _sendFilesFromConversation(contact.id),
+                      icon: const Icon(Icons.attach_file_rounded, size: 18),
+                      label: Text(translate('File Transfer')),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () => connect(context, contact.id),
+                      icon: const Icon(
+                        Icons.desktop_windows_outlined,
+                        size: 18,
+                      ),
+                      label: Text(translate('Remote Desktop')),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildContactSection(BuildContext context) {
+    if (_selectedRailId == 'vip') {
+      return const PeerTabPage(showTabStrip: false);
+    }
+    final model = _contactModelFor(_selectedRailId);
+    return AnimatedBuilder(
+      animation: model,
+      builder: (context, _) {
+        final query = _contactSearchController.text.trim().toLowerCase();
+        final peers = query.isEmpty
+            ? model.peers
+            : model.peers.where((peer) {
+                return _contactName(peer).toLowerCase().contains(query) ||
+                    peer.id.toLowerCase().contains(query);
+              }).toList();
+        if (peers.isEmpty) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text(
+                translate('No contacts yet'),
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withOpacity(0.5),
+                    ),
+              ),
+            ),
+          );
+        }
+        return ListView.separated(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          itemCount: peers.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 1),
+          itemBuilder: (context, index) =>
+              _buildContactItem(context, peers[index]),
+        );
+      },
+    );
+  }
+
+  Widget _buildContactItem(BuildContext context, Peer peer) {
+    final ffi = _directChatSessions[peer.id];
+    if (ffi != null) {
+      return AnimatedBuilder(
+        animation: ffi.ffiModel,
+        builder: (context, _) => _buildContactItemBody(context, peer),
+      );
+    }
+    return _buildContactItemBody(context, peer);
+  }
+
+  Widget _buildContactItemBody(BuildContext context, Peer peer) {
+    final theme = Theme.of(context);
+    final name = _contactName(peer);
+    final selected = _selectedContact?.id == peer.id;
+    final initial = name.trim().isEmpty ? '?' : name.trim().characters.first;
+    final delivery = _contactDeliveryStatus(peer);
+    return Material(
+      color: selected
+          ? theme.colorScheme.onSurface.withOpacity(0.08)
+          : Colors.transparent,
+      child: InkWell(
+        onTap: () {
+          setState(() {
+            _selectedContact = peer;
+            _activeDirectChatPeerId =
+                _directChatSessions.containsKey(peer.id) ? peer.id : null;
+          });
+        },
+        onDoubleTap: () => _startDirectChat(peer.id),
+        child: SizedBox(
+          height: 66,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            child: Row(
+              children: <Widget>[
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: <Widget>[
+                    _buildConversationAvatar(
+                      avatar: peer.avatar,
+                      name: name,
+                      initial: initial,
+                      size: 42,
+                    ),
+                    Positioned(
+                      right: -2,
+                      bottom: -2,
+                      child: Container(
+                        width: 11,
+                        height: 11,
+                        decoration: BoxDecoration(
+                          color: peer.online
+                              ? const Color(0xFF2BB673)
+                              : const Color(0xFFA7A9AF),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: theme.colorScheme.surface,
+                            width: 2,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(width: 11),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Row(
+                        children: <Widget>[
+                          Expanded(
+                            child: Text(
+                              peer.id,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSurface
+                                    .withOpacity(0.48),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            translate(delivery.$1),
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: delivery.$2,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  (String, Color) _contactDeliveryStatus(Peer peer) {
+    return _directDeliveryStatus(peer.id, contact: peer);
+  }
+
+  (String, Color) _directDeliveryStatus(String peerId, {Peer? contact}) {
+    final ffi = _directChatSessions[peerId];
+    if (ffi == null) {
+      return contact?.online == true
+          ? ('Online', const Color(0xFF238A57))
+          : ('Offline', const Color(0xFF8A8D94));
+    }
+    final error = ffi.ffiModel.lastConnectionError ?? '';
+    if (error.contains('Direct messages rejected')) {
+      return ('Messages rejected', const Color(0xFFD84A4A));
+    }
+    if (ffi.closed) {
+      return ('Offline', const Color(0xFF8A8D94));
+    }
+    if (ffi.ffiModel.pi.isSet.isTrue && ffi.ffiModel.direct == true) {
+      return ('Messages allowed', const Color(0xFF238A57));
+    }
+    return ('Connecting', const Color(0xFF4C6EA8));
+  }
+
+  String _contactName(Peer peer) {
+    if (peer.alias.trim().isNotEmpty) return peer.alias.trim();
+    if (peer.displayName.trim().isNotEmpty) return peer.displayName.trim();
+    if (peer.hostname.trim().isNotEmpty) return peer.hostname.trim();
+    if (peer.username.trim().isNotEmpty) return peer.username.trim();
+    return peer.id;
+  }
+
+  Widget _buildConversationAvatar({
+    required String avatar,
+    required String name,
+    required String initial,
+    required double size,
+  }) {
+    final fallback = Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: str2color(name),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        initial,
+        style: TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w600,
+          fontSize: size * 0.4,
+        ),
+      ),
+    );
+    return buildAvatarWidget(
+          avatar: avatar,
+          size: size,
+          borderRadius: 8,
+          fallback: fallback,
+        ) ??
+        fallback;
+  }
+
+  Peers _contactModelFor(String section) {
+    switch (section) {
+      case 'favorites':
+        return gFFI.favoritePeersModel;
+      case 'discovered':
+        return gFFI.lanPeersModel;
+      case 'contacts':
+        return gFFI.abModel.peersModel;
+      case 'history':
+        return gFFI.groupModel.peersModel;
+      case 'chat':
+      case 'recent':
+      default:
+        return gFFI.recentPeersModel;
+    }
+  }
+
+  Future<void> _loadContactSection(String section) async {
+    switch (section) {
+      case 'favorites':
+        bind.mainLoadFavPeers();
+        break;
+      case 'discovered':
+        bind.mainLoadLanPeers();
+        bind.mainDiscover();
+        break;
+      case 'contacts':
+        await gFFI.abModel
+            .pullAb(force: ForcePullAb.listAndCurrent, quiet: true);
+        break;
+      case 'history':
+        await gFFI.groupModel.pull(force: true);
+        break;
+      case 'chat':
+      case 'recent':
+      default:
+        bind.mainLoadRecentPeers();
+        break;
+    }
+  }
+
+  Future<void> _startDirectChat(String rawPeerId) async {
+    final peerId = rawPeerId.trim().replaceAll(' ', '');
+    if (peerId.isEmpty) return;
+    final contact = _findContact(peerId);
+    final existing = _directChatSessions[peerId];
+    if (existing != null && !existing.closed) {
+      setState(() {
+        _activeDirectChatPeerId = peerId;
+        _selectedContact = contact;
+      });
+      existing.chatModel.requestChatInputFocus();
+      return;
+    }
+
+    final ffi = FFI(null);
+    ffi.chatModel.changeCurrentKey(MessageKey(peerId, ChatModel.clientModeID));
+    ffi.start(peerId, isChat: true, forceRelay: false);
+    _directChatSessions[peerId] = ffi;
+    if (mounted) {
+      setState(() {
+        _activeDirectChatPeerId = peerId;
+        _selectedContact = contact;
+      });
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || ffi.closed) return;
+      ffi.dialogManager.showLoading(
+        translate('Connecting...'),
+        onCancel: () => _closeDirectChat(peerId),
+      );
+    });
+  }
+
+  Peer? _findContact(String peerId) {
+    for (final model in <Peers>[
+      gFFI.recentPeersModel,
+      gFFI.favoritePeersModel,
+      gFFI.lanPeersModel,
+      gFFI.abModel.peersModel,
+      gFFI.groupModel.peersModel,
+    ]) {
+      for (final peer in model.peers) {
+        if (peer.id == peerId) return peer;
+      }
+    }
+    return null;
+  }
+
+  Future<void> _closeDirectChat(String peerId) async {
+    final ffi = _directChatSessions.remove(peerId);
+    if (ffi == null) return;
+    ffi.dialogManager.dismissAll();
+    await ffi.close();
+    if (mounted && _activeDirectChatPeerId == peerId) {
+      setState(() => _activeDirectChatPeerId = null);
+    }
+  }
+
+  Future<void> _sendFilesFromConversation(String peerId) async {
+    final chatFfi = _directChatSessions[peerId];
+    if (chatFfi == null ||
+        chatFfi.closed ||
+        !chatFfi.ffiModel.pi.isSet.isTrue ||
+        chatFfi.ffiModel.direct != true) {
+      _showConversationNotice(
+        translate('Connect to the contact before sending files.'),
+      );
+      return;
+    }
+
+    final picked = await FilePicker.platform.pickFiles(allowMultiple: true);
+    final files = picked?.files.where((file) => file.path != null).toList() ??
+        <PlatformFile>[];
+    if (files.isEmpty || !mounted) return;
+
+    final ffi = await _ensureDirectFileSession(peerId);
+    if (ffi == null || !mounted) return;
+
+    final items = SelectedItems(isLocal: true);
+    for (final file in files) {
+      items.add(
+        Entry()
+          ..path = file.path!
+          ..name = file.name
+          ..size = file.size,
+      );
+    }
+
+    await ffi.fileModel.localController.sendFiles(
+      items,
+      ffi.fileModel.remoteController.directoryData(),
+    );
+    chatFfi.chatModel.sendText(
+      '${translate('Sent file')}: ${files.map((file) => file.name).join(', ')}',
+    );
+    _showConversationNotice(translate('Direct file transfer started.'));
+  }
+
+  Future<FFI?> _ensureDirectFileSession(String peerId) async {
+    final existing = _directFileSessions[peerId];
+    if (existing != null &&
+        !existing.closed &&
+        existing.ffiModel.pi.isSet.isTrue &&
+        existing.ffiModel.direct == true) {
+      return existing;
+    }
+    if (existing != null) {
+      _directFileSessions.remove(peerId);
+      await _disposeFileSession(existing);
+    }
+
+    final ffi = FFI(null);
+    _directFileSessions[peerId] = ffi;
+    ffi.start(peerId, isFileTransfer: true, forceRelay: false);
+    ffi.dialogManager.showLoading(
+      translate('Preparing direct file transfer...'),
+      onCancel: () async {
+        _directFileSessions.remove(peerId);
+        await _disposeFileSession(ffi);
+      },
+    );
+
+    final deadline = DateTime.now().add(const Duration(seconds: 30));
+    while (mounted && DateTime.now().isBefore(deadline)) {
+      if (ffi.ffiModel.pi.isSet.isTrue) {
+        ffi.dialogManager.dismissAll();
+        if (ffi.ffiModel.direct != true) {
+          _directFileSessions.remove(peerId);
+          await _disposeFileSession(ffi);
+          _showConversationNotice(
+            translate('Direct connection failed. File relay is disabled.'),
+          );
+          return null;
+        }
+        final ready = await _waitForFileDirectories(ffi);
+        if (ready) return ffi;
+        break;
+      }
+      if (ffi.closed || (ffi.ffiModel.lastConnectionError ?? '').isNotEmpty) {
+        break;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    }
+
+    ffi.dialogManager.dismissAll();
+    _directFileSessions.remove(peerId);
+    final error = ffi.ffiModel.lastConnectionError;
+    await _disposeFileSession(ffi);
+    _showConversationNotice(
+      translate(
+        error?.isNotEmpty == true
+            ? error!
+            : 'Direct file transfer connection timed out.',
+      ),
+    );
+    return null;
+  }
+
+  Future<bool> _waitForFileDirectories(FFI ffi) async {
+    for (var attempt = 0; attempt < 30; attempt++) {
+      if (ffi.closed) return false;
+      final local = ffi.fileModel.localController.directory.value.path;
+      final remote = ffi.fileModel.remoteController.directory.value.path;
+      if (local.isNotEmpty && remote.isNotEmpty) return true;
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    }
+    return false;
+  }
+
+  Future<void> _disposeFileSession(FFI ffi) async {
+    if (ffi.closed) return;
+    try {
+      await ffi.fileModel.close();
+    } finally {
+      await ffi.close();
+    }
+  }
+
+  void _showConversationNotice(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+    );
+  }
+
+  Widget _buildLocalAvatar(double size) {
+    var avatar = '';
+    try {
+      final userInfo = jsonDecode(
+        bind.mainGetLocalOption(key: 'user_info'),
+      ) as Map<String, dynamic>;
+      avatar = (userInfo['avatar'] ?? '').toString();
+    } catch (_) {}
+    return buildAvatarWidget(
+          avatar: avatar,
+          size: size,
+          borderRadius: 8,
+          fallback: Image.asset('assets/avatar.png', fit: BoxFit.cover),
+        ) ??
+        Image.asset('assets/avatar.png', fit: BoxFit.cover);
+  }
+
+  Future<void> _showIdentityDialog(BuildContext context) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        contentPadding: EdgeInsets.zero,
+        content: SizedBox(
+          width: 420,
+          height: 620,
+          child: _buildIdentityPane(dialogContext),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showToolsMenu(BuildContext context) async {
+    final id = _clientIdController.text.trim();
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Wrap(
+          children: <Widget>[
+            ListTile(
+              leading: const Icon(Icons.folder_outlined),
+              title: Text(translate('File Transfer')),
+              enabled: id.isNotEmpty,
+              onTap: id.isEmpty
+                  ? null
+                  : () {
+                      Navigator.pop(sheetContext);
+                      connect(context, id, isFileTransfer: true);
+                    },
+            ),
+            ListTile(
+              leading: const Icon(Icons.videocam_outlined),
+              title: Text(translate('View camera')),
+              enabled: id.isNotEmpty,
+              onTap: id.isEmpty
+                  ? null
+                  : () {
+                      Navigator.pop(sheetContext);
+                      connect(context, id, isViewCamera: true);
+                    },
+            ),
+            ListTile(
+              leading: const Icon(Icons.terminal_outlined),
+              title: Text(translate('Terminal')),
+              enabled: id.isNotEmpty,
+              onTap: id.isEmpty
+                  ? null
+                  : () {
+                      Navigator.pop(sheetContext);
+                      connect(context, id, isTerminal: true);
+                    },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _handleConversationAction(
+    BuildContext context,
+    _ConversationAction action,
+    String peerId,
+  ) {
+    switch (action) {
+      case _ConversationAction.fileTransfer:
+        _sendFilesFromConversation(peerId);
+        break;
+      case _ConversationAction.remoteAssist:
+        connect(context, peerId);
+        break;
+      case _ConversationAction.camera:
+        connect(context, peerId, isViewCamera: true);
+        break;
+      case _ConversationAction.terminal:
+        connect(context, peerId, isTerminal: true);
+        break;
+      case _ConversationAction.port:
+        connect(context, peerId, isTcpTunneling: true);
+        break;
+    }
   }
 
   Widget _buildDeviceNav(BuildContext context, {required bool expanded}) {
@@ -162,9 +1277,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       child: Column(
         children: [
           Row(
-            mainAxisAlignment: expanded
-                ? MainAxisAlignment.start
-                : MainAxisAlignment.center,
+            mainAxisAlignment:
+                expanded ? MainAxisAlignment.start : MainAxisAlignment.center,
             children: [
               Container(
                 width: 36,
@@ -185,8 +1299,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                   child: Text(
                     'LUODA',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+                          fontWeight: FontWeight.w700,
+                        ),
                   ),
                 ),
               ],
@@ -213,61 +1327,62 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                       enabled: !tabsFixed,
                       child: Padding(
                         padding: const EdgeInsets.only(bottom: 6),
-                      child: Tooltip(
-                        message: expanded ? '' : translate(item.$2),
-                        child: Material(
-                          color: selected
-                              ? MyTheme.accent.withOpacity(.10)
-                              : Colors.transparent,
-                          borderRadius: BorderRadius.circular(8),
-                          child: InkWell(
+                        child: Tooltip(
+                          message: expanded ? '' : translate(item.$2),
+                          child: Material(
+                            color: selected
+                                ? MyTheme.accent.withOpacity(.10)
+                                : Colors.transparent,
                             borderRadius: BorderRadius.circular(8),
-                            onTap: () =>
-                                PeerTabPage.selectDesktopTab(tabIndex),
-                            child: SizedBox(
-                              height: 44,
-                              child: Row(
-                                mainAxisAlignment: expanded
-                                    ? MainAxisAlignment.start
-                                    : MainAxisAlignment.center,
-                                children: [
-                                  if (expanded) const SizedBox(width: 12),
-                                  Icon(
-                                    item.$1,
-                                    size: 20,
-                                    color: selected
-                                        ? MyTheme.accent
-                                        : Theme.of(context)
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(8),
+                              onTap: () =>
+                                  PeerTabPage.selectDesktopTab(tabIndex),
+                              child: SizedBox(
+                                height: 44,
+                                child: Row(
+                                  mainAxisAlignment: expanded
+                                      ? MainAxisAlignment.start
+                                      : MainAxisAlignment.center,
+                                  children: [
+                                    if (expanded) const SizedBox(width: 12),
+                                    Icon(
+                                      item.$1,
+                                      size: 20,
+                                      color: selected
+                                          ? MyTheme.accent
+                                          : Theme.of(context)
                                               .textTheme
                                               .bodyMedium
                                               ?.color
                                               ?.withOpacity(.72),
-                                  ),
-                                  if (expanded) ...[
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Text(
-                                        translate(item.$2),
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: selected
-                                              ? FontWeight.w600
-                                              : FontWeight.w500,
-                                          color:
-                                              selected ? MyTheme.accent : null,
+                                    ),
+                                    if (expanded) ...[
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Text(
+                                          translate(item.$2),
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: selected
+                                                ? FontWeight.w600
+                                                : FontWeight.w500,
+                                            color: selected
+                                                ? MyTheme.accent
+                                                : null,
+                                          ),
                                         ),
                                       ),
-                                    ),
+                                    ],
                                   ],
-                                ],
+                                ),
                               ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                  );
+                    );
                   },
                 );
               },
@@ -283,9 +1398,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 !model.isVisibleEnabled[tabIndex],
               ),
               itemBuilder: (context) => [
-                for (var tabIndex = 0;
-                    tabIndex < items.length;
-                    tabIndex++)
+                for (var tabIndex = 0; tabIndex < items.length; tabIndex++)
                   if (model.isEnabled[tabIndex])
                     CheckedPopupMenuItem<int>(
                       value: tabIndex,
@@ -352,7 +1465,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                         if (!outgoingOnly) ...[
                           Text(
                             translate('My Identity'),
-                            style: Theme.of(context).textTheme.titleMedium
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
                                 ?.copyWith(fontWeight: FontWeight.w700),
                           ),
                           const SizedBox(height: 12),
@@ -361,7 +1476,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                         ],
                         Text(
                           translate('Quick Actions'),
-                          style: Theme.of(context).textTheme.titleSmall
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleSmall
                               ?.copyWith(fontWeight: FontWeight.w700),
                         ),
                         const SizedBox(height: 12),
@@ -423,8 +1540,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       return host + ':' + port;
     }
 
-    final temporary =
-        model.approveMode != 'click' &&
+    final temporary = model.approveMode != 'click' &&
         model.verificationMethod != kUsePermanentPassword;
     final dark = Theme.of(context).brightness == Brightness.dark;
     return Container(
@@ -448,9 +1564,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             context,
             translate('One-time Password'),
             model.serverPasswd.text,
-            icon: temporary
-                ? Icons.refresh_rounded
-                : Icons.lock_outline_rounded,
+            icon:
+                temporary ? Icons.refresh_rounded : Icons.lock_outline_rounded,
             onTap: temporary ? () => bind.mainUpdateTemporaryPassword() : null,
             onCopy: () => _copyValue(model.serverPasswd.text),
             obscure: true,
@@ -491,8 +1606,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final displayValue = !available
         ? translate('Not available')
         : obscure && !revealed
-        ? List.filled(value.runes.length, '\u2022').join()
-        : value;
+            ? List.filled(value.runes.length, '\u2022').join()
+            : value;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -535,7 +1650,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               tooltip: translate(
                 prominent
                     ? 'Copy to clipboard'
-                    : onTap == null ? 'Use permanent password' : 'Refresh Password',
+                    : onTap == null
+                        ? 'Use permanent password'
+                        : 'Refresh Password',
               ),
               onPressed: onTap,
               icon: Icon(icon, size: 18),
@@ -1093,8 +2210,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     RxBool refreshHover = false.obs;
     RxBool editHover = false.obs;
     final textColor = Theme.of(context).textTheme.titleLarge?.color;
-    final showOneTime =
-        model.approveMode != 'click' &&
+    final showOneTime = model.approveMode != 'click' &&
         model.verificationMethod != kUsePermanentPassword;
     return Container(
       margin: EdgeInsets.only(left: 20.0, right: 16, top: 13, bottom: 13),
@@ -1345,9 +2461,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                           fontWeight: FontWeight.bold,
                           fontFamily: 'monospace',
                           letterSpacing: 0,
-                          color: hasAddr
-                              ? textColor
-                              : textColor?.withOpacity(0.4),
+                          color:
+                              hasAddr ? textColor : textColor?.withOpacity(0.4),
                         ),
                       ),
                     ),
@@ -1583,8 +2698,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             child: Column(
               mainAxisAlignment: MainAxisAlignment.start,
               crossAxisAlignment: CrossAxisAlignment.start,
-              children:
-                  (title.isNotEmpty
+              children: (title.isNotEmpty
                       ? <Widget>[
                           Center(
                             child: Text(
@@ -1670,6 +2784,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   @override
   void initState() {
     super.initState();
+    bind.mainLoadRecentPeers();
     _updateTimer = periodic_immediate(const Duration(seconds: 1), () async {
       await gFFI.serverModel.fetchID();
       final error = await bind.mainGetError();
@@ -1729,20 +2844,20 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     luodaWinManager.registerActiveWindowListener(onActiveWindowChanged);
 
     screenToMap(window_size.Screen screen) => {
-      'frame': {
-        'l': screen.frame.left,
-        't': screen.frame.top,
-        'r': screen.frame.right,
-        'b': screen.frame.bottom,
-      },
-      'visibleFrame': {
-        'l': screen.visibleFrame.left,
-        't': screen.visibleFrame.top,
-        'r': screen.visibleFrame.right,
-        'b': screen.visibleFrame.bottom,
-      },
-      'scaleFactor': screen.scaleFactor,
-    };
+          'frame': {
+            'l': screen.frame.left,
+            't': screen.frame.top,
+            'r': screen.frame.right,
+            'b': screen.frame.bottom,
+          },
+          'visibleFrame': {
+            'l': screen.visibleFrame.left,
+            't': screen.visibleFrame.top,
+            'r': screen.visibleFrame.right,
+            'b': screen.visibleFrame.bottom,
+          },
+          'scaleFactor': screen.scaleFactor,
+        };
 
     bool isChattyMethod(String methodName) {
       switch (methodName) {
@@ -1886,6 +3001,17 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     _uniLinksSubscription?.cancel();
     Get.delete<RxBool>(tag: 'stop-service');
     _updateTimer?.cancel();
+    for (final ffi in _directChatSessions.values) {
+      unawaited(ffi.close());
+    }
+    _directChatSessions.clear();
+    for (final ffi in _directFileSessions.values) {
+      unawaited(_disposeFileSession(ffi));
+    }
+    _directFileSessions.clear();
+    _clientIdController.dispose();
+    _contactSearchController.dispose();
+    _clientIdFocusNode.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }

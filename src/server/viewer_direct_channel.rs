@@ -20,11 +20,7 @@ use std::{
     time::Instant,
 };
 
-use hbb_common::{
-    message::{ChatBroadcast, Message, VideoFrame, ViewerBadgeUpdate, ViewerInfo, ViewerListUpdate},
-    rendezvous::RendezvousMessage,
-};
-use tokio::sync::broadcast;
+use hbb_common::{message_proto::Message, tokio::sync::broadcast};
 
 /// Channel capacity per host session. Larger = smoother playback under
 /// transient congestion, at the cost of host RAM.

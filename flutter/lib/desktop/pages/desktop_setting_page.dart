@@ -12,9 +12,11 @@ import 'package:luoda_flutter/consts.dart';
 import 'package:luoda_flutter/desktop/pages/desktop_home_page.dart';
 import 'package:luoda_flutter/desktop/pages/desktop_tab_page.dart';
 import 'package:luoda_flutter/desktop/widgets/remote_toolbar.dart';
+import 'package:luoda_flutter/desktop/widgets/desktop_primary_rail.dart';
 import 'package:luoda_flutter/mobile/widgets/dialog.dart';
 import 'package:luoda_flutter/models/platform_model.dart';
 import 'package:luoda_flutter/models/printer_model.dart';
+import 'package:luoda_flutter/models/peer_model.dart';
 import 'package:luoda_flutter/models/server_model.dart';
 import 'package:luoda_flutter/models/state_model.dart';
 import 'package:luoda_flutter/plugin/manager.dart';
@@ -26,6 +28,17 @@ import 'package:url_launcher/url_launcher_string.dart';
 
 import '../../common/widgets/dialog.dart';
 import '../../common/widgets/login.dart';
+
+part 'desktop_setting_general.part.dart';
+part 'desktop_setting_safety.part.dart';
+part 'desktop_setting_network.part.dart';
+part 'desktop_setting_display.part.dart';
+part 'desktop_setting_account.part.dart';
+part 'desktop_setting_checkbox.part.dart';
+part 'desktop_setting_plugin.part.dart';
+part 'desktop_setting_printer.part.dart';
+part 'desktop_setting_about.part.dart';
+part 'desktop_setting_helpers.part.dart';
 
 const double _kTabHeight = 52;
 const double _kCardFixedWidth = 960;
@@ -68,6 +81,7 @@ class DesktopSettingPage extends StatefulWidget {
     _tabKeys = _buildTabKeys();
     return _tabKeys!;
   }
+
   static List<SettingsTabKey>? _tabKeys;
 
   static List<SettingsTabKey> _buildTabKeys() {
@@ -164,6 +178,7 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
   final RxBool _block = false.obs;
   final RxBool _canBeBlocked = false.obs;
   Timer? _videoConnTimer;
+  late bool _advancedSettingsExpanded;
 
   _DesktopSettingPageState(SettingsTabKey initialTabkey) {
     var initialIndex = DesktopSettingPage.tabKeys.indexOf(initialTabkey);
@@ -171,6 +186,11 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
       initialIndex = 0;
     }
     selectedTab = DesktopSettingPage.tabKeys[initialIndex].obs;
+    _advancedSettingsExpanded = const <SettingsTabKey>{
+      SettingsTabKey.display,
+      SettingsTabKey.plugin,
+      SettingsTabKey.printer,
+    }.contains(selectedTab.value);
     Get.put<Rx<SettingsTabKey>>(selectedTab, tag: _kSettingPageTabKeyTag);
     controller = PageController(initialPage: initialIndex);
     Get.put<PageController>(controller, tag: _kSettingPageControllerTag);
@@ -220,36 +240,36 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
     for (final tab in DesktopSettingPage.tabKeys) {
       switch (tab) {
         case SettingsTabKey.general:
-          settingTabs.add(_TabInfo(
-              tab, 'General', Icons.tune_rounded, Icons.tune));
+          settingTabs
+              .add(_TabInfo(tab, 'General', Icons.tune_rounded, Icons.tune));
           break;
         case SettingsTabKey.safety:
           settingTabs.add(
               _TabInfo(tab, 'Security', Icons.shield_rounded, Icons.shield));
           break;
         case SettingsTabKey.network:
-          settingTabs.add(_TabInfo(
-              tab, 'Network', Icons.language_rounded, Icons.language));
+          settingTabs.add(
+              _TabInfo(tab, 'Network', Icons.language_rounded, Icons.language));
           break;
         case SettingsTabKey.display:
-          settingTabs.add(_TabInfo(
-              tab, 'Display', Icons.monitor_rounded, Icons.monitor));
+          settingTabs.add(
+              _TabInfo(tab, 'Display', Icons.monitor_rounded, Icons.monitor));
           break;
         case SettingsTabKey.plugin:
           settingTabs.add(_TabInfo(
               tab, 'Plugin', Icons.extension_rounded, Icons.extension));
           break;
         case SettingsTabKey.account:
-          settingTabs.add(_TabInfo(
-              tab, 'Account', Icons.account_circle_rounded, Icons.account_circle));
+          settingTabs.add(_TabInfo(tab, 'Account', Icons.account_circle_rounded,
+              Icons.account_circle));
           break;
         case SettingsTabKey.printer:
-          settingTabs.add(
-              _TabInfo(tab, 'Printer', Icons.print_rounded, Icons.print));
+          settingTabs
+              .add(_TabInfo(tab, 'Printer', Icons.print_rounded, Icons.print));
           break;
         case SettingsTabKey.about:
-          settingTabs.add(
-              _TabInfo(tab, 'About', Icons.info_rounded, Icons.info));
+          settingTabs
+              .add(_TabInfo(tab, 'About', Icons.info_rounded, Icons.info));
           break;
       }
     }
@@ -320,43 +340,44 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
       backgroundColor: theme.scaffoldBackgroundColor,
       body: LayoutBuilder(
         builder: (context, constraints) {
-          final tabWidth = constraints.maxWidth >= 1000
-              ? 280.0
+          final tabWidth = constraints.maxWidth >= 1080
+              ? 300.0
               : constraints.maxWidth >= 820
-                  ? 200.0
+                  ? 252.0
                   : 72.0;
           final iconOnly = tabWidth == 72;
           return _buildBlock(
-        children: <Widget>[
-          Container(
-            width: tabWidth,
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surface,
-              border: Border(right: BorderSide(color: theme.dividerColor)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _header(context, iconOnly: iconOnly),
-                Flexible(
-                  child: _listView(
-                    tabs: _settingTabs(),
-                    iconOnly: iconOnly,
+            children: <Widget>[
+              _buildPrimaryRail(context),
+              Container(
+                width: tabWidth,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surface,
+                  border: Border(right: BorderSide(color: theme.dividerColor)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _header(context, iconOnly: iconOnly),
+                    Flexible(
+                      child: _listView(
+                        tabs: _settingTabs(),
+                        iconOnly: iconOnly,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: ColoredBox(
+                  color: theme.scaffoldBackgroundColor,
+                  child: PageView(
+                    controller: controller,
+                    physics: const NeverScrollableScrollPhysics(),
+                    children: _children(),
                   ),
                 ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: ColoredBox(
-              color: theme.scaffoldBackgroundColor,
-              child: PageView(
-                controller: controller,
-                physics: const NeverScrollableScrollPhysics(),
-                children: _children(),
               ),
-            ),
-          ),
             ],
           );
         },
@@ -373,29 +394,34 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
         fontWeight: FontWeight.w700,
       ),
     );
-    return SizedBox(
-      height: 80,
-      child: Row(
-        children: [
-          if (isWeb)
-            IconButton(
-              tooltip: translate('Back'),
-              onPressed: () {
-                if (Navigator.canPop(context)) {
-                  Navigator.pop(context);
-                }
-              },
-              icon: const Icon(Icons.arrow_back_rounded),
-            ),
-          Expanded(
-            child: iconOnly
-                ? const Center(
-                    child: Icon(Icons.settings_outlined, size: 22),
-                  )
-                : settingsText,
-          ),
-        ],
-      ).paddingSymmetric(horizontal: iconOnly ? 8 : 22),
+    return Column(
+      children: <Widget>[
+        SizedBox(
+          height: 68,
+          child: Row(
+            children: [
+              if (isWeb)
+                IconButton(
+                  tooltip: translate('Back'),
+                  onPressed: () {
+                    if (Navigator.canPop(context)) {
+                      Navigator.pop(context);
+                    }
+                  },
+                  icon: const Icon(Icons.arrow_back_rounded),
+                ),
+              Expanded(
+                child: iconOnly
+                    ? const Center(
+                        child: Icon(Icons.settings_outlined, size: 22),
+                      )
+                    : settingsText,
+              ),
+            ],
+          ).paddingSymmetric(horizontal: iconOnly ? 8 : 22),
+        ),
+        if (!iconOnly) _profileHeader(context),
+      ],
     );
   }
 
@@ -404,11 +430,78 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
     required bool iconOnly,
   }) {
     final scrollController = ScrollController();
+    if (iconOnly) {
+      return ListView(
+        controller: scrollController,
+        children:
+            tabs.map((tab) => _listItem(tab: tab, iconOnly: true)).toList(),
+      );
+    }
+    final primary = tabs
+        .where((tab) => const <SettingsTabKey>{
+              SettingsTabKey.general,
+              SettingsTabKey.safety,
+              SettingsTabKey.network,
+              SettingsTabKey.account,
+            }.contains(tab.key))
+        .toList();
+    final advanced = tabs
+        .where((tab) => const <SettingsTabKey>{
+              SettingsTabKey.display,
+              SettingsTabKey.plugin,
+              SettingsTabKey.printer,
+            }.contains(tab.key))
+        .toList();
+    final about = tabs.where((tab) => tab.key == SettingsTabKey.about).toList();
     return ListView(
       controller: scrollController,
-      children: tabs
-          .map((tab) => _listItem(tab: tab, iconOnly: iconOnly))
-          .toList(),
+      padding: const EdgeInsets.only(bottom: 12),
+      children: <Widget>[
+        ...primary.map((tab) => _listItem(tab: tab, iconOnly: false)),
+        if (advanced.isNotEmpty) ...<Widget>[
+          const SizedBox(height: 6),
+          InkWell(
+            onTap: () => setState(
+              () => _advancedSettingsExpanded = !_advancedSettingsExpanded,
+            ),
+            child: SizedBox(
+              height: 46,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Row(
+                  children: <Widget>[
+                    const Icon(Icons.tune_rounded, size: 19),
+                    const SizedBox(width: 13),
+                    Expanded(
+                      child: Text(
+                        translate('Advanced settings'),
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w500,
+                            ),
+                      ),
+                    ),
+                    Icon(
+                      _advancedSettingsExpanded
+                          ? Icons.keyboard_arrow_up_rounded
+                          : Icons.keyboard_arrow_down_rounded,
+                      size: 20,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          if (_advancedSettingsExpanded)
+            ...advanced.map(
+              (tab) => _listItem(tab: tab, iconOnly: false),
+            ),
+        ],
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+          child: Divider(height: 1, color: Theme.of(context).dividerColor),
+        ),
+        ...about.map((tab) => _listItem(tab: tab, iconOnly: false)),
+      ],
     );
   }
 
@@ -447,15 +540,16 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
                 padding: EdgeInsets.symmetric(horizontal: iconOnly ? 0 : 14),
                 decoration: BoxDecoration(
                   color: selected
-                      ? theme.colorScheme.primary.withOpacity(
-                          theme.brightness == Brightness.dark ? 0.18 : 0.10,
+                      ? theme.colorScheme.onSurface.withOpacity(
+                          theme.brightness == Brightness.dark ? 0.14 : 0.08,
                         )
                       : Colors.transparent,
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Row(
-                  mainAxisAlignment:
-                      iconOnly ? MainAxisAlignment.center : MainAxisAlignment.start,
+                  mainAxisAlignment: iconOnly
+                      ? MainAxisAlignment.center
+                      : MainAxisAlignment.start,
                   children: [
                     Tooltip(
                       message: iconOnly ? translate(tab.label) : '',
@@ -466,17 +560,18 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
                       ),
                     ),
                     if (!iconOnly) const SizedBox(width: 13),
-                    if (!iconOnly) Expanded(
-                      child: Text(
-                        translate(tab.label),
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: foreground,
-                          fontWeight:
-                              selected ? FontWeight.w600 : FontWeight.w500,
+                    if (!iconOnly)
+                      Expanded(
+                        child: Text(
+                          translate(tab.label),
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: foreground,
+                            fontWeight:
+                                selected ? FontWeight.w600 : FontWeight.w500,
+                          ),
                         ),
                       ),
-                    ),
                   ],
                 ),
               ),
@@ -485,3216 +580,234 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
         ),
       );
     });
+  }
+
+  Widget _buildPrimaryRail(BuildContext context) {
+    const destinations = <DesktopRailDestination>[
+      DesktopRailDestination(
+        id: 'chat',
+        label: 'Chat',
+        icon: Icons.chat_bubble_outline_rounded,
+      ),
+      DesktopRailDestination(
+        id: 'recent',
+        label: 'Recent sessions',
+        icon: Icons.history_rounded,
+      ),
+      DesktopRailDestination(
+        id: 'favorites',
+        label: 'Favorites',
+        icon: Icons.star_outline_rounded,
+      ),
+      DesktopRailDestination(
+        id: 'discovered',
+        label: 'Discovered',
+        icon: Icons.radar_rounded,
+      ),
+      DesktopRailDestination(
+        id: 'contacts',
+        label: 'Address book',
+        icon: Icons.contacts_outlined,
+      ),
+      DesktopRailDestination(
+        id: 'history',
+        label: 'Access history devices',
+        icon: Icons.devices_outlined,
+      ),
+      DesktopRailDestination(
+        id: 'vip',
+        label: 'VIP features',
+        icon: Icons.workspace_premium_outlined,
+      ),
+    ];
+    const indexes = <String, int>{
+      'chat': 0,
+      'recent': 0,
+      'favorites': 1,
+      'discovered': 2,
+      'contacts': 3,
+      'history': 4,
+      'vip': 5,
+    };
+    return DesktopPrimaryRail(
+      destinations: destinations,
+      selectedId: '',
+      settingsSelected: true,
+      avatar: _localProfileAvatar(44),
+      onAvatarPressed: _editLocalProfile,
+      onSelected: (id) =>
+          DesktopTabPage.showHome(peerTabIndex: indexes[id] ?? 0),
+      onSettings: () {},
+    );
+  }
+
+  Map<String, dynamic> _localProfile() {
+    try {
+      final raw = bind.mainGetLocalOption(key: 'user_info');
+      if (raw.isNotEmpty) {
+        return Map<String, dynamic>.from(jsonDecode(raw) as Map);
+      }
+    } catch (_) {}
+    return <String, dynamic>{};
+  }
+
+  Widget _profileHeader(BuildContext context) {
+    final profile = _localProfile();
+    final name =
+        (profile['display_name'] ?? profile['name'] ?? '').toString().trim();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+      child: Material(
+        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.045),
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: _editLocalProfile,
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: <Widget>[
+                SizedBox(width: 42, height: 42, child: _localProfileAvatar(42)),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        name.isEmpty ? translate('Local profile') : name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        translate('Edit avatar and display name'),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right_rounded, size: 20),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _localProfileAvatar(double size, {String? avatar}) {
+    final value = avatar ?? (_localProfile()['avatar'] ?? '').toString();
+    return buildAvatarWidget(
+          avatar: value,
+          size: size,
+          borderRadius: 8,
+          fallback: Image.asset('assets/avatar.png', fit: BoxFit.cover),
+        ) ??
+        Image.asset('assets/avatar.png', fit: BoxFit.cover);
+  }
+
+  Future<void> _editLocalProfile() async {
+    final profile = _localProfile();
+    final nameController = TextEditingController(
+      text: (profile['display_name'] ?? profile['name'] ?? '').toString(),
+    );
+    var avatar = (profile['avatar'] ?? '').toString();
+    Uint8List? selectedBytes;
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(translate('Local profile')),
+          content: SizedBox(
+            width: 360,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                SizedBox(
+                  width: 76,
+                  height: 76,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: selectedBytes != null
+                        ? Image.memory(selectedBytes!, fit: BoxFit.cover)
+                        : _localProfileAvatar(76, avatar: avatar),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextButton.icon(
+                  onPressed: () async {
+                    final result = await FilePicker.platform.pickFiles(
+                      type: FileType.image,
+                      withData: true,
+                    );
+                    final file = result?.files.single;
+                    Uint8List? bytes = file?.bytes;
+                    if (bytes == null && file?.path != null) {
+                      bytes = await File(file!.path!).readAsBytes();
+                    }
+                    if (bytes == null) return;
+                    if (bytes.length > 512 * 1024) {
+                      if (dialogContext.mounted) {
+                        ScaffoldMessenger.of(dialogContext).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              translate(
+                                  'Avatar image must be smaller than 512 KB'),
+                            ),
+                          ),
+                        );
+                      }
+                      return;
+                    }
+                    setDialogState(() => selectedBytes = bytes);
+                  },
+                  icon: const Icon(Icons.photo_outlined, size: 19),
+                  label: Text(translate('Choose image')),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: nameController,
+                  maxLength: 32,
+                  decoration: InputDecoration(
+                    labelText: translate('Display name'),
+                    prefixIcon: const Icon(Icons.person_outline_rounded),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: Text(translate('Cancel')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: Text(translate('Save')),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (saved != true) {
+      nameController.dispose();
+      return;
+    }
+    if (selectedBytes != null) {
+      avatar = 'data:image/png;base64,${base64Encode(selectedBytes!)}';
+    }
+    profile['display_name'] = nameController.text.trim();
+    profile['avatar'] = avatar;
+    await bind.mainSetLocalOption(key: 'user_info', value: jsonEncode(profile));
+    gFFI.chatModel.refreshLocalIdentity(notify: true);
+    nameController.dispose();
+    if (mounted) setState(() {});
   }
 }
 
 //#region pages
-
-class _General extends StatefulWidget {
-  const _General({Key? key}) : super(key: key);
-
-  @override
-  State<_General> createState() => _GeneralState();
-}
-
-class _GeneralState extends State<_General> {
-  final RxBool serviceStop = isWeb
-      ? RxBool(false)
-      : (Get.isRegistered<RxBool>(tag: 'stop-service')
-          ? Get.find<RxBool>(tag: 'stop-service')
-          : Get.put<RxBool>(false.obs, tag: 'stop-service'));
-  RxBool serviceBtnEnabled = true.obs;
-  bool _showOtherSettings = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final scrollController = ScrollController();
-    return ListView(
-      controller: scrollController,
-      children: [
-        if (!isWeb) service(),
-        theme(),
-        language(),
-        if (!isWeb) audio(context),
-        if (!isWeb) record(context),
-        _otherSettings(),
-      ],
-    ).marginOnly(bottom: _kListViewBottomMargin);
-  }
-
-  Widget _otherSettings() {
-    final theme = Theme.of(context);
-    return Column(
-      children: [
-        Align(
-          alignment: Alignment.topLeft,
-          child: Padding(
-            padding: const EdgeInsets.only(
-              left: _kCardLeftMargin,
-              right: _kCardLeftMargin,
-              top: 24,
-            ),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: _kCardFixedWidth),
-              child: SizedBox(
-                width: double.infinity,
-                child: Card(
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(8),
-                    onTap: () {
-                      setState(() {
-                        _showOtherSettings = !_showOtherSettings;
-                      });
-                    },
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 24,
-                        vertical: 18,
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.tune_rounded,
-                            size: 21,
-                            color: theme.colorScheme.primary,
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Text(
-                              translate('Other'),
-                              style: theme.textTheme.titleLarge?.copyWith(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                          Icon(
-                            _showOtherSettings
-                                ? Icons.expand_less_rounded
-                                : Icons.expand_more_rounded,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-        if (_showOtherSettings) ...[
-          if (!isWeb) hwcodec(),
-          if (!isWeb) const WaylandCard(),
-          other(),
-        ],
-      ],
-    );
-  }
-
-  Widget theme() {
-    final current = MyTheme.getThemeModePreference().toShortString();
-    onChanged(String value) async {
-      await MyTheme.changeDarkMode(MyTheme.themeModeFromString(value));
-      setState(() {});
-    }
-
-    final isOptFixed = isOptionFixed(kCommConfKeyTheme);
-    Widget option(String value, String label, IconData icon) {
-      final selected = current == value;
-      final theme = Theme.of(context);
-      return Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(8),
-          onTap: isOptFixed ? null : () => onChanged(value),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            height: 64,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            decoration: BoxDecoration(
-              color: selected
-                  ? theme.colorScheme.primary.withOpacity(
-                      theme.brightness == Brightness.dark ? 0.16 : 0.06,
-                    )
-                  : Colors.transparent,
-              border: Border.all(
-                color:
-                    selected ? theme.colorScheme.primary : theme.dividerColor,
-                width: selected ? 1.5 : 1,
-              ),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
-              children: [
-                Radio<String>(
-                  value: value,
-                  groupValue: current,
-                  onChanged: isOptFixed
-                      ? null
-                      : (next) {
-                          if (next != null) onChanged(next);
-                        },
-                ),
-                Icon(icon, size: 22),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    translate(label),
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontWeight: FontWeight.w500),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
-    return _Card(
-      title: 'Theme',
-      description: 'theme_card_tip',
-      children: [
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final options = [
-              option('light', 'Light', Icons.light_mode_outlined),
-              option('dark', 'Dark', Icons.dark_mode_outlined),
-              option('system', 'Follow System', Icons.desktop_windows_outlined),
-            ];
-            if (constraints.maxWidth < 650) {
-              return Column(
-                children: options
-                    .map(
-                      (item) => Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: item,
-                      ),
-                    )
-                    .toList(),
-              );
-            }
-            return Row(
-              children: [
-                for (var i = 0; i < options.length; i++) ...[
-                  if (i > 0) const SizedBox(width: 12),
-                  Expanded(child: options[i]),
-                ],
-              ],
-            );
-          },
-        ),
-      ],
-    );
-  }
-
-  Widget service() {
-    if (bind.isOutgoingOnly()) {
-      return const Offstage();
-    }
-
-    final hideStopService =
-        bind.mainGetBuildinOption(key: kOptionHideStopService) == 'Y';
-
-    return Obx(() {
-      if (hideStopService && !serviceStop.value) {
-        return const Offstage();
-      }
-
-      return _Card(
-        title: 'Service',
-        description: 'service_card_tip',
-        title_suffix: [
-          ElevatedButton.icon(
-            onPressed: serviceBtnEnabled.value
-                ? () {
-                    () async {
-                      serviceBtnEnabled.value = false;
-                      await start_service(serviceStop.value);
-                      Future.delayed(const Duration(seconds: 1), () {
-                        serviceBtnEnabled.value = true;
-                      });
-                    }();
-                  }
-                : null,
-            icon: Icon(
-              serviceStop.value
-                  ? Icons.play_circle_outline_rounded
-                  : Icons.stop_circle_outlined,
-              size: 19,
-            ),
-            label: Text(translate(serviceStop.value ? 'Start' : 'Stop')),
-          ),
-        ],
-        children: const [],
-      );
-    });
-  }
-
-  Widget other() {
-    final showAutoUpdate = isWindows && bind.mainIsInstalled();
-    final children = <Widget>[
-      if (!isWeb && !bind.isIncomingOnly())
-        _OptionCheckBox(context, 'Confirm before closing multiple tabs',
-            kOptionEnableConfirmClosingTabs,
-            isServer: false),
-      _OptionCheckBox(context, 'Adaptive bitrate', kOptionEnableAbr),
-      if (!isWeb) wallpaper(),
-      if (!isWeb && !bind.isIncomingOnly()) ...[
-        _OptionCheckBox(
-          context,
-          'Open connection in new tab',
-          kOptionOpenNewConnInTabs,
-          isServer: false,
-        ),
-        // though this is related to GUI, but opengl problem affects all users, so put in config rather than local
-        if (isLinux)
-          Tooltip(
-            message: translate('software_render_tip'),
-            child: _OptionCheckBox(
-              context,
-              "Always use software rendering",
-              kOptionAllowAlwaysSoftwareRender,
-            ),
-          ),
-        if (!isWeb)
-          Tooltip(
-            message: translate('texture_render_tip'),
-            child: _OptionCheckBox(
-              context,
-              "Use texture rendering",
-              kOptionTextureRender,
-              optGetter: bind.mainGetUseTextureRender,
-              optSetter: (k, v) async =>
-                  await bind.mainSetLocalOption(key: k, value: v ? 'Y' : 'N'),
-            ),
-          ),
-        if (isWindows)
-          Tooltip(
-            message: translate('d3d_render_tip'),
-            child: _OptionCheckBox(
-              context,
-              "Use D3D rendering",
-              kOptionD3DRender,
-              isServer: false,
-            ),
-          ),
-        if (!isWeb && !bind.isCustomClient())
-          _OptionCheckBox(
-            context,
-            'Check for software update on startup',
-            kOptionEnableCheckUpdate,
-            isServer: false,
-            enabled: false, // Disabled by LUODA
-          ),
-        if (showAutoUpdate)
-          _OptionCheckBox(
-            context,
-            'Auto update',
-            kOptionAllowAutoUpdate,
-            isServer: true,
-            enabled: false, // Disabled by LUODA
-          ),
-        if (isWindows && !bind.isOutgoingOnly())
-          _OptionCheckBox(
-            context,
-            'Capture screen using DirectX',
-            kOptionDirectxCapture,
-          ),
-        if (!bind.isIncomingOnly()) ...[
-          _OptionCheckBox(
-            context,
-            'Enable UDP hole punching',
-            kOptionEnableUdpPunch,
-            isServer: false,
-          ),
-          _OptionCheckBox(
-            context,
-            'Enable IPv6 P2P connection',
-            kOptionEnableIpv6Punch,
-            isServer: false,
-          ),
-        ],
-      ],
-    ];
-
-    // Add client-side wakelock option for desktop platforms
-    if (!bind.isIncomingOnly()) {
-      children.add(_OptionCheckBox(
-        context,
-        'keep-awake-during-outgoing-sessions-label',
-        kOptionKeepAwakeDuringOutgoingSessions,
-        isServer: false,
-      ));
-    }
-
-    if (!isWeb && bind.mainShowOption(key: kOptionAllowLinuxHeadless)) {
-      children.add(_OptionCheckBox(
-          context, 'Allow linux headless', kOptionAllowLinuxHeadless));
-    }
-    if (!bind.isDisableAccount()) {
-      children.add(_OptionCheckBox(
-        context,
-        'note-at-conn-end-tip',
-        kOptionAllowAskForNoteAtEndOfConnection,
-        isServer: false,
-        optSetter: (key, value) async {
-          if (value && !gFFI.userModel.isLogin) {
-            final res = await loginDialog();
-            if (res != true) return;
-          }
-          await mainSetLocalBoolOption(key, value);
-        },
-      ));
-    }
-    return _Card(title: 'Other', children: children);
-  }
-
-  Widget wallpaper() {
-    if (bind.isOutgoingOnly()) {
-      return const Offstage();
-    }
-
-    return futureBuilder(future: () async {
-      final support = await bind.mainSupportRemoveWallpaper();
-      return support;
-    }(), hasData: (data) {
-      if (data is bool && data == true) {
-        bool value = mainGetBoolOptionSync(kOptionAllowRemoveWallpaper);
-        return Row(
-          children: [
-            Flexible(
-              child: _OptionCheckBox(
-                context,
-                'Remove wallpaper during incoming sessions',
-                kOptionAllowRemoveWallpaper,
-                update: (bool v) {
-                  setState(() {});
-                },
-              ),
-            ),
-            if (value)
-              _CountDownButton(
-                text: 'Test',
-                second: 5,
-                onPressed: () {
-                  bind.mainTestWallpaper(second: 5);
-                },
-              )
-          ],
-        );
-      }
-
-      return Offstage();
-    });
-  }
-
-  Widget hwcodec() {
-    final hwcodec = bind.mainHasHwcodec();
-    final vram = bind.mainHasVram();
-    return Offstage(
-      offstage: !(hwcodec || vram),
-      child: _Card(title: 'Hardware Codec', children: [
-        _OptionCheckBox(
-          context,
-          'Enable hardware codec',
-          kOptionEnableHwcodec,
-          update: (bool v) {
-            if (v) {
-              bind.mainCheckHwcodec();
-            }
-          },
-        )
-      ]),
-    );
-  }
-
-  Widget audio(BuildContext context) {
-    if (bind.isOutgoingOnly()) {
-      return const Offstage();
-    }
-
-    builder(devices, currentDevice, setDevice) {
-      final child = SizedBox(
-        width: 300,
-        child: ComboBox(
-          keys: devices,
-          values: devices,
-          initialKey: currentDevice,
-          onChanged: (key) async {
-            setDevice(key);
-            setState(() {});
-          },
-        ),
-      );
-      return _Card(
-        title: 'Audio Input Device',
-        title_suffix: [child],
-        children: const [],
-      );
-    }
-
-    return AudioInput(builder: builder, isCm: false, isVoiceCall: false);
-  }
-
-  Widget record(BuildContext context) {
-    final showRootDir = isWindows && bind.mainIsInstalled();
-    return futureBuilder(future: () async {
-      String user_dir = bind.mainVideoSaveDirectory(root: false);
-      String root_dir =
-          showRootDir ? bind.mainVideoSaveDirectory(root: true) : '';
-      bool user_dir_exists = await Directory(user_dir).exists();
-      bool root_dir_exists =
-          showRootDir ? await Directory(root_dir).exists() : false;
-      return {
-        'user_dir': user_dir,
-        'root_dir': root_dir,
-        'user_dir_exists': user_dir_exists,
-        'root_dir_exists': root_dir_exists,
-      };
-    }(), hasData: (data) {
-      Map<String, dynamic> map = data as Map<String, dynamic>;
-      String user_dir = map['user_dir']!;
-      String root_dir = map['root_dir']!;
-      bool root_dir_exists = map['root_dir_exists']!;
-      bool user_dir_exists = map['user_dir_exists']!;
-      return _Card(
-        title: 'Recording',
-        description: 'recording_card_tip',
-        children: [
-        if (!bind.isOutgoingOnly())
-          _OptionCheckBox(context, 'Automatically record incoming sessions',
-              kOptionAllowAutoRecordIncoming),
-        if (!bind.isIncomingOnly())
-          _OptionCheckBox(context, 'Automatically record outgoing sessions',
-              kOptionAllowAutoRecordOutgoing,
-              isServer: false),
-        if (showRootDir && !bind.isOutgoingOnly())
-          Row(
-            children: [
-              Text(
-                  '${translate(bind.isIncomingOnly() ? "Directory" : "Incoming")}:'),
-              Expanded(
-                child: GestureDetector(
-                    onTap: root_dir_exists
-                        ? () => launchUrl(Uri.file(root_dir))
-                        : null,
-                    child: Text(
-                      root_dir,
-                      softWrap: true,
-                      style: root_dir_exists
-                          ? const TextStyle(
-                              decoration: TextDecoration.underline)
-                          : null,
-                    )).marginOnly(left: 10),
-              ),
-            ],
-          ).marginOnly(left: _kContentHMargin),
-        if (!(showRootDir && bind.isIncomingOnly()))
-          Row(
-            children: [
-              Text(
-                  '${translate((showRootDir && !bind.isOutgoingOnly()) ? "Outgoing" : "Directory")}:'),
-              Expanded(
-                child: GestureDetector(
-                    onTap: user_dir_exists
-                        ? () => launchUrl(Uri.file(user_dir))
-                        : null,
-                    child: Text(
-                      user_dir,
-                      softWrap: true,
-                      style: user_dir_exists
-                          ? const TextStyle(
-                              decoration: TextDecoration.underline)
-                          : null,
-                    )).marginOnly(left: 10),
-              ),
-              ElevatedButton(
-                      onPressed: isOptionFixed(kOptionVideoSaveDirectory)
-                          ? null
-                          : () async {
-                              String? initialDirectory;
-                              if (await Directory.fromUri(
-                                      Uri.directory(user_dir))
-                                  .exists()) {
-                                initialDirectory = user_dir;
-                              }
-                              String? selectedDirectory =
-                                  await FilePicker.platform.getDirectoryPath(
-                                      initialDirectory: initialDirectory);
-                              if (selectedDirectory != null) {
-                                await bind.mainSetLocalOption(
-                                    key: kOptionVideoSaveDirectory,
-                                    value: selectedDirectory);
-                                setState(() {});
-                              }
-                            },
-                      child: Text(translate('Change')))
-                  .marginOnly(left: 5),
-            ],
-          ).marginOnly(left: _kContentHMargin),
-      ]);
-    });
-  }
-
-  Widget language() {
-    return futureBuilder(
-      future: () async {
-        String langs = await bind.mainGetLangs();
-        return {'langs': langs};
-      }(),
-      hasData: (res) {
-        Map<String, String> data = res as Map<String, String>;
-        List<dynamic> langsList = jsonDecode(data['langs']!);
-        Map<String, String> langsMap = {for (var v in langsList) v[0]: v[1]};
-        List<String> keys = langsMap.keys.toList();
-        List<String> values = langsMap.values.toList();
-        keys.insert(0, defaultOptionLang);
-        values.insert(0, translate('Default'));
-        String currentKey = bind.mainGetLocalOption(key: kCommConfKeyLang);
-        if (!keys.contains(currentKey)) {
-          currentKey = defaultOptionLang;
-        }
-        final isOptFixed = isOptionFixed(kCommConfKeyLang);
-        return _Card(
-          title: 'Language',
-          description: 'language_card_tip',
-          title_suffix: [
-            SizedBox(
-              width: 300,
-              child: ComboBox(
-                keys: keys,
-                values: values,
-                initialKey: currentKey,
-                onChanged: (key) async {
-                  await bind.mainSetLocalOption(
-                    key: kCommConfKeyLang,
-                    value: key,
-                  );
-                  if (isWeb) reloadCurrentWindow();
-                  if (!isWeb) reloadAllWindows();
-                  if (!isWeb) bind.mainChangeLanguage(lang: key);
-                },
-                enabled: !isOptFixed,
-              ),
-            ),
-          ],
-          children: const [],
-        );
-      },
-    );
-  }
-}
-
-enum _AccessMode {
-  custom,
-  full,
-  view,
-}
-
-class _Safety extends StatefulWidget {
-  const _Safety({Key? key}) : super(key: key);
-
-  @override
-  State<_Safety> createState() => _SafetyState();
-}
-
-class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
-  @override
-  bool get wantKeepAlive => true;
-  bool locked = bind.mainIsInstalled();
-  final scrollController = ScrollController();
-
-  @override
-  Widget build(BuildContext context) {
-    super.build(context);
-    return SingleChildScrollView(
-        controller: scrollController,
-        child: Column(
-          children: [
-            _lock(locked, 'Unlock Security Settings', () {
-              locked = false;
-              setState(() => {});
-            }),
-            preventMouseKeyBuilder(
-              block: locked,
-              child: Column(children: [
-                permissions(context),
-                password(context),
-                _Card(
-                  title: '2FA',
-                  description: 'two_factor_card_tip',
-                  showIcon: true,
-                  children: [tfa()],
-                ),
-                if (!isChangeIdDisabled())
-                  _Card(
-                    title: 'ID',
-                    description: 'device_id_card_tip',
-                    showIcon: true,
-                    children: [changeId()],
-                  ),
-                more(context),
-              ]),
-            ),
-          ],
-        )).marginOnly(bottom: _kListViewBottomMargin);
-  }
-
-  Widget tfa() {
-    bool enabled = !locked;
-    // Simple temp wrapper for PR check
-    tmpWrapper() {
-      RxBool has2fa = bind.mainHasValid2FaSync().obs;
-      RxBool hasBot = bind.mainHasValidBotSync().obs;
-      update() async {
-        has2fa.value = bind.mainHasValid2FaSync();
-        setState(() {});
-      }
-
-      onChanged(bool? checked) async {
-        if (checked == false) {
-          CommonConfirmDialog(
-              gFFI.dialogManager, translate('cancel-2fa-confirm-tip'), () {
-            change2fa(callback: update);
-          });
-        } else {
-          change2fa(callback: update);
-        }
-      }
-
-      final tfa = GestureDetector(
-        child: InkWell(
-          child: Obx(() => Row(
-                children: [
-                  Expanded(
-                      child: Text(
-                    translate('enable-2fa-title'),
-                    style:
-                        TextStyle(color: disabledTextColor(context, enabled)),
-                  )),
-                  Switch(
-                    value: has2fa.value,
-                    onChanged: enabled ? (value) => onChanged(value) : null,
-                  ),
-                ],
-              )),
-        ),
-        onTap: enabled ? () => onChanged(!has2fa.value) : null,
-      ).marginOnly(left: _kCheckBoxLeftMargin);
-      if (!has2fa.value) {
-        return tfa;
-      }
-      updateBot() async {
-        hasBot.value = bind.mainHasValidBotSync();
-        setState(() {});
-      }
-
-      onChangedBot(bool? checked) async {
-        if (checked == false) {
-          CommonConfirmDialog(
-              gFFI.dialogManager, translate('cancel-bot-confirm-tip'), () {
-            changeBot(callback: updateBot);
-          });
-        } else {
-          changeBot(callback: updateBot);
-        }
-      }
-
-      final bot = GestureDetector(
-        child: Tooltip(
-          waitDuration: Duration(milliseconds: 300),
-          message: translate("enable-bot-tip"),
-          child: InkWell(
-              child: Obx(() => Row(
-                    children: [
-                      Checkbox(
-                              value: hasBot.value,
-                              onChanged: enabled ? onChangedBot : null)
-                          .marginOnly(right: 5),
-                      Expanded(
-                          child: Text(
-                        translate('Telegram bot'),
-                        style: TextStyle(
-                            color: disabledTextColor(context, enabled)),
-                      ))
-                    ],
-                  ))),
-        ),
-        onTap: () {
-          onChangedBot(!hasBot.value);
-        },
-      ).marginOnly(left: _kCheckBoxLeftMargin + 30);
-
-      final trust = Row(
-        children: [
-          Flexible(
-            child: Tooltip(
-              waitDuration: Duration(milliseconds: 300),
-              message: translate("enable-trusted-devices-tip"),
-              child: _OptionCheckBox(context, "Enable trusted devices",
-                  kOptionEnableTrustedDevices,
-                  enabled: !locked, update: (v) {
-                setState(() {});
-              }),
-            ),
-          ),
-          if (mainGetBoolOptionSync(kOptionEnableTrustedDevices))
-            ElevatedButton(
-                onPressed: locked
-                    ? null
-                    : () {
-                        manageTrustedDeviceDialog();
-                      },
-                child: Text(translate('Manage trusted devices')))
-        ],
-      ).marginOnly(left: 30);
-
-      return Column(
-        children: [tfa, bot, trust],
-      );
-    }
-
-    return tmpWrapper();
-  }
-
-  Widget changeId() {
-    return ChangeNotifierProvider.value(
-        value: gFFI.serverModel,
-        child: Consumer<ServerModel>(builder: ((context, model, child) {
-          return _Button('Change ID', changeIdDialog,
-              enabled: !locked && model.connectStatus > 0);
-        })));
-  }
-
-  Widget permissions(context) {
-    bool enabled = !locked;
-    // Simple temp wrapper for PR check
-    tmpWrapper() {
-      String accessMode = bind.mainGetOptionSync(key: kOptionAccessMode);
-      _AccessMode mode;
-      if (accessMode == 'full') {
-        mode = _AccessMode.full;
-      } else if (accessMode == 'view') {
-        mode = _AccessMode.view;
-      } else {
-        mode = _AccessMode.custom;
-      }
-      String initialKey;
-      bool? fakeValue;
-      switch (mode) {
-        case _AccessMode.custom:
-          initialKey = '';
-          fakeValue = null;
-          break;
-        case _AccessMode.full:
-          initialKey = 'full';
-          fakeValue = true;
-          break;
-        case _AccessMode.view:
-          initialKey = 'view';
-          fakeValue = false;
-          break;
-      }
-
-      return _Card(
-        title: 'Permissions',
-        description: 'permissions_card_tip',
-        showIcon: true,
-        title_suffix: [
-          SizedBox(
-            width: 220,
-            child: ComboBox(
-              keys: [defaultOptionAccessMode, 'full', 'view'],
-              values: [
-                translate('Custom'),
-                translate('Full Access'),
-                translate('Screen Share'),
-              ],
-              enabled: enabled && !isOptionFixed(kOptionAccessMode),
-              initialKey: initialKey,
-              onChanged: (mode) async {
-                await bind.mainSetOption(key: kOptionAccessMode, value: mode);
-                setState(() {});
-              },
-            ),
-          ),
-        ],
-        children: [
-          _ResponsiveSettingGrid(
-            children: [
-              _OptionCheckBox(
-                context,
-                'Enable keyboard/mouse',
-                kOptionEnableKeyboard,
-                enabled: enabled,
-                fakeValue: fakeValue,
-              ),
-              if (isWindows)
-                _OptionCheckBox(
-                  context,
-                  'Enable remote printer',
-                  kOptionEnableRemotePrinter,
-                  enabled: enabled,
-                  fakeValue: fakeValue,
-                ),
-              _OptionCheckBox(
-                context,
-                'Enable clipboard',
-                kOptionEnableClipboard,
-                enabled: enabled,
-                fakeValue: fakeValue,
-              ),
-              _OptionCheckBox(
-                context,
-                'Enable file transfer',
-                kOptionEnableFileTransfer,
-                enabled: enabled,
-                fakeValue: fakeValue,
-              ),
-              _OptionCheckBox(
-                context,
-                'Enable audio',
-                kOptionEnableAudio,
-                enabled: enabled,
-                fakeValue: fakeValue,
-              ),
-              _OptionCheckBox(
-                context,
-                'Enable camera',
-                kOptionEnableCamera,
-                enabled: enabled,
-                fakeValue: fakeValue,
-              ),
-              _OptionCheckBox(
-                context,
-                'Enable terminal',
-                kOptionEnableTerminal,
-                enabled: enabled,
-                fakeValue: fakeValue,
-              ),
-              _OptionCheckBox(
-                context,
-                'Enable TCP tunneling',
-                kOptionEnableTunnel,
-                enabled: enabled,
-                fakeValue: fakeValue,
-              ),
-              _OptionCheckBox(
-                context,
-                'Enable remote restart',
-                kOptionEnableRemoteRestart,
-                enabled: enabled,
-                fakeValue: fakeValue,
-              ),
-              _OptionCheckBox(
-                context,
-                'Enable recording session',
-                kOptionEnableRecordSession,
-                enabled: enabled,
-                fakeValue: fakeValue,
-              ),
-              if (isWindows)
-                _OptionCheckBox(
-                  context,
-                  'Enable blocking user input',
-                  kOptionEnableBlockInput,
-                  enabled: enabled,
-                  fakeValue: fakeValue,
-                ),
-              _OptionCheckBox(
-                context,
-                'Enable remote configuration modification',
-                kOptionAllowRemoteConfigModification,
-                enabled: enabled,
-                fakeValue: fakeValue,
-              ),
-            ],
-          ),
-        ],
-      );
-    }
-
-    return tmpWrapper();
-  }
-
-  Widget password(BuildContext context) {
-    return ChangeNotifierProvider.value(
-      value: gFFI.serverModel,
-      child: Consumer<ServerModel>(
-        builder: ((context, model, child) {
-          List<String> passwordKeys = [
-            kUseTemporaryPassword,
-            kUsePermanentPassword,
-            kUseBothPasswords,
-          ];
-          List<String> passwordValues = [
-            translate('Use one-time password'),
-            translate('Use permanent password'),
-            translate('Use both passwords'),
-          ];
-          bool tmpEnabled = model.verificationMethod != kUsePermanentPassword;
-          bool permEnabled = model.verificationMethod != kUseTemporaryPassword;
-          String currentValue =
-              passwordValues[passwordKeys.indexOf(model.verificationMethod)];
-          List<Widget> radios = passwordValues
-              .map(
-                (value) => _Radio<String>(
-                  context,
-                  value: value,
-                  groupValue: currentValue,
-                  label: value,
-                  onChanged: locked
-                      ? null
-                      : ((value) async {
-                          callback() async {
-                            await model.setVerificationMethod(
-                              passwordKeys[passwordValues.indexOf(value)],
-                            );
-                            await model.updatePasswordModel();
-                          }
-
-                          if (value ==
-                                  passwordValues[passwordKeys.indexOf(
-                                    kUsePermanentPassword,
-                                  )] &&
-                              (await bind.mainGetCommon(
-                                    key: "permanent-password-set",
-                                  )) !=
-                                  "true") {
-                            if (isChangePermanentPasswordDisabled()) {
-                              await callback();
-                              return;
-                            }
-                            setPasswordDialog(notEmptyCallback: callback);
-                          } else {
-                            await callback();
-                          }
-                        }),
-                ),
-              )
-              .toList();
-
-          var onChanged = tmpEnabled && !locked
-              ? (value) {
-                  if (value != null) {
-                    () async {
-                      await model.setTemporaryPasswordLength(value.toString());
-                      await model.updatePasswordModel();
-                    }();
-                  }
-                }
-              : null;
-          List<Widget> lengthRadios = ['4', '6', '8', '10']
-              .map(
-                (value) => GestureDetector(
-                  child: Row(
-                    children: [
-                      Radio(
-                        value: value,
-                        groupValue: model.temporaryPasswordLength,
-                        onChanged: onChanged,
-                      ),
-                      Text(
-                        value,
-                        style: TextStyle(
-                          color: disabledTextColor(context, onChanged != null),
-                        ),
-                      ),
-                    ],
-                  ).paddingOnly(right: 10),
-                  onTap: () => onChanged?.call(value),
-                ),
-              )
-              .toList();
-
-          final isOptFixedNumOTP = isOptionFixed(
-            kOptionAllowNumericOneTimePassword,
-          );
-          final isNumOPTChangable = !isOptFixedNumOTP && tmpEnabled && !locked;
-          final numericOneTimePassword = GestureDetector(
-            child: InkWell(
-              child: Row(
-                children: [
-                  Checkbox(
-                    value: model.allowNumericOneTimePassword,
-                    onChanged: isNumOPTChangable
-                        ? (bool? v) {
-                            model.switchAllowNumericOneTimePassword();
-                          }
-                        : null,
-                  ).marginOnly(right: 5),
-                  Expanded(
-                    child: Text(
-                      translate('Numeric one-time password'),
-                      style: TextStyle(
-                        color: disabledTextColor(context, isNumOPTChangable),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            onTap: isNumOPTChangable
-                ? () => model.switchAllowNumericOneTimePassword()
-                : null,
-          ).marginOnly(left: _kContentHSubMargin - 5);
-
-          final modeKeys = <String>[
-            'password',
-            'click',
-            defaultOptionApproveMode,
-          ];
-          final modeValues = [
-            translate('Accept sessions via password'),
-            translate('Accept sessions via click'),
-            translate('Accept sessions via both'),
-          ];
-          var modeInitialKey = model.approveMode;
-          if (!modeKeys.contains(modeInitialKey)) {
-            modeInitialKey = defaultOptionApproveMode;
-          }
-          final usePassword = model.approveMode != 'click';
-
-          final isApproveModeFixed = isOptionFixed(kOptionApproveMode);
-          return _Card(
-            title: 'Password',
-            description: 'password_card_tip',
-            showIcon: true,
-            title_suffix: [
-              SizedBox(
-                width: 260,
-                child: ComboBox(
-                  enabled: !locked && !isApproveModeFixed,
-                  keys: modeKeys,
-                  values: modeValues,
-                  initialKey: modeInitialKey,
-                  onChanged: (key) => model.setApproveMode(key),
-                ),
-              ),
-            ],
-            children: [
-              if (usePassword) radios[0],
-              if (usePassword)
-                _SubLabeledWidget(
-                  context,
-                  'One-time password length',
-                  Row(children: [...lengthRadios]),
-                  enabled: tmpEnabled && !locked,
-                ),
-              if (usePassword) numericOneTimePassword,
-              if (usePassword) radios[1],
-              if (usePassword && !isChangePermanentPasswordDisabled())
-                _SubButton(
-                  'Set permanent password',
-                  setPasswordDialog,
-                  permEnabled && !locked,
-                ),
-              // if (usePassword)
-              //   hide_cm(!locked).marginOnly(left: _kContentHSubMargin - 6),
-              if (usePassword) radios[2],
-            ],
-          );
-        }),
-      ),
-    );
-  }
-
-  Widget more(BuildContext context) {
-    bool enabled = !locked;
-    return _Card(title: 'Security', children: [
-      shareRdp(context, enabled),
-      _OptionCheckBox(context, 'Deny LAN discovery', 'enable-lan-discovery',
-          reverse: true, enabled: enabled),
-      ...directIp(context),
-      whitelist(),
-      ...autoDisconnect(context),
-      _OptionCheckBox(context, 'keep-awake-during-incoming-sessions-label',
-          kOptionKeepAwakeDuringIncomingSessions,
-          reverse: false, enabled: enabled),
-      if (bind.mainIsInstalled())
-        _OptionCheckBox(context, 'allow-only-conn-window-open-tip',
-            'allow-only-conn-window-open',
-            reverse: false, enabled: enabled),
-      if (bind.mainIsInstalled() && !isUnlockPinDisabled()) unlockPin()
-    ]);
-  }
-
-  shareRdp(BuildContext context, bool enabled) {
-    onChanged(bool b) async {
-      await bind.mainSetShareRdp(enable: b);
-      setState(() {});
-    }
-
-    bool value = bind.mainIsShareRdp();
-    return Offstage(
-      offstage: !(isWindows && bind.mainIsInstalled()),
-      child: GestureDetector(
-          child: Row(
-            children: [
-              Checkbox(
-                      value: value,
-                      onChanged: enabled ? (_) => onChanged(!value) : null)
-                  .marginOnly(right: 5),
-              Expanded(
-                child: Text(translate('Enable RDP session sharing'),
-                    style:
-                        TextStyle(color: disabledTextColor(context, enabled))),
-              )
-            ],
-          ).marginOnly(left: _kCheckBoxLeftMargin),
-          onTap: enabled ? () => onChanged(!value) : null),
-    );
-  }
-
-  List<Widget> directIp(BuildContext context) {
-    TextEditingController controller = TextEditingController();
-    update(bool v) => setState(() {});
-    RxBool applyEnabled = false.obs;
-    return [
-      _OptionCheckBox(context, 'Enable direct IP access', kOptionDirectServer,
-          update: update, enabled: !locked),
-      () {
-        // Simple temp wrapper for PR check
-        tmpWrapper() {
-          bool enabled = option2bool(kOptionDirectServer,
-              bind.mainGetOptionSync(key: kOptionDirectServer));
-          if (!enabled) applyEnabled.value = false;
-          controller.text =
-              bind.mainGetOptionSync(key: kOptionDirectAccessPort);
-          final isOptFixed = isOptionFixed(kOptionDirectAccessPort);
-          return Offstage(
-            offstage: !enabled,
-            child: _SubLabeledWidget(
-              context,
-              'Port',
-              Row(children: [
-                SizedBox(
-                  width: 95,
-                  child: TextField(
-                    controller: controller,
-                    enabled: enabled && !locked && !isOptFixed,
-                    onChanged: (_) => applyEnabled.value = true,
-                    inputFormatters: [
-                      FilteringTextInputFormatter.allow(RegExp(
-                          r'^([0-9]|[1-9]\d|[1-9]\d{2}|[1-9]\d{3}|[1-5]\d{4}|6[0-4]\d{3}|65[0-4]\d{2}|655[0-2]\d|6553[0-5])$')),
-                    ],
-                    decoration: const InputDecoration(
-                      hintText: '21118',
-                      contentPadding:
-                          EdgeInsets.symmetric(vertical: 12, horizontal: 12),
-                    ),
-                  ).workaroundFreezeLinuxMint().marginOnly(right: 15),
-                ),
-                Obx(() => ElevatedButton(
-                      onPressed: applyEnabled.value &&
-                              enabled &&
-                              !locked &&
-                              !isOptFixed
-                          ? () async {
-                              applyEnabled.value = false;
-                              await bind.mainSetOption(
-                                  key: kOptionDirectAccessPort,
-                                  value: controller.text);
-                            }
-                          : null,
-                      child: Text(
-                        translate('Apply'),
-                      ),
-                    ))
-              ]),
-              enabled: enabled && !locked && !isOptFixed,
-            ),
-          );
-        }
-
-        return tmpWrapper();
-      }(),
-    ];
-  }
-
-  Widget whitelist() {
-    bool enabled = !locked;
-    // Simple temp wrapper for PR check
-    tmpWrapper() {
-      RxBool hasWhitelist = whitelistNotEmpty().obs;
-      update() async {
-        hasWhitelist.value = whitelistNotEmpty();
-      }
-
-      onChanged(bool? checked) async {
-        changeWhiteList(callback: update);
-      }
-
-      final isOptFixed = isOptionFixed(kOptionWhitelist);
-      return GestureDetector(
-        child: Tooltip(
-          message: translate('whitelist_tip'),
-          child: Obx(() => Row(
-                children: [
-                  Checkbox(
-                          value: hasWhitelist.value,
-                          onChanged: enabled && !isOptFixed ? onChanged : null)
-                      .marginOnly(right: 5),
-                  Offstage(
-                    offstage: !hasWhitelist.value,
-                    child: MouseRegion(
-                      child: const Icon(Icons.warning_amber_rounded,
-                              color: Color.fromARGB(255, 255, 204, 0))
-                          .marginOnly(right: 5),
-                      cursor: SystemMouseCursors.click,
-                    ),
-                  ),
-                  Expanded(
-                      child: Text(
-                    translate('Use IP Whitelisting'),
-                    style:
-                        TextStyle(color: disabledTextColor(context, enabled)),
-                  ))
-                ],
-              )),
-        ),
-        onTap: enabled
-            ? () {
-                onChanged(!hasWhitelist.value);
-              }
-            : null,
-      ).marginOnly(left: _kCheckBoxLeftMargin);
-    }
-
-    return tmpWrapper();
-  }
-
-  Widget hide_cm(bool enabled) {
-    return ChangeNotifierProvider.value(
-        value: gFFI.serverModel,
-        child: Consumer<ServerModel>(builder: (context, model, child) {
-          final enableHideCm = model.approveMode == 'password' &&
-              model.verificationMethod == kUsePermanentPassword;
-          onHideCmChanged(bool? b) {
-            if (b != null) {
-              bind.mainSetOption(
-                  key: 'allow-hide-cm', value: bool2option('allow-hide-cm', b));
-            }
-          }
-
-          return Tooltip(
-              message: enableHideCm ? "" : translate('hide_cm_tip'),
-              child: GestureDetector(
-                onTap:
-                    enableHideCm ? () => onHideCmChanged(!model.hideCm) : null,
-                child: Row(
-                  children: [
-                    Checkbox(
-                            value: model.hideCm,
-                            onChanged: enabled && enableHideCm
-                                ? onHideCmChanged
-                                : null)
-                        .marginOnly(right: 5),
-                    Expanded(
-                      child: Text(
-                        translate('Hide connection management window'),
-                        style: TextStyle(
-                            color: disabledTextColor(
-                                context, enabled && enableHideCm)),
-                      ),
-                    ),
-                  ],
-                ),
-              ));
-        }));
-  }
-
-  List<Widget> autoDisconnect(BuildContext context) {
-    TextEditingController controller = TextEditingController();
-    update(bool v) => setState(() {});
-    RxBool applyEnabled = false.obs;
-    return [
-      _OptionCheckBox(
-          context, 'auto_disconnect_option_tip', kOptionAllowAutoDisconnect,
-          update: update, enabled: !locked),
-      () {
-        bool enabled = option2bool(kOptionAllowAutoDisconnect,
-            bind.mainGetOptionSync(key: kOptionAllowAutoDisconnect));
-        if (!enabled) applyEnabled.value = false;
-        controller.text =
-            bind.mainGetOptionSync(key: kOptionAutoDisconnectTimeout);
-        final isOptFixed = isOptionFixed(kOptionAutoDisconnectTimeout);
-        return Offstage(
-          offstage: !enabled,
-          child: _SubLabeledWidget(
-            context,
-            'Timeout in minutes',
-            Row(children: [
-              SizedBox(
-                width: 95,
-                child: TextField(
-                  controller: controller,
-                  enabled: enabled && !locked && !isOptFixed,
-                  onChanged: (_) => applyEnabled.value = true,
-                  inputFormatters: [
-                    FilteringTextInputFormatter.allow(RegExp(
-                        r'^([0-9]|[1-9]\d|[1-9]\d{2}|[1-9]\d{3}|[1-5]\d{4}|6[0-4]\d{3}|65[0-4]\d{2}|655[0-2]\d|6553[0-5])$')),
-                  ],
-                  decoration: const InputDecoration(
-                    hintText: '10',
-                    contentPadding:
-                        EdgeInsets.symmetric(vertical: 12, horizontal: 12),
-                  ),
-                ).workaroundFreezeLinuxMint().marginOnly(right: 15),
-              ),
-              Obx(() => ElevatedButton(
-                    onPressed:
-                        applyEnabled.value && enabled && !locked && !isOptFixed
-                            ? () async {
-                                applyEnabled.value = false;
-                                await bind.mainSetOption(
-                                    key: kOptionAutoDisconnectTimeout,
-                                    value: controller.text);
-                              }
-                            : null,
-                    child: Text(
-                      translate('Apply'),
-                    ),
-                  ))
-            ]),
-            enabled: enabled && !locked && !isOptFixed,
-          ),
-        );
-      }(),
-    ];
-  }
-
-  Widget unlockPin() {
-    bool enabled = !locked;
-    RxString unlockPin = bind.mainGetUnlockPin().obs;
-    update() async {
-      unlockPin.value = bind.mainGetUnlockPin();
-    }
-
-    onChanged(bool? checked) async {
-      changeUnlockPinDialog(unlockPin.value, update);
-    }
-
-    final isOptFixed = isOptionFixed(kOptionWhitelist);
-    return GestureDetector(
-      child: Obx(() => Row(
-            children: [
-              Checkbox(
-                      value: unlockPin.isNotEmpty,
-                      onChanged: enabled && !isOptFixed ? onChanged : null)
-                  .marginOnly(right: 5),
-              Expanded(
-                  child: Text(
-                translate('Unlock with PIN'),
-                style: TextStyle(color: disabledTextColor(context, enabled)),
-              ))
-            ],
-          )),
-      onTap: enabled
-          ? () {
-              onChanged(!unlockPin.isNotEmpty);
-            }
-          : null,
-    ).marginOnly(left: _kCheckBoxLeftMargin);
-  }
-}
-
-class _Network extends StatefulWidget {
-  const _Network({Key? key}) : super(key: key);
-
-  @override
-  State<_Network> createState() => _NetworkState();
-}
-
-class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
-  @override
-  bool get wantKeepAlive => true;
-  bool locked = !isWeb && bind.mainIsInstalled();
-
-  final scrollController = ScrollController();
-
-  @override
-  Widget build(BuildContext context) {
-    super.build(context);
-    return ListView(controller: scrollController, children: [
-      _lock(locked, 'Unlock Network Settings', () {
-        locked = false;
-        setState(() => {});
-      }),
-      preventMouseKeyBuilder(
-        block: locked,
-        child: Column(children: [
-          network(context),
-        ]),
-      ),
-    ]).marginOnly(bottom: _kListViewBottomMargin);
-  }
-
-  Widget network(BuildContext context) {
-    final hideServer =
-        bind.mainGetBuildinOption(key: kOptionHideServerSetting) == 'Y';
-    final hideProxy =
-        isWeb || bind.mainGetBuildinOption(key: kOptionHideProxySetting) == 'Y';
-    final hideWebSocket = isWeb ||
-        bind.mainGetBuildinOption(key: kOptionHideWebSocketSetting) == 'Y';
-
-    if (hideServer && hideProxy && hideWebSocket) {
-      return Offstage();
-    }
-
-    // Helper function to create network setting ListTiles
-    Widget listTile({
-      required IconData icon,
-      required String title,
-      VoidCallback? onTap,
-      Widget? trailing,
-      bool showTooltip = false,
-      String tooltipMessage = '',
-    }) {
-      final titleWidget = showTooltip
-          ? Row(
-              children: [
-                Tooltip(
-                  waitDuration: Duration(milliseconds: 1000),
-                  message: translate(tooltipMessage),
-                  child: Row(
-                    children: [
-                      Text(
-                        translate(title),
-                        style: TextStyle(fontSize: _kContentFontSize),
-                      ),
-                      SizedBox(width: 5),
-                      Icon(
-                        Icons.help_outline,
-                        size: 14,
-                        color: Theme.of(context)
-                            .textTheme
-                            .titleLarge
-                            ?.color
-                            ?.withOpacity(0.7),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            )
-          : Text(
-              translate(title),
-              style: TextStyle(fontSize: _kContentFontSize),
-            );
-
-      return ListTile(
-        leading: Icon(icon, color: _accentColor),
-        title: titleWidget,
-        enabled: !locked,
-        onTap: onTap,
-        trailing: trailing,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-        ),
-        contentPadding: EdgeInsets.symmetric(horizontal: 16),
-        minLeadingWidth: 0,
-        horizontalTitleGap: 10,
-      );
-    }
-
-    Widget switchWidget(IconData icon, String title, String tooltipMessage,
-            String optionKey) =>
-        listTile(
-          icon: icon,
-          title: title,
-          showTooltip: true,
-          tooltipMessage: tooltipMessage,
-          trailing: Switch(
-            value: mainGetBoolOptionSync(optionKey),
-            onChanged: locked || isOptionFixed(optionKey)
-                ? null
-                : (value) {
-                    mainSetBoolOption(optionKey, value);
-                    setState(() {});
-                  },
-          ),
-        );
-
-    final outgoingOnly = bind.isOutgoingOnly();
-
-    final divider = const Divider(height: 1, indent: 16, endIndent: 16);
-    return _Card(
-      title: 'Network',
-      children: [
-        Container(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (!hideServer)
-                listTile(
-                  icon: Icons.dns_outlined,
-                  title: 'ID/Relay Server',
-                  onTap: () => showServerSettings(gFFI.dialogManager, setState),
-                ),
-              if (!hideProxy && !hideServer) divider,
-              if (!hideProxy)
-                listTile(
-                  icon: Icons.network_ping_outlined,
-                  title: 'Socks5/Http(s) Proxy',
-                  onTap: changeSocks5Proxy,
-                ),
-              if (!hideWebSocket && (!hideServer || !hideProxy)) divider,
-              if (!hideWebSocket)
-                switchWidget(
-                    Icons.web_asset_outlined,
-                    'Use WebSocket',
-                    '${translate('websocket_tip')}\n\n${translate('server-oss-not-support-tip')}',
-                    kOptionAllowWebSocket),
-              if (!isWeb)
-                futureBuilder(
-                  future: bind.mainIsUsingPublicServer(),
-                  hasData: (isUsingPublicServer) {
-                    if (isUsingPublicServer) {
-                      return Offstage();
-                    } else {
-                      return Column(
-                        children: [
-                          if (!hideServer || !hideProxy || !hideWebSocket)
-                            divider,
-                          switchWidget(
-                              Icons.no_encryption_outlined,
-                              'Allow insecure TLS fallback',
-                              'allow-insecure-tls-fallback-tip',
-                              kOptionAllowInsecureTLSFallback),
-                          if (!outgoingOnly) divider,
-                          if (!outgoingOnly)
-                            listTile(
-                              icon: Icons.lan_outlined,
-                              title: 'Disable UDP',
-                              showTooltip: true,
-                              tooltipMessage:
-                                  '${translate('disable-udp-tip')}\n\n${translate('server-oss-not-support-tip')}',
-                              trailing: Switch(
-                                value: bind.mainGetOptionSync(
-                                        key: kOptionDisableUdp) ==
-                                    'Y',
-                                onChanged:
-                                    locked || isOptionFixed(kOptionDisableUdp)
-                                        ? null
-                                        : (value) async {
-                                            await bind.mainSetOption(
-                                                key: kOptionDisableUdp,
-                                                value: value ? 'Y' : 'N');
-                                            setState(() {});
-                                          },
-                              ),
-                            ),
-                        ],
-                      );
-                    }
-                  },
-                ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _Display extends StatefulWidget {
-  const _Display({Key? key}) : super(key: key);
-
-  @override
-  State<_Display> createState() => _DisplayState();
-}
-
-class _DisplayState extends State<_Display> {
-  @override
-  Widget build(BuildContext context) {
-    final scrollController = ScrollController();
-    return ListView(controller: scrollController, children: [
-      viewStyle(context),
-      scrollStyle(context),
-      imageQuality(context),
-      codec(context),
-      if (isDesktop) trackpadSpeed(context),
-      if (!isWeb) privacyModeImpl(context),
-      other(context),
-    ]).marginOnly(bottom: _kListViewBottomMargin);
-  }
-
-  Widget viewStyle(BuildContext context) {
-    final isOptFixed = isOptionFixed(kOptionViewStyle);
-    onChanged(String value) async {
-      await bind.mainSetUserDefaultOption(key: kOptionViewStyle, value: value);
-      setState(() {});
-    }
-
-    final groupValue = bind.mainGetUserDefaultOption(key: kOptionViewStyle);
-    return _Card(title: 'Default View Style', children: [
-      _Radio(context,
-          value: kRemoteViewStyleOriginal,
-          groupValue: groupValue,
-          label: 'Scale original',
-          onChanged: isOptFixed ? null : onChanged),
-      _Radio(context,
-          value: kRemoteViewStyleAdaptive,
-          groupValue: groupValue,
-          label: 'Scale adaptive',
-          onChanged: isOptFixed ? null : onChanged),
-    ]);
-  }
-
-  Widget scrollStyle(BuildContext context) {
-    final isOptFixed = isOptionFixed(kOptionScrollStyle);
-    onChanged(String value) async {
-      await bind.mainSetUserDefaultOption(
-          key: kOptionScrollStyle, value: value);
-      setState(() {});
-    }
-
-    final groupValue = bind.mainGetUserDefaultOption(key: kOptionScrollStyle);
-
-    onEdgeScrollEdgeThicknessChanged(double value) async {
-      await bind.mainSetUserDefaultOption(
-          key: kOptionEdgeScrollEdgeThickness, value: value.round().toString());
-      setState(() {});
-    }
-
-    return _Card(title: 'Default Scroll Style', children: [
-      _Radio(context,
-          value: kRemoteScrollStyleAuto,
-          groupValue: groupValue,
-          label: 'ScrollAuto',
-          onChanged: isOptFixed ? null : onChanged),
-      _Radio(context,
-          value: kRemoteScrollStyleBar,
-          groupValue: groupValue,
-          label: 'Scrollbar',
-          onChanged: isOptFixed ? null : onChanged),
-      if (!isWeb) ...[
-        _Radio(context,
-            value: kRemoteScrollStyleEdge,
-            groupValue: groupValue,
-            label: 'ScrollEdge',
-            onChanged: isOptFixed ? null : onChanged),
-        Offstage(
-            offstage: groupValue != kRemoteScrollStyleEdge,
-            child: EdgeThicknessControl(
-              value: double.tryParse(bind.mainGetUserDefaultOption(
-                      key: kOptionEdgeScrollEdgeThickness)) ??
-                  100.0,
-              onChanged: isOptionFixed(kOptionEdgeScrollEdgeThickness)
-                  ? null
-                  : onEdgeScrollEdgeThicknessChanged,
-            )),
-      ],
-    ]);
-  }
-
-  Widget imageQuality(BuildContext context) {
-    onChanged(String value) async {
-      await bind.mainSetUserDefaultOption(
-          key: kOptionImageQuality, value: value);
-      setState(() {});
-    }
-
-    final isOptFixed = isOptionFixed(kOptionImageQuality);
-    final groupValue = bind.mainGetUserDefaultOption(key: kOptionImageQuality);
-    return _Card(title: 'Default Image Quality', children: [
-      _Radio(context,
-          value: kRemoteImageQualityBest,
-          groupValue: groupValue,
-          label: 'Good image quality',
-          onChanged: isOptFixed ? null : onChanged),
-      _Radio(context,
-          value: kRemoteImageQualityBalanced,
-          groupValue: groupValue,
-          label: 'Balanced',
-          onChanged: isOptFixed ? null : onChanged),
-      _Radio(context,
-          value: kRemoteImageQualityLow,
-          groupValue: groupValue,
-          label: 'Optimize reaction time',
-          onChanged: isOptFixed ? null : onChanged),
-      _Radio(context,
-          value: kRemoteImageQualityCustom,
-          groupValue: groupValue,
-          label: 'Custom',
-          onChanged: isOptFixed ? null : onChanged),
-      Offstage(
-        offstage: groupValue != kRemoteImageQualityCustom,
-        child: customImageQualitySetting(),
-      )
-    ]);
-  }
-
-  Widget trackpadSpeed(BuildContext context) {
-    final initSpeed =
-        (int.tryParse(bind.mainGetUserDefaultOption(key: kKeyTrackpadSpeed)) ??
-            kDefaultTrackpadSpeed);
-    final curSpeed = SimpleWrapper(initSpeed);
-    void onDebouncer(int v) {
-      bind.mainSetUserDefaultOption(
-          key: kKeyTrackpadSpeed, value: v.toString());
-      // It's better to notify all sessions that the default speed is changed.
-      // But it may also be ok to take effect in the next connection.
-    }
-
-    return _Card(title: 'Default trackpad speed', children: [
-      TrackpadSpeedWidget(
-        value: curSpeed,
-        onDebouncer: onDebouncer,
-      ),
-    ]);
-  }
-
-  Widget codec(BuildContext context) {
-    onChanged(String value) {
-      bind.mainSetUserDefaultOption(
-          key: kOptionCodecPreference, value: value);
-      setState(() {});
-    }
-
-    final groupValue =
-        bind.mainGetUserDefaultOption(key: kOptionCodecPreference);
-    var hwRadios = [];
-    final isOptFixed = isOptionFixed(kOptionCodecPreference);
-    try {
-      final Map codecsJson = jsonDecode(bind.mainSupportedHwdecodings());
-      final h264 = codecsJson['h264'] ?? false;
-      final h265 = codecsJson['h265'] ?? false;
-      if (h264) {
-        hwRadios.add(_Radio(context,
-            value: 'h264',
-            groupValue: groupValue,
-            label: 'H264',
-            onChanged: isOptFixed ? null : onChanged));
-      }
-      if (h265) {
-        hwRadios.add(_Radio(context,
-            value: 'h265',
-            groupValue: groupValue,
-            label: 'H265',
-            onChanged: isOptFixed ? null : onChanged));
-      }
-    } catch (e) {
-      debugPrint("failed to parse supported hwdecodings, err=$e");
-    }
-    return _Card(title: 'Default Codec', children: [
-      _Radio(context,
-          value: 'auto',
-          groupValue: groupValue,
-          label: 'Auto',
-          onChanged: isOptFixed ? null : onChanged),
-      _Radio(context,
-          value: 'vp8',
-          groupValue: groupValue,
-          label: 'VP8',
-          onChanged: isOptFixed ? null : onChanged),
-      _Radio(context,
-          value: 'vp9',
-          groupValue: groupValue,
-          label: 'VP9',
-          onChanged: isOptFixed ? null : onChanged),
-      _Radio(context,
-          value: 'av1',
-          groupValue: groupValue,
-          label: 'AV1',
-          onChanged: isOptFixed ? null : onChanged),
-      ...hwRadios,
-    ]);
-  }
-
-  Widget privacyModeImpl(BuildContext context) {
-    final supportedPrivacyModeImpls = bind.mainSupportedPrivacyModeImpls();
-    late final List<dynamic> privacyModeImpls;
-    try {
-      privacyModeImpls = jsonDecode(supportedPrivacyModeImpls);
-    } catch (e) {
-      debugPrint('failed to parse supported privacy mode impls, err=$e');
-      return Offstage();
-    }
-    if (privacyModeImpls.length < 2) {
-      return Offstage();
-    }
-
-    final key = 'privacy-mode-impl-key';
-    onChanged(String value) async {
-      await bind.mainSetOption(key: key, value: value);
-      setState(() {});
-    }
-
-    String groupValue = bind.mainGetOptionSync(key: key);
-    if (groupValue.isEmpty) {
-      groupValue = bind.mainDefaultPrivacyModeImpl();
-    }
-    return _Card(
-      title: 'Privacy mode',
-      children: privacyModeImpls.map((impl) {
-        final d = impl as List<dynamic>;
-        return _Radio(context,
-            value: d[0] as String,
-            groupValue: groupValue,
-            label: d[1] as String,
-            onChanged: onChanged);
-      }).toList(),
-    );
-  }
-
-  Widget otherRow(String label, String key) {
-    final value = bind.mainGetUserDefaultOption(key: key) == 'Y';
-    final isOptFixed = isOptionFixed(key);
-    onChanged(bool b) async {
-      await bind.mainSetUserDefaultOption(
-          key: key,
-          value: b
-              ? 'Y'
-              : (key == kOptionEnableFileCopyPaste ? 'N' : defaultOptionNo));
-      setState(() {});
-    }
-
-    return GestureDetector(
-        child: Row(
-          children: [
-            Checkbox(
-                    value: value,
-                    onChanged: isOptFixed ? null : (_) => onChanged(!value))
-                .marginOnly(right: 5),
-            Expanded(
-              child: Text(translate(label)),
-            )
-          ],
-        ).marginOnly(left: _kCheckBoxLeftMargin),
-        onTap: isOptFixed ? null : () => onChanged(!value));
-  }
-
-  Widget other(BuildContext context) {
-    final children =
-        otherDefaultSettings().map((e) => otherRow(e.$1, e.$2)).toList();
-    return _Card(title: 'Other Default Options', children: children);
-  }
-}
-
-class _Account extends StatefulWidget {
-  const _Account({Key? key}) : super(key: key);
-
-  @override
-  State<_Account> createState() => _AccountState();
-}
-
-class _AccountState extends State<_Account> {
-  @override
-  Widget build(BuildContext context) {
-    final scrollController = ScrollController();
-    return ListView(
-      controller: scrollController,
-      children: [
-        _Card(title: 'Account', children: [accountAction(), useInfo()]),
-      ],
-    ).marginOnly(bottom: _kListViewBottomMargin);
-  }
-
-  Widget accountAction() {
-    return Obx(() => _Button(
-        gFFI.userModel.userName.value.isEmpty
-            ? 'Login'
-            : '${translate('Logout')} (${gFFI.userModel.accountLabelWithHandle})',
-        () => {
-              gFFI.userModel.userName.value.isEmpty
-                  ? loginDialog()
-                  : logOutConfirmDialog()
-            },
-        icon: gFFI.userModel.userName.value.isEmpty ? Icons.login : Icons.logout));
-  }
-
-  Widget useInfo() {
-    return Obx(() => Offstage(
-          offstage: gFFI.userModel.userName.value.isEmpty,
-          child: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Builder(builder: (context) {
-              final avatarWidget = _buildUserAvatar();
-              return Row(
-                children: [
-                  if (avatarWidget != null) avatarWidget,
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          gFFI.userModel.displayNameOrUserName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        SelectionArea(
-                          child: Text(
-                            '@${gFFI.userModel.userName.value}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 13,
-                              color:
-                                  Theme.of(context).textTheme.bodySmall?.color,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              );
-            }),
-          ),
-        )).marginOnly(left: 18, top: 16);
-  }
-
-  Widget? _buildUserAvatar() {
-    // Resolve relative avatar path at display time
-    final avatar =
-        bind.mainResolveAvatarUrl(avatar: gFFI.userModel.avatar.value);
-    return buildAvatarWidget(
-      avatar: avatar,
-      size: 44,
-    );
-  }
-}
-
-class _Checkbox extends StatefulWidget {
-  final String label;
-  final bool Function() getValue;
-  final Future<void> Function(bool) setValue;
-
-  const _Checkbox(
-      {Key? key,
-      required this.label,
-      required this.getValue,
-      required this.setValue})
-      : super(key: key);
-
-  @override
-  State<_Checkbox> createState() => _CheckboxState();
-}
-
-class _CheckboxState extends State<_Checkbox> {
-  var value = false;
-
-  @override
-  initState() {
-    super.initState();
-    value = widget.getValue();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    onChanged(bool b) async {
-      await widget.setValue(b);
-      setState(() {
-        value = widget.getValue();
-      });
-    }
-
-    return GestureDetector(
-      child: Row(
-        children: [
-          Checkbox(
-            value: value,
-            onChanged: (_) => onChanged(!value),
-          ).marginOnly(right: 5),
-          Expanded(
-            child: Text(translate(widget.label)),
-          )
-        ],
-      ).marginOnly(left: _kCheckBoxLeftMargin),
-      onTap: () => onChanged(!value),
-    );
-  }
-}
-
-class _Plugin extends StatefulWidget {
-  const _Plugin({Key? key}) : super(key: key);
-
-  @override
-  State<_Plugin> createState() => _PluginState();
-}
-
-class _PluginState extends State<_Plugin> {
-  @override
-  Widget build(BuildContext context) {
-    bind.pluginListReload();
-    final scrollController = ScrollController();
-    return ChangeNotifierProvider.value(
-      value: pluginManager,
-      child: Consumer<PluginManager>(builder: (context, model, child) {
-        return ListView(
-          controller: scrollController,
-          children: model.plugins.map((entry) => pluginCard(entry)).toList(),
-        ).marginOnly(bottom: _kListViewBottomMargin);
-      }),
-    );
-  }
-
-  Widget pluginCard(PluginInfo plugin) {
-    return ChangeNotifierProvider.value(
-      value: plugin,
-      child: Consumer<PluginInfo>(
-        builder: (context, model, child) => DesktopSettingsCard(plugin: model),
-      ),
-    );
-  }
-
-  Widget accountAction() {
-    return Obx(() => _Button(
-        gFFI.userModel.userName.value.isEmpty
-            ? 'Login'
-            : '${translate('Logout')} (${gFFI.userModel.accountLabelWithHandle})',
-        () => {
-              gFFI.userModel.userName.value.isEmpty
-                  ? loginDialog()
-                  : logOutConfirmDialog()
-            },
-        icon: gFFI.userModel.userName.value.isEmpty ? Icons.login : Icons.logout));
-  }
-}
-
-class _Printer extends StatefulWidget {
-  const _Printer({super.key});
-
-  @override
-  State<_Printer> createState() => __PrinterState();
-}
-
-class __PrinterState extends State<_Printer> {
-  @override
-  Widget build(BuildContext context) {
-    final scrollController = ScrollController();
-    return ListView(controller: scrollController, children: [
-      outgoing(context),
-      incoming(context),
-    ]).marginOnly(bottom: _kListViewBottomMargin);
-  }
-
-  Widget outgoing(BuildContext context) {
-    final isSupportPrinterDriver =
-        bind.mainGetCommonSync(key: 'is-support-printer-driver') == 'true';
-
-    Widget tipOsNotSupported() {
-      return Align(
-        alignment: Alignment.topLeft,
-        child: Text(translate('printer-os-requirement-tip')),
-      ).marginOnly(left: _kCardLeftMargin);
-    }
-
-    Widget tipClientNotInstalled() {
-      return Align(
-        alignment: Alignment.topLeft,
-        child:
-            Text(translate('printer-requires-installed-{$appName}-client-tip')),
-      ).marginOnly(left: _kCardLeftMargin);
-    }
-
-    Widget tipPrinterNotInstalled() {
-      final failedMsg = ''.obs;
-      platformFFI.registerEventHandler(
-          'install-printer-res', 'install-printer-res', (evt) async {
-        if (evt['success'] as bool) {
-          setState(() {});
-        } else {
-          failedMsg.value = evt['msg'] as String;
-        }
-      }, replace: true);
-      return Column(children: [
-        Obx(
-          () => failedMsg.value.isNotEmpty
-              ? Offstage()
-              : Align(
-                  alignment: Alignment.topLeft,
-                  child: Text(translate('printer-{$appName}-not-installed-tip'))
-                      .marginOnly(bottom: 10.0),
-                ),
-        ),
-        Obx(
-          () => failedMsg.value.isEmpty
-              ? Offstage()
-              : Align(
-                  alignment: Alignment.topLeft,
-                  child: Text(failedMsg.value,
-                          style: DefaultTextStyle.of(context)
-                              .style
-                              .copyWith(color: Colors.red))
-                      .marginOnly(bottom: 10.0)),
-        ),
-        _Button('Install {$appName} Printer', () {
-          failedMsg.value = '';
-          bind.mainSetCommon(key: 'install-printer', value: '');
-        })
-      ]).marginOnly(left: _kCardLeftMargin, bottom: 2.0);
-    }
-
-    Widget tipReady() {
-      return Align(
-        alignment: Alignment.topLeft,
-        child: Text(translate('printer-{$appName}-ready-tip')),
-      ).marginOnly(left: _kCardLeftMargin);
-    }
-
-    final installed = bind.mainIsInstalled();
-    // `is-printer-installed` may fail, but it's rare case.
-    // Add additional error message here if it's really needed.
-    final isPrinterInstalled =
-        bind.mainGetCommonSync(key: 'is-printer-installed') == 'true';
-
-    final List<Widget> children = [];
-    if (!isSupportPrinterDriver) {
-      children.add(tipOsNotSupported());
-    } else {
-      children.addAll([
-        if (!installed) tipClientNotInstalled(),
-        if (installed && !isPrinterInstalled) tipPrinterNotInstalled(),
-        if (installed && isPrinterInstalled) tipReady()
-      ]);
-    }
-    return _Card(title: 'Outgoing Print Jobs', children: children);
-  }
-
-  Widget incoming(BuildContext context) {
-    onRadioChanged(String value) async {
-      await bind.mainSetLocalOption(
-          key: kKeyPrinterIncomingJobAction, value: value);
-      setState(() {});
-    }
-
-    PrinterOptions printerOptions = PrinterOptions.load();
-    return _Card(title: 'Incoming Print Jobs', children: [
-      _Radio(context,
-          value: kValuePrinterIncomingJobDismiss,
-          groupValue: printerOptions.action,
-          label: 'Dismiss',
-          onChanged: onRadioChanged),
-      _Radio(context,
-          value: kValuePrinterIncomingJobDefault,
-          groupValue: printerOptions.action,
-          label: 'use-the-default-printer-tip',
-          onChanged: onRadioChanged),
-      _Radio(context,
-          value: kValuePrinterIncomingJobSelected,
-          groupValue: printerOptions.action,
-          label: 'use-the-selected-printer-tip',
-          onChanged: onRadioChanged),
-      if (printerOptions.printerNames.isNotEmpty)
-        ComboBox(
-          initialKey: printerOptions.printerName,
-          keys: printerOptions.printerNames,
-          values: printerOptions.printerNames,
-          enabled: printerOptions.action == kValuePrinterIncomingJobSelected,
-          onChanged: (value) async {
-            await bind.mainSetLocalOption(
-                key: kKeyPrinterSelected, value: value);
-            setState(() {});
-          },
-        ).marginOnly(left: 10),
-      _OptionCheckBox(
-        context,
-        'auto-print-tip',
-        kKeyPrinterAllowAutoPrint,
-        isServer: false,
-        enabled: printerOptions.action != kValuePrinterIncomingJobDismiss,
-      )
-    ]);
-  }
-}
-
-class _About extends StatefulWidget {
-  const _About({Key? key}) : super(key: key);
-
-  @override
-  State<_About> createState() => _AboutState();
-}
-
-class _AboutState extends State<_About> {
-  @override
-  Widget build(BuildContext context) {
-    return futureBuilder(future: () async {
-      final license = await bind.mainGetLicense();
-      final version = await bind.mainGetVersion();
-      final buildDate = await bind.mainGetBuildDate();
-      final fingerprint = await bind.mainGetFingerprint();
-      return {
-        'license': license,
-        'version': version,
-        'buildDate': buildDate,
-        'fingerprint': fingerprint
-      };
-    }(), hasData: (data) {
-      final license = data['license'].toString();
-      final version = data['version'].toString();
-      final buildDate = data['buildDate'].toString();
-      final fingerprint = data['fingerprint'].toString();
-      const linkStyle = TextStyle(decoration: TextDecoration.underline);
-      final scrollController = ScrollController();
-      return SingleChildScrollView(
-        controller: scrollController,
-        child: _Card(title: translate('About'), children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(
-                height: 8.0,
-              ),
-              SelectionArea(
-                  child: Text('${translate('Version')}: $version')
-                      .marginSymmetric(vertical: 4.0)),
-              SelectionArea(
-                  child: Text('${translate('Build Date')}: $buildDate')
-                      .marginSymmetric(vertical: 4.0)),
-              if (!isWeb)
-                SelectionArea(
-                    child: Text('${translate('Fingerprint')}: $fingerprint')
-                        .marginSymmetric(vertical: 4.0)),
-              InkWell(
-                  onTap: () {
-                    launchUrlString('https://dicad.cn/privacy.html');
-                  },
-                  child: Text(
-                    translate('Privacy Statement'),
-                    style: linkStyle,
-                  ).marginSymmetric(vertical: 4.0)),
-              InkWell(
-                  onTap: () {
-                    launchUrlString('https://dicad.cn');
-                  },
-                  child: Text(
-                    translate('Website'),
-                    style: linkStyle,
-                  ).marginSymmetric(vertical: 4.0)),
-              Container(
-                decoration: const BoxDecoration(color: Color(0xFF2A84BA)),
-                padding:
-                    const EdgeInsets.symmetric(vertical: 24, horizontal: 8),
-                child: SelectionArea(
-                    child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Dicad.cn',
-                            style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                          ),
-                          Text(
-                            'AI赋能工程设计',
-                            style: const TextStyle(color: Colors.white, fontSize: 14),
-                          ),
-                          Text(
-                            'LET IMAGINATION BECOME REALITY',
-                            style: const TextStyle(color: Colors.white, fontSize: 12, letterSpacing: 0),
-                          )
-                      ]),
-                    ),
-                  ],
-                )),
-              ).marginSymmetric(vertical: 4.0)
-            ],
-          ).marginOnly(left: _kContentHMargin)
-        ]),
-      );
-    });
-  }
-}
-
-//#endregion
-
-//#region components
-
-// ignore: non_constant_identifier_names
-Widget _Card({
-  required String title,
-  required List<Widget> children,
-  List<Widget>? title_suffix,
-  String? description,
-  bool showIcon = false,
-}) {
-  return Builder(
-    builder: (context) {
-      final theme = Theme.of(context);
-      final details = description ?? '';
-      return Align(
-        alignment: Alignment.topLeft,
-        child: Padding(
-          padding: const EdgeInsets.only(
-            left: _kCardLeftMargin,
-            right: _kCardLeftMargin,
-            top: 24,
-          ),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: _kCardFixedWidth),
-            child: SizedBox(
-              width: double.infinity,
-              child: Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          if (showIcon) ...[
-                            Container(
-                            width: 40,
-                            height: 40,
-                            alignment: Alignment.center,
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.primary.withOpacity(
-                                theme.brightness == Brightness.dark
-                                    ? 0.16
-                                    : 0.08,
-                              ),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Icon(
-                              _sectionIcon(title),
-                              size: 21,
-                              color: theme.colorScheme.primary,
-                            ),
-                          ),
-                            const SizedBox(width: 14),
-                          ],
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  translate(title),
-                                  style: theme.textTheme.titleLarge?.copyWith(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                if (details.isNotEmpty) ...[
-                                  const SizedBox(height: 3),
-                                  Text(
-                                    translate(details),
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      fontSize: 13,
-                                      color: theme.textTheme.bodySmall?.color,
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                          if (title_suffix != null) ...[
-                            const SizedBox(width: 20),
-                            ...title_suffix.map(
-                              (suffix) => Flexible(child: suffix),
-                            ),
-                          ],
-                        ],
-                      ),
-                      if (children.isNotEmpty) ...[
-                        const SizedBox(height: 18),
-                        Divider(color: theme.dividerColor),
-                        const SizedBox(height: 12),
-                        ...children.map(
-                          (child) => Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 3),
-                            child: child,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-    },
-  );
-}
-
-IconData _sectionIcon(String title) {
-  switch (title) {
-    case 'Service':
-      return Icons.power_settings_new_rounded;
-    case 'Theme':
-      return Icons.palette_outlined;
-    case 'Language':
-      return Icons.language_rounded;
-    case 'Audio Input Device':
-      return Icons.volume_up_outlined;
-    case 'Recording':
-      return Icons.videocam_outlined;
-    case 'Hardware Codec':
-      return Icons.memory_rounded;
-    case 'Permissions':
-      return Icons.verified_user_outlined;
-    case 'Password':
-      return Icons.key_rounded;
-    case '2FA':
-      return Icons.security_rounded;
-    case 'ID':
-      return Icons.badge_outlined;
-    case 'Network':
-      return Icons.language_rounded;
-    case 'Account':
-      return Icons.person_outline_rounded;
-    case 'Outgoing Print Jobs':
-    case 'Incoming Print Jobs':
-      return Icons.print_outlined;
-    case 'About':
-      return Icons.info_outline_rounded;
-    default:
-      return Icons.tune_rounded;
-  }
-}
-
-class _ResponsiveSettingGrid extends StatelessWidget {
-  const _ResponsiveSettingGrid({required this.children});
-
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final columns = constraints.maxWidth >= 720
-            ? 3
-            : constraints.maxWidth >= 500
-                ? 2
-                : 1;
-        const gap = 10.0;
-        final itemWidth =
-            (constraints.maxWidth - (columns - 1) * gap) / columns;
-        return Wrap(
-          spacing: gap,
-          runSpacing: 4,
-          children: children
-              .map((child) => SizedBox(width: itemWidth, child: child))
-              .toList(),
-        );
-      },
-    );
-  }
-}
-
-// ignore: non_constant_identifier_names
-Widget _OptionCheckBox(
-  BuildContext context,
-  String label,
-  String key, {
-  Function(bool)? update,
-  bool reverse = false,
-  bool enabled = true,
-  Icon? checkedIcon,
-  bool? fakeValue,
-  bool isServer = true,
-  bool Function()? optGetter,
-  Future<void> Function(String, bool)? optSetter,
-}) {
-  getOpt() => optGetter != null
-      ? optGetter()
-      : (isServer
-          ? mainGetBoolOptionSync(key)
-          : mainGetLocalBoolOptionSync(key));
-  bool value = getOpt();
-  final isOptFixed = isOptionFixed(key);
-  if (reverse) value = !value;
-  var ref = value.obs;
-  onChanged(option) async {
-    if (option != null) {
-      if (reverse) option = !option;
-      final setter =
-          optSetter ?? (isServer ? mainSetBoolOption : mainSetLocalBoolOption);
-      await setter(key, option);
-      final readOption = getOpt();
-      if (reverse) {
-        ref.value = !readOption;
-      } else {
-        ref.value = readOption;
-      }
-      update?.call(readOption);
-    }
-  }
-
-  if (fakeValue != null) {
-    ref.value = fakeValue;
-    enabled = false;
-  }
-
-  final interactive = enabled && !isOptFixed;
-  return Material(
-    color: Colors.transparent,
-    child: InkWell(
-      borderRadius: BorderRadius.circular(6),
-      onTap: interactive ? () => onChanged(!ref.value) : null,
-      child: Obx(
-        () => ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 44),
-          child: Row(
-            children: [
-              Checkbox(
-                value: ref.value,
-                onChanged: interactive ? onChanged : null,
-              ).marginOnly(right: 4),
-              if (ref.value && checkedIcon != null)
-                checkedIcon.marginOnly(right: 5),
-              Expanded(
-                child: Text(
-                  translate(label),
-                  style: TextStyle(
-                    color: disabledTextColor(context, interactive),
-                    height: 1.25,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    ),
-  );
-}
-
-// ignore: non_constant_identifier_names
-Widget _Radio<T>(
-  BuildContext context, {
-  required T value,
-  required T groupValue,
-  required String label,
-  required Function(T value)? onChanged,
-  bool autoNewLine = true,
-}) {
-  final onChange2 = onChanged != null
-      ? (T? value) {
-          if (value != null) {
-            onChanged(value);
-          }
-        }
-      : null;
-  return Material(
-    color: Colors.transparent,
-    child: InkWell(
-      borderRadius: BorderRadius.circular(6),
-      onTap: () => onChange2?.call(value),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 44),
-        child: Row(
-          children: [
-            Radio<T>(
-              value: value,
-              groupValue: groupValue,
-              onChanged: onChange2,
-            ),
-            Expanded(
-              child: Text(
-                translate(label),
-                overflow: autoNewLine ? null : TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: _kContentFontSize,
-                  color: disabledTextColor(context, onChange2 != null),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
-}
-
-class WaylandCard extends StatefulWidget {
-  const WaylandCard({Key? key}) : super(key: key);
-
-  @override
-  State<WaylandCard> createState() => _WaylandCardState();
-}
-
-class _WaylandCardState extends State<WaylandCard> {
-  final restoreTokenKey = 'wayland-restore-token';
-  static const _kClearShortcutsInhibitorEventKey =
-      'clear-gnome-shortcuts-inhibitor-permission-res';
-  final _clearShortcutsInhibitorFailedMsg = ''.obs;
-  // Don't show the shortcuts permission reset button for now.
-  // Users can change it manually:
-  //   "Settings" -> "Apps" -> "LUODA" -> "Permissions" -> "Inhibit Shortcuts".
-  // For resetting(clearing) the permission from the portal permission store, you can
-  // use (replace <desktop-id> with the LUODA desktop file ID):
-  //   busctl --user call org.freedesktop.impl.portal.PermissionStore \
-  //   /org/freedesktop/impl/portal/PermissionStore org.freedesktop.impl.portal.PermissionStore \
-  //   DeletePermission sss "gnome" "shortcuts-inhibitor" "<desktop-id>"
-  // On a native install this is typically "luoda.desktop"; on Flatpak it is usually
-  // the exported desktop ID derived from the Flatpak app-id (e.g. "com.luoda.LUODA.desktop").
-  //
-  // We may add it back in the future if needed.
-  final showResetInhibitorPermission = false;
-
-  @override
-  void initState() {
-    super.initState();
-    if (showResetInhibitorPermission) {
-      platformFFI.registerEventHandler(
-          _kClearShortcutsInhibitorEventKey, _kClearShortcutsInhibitorEventKey,
-          (evt) async {
-        if (!mounted) return;
-        if (evt['success'] == true) {
-          setState(() {});
-        } else {
-          _clearShortcutsInhibitorFailedMsg.value =
-              evt['msg'] as String? ?? 'Unknown error';
-        }
-      });
-    }
-  }
-
-  @override
-  void dispose() {
-    if (showResetInhibitorPermission) {
-      platformFFI.unregisterEventHandler(
-          _kClearShortcutsInhibitorEventKey, _kClearShortcutsInhibitorEventKey);
-    }
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return futureBuilder(
-      future: bind.mainHandleWaylandScreencastRestoreToken(
-          key: restoreTokenKey, value: "get"),
-      hasData: (restoreToken) {
-        final hasShortcutsPermission = showResetInhibitorPermission &&
-            bind.mainGetCommonSync(
-                    key: "has-gnome-shortcuts-inhibitor-permission") ==
-                "true";
-
-        final children = [
-          if (restoreToken.isNotEmpty)
-            _buildClearScreenSelection(context, restoreToken),
-          if (hasShortcutsPermission)
-            _buildClearShortcutsInhibitorPermission(context),
-        ];
-        return Offstage(
-          offstage: children.isEmpty,
-          child: _Card(title: 'Wayland', children: children),
-        );
-      },
-    );
-  }
-
-  Widget _buildClearScreenSelection(BuildContext context, String restoreToken) {
-    onConfirm() async {
-      final msg = await bind.mainHandleWaylandScreencastRestoreToken(
-          key: restoreTokenKey, value: "clear");
-      gFFI.dialogManager.dismissAll();
-      if (msg.isNotEmpty) {
-        msgBox(gFFI.sessionId, 'custom-nocancel', 'Error', msg, '',
-            gFFI.dialogManager);
-      } else {
-        setState(() {});
-      }
-    }
-
-    showConfirmMsgBox() => msgBoxCommon(
-            gFFI.dialogManager,
-            'Confirmation',
-            Text(
-              translate('confirm_clear_Wayland_screen_selection_tip'),
-            ),
-            [
-              dialogButton('OK', onPressed: onConfirm),
-              dialogButton('Cancel',
-                  onPressed: () => gFFI.dialogManager.dismissAll())
-            ]);
-
-    return _Button(
-      'Clear Wayland screen selection',
-      showConfirmMsgBox,
-      tip: 'clear_Wayland_screen_selection_tip',
-      style: ButtonStyle(
-        backgroundColor: MaterialStateProperty.all<Color>(
-            Theme.of(context).colorScheme.error.withOpacity(0.75)),
-      ),
-    );
-  }
-
-  Widget _buildClearShortcutsInhibitorPermission(BuildContext context) {
-    onConfirm() {
-      _clearShortcutsInhibitorFailedMsg.value = '';
-      bind.mainSetCommon(
-          key: "clear-gnome-shortcuts-inhibitor-permission", value: "");
-      gFFI.dialogManager.dismissAll();
-    }
-
-    showConfirmMsgBox() => msgBoxCommon(
-            gFFI.dialogManager,
-            'Confirmation',
-            Text(
-              translate('confirm-clear-shortcuts-inhibitor-permission-tip'),
-            ),
-            [
-              dialogButton('OK', onPressed: onConfirm),
-              dialogButton('Cancel',
-                  onPressed: () => gFFI.dialogManager.dismissAll())
-            ]);
-
-    return Column(children: [
-      Obx(
-        () => _clearShortcutsInhibitorFailedMsg.value.isEmpty
-            ? Offstage()
-            : Align(
-                alignment: Alignment.topLeft,
-                child: Text(_clearShortcutsInhibitorFailedMsg.value,
-                        style: DefaultTextStyle.of(context)
-                            .style
-                            .copyWith(color: Colors.red))
-                    .marginOnly(bottom: 10.0)),
-      ),
-      _Button(
-        'Reset keyboard shortcuts permission',
-        showConfirmMsgBox,
-        tip: 'clear-shortcuts-inhibitor-permission-tip',
-        style: ButtonStyle(
-          backgroundColor: MaterialStateProperty.all<Color>(
-              Theme.of(context).colorScheme.error.withOpacity(0.75)),
-        ),
-      ),
-    ]);
-  }
-}
-
-// ignore: non_constant_identifier_names
-Widget _Button(
-  String label,
-  Function() onPressed, {
-  bool enabled = true,
-  String? tip,
-  ButtonStyle? style,
-  IconData? icon,
-}) {
-  final button = ElevatedButton(
-    onPressed: enabled ? onPressed : null,
-    style: (style ?? const ButtonStyle()).copyWith(
-      minimumSize: const MaterialStatePropertyAll(Size(44, 44)),
-    ),
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (icon != null) ...[Icon(icon, size: 18), const SizedBox(width: 8)],
-        Text(translate(label)),
-      ],
-    ),
-  );
-  return Padding(
-    padding: const EdgeInsets.only(left: _kContentHMargin),
-    child: Align(
-      alignment: Alignment.centerLeft,
-      child: tip == null
-          ? button
-          : Tooltip(message: translate(tip), child: button),
-    ),
-  );
-}
-
-// ignore: non_constant_identifier_names
-Widget _SubButton(String label, Function() onPressed, [bool enabled = true]) {
-  return Row(
-    children: [
-      ElevatedButton(
-        onPressed: enabled ? onPressed : null,
-        style: ElevatedButton.styleFrom(minimumSize: const Size(44, 44)),
-        child: Text(
-          translate(label),
-        ).marginSymmetric(horizontal: 15),
-      ),
-    ],
-  ).marginOnly(left: _kContentHSubMargin);
-}
-
-// ignore: non_constant_identifier_names
-Widget _SubLabeledWidget(BuildContext context, String label, Widget child,
-    {bool enabled = true}) {
-  return Row(
-    children: [
-      Text(
-        '${translate(label)}: ',
-        style: TextStyle(color: disabledTextColor(context, enabled)),
-      ),
-      SizedBox(
-        width: 10,
-      ),
-      child,
-    ],
-  ).marginOnly(left: _kContentHSubMargin);
-}
-
-Widget _lock(bool locked, String label, Function() onUnlock) {
-  return Offstage(
-    offstage: !locked,
-    child: Builder(
-      builder: (context) {
-        final theme = Theme.of(context);
-        return Align(
-          alignment: Alignment.topLeft,
-          child: Padding(
-            padding: const EdgeInsets.only(
-              left: _kCardLeftMargin,
-              right: _kCardLeftMargin,
-              top: 16,
-            ),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: _kCardFixedWidth),
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 18,
-                  vertical: 14,
-                ),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.primary.withOpacity(
-                    theme.brightness == Brightness.dark ? 0.14 : 0.06,
-                  ),
-                  border: Border.all(
-                    color: theme.colorScheme.primary.withOpacity(0.35),
-                  ),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.lock_outline_rounded,
-                      color: theme.colorScheme.primary,
-                      size: 21,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        translate(label),
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    ElevatedButton.icon(
-                      icon: const Icon(Icons.lock_open_rounded, size: 18),
-                      label: Text(translate('Unlock')),
-                      onPressed: () async {
-                        final unlockPin = bind.mainGetUnlockPin();
-                        if (unlockPin.isEmpty || isUnlockPinDisabled()) {
-                          final checked =
-                              await callMainCheckSuperUserPermission();
-                          if (checked) {
-                            onUnlock();
-                          }
-                        } else {
-                          checkUnlockPinDialog(unlockPin, onUnlock);
-                        }
-                      },
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    ),
-  );
-}
-
-_LabeledTextField(
-    BuildContext context,
-    String label,
-    TextEditingController controller,
-    String errorText,
-    bool enabled,
-    bool secure) {
-  return Table(
-    columnWidths: const {
-      0: FixedColumnWidth(150),
-      1: FlexColumnWidth(),
-    },
-    defaultVerticalAlignment: TableCellVerticalAlignment.middle,
-    children: [
-      TableRow(
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(right: 10),
-            child: Text(
-              '${translate(label)}:',
-              textAlign: TextAlign.right,
-              style: TextStyle(
-                fontSize: 16,
-                color: disabledTextColor(context, enabled),
-              ),
-            ),
-          ),
-          TextField(
-            controller: controller,
-            enabled: enabled,
-            obscureText: secure,
-            autocorrect: false,
-            decoration: InputDecoration(
-              errorText: errorText.isNotEmpty ? errorText : null,
-            ),
-            style: TextStyle(
-              color: disabledTextColor(context, enabled),
-            ),
-          ).workaroundFreezeLinuxMint(),
-        ],
-      ),
-    ],
-  ).marginOnly(bottom: 8);
-}
-
-class _CountDownButton extends StatefulWidget {
-  _CountDownButton({
-    Key? key,
-    required this.text,
-    required this.second,
-    required this.onPressed,
-  }) : super(key: key);
-  final String text;
-  final VoidCallback? onPressed;
-  final int second;
-
-  @override
-  State<_CountDownButton> createState() => _CountDownButtonState();
-}
-
-class _CountDownButtonState extends State<_CountDownButton> {
-  bool _isButtonDisabled = false;
-
-  late int _countdownSeconds = widget.second;
-
-  Timer? _timer;
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
-
-  void _startCountdownTimer() {
-    _timer = Timer.periodic(Duration(seconds: 1), (timer) {
-      if (_countdownSeconds <= 0) {
-        setState(() {
-          _isButtonDisabled = false;
-        });
-        timer.cancel();
-      } else {
-        setState(() {
-          _countdownSeconds--;
-        });
-      }
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ElevatedButton(
-      onPressed: _isButtonDisabled
-          ? null
-          : () {
-              widget.onPressed?.call();
-              setState(() {
-                _isButtonDisabled = true;
-                _countdownSeconds = widget.second;
-              });
-              _startCountdownTimer();
-            },
-      child: Text(
-        _isButtonDisabled ? '$_countdownSeconds s' : translate(widget.text),
-      ),
-    );
-  }
-}
-
-//#endregion
-
-//#region dialogs
-
-void changeSocks5Proxy() async {
-  var socks = await bind.mainGetSocks();
-
-  String proxy = '';
-  String proxyMsg = '';
-  String username = '';
-  String password = '';
-  if (socks.length == 3) {
-    proxy = socks[0];
-    username = socks[1];
-    password = socks[2];
-  }
-  var proxyController = TextEditingController(text: proxy);
-  var userController = TextEditingController(text: username);
-  var pwdController = TextEditingController(text: password);
-  RxBool obscure = true.obs;
-
-  // proxy settings
-  // The following option is a not real key, it is just used for custom client advanced settings.
-  const String optionProxyUrl = "proxy-url";
-  final isOptFixed = isOptionFixed(optionProxyUrl);
-
-  var isInProgress = false;
-  gFFI.dialogManager.show((setState, close, context) {
-    submit() async {
-      setState(() {
-        proxyMsg = '';
-        isInProgress = true;
-      });
-      cancel() {
-        setState(() {
-          isInProgress = false;
-        });
-      }
-
-      proxy = proxyController.text.trim();
-      username = userController.text.trim();
-      password = pwdController.text.trim();
-
-      if (proxy.isNotEmpty) {
-        String domainPort = proxy;
-        if (domainPort.contains('://')) {
-          domainPort = domainPort.split('://')[1];
-        }
-        proxyMsg = translate(await bind.mainTestIfValidServer(
-            server: domainPort, testWithProxy: false));
-        if (proxyMsg.isEmpty) {
-          // ignore
-        } else {
-          cancel();
-          return;
-        }
-      }
-      await bind.mainSetSocks(
-          proxy: proxy, username: username, password: password);
-      close();
-    }
-
-    return CustomAlertDialog(
-      title: Text(translate('Socks5/Http(s) Proxy')),
-      content: ConstrainedBox(
-        constraints: const BoxConstraints(minWidth: 500),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                if (!isMobile)
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(minWidth: 140),
-                    child: Align(
-                        alignment: Alignment.centerRight,
-                        child: Row(
-                          children: [
-                            Text(
-                              translate('Server'),
-                            ).marginOnly(right: 4),
-                            Tooltip(
-                              waitDuration: Duration(milliseconds: 0),
-                              message: translate("default_proxy_tip"),
-                              child: Icon(
-                                Icons.help_outline_outlined,
-                                size: 16,
-                                color: Theme.of(context)
-                                    .textTheme
-                                    .titleLarge
-                                    ?.color
-                                    ?.withOpacity(0.5),
-                              ),
-                            ),
-                          ],
-                        )).marginOnly(right: 10),
-                  ),
-                Expanded(
-                  child: TextField(
-                    decoration: InputDecoration(
-                      errorText: proxyMsg.isNotEmpty ? proxyMsg : null,
-                      labelText: isMobile ? translate('Server') : null,
-                      helperText:
-                          isMobile ? translate("default_proxy_tip") : null,
-                      helperMaxLines: isMobile ? 3 : null,
-                    ),
-                    controller: proxyController,
-                    autofocus: true,
-                    enabled: !isOptFixed,
-                  ).workaroundFreezeLinuxMint(),
-                ),
-              ],
-            ).marginOnly(bottom: 8),
-            Row(
-              children: [
-                if (!isMobile)
-                  ConstrainedBox(
-                      constraints: const BoxConstraints(minWidth: 140),
-                      child: Text(
-                        '${translate("Username")}:',
-                        textAlign: TextAlign.right,
-                      ).marginOnly(right: 10)),
-                Expanded(
-                  child: TextField(
-                    controller: userController,
-                    decoration: InputDecoration(
-                      labelText: isMobile ? translate('Username') : null,
-                    ),
-                    enabled: !isOptFixed,
-                  ).workaroundFreezeLinuxMint(),
-                ),
-              ],
-            ).marginOnly(bottom: 8),
-            Row(
-              children: [
-                if (!isMobile)
-                  ConstrainedBox(
-                      constraints: const BoxConstraints(minWidth: 140),
-                      child: Text(
-                        '${translate("Password")}:',
-                        textAlign: TextAlign.right,
-                      ).marginOnly(right: 10)),
-                Expanded(
-                  child: Obx(() => TextField(
-                        obscureText: obscure.value,
-                        decoration: InputDecoration(
-                            labelText: isMobile ? translate('Password') : null,
-                            suffixIcon: IconButton(
-                                onPressed: () => obscure.value = !obscure.value,
-                                icon: Icon(obscure.value
-                                    ? Icons.visibility_off
-                                    : Icons.visibility))),
-                        controller: pwdController,
-                        enabled: !isOptFixed,
-                        maxLength: bind.mainMaxEncryptLen(),
-                      ).workaroundFreezeLinuxMint()),
-                ),
-              ],
-            ),
-            // NOT use Offstage to wrap LinearProgressIndicator
-            if (isInProgress)
-              const LinearProgressIndicator().marginOnly(top: 8),
-          ],
-        ),
-      ),
-      actions: [
-        dialogButton('Cancel', onPressed: close, isOutline: true),
-        if (!isOptFixed) dialogButton('OK', onPressed: submit),
-      ],
-      onSubmit: submit,
-      onCancel: close,
-    );
-  });
-}
-
-//#endregion

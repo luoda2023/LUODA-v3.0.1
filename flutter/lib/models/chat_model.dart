@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:dash_chat_2/dash_chat_2.dart';
 import 'package:desktop_multi_window/desktop_multi_window.dart';
@@ -119,6 +120,7 @@ class ChatModel with ChangeNotifier {
   late FocusNode inputNode;
 
   ChatModel(this.parent) {
+    refreshLocalIdentity();
     sessionId = parent.target!.sessionId;
     inputNode = FocusNode(
       onKey: (_, event) {
@@ -147,6 +149,42 @@ class ChatModel with ChangeNotifier {
   }
 
   ChatUser? get currentUser => _messages[_currentKey]?.chatUser;
+
+  void refreshLocalIdentity({bool notify = false}) {
+    try {
+      final profile = jsonDecode(
+        bind.mainGetLocalOption(key: 'user_info'),
+      ) as Map<String, dynamic>;
+      final name =
+          (profile['display_name'] ?? profile['name'] ?? '').toString().trim();
+      if (name.isNotEmpty) me.firstName = name;
+      final avatar = (profile['avatar'] ?? '').toString().trim();
+      me.profileImage = avatar.isEmpty ? null : avatar;
+    } catch (_) {}
+    if (notify) notifyListeners();
+  }
+
+  void updatePeerIdentity(
+    String peerId, {
+    required String displayName,
+    required String avatar,
+  }) {
+    var changed = false;
+    for (final entry in _messages.entries) {
+      if (entry.key.peerId != peerId) continue;
+      if (displayName.isNotEmpty) {
+        entry.value.chatUser.firstName = displayName;
+      }
+      entry.value.chatUser.profileImage = avatar.isEmpty ? null : avatar;
+      for (final message in entry.value.chatMessages) {
+        if (message.user.id != peerId) continue;
+        if (displayName.isNotEmpty) message.user.firstName = displayName;
+        message.user.profileImage = avatar.isEmpty ? null : avatar;
+      }
+      changed = true;
+    }
+    if (changed) notifyListeners();
+  }
 
   showChatIconOverlay({Offset offset = const Offset(200, 50)}) {
     if (chatIconOverlayEntry != null) {
@@ -321,23 +359,31 @@ class ChatModel with ChangeNotifier {
   changeCurrentKey(MessageKey key) {
     updateConnIdOfKey(key);
     String? peerName;
+    String? peerAvatar;
     if (key.connId == clientModeID) {
-      peerName = parent.target?.ffiModel.pi.username;
+      final peerInfo = parent.target?.ffiModel.pi;
+      peerName = peerInfo?.displayName.trim().isNotEmpty == true
+          ? peerInfo!.displayName.trim()
+          : peerInfo?.username;
+      peerAvatar = peerInfo?.avatar;
     } else {
-      peerName = parent.target?.serverModel.clients
-          .firstWhereOrNull((client) => client.peerId == key.peerId)
-          ?.name;
+      final client = parent.target?.serverModel.clients
+          .firstWhereOrNull((client) => client.peerId == key.peerId);
+      peerName = client?.name;
+      peerAvatar = client?.avatar;
     }
     if (!_messages.containsKey(key)) {
       final chatUser = ChatUser(
         id: key.peerId,
         firstName: peerName,
+        profileImage: peerAvatar,
       );
       _messages[key] = MessageBody(chatUser, []);
     } else {
       if (peerName != null && peerName.isNotEmpty) {
         _messages[key]?.chatUser.firstName = peerName;
       }
+      _messages[key]?.chatUser.profileImage = peerAvatar;
     }
     _currentKey = key;
     notifyListeners();
@@ -378,7 +424,10 @@ class ChatModel with ChangeNotifier {
     late final ChatUser chatUser;
     if (id == clientModeID) {
       chatUser = ChatUser(
-        firstName: session.ffiModel.pi.username,
+        firstName: session.ffiModel.pi.displayName.trim().isNotEmpty
+            ? session.ffiModel.pi.displayName.trim()
+            : session.ffiModel.pi.username,
+        profileImage: session.ffiModel.pi.avatar,
         id: peerId,
       );
 
@@ -428,7 +477,11 @@ class ChatModel with ChangeNotifier {
           mobileUpdateUnreadSum();
         }
       }
-      chatUser = ChatUser(id: client.peerId, firstName: client.name);
+      chatUser = ChatUser(
+        id: client.peerId,
+        firstName: client.name,
+        profileImage: client.avatar,
+      );
     }
     insertMessage(messagekey,
         ChatMessage(text: text, user: chatUser, createdAt: DateTime.now()));
@@ -456,6 +509,16 @@ class ChatModel with ChangeNotifier {
 
     notifyListeners();
     inputNode.requestFocus();
+  }
+
+  void sendText(String text) {
+    send(
+      ChatMessage(
+        text: text,
+        user: me,
+        createdAt: DateTime.now(),
+      ),
+    );
   }
 
   insertMessage(MessageKey key, ChatMessage message) {

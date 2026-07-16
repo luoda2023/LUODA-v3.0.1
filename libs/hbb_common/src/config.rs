@@ -487,6 +487,10 @@ pub struct PeerInfoSerde {
     pub hostname: String,
     #[serde(default, deserialize_with = "deserialize_string")]
     pub platform: String,
+    #[serde(default, deserialize_with = "deserialize_string")]
+    pub display_name: String,
+    #[serde(default, deserialize_with = "deserialize_string")]
+    pub avatar: String,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq)]

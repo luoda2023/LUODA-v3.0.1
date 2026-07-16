@@ -14,6 +14,7 @@ import '../../common.dart';
 import '../../common/widgets/peer_tab_page.dart';
 import '../../common/widgets/autocomplete.dart';
 import '../../consts.dart';
+import '../../models/chat_model.dart';
 import '../../models/model.dart';
 import '../../models/platform_model.dart';
 import 'home_page.dart';
@@ -37,6 +38,8 @@ class ConnectionPage extends StatefulWidget implements PageShape {
 
 /// State for the connection page.
 class _ConnectionPageState extends State<ConnectionPage> {
+  bool _chatMode = true;
+
   /// Controller for the id input bar.
   final _idController = IDTextEditingController();
   final RxBool _idEmpty = true.obs;
@@ -86,6 +89,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
             delegate: SliverChildListDelegate([
           if (!bind.isCustomClient() && !isIOS)
             Obx(() => _buildUpdateUI(stateGlobal.updateUrl.value)),
+          _buildConnectionModeSwitch(),
           _buildRemoteIDTextField(),
         ])),
         SliverFillRemaining(
@@ -98,9 +102,65 @@ class _ConnectionPageState extends State<ConnectionPage> {
 
   /// Callback for the connect button.
   /// Connects to the selected peer.
-  void onConnect() {
-    var id = _idController.id;
-    connect(context, id);
+  Future<void> onConnect() async {
+    final id = _idController.id.trim().replaceAll(' ', '');
+    if (id.isEmpty) return;
+    if (_chatMode) {
+      await _startDirectChat(id);
+    } else {
+      connect(context, id);
+    }
+  }
+
+  Widget _buildConnectionModeSwitch() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(2, 10, 2, 2),
+      child: SizedBox(
+        width: double.infinity,
+        child: SegmentedButton<bool>(
+          segments: <ButtonSegment<bool>>[
+            ButtonSegment<bool>(
+              value: true,
+              icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18),
+              label: Text(translate('Chat')),
+            ),
+            ButtonSegment<bool>(
+              value: false,
+              icon: const Icon(Icons.desktop_windows_outlined, size: 18),
+              label: Text(translate('Remote assistance')),
+            ),
+          ],
+          selected: <bool>{_chatMode},
+          showSelectedIcon: false,
+          onSelectionChanged: (selection) {
+            setState(() => _chatMode = selection.first);
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<void> _startDirectChat(String id) async {
+    final currentKey = gFFI.chatModel.currentKey;
+    if (!gFFI.closed &&
+        gFFI.connType == ConnType.chat &&
+        currentKey.peerId == id) {
+      HomePage.homeKey.currentState?.selectChatPage();
+      return;
+    }
+    if (gFFI.ffiModel.pi.isSet.isTrue || gFFI.connType == ConnType.chat) {
+      await gFFI.close();
+    }
+    gFFI.chatModel.changeCurrentKey(MessageKey(id, ChatModel.clientModeID));
+    gFFI.start(id, isChat: true, forceRelay: false);
+    HomePage.homeKey.currentState?.selectChatPage();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (gFFI.closed) return;
+      gFFI.dialogManager.showLoading(
+        translate('Connecting...'),
+        onCancel: () => gFFI.close(),
+      );
+    });
   }
 
   void onFocusChanged() {

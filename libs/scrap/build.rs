@@ -160,6 +160,40 @@ fn generate_bindings(
     }
 
     b.generate().unwrap().write_to_file(ffi_rs).unwrap();
+
+    // bindgen emits an opaque placeholder struct for the forward decl of
+    // vpx_codec_enc_cfg / vpx_codec_dec_cfg that appears in the vpx_codec.h
+    // union fields (hidden behind the `*_forward_hidden` #define in vpx_ffi.h)
+    // instead of using the full typedef from vpx_encoder.h / vpx_decoder.h.
+    // Patch the placeholder into a type alias of the real struct so the union
+    // field exposes the complete layout with all encoder/decoder config fields.
+    if ffi_rs.exists() {
+        let src = std::fs::read_to_string(ffi_rs).unwrap();
+        let patched = replace_opaque_alias(
+            &src,
+            "vpx_codec_enc_cfg_forward_hidden",
+            "vpx_codec_enc_cfg",
+        );
+        let patched = replace_opaque_alias(
+            &patched,
+            "vpx_codec_dec_cfg_forward_hidden",
+            "vpx_codec_dec_cfg",
+        );
+        let patched = replace_opaque_alias(
+            &patched,
+            "aom_codec_enc_cfg_forward_hidden",
+            "aom_codec_enc_cfg",
+        );
+        let patched = replace_opaque_alias(
+            &patched,
+            "aom_codec_dec_cfg_forward_hidden",
+            "aom_codec_dec_cfg",
+        );
+        if patched != src {
+            std::fs::write(ffi_rs, patched).unwrap();
+        }
+    }
+
     fs::copy(ffi_rs, exact_file).ok(); // ignore failure
 }
 
@@ -267,3 +301,46 @@ fn main() {
     }
 }
 
+
+/// Replace bindgen's opaque placeholder `pub struct <alias> { pub _address: u8, }`
+/// with a `pub type <alias> = <real>;` so the union field uses the complete
+/// structure.  Works for any line ending (LF / CRLF).
+fn replace_opaque_alias(src: &str, alias: &str, real: &str) -> String {
+    // parse line by line so we can drop the trailing run of `#[...]` attribute
+    // lines that precede the placeholder struct. bindgen emits `#[repr(C)]` and
+    // `#[derive(...)]` immediately before the struct declaration; those
+    // attributes are illegal on a `pub type` alias and must be stripped along
+    // with the struct body.
+    let lines: Vec<&str> = src.split('\n').collect();
+    let struct_header = format!("pub struct {alias} {{");
+    let mut out: Vec<String> = Vec::with_capacity(lines.len());
+    let mut k = 0;
+    while k < lines.len() {
+        let trimmed = lines[k].trim_end_matches('\r');
+        if trimmed.starts_with(&struct_header) {
+            // walk forward until the line containing the closing `}`
+            let mut end = k;
+            while end < lines.len() && !lines[end].trim_end_matches('\r').contains('}') {
+                end += 1;
+            }
+            let mut next_k = end + 1;
+            if next_k < lines.len() && lines[next_k].trim_end_matches('\r').is_empty() {
+                next_k += 1;
+            }
+            // drop any trailing `#[...]` attribute lines we already pushed
+            while let Some(last) = out.last() {
+                if last.trim_end_matches('\r').trim().starts_with("#[") {
+                    out.pop();
+                } else {
+                    break;
+                }
+            }
+            out.push(format!("pub type {alias} = {real};"));
+            k = next_k;
+        } else {
+            out.push(trimmed.to_string());
+            k += 1;
+        }
+    }
+    out.join("\n")
+}

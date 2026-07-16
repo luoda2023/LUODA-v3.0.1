@@ -16,7 +16,7 @@
 
 use std::time::Duration;
 
-use hbb_common::message::{ChatChannel, ChatBroadcast, Message, VideoFrame};
+use hbb_common::message_proto::{ChatChannel, ChatBroadcast, Message, VideoFrame};
 use luoda::{
     chat_broadcast::ChatHub,
     viewer_direct_channel::{encode_message, for_session as dc_for_session, retire_session as dc_retire},
@@ -92,7 +92,7 @@ fn promote_and_kick() {
 
     let promoted = reg.promote(
         "host-F",
-        &hbb_common::message::PromoteViewer { viewer_id: "v1".to_string() },
+        &hbb_common::message_proto::PromoteViewer { viewer_id: "v1".to_string(), ..Default::default() },
     );
     assert!(promoted);
     let list = reg.list_viewers("host-F");
@@ -100,7 +100,7 @@ fn promote_and_kick() {
 
     let removed = reg.kick(
         "host-F",
-        &hbb_common::message::KickViewer { viewer_id: "v1".to_string(), reason: "test".to_string() },
+        &hbb_common::message_proto::KickViewer { viewer_id: "v1".to_string(), reason: "test".to_string(), ..Default::default() },
     );
     assert!(removed);
     assert!(reg.list_viewers("host-F").is_empty());
@@ -248,6 +248,7 @@ fn chat_private_with_empty_to_id_drops() {
         to_id: String::new(),
         text: "no recipient".to_string(),
         sent_at: 0,
+        ..Default::default()
     };
     assert!(hub.route(&msg).is_empty());
 }
@@ -276,7 +277,7 @@ fn direct_channel_publish_reaches_subscribers() {
 
     let mut frame_msg = Message::new();
     frame_msg.set_video_frame(VideoFrame {
-        pts: 1234,
+        display: 0,
         ..Default::default()
     });
     let bytes = encode_message(&frame_msg);

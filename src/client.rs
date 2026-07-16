@@ -797,6 +797,10 @@ impl Client {
         };
 
         let mut direct = !conn.is_err();
+        if conn_type == ConnType::CHAT && conn.is_err() {
+            interface.update_direct(Some(false));
+            bail!("Direct chat requires a reachable peer address; relay fallback is disabled");
+        }
         if interface.is_force_relay() || conn.is_err() {
             if !relay_server.is_empty() {
                 conn = Self::request_relay(
@@ -2597,6 +2601,8 @@ impl LoginConfigHandler {
             username: pi.username.clone(),
             hostname: pi.hostname.clone(),
             platform: pi.platform.clone(),
+            display_name: pi.display_name.clone(),
+            avatar: pi.avatar.clone(),
         };
         let mut config = self.load_config();
         config.info = serde;
@@ -2713,11 +2719,8 @@ impl LoginConfigHandler {
         } else {
             (my_id, self.id.clone())
         };
-        let mut avatar = get_builtin_option(keys::OPTION_AVATAR);
-        if avatar.is_empty() {
-            avatar = serde_json::from_str::<serde_json::Value>(&LocalConfig::get_option(
-                "user_info",
-            ))
+        let mut avatar =
+            serde_json::from_str::<serde_json::Value>(&LocalConfig::get_option("user_info"))
             .ok()
             .and_then(|x| {
                 x.get("avatar")
@@ -2725,22 +2728,24 @@ impl LoginConfigHandler {
                     .map(|x| x.trim().to_owned())
             })
             .unwrap_or_default();
+        if avatar.is_empty() {
+            avatar = get_builtin_option(keys::OPTION_AVATAR);
         }
         avatar = resolve_avatar_url(avatar);
-        let mut display_name = get_builtin_option(keys::OPTION_DISPLAY_NAME);
+        let mut display_name =
+            serde_json::from_str::<serde_json::Value>(&LocalConfig::get_option("user_info"))
+                .map(|x| {
+                    x.get("display_name")
+                        .and_then(|x| x.as_str())
+                        .map(|x| x.trim())
+                        .filter(|x| !x.is_empty())
+                        .or_else(|| x.get("name").and_then(|x| x.as_str()))
+                        .map(|x| x.to_owned())
+                        .unwrap_or_default()
+                })
+                .unwrap_or_default();
         if display_name.is_empty() {
-            display_name =
-                serde_json::from_str::<serde_json::Value>(&LocalConfig::get_option("user_info"))
-                    .map(|x| {
-                        x.get("display_name")
-                            .and_then(|x| x.as_str())
-                            .map(|x| x.trim())
-                            .filter(|x| !x.is_empty())
-                            .or_else(|| x.get("name").and_then(|x| x.as_str()))
-                            .map(|x| x.to_owned())
-                            .unwrap_or_default()
-                    })
-                    .unwrap_or_default();
+            display_name = get_builtin_option(keys::OPTION_DISPLAY_NAME);
         }
         if display_name.is_empty() {
             display_name = crate::username();
@@ -2796,6 +2801,11 @@ impl LoginConfigHandler {
                 ..Default::default()
             }),
             ConnType::VIEW_CAMERA => lr.set_view_camera(Default::default()),
+            ConnType::CHAT => lr.set_chat(ChatSession {
+                persistent: true,
+                direct_only: true,
+                ..Default::default()
+            }),
             ConnType::PORT_FORWARD | ConnType::RDP => lr.set_port_forward(PortForward {
                 host: self.port_forward.0.clone(),
                 port: self.port_forward.1,

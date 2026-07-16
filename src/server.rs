@@ -37,7 +37,7 @@ pub mod viewer_direct_channel;
 pub mod chat_broadcast;
 pub mod viewer_fanout;
 pub mod invite_code;
-mod viewer_state;
+pub mod viewer_state;
 
 pub mod audio_service;
 #[cfg(target_os = "windows")]

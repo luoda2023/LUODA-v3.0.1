@@ -2009,7 +2009,7 @@ impl<T: InvokeUiSession> Remote<T> {
                         );
                         self.handler.new_message(format!(
                             "VIEWER_BADGE:{}:{}:{}",
-                            b.total_viewers_count, b.online_audience_total, b.viewers.len()
+                            b.total_viewers_count, b.online_audience_total, 0
                         ));
                     }
                     _ => {}

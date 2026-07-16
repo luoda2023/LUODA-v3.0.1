@@ -920,6 +920,8 @@ impl InvokeUiSession for FlutterHandler {
                 ("username", &pi.username),
                 ("hostname", &pi.hostname),
                 ("platform", &pi.platform),
+                ("display_name", &pi.display_name),
+                ("avatar", &pi.avatar),
                 ("sas_enabled", &pi.sas_enabled.to_string()),
                 ("displays", &displays),
                 ("version", &pi.version),
@@ -1288,13 +1290,16 @@ pub fn session_add(
     is_port_forward: bool,
     is_rdp: bool,
     is_terminal: bool,
+    is_chat: bool,
     switch_uuid: &str,
     force_relay: bool,
     password: String,
     is_shared_password: bool,
     conn_token: Option<String>,
 ) -> ResultType<FlutterSession> {
-    let conn_type = if is_file_transfer {
+    let conn_type = if is_chat {
+        ConnType::CHAT
+    } else if is_file_transfer {
         ConnType::FILE_TRANSFER
     } else if is_view_camera {
         ConnType::VIEW_CAMERA

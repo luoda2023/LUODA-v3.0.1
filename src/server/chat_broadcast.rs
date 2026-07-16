@@ -23,7 +23,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use hbb_common::message::{ChatBroadcast, ChatChannel};
+use hbb_common::message_proto::{ChatBroadcast, ChatChannel};
 
 pub type PeerId = String;
 
@@ -56,6 +56,7 @@ impl ChatHub {
             to_id: String::new(),
             text: text.to_owned(),
             sent_at: SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
+            ..Default::default()
         }
     }
 
@@ -68,6 +69,7 @@ impl ChatHub {
             to_id: to_id.to_owned(),
             text: text.to_owned(),
             sent_at: SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
+            ..Default::default()
         }
     }
 

@@ -64,6 +64,11 @@ message FileTransfer {
 
 message ViewCamera {}
 
+message ChatSession {
+  bool persistent = 1;
+  bool direct_only = 2;
+}
+
 message OSLogin {
   string username = 1;
   string password = 2;
@@ -80,6 +85,7 @@ message LoginRequest {
     PortForward port_forward = 8;
     ViewCamera view_camera = 15;
     Terminal terminal = 16;
+    ChatSession chat = 18;
   }
   bool video_ack_required = 9;
   uint64 session_id = 10;
@@ -137,6 +143,8 @@ message PeerInfo {
   // NOTE: Only support one-level dictionaries (for peer to update), and the key is of type string.
   string platform_additions = 12;
   WindowsSessions windows_sessions = 13;
+  string display_name = 14;
+  string avatar = 15;
 }
 
 message WindowsSession {  
@@ -859,6 +867,15 @@ message Misc {
     DisplayResolution change_display_resolution = 36;
     MessageQuery message_query = 37;
     int32 follow_current_display = 38;
+    InviteToken invite_token = 39;
+    JoinAsViewer join_as_viewer = 40;
+    ViewerListUpdate viewer_list_update = 41;
+    KickViewer kick_viewer = 42;
+    PromoteViewer promote_viewer = 43;
+    ChatBroadcast chat_broadcast = 44;
+    RaiseHand raise_hand = 45;
+    ViewerBadgeUpdate viewer_badge_update = 46;
+    RequestInviteToken request_invite_token = 47;
   }
 }
 
@@ -968,7 +985,7 @@ message ViewerInfo {
   uint64 joined_at = 3;
   bool promoted = 4;
   string endpoint = 5;     // P2P endpoint hint (ip:port or relay-tag), for host UI display
-  uint32 unread_chat = 6;  // host 端高亮未读消息数（仅 host 侧填充）
+  uint32 unread_chat = 6;  // host 绔珮浜湭璇绘秷鎭暟锛堜粎 host 渚у～鍏咃級
 }
 
 message InviteToken {
@@ -1027,9 +1044,9 @@ message RaiseHand {
 }
 
 message ViewerBadgeUpdate {
-  // 用于桌面端远程控制窗口内悬浮显示在线人数 + viewer ID/IP（无需打开聊天面板）  repeated ViewerInfo viewers = 1;
+  // 鐢ㄤ簬妗岄潰绔繙绋嬫帶鍒剁獥鍙ｅ唴鎮诞鏄剧ず鍦ㄧ嚎浜烘暟 + viewer ID/IP锛堟棤闇€鎵撳紑鑱婂ぉ闈㈡澘锛? repeated ViewerInfo viewers = 1;
   uint32 total_viewers_count = 2;
-  uint32 online_audience_total = 3; // 包括 observer (=viewers count) + 1 host controlling 等等
+  uint32 online_audience_total = 3; // 鍖呮嫭 observer (=viewers count) + 1 host controlling 绛夌瓑
 }
 message PromoteViewer {
   string viewer_id = 1;
@@ -1068,14 +1085,14 @@ message Message {
     TerminalResponse terminal_response = 32;
     DirectIdQuery direct_id_query = 33;
     DirectIdResponse direct_id_response = 34;
-    InviteToken invite_token = 35;
-    JoinAsViewer join_as_viewer = 36;
-    ViewerListUpdate viewer_list_update = 37;
-    KickViewer kick_viewer = 38;
-    PromoteViewer promote_viewer = 39;
-    ChatBroadcast chat_broadcast = 40;
-    RaiseHand raise_hand = 41;
-    ViewerBadgeUpdate viewer_badge_update = 42;
-    RequestInviteToken request_invite_token = 43;
+    InviteToken invite_token = 39;
+    JoinAsViewer join_as_viewer = 40;
+    ViewerListUpdate viewer_list_update = 41;
+    KickViewer kick_viewer = 42;
+    PromoteViewer promote_viewer = 43;
+    ChatBroadcast chat_broadcast = 44;
+    RaiseHand raise_hand = 45;
+    ViewerBadgeUpdate viewer_badge_update = 46;
+    RequestInviteToken request_invite_token = 47;
   }
 }

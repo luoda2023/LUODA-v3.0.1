@@ -1,5 +1,4 @@
 use super::{chat_broadcast, viewer_direct_channel, viewer_registry};
-use super::viewer_state::ViewerState;
 use hbb_common::message_proto::{
     ChatBroadcast, ChatChannel, InviteToken, JoinAsViewer, KickViewer, PromoteViewer,
     RaiseHand, RequestInviteToken,
@@ -59,7 +58,7 @@ use hbb_common::platform::linux::run_cmds;
 use hbb_common::protobuf::EnumOrUnknown;
 use hbb_common::{
     config::decode_permanent_password_h1_from_storage,
-    config::{self, keys, Config, TrustedDevice},
+    config::{self, keys, Config, LocalConfig, PeerConfig, TrustedDevice},
     fs::{self, can_enable_overwrite_detection, JobType},
     futures::{SinkExt, StreamExt},
     get_time, get_version_number,
@@ -119,6 +118,38 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
         x |= a[i] ^ b[i];
     }
     x == 0
+}
+
+fn local_profile_identity(default_name: &str) -> (String, String) {
+    let user_info = serde_json::from_str::<Value>(&LocalConfig::get_option("user_info"))
+        .unwrap_or_default();
+    let read_user_info = |key: &str| {
+        user_info
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or_default()
+            .to_owned()
+    };
+
+    let mut display_name = read_user_info("display_name");
+    if display_name.is_empty() {
+        display_name = read_user_info("name");
+    }
+    if display_name.is_empty() {
+        display_name = crate::ui_interface::get_builtin_option(keys::OPTION_DISPLAY_NAME);
+    }
+    if display_name.is_empty() {
+        display_name = default_name.trim().to_owned();
+    }
+
+    let mut avatar = read_user_info("avatar");
+    if avatar.is_empty() {
+        avatar = crate::ui_interface::get_builtin_option(keys::OPTION_AVATAR);
+    }
+    avatar = crate::ui_interface::resolve_avatar_url(avatar);
+    (display_name, avatar)
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux"))]
@@ -224,6 +255,7 @@ struct StartCmIpcPara {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum AuthConnType {
     Remote,
+    Chat,
     FileTransfer,
     PortForward,
     ViewCamera,
@@ -258,6 +290,7 @@ pub struct Connection {
     timer: crate::LUODAInterval,
     file_timer: crate::LUODAInterval,
     file_transfer: Option<(String, bool)>,
+    chat_only: bool,
     view_camera: bool,
     terminal: bool,
     port_forward_socket: Option<Framed<TcpStream, BytesCodec>>,
@@ -451,6 +484,7 @@ impl Connection {
             timer: crate::luoda_interval(time::interval(SEC30)),
             file_timer: crate::luoda_interval(time::interval(SEC30)),
             file_transfer: None,
+            chat_only: false,
             view_camera: false,
             terminal: false,
             port_forward_socket: None,
@@ -567,7 +601,11 @@ impl Connection {
         let mut last_recv_time = Instant::now();
 
         conn.stream.set_send_timeout(
-            if conn.file_transfer.is_some() || conn.port_forward_socket.is_some() || conn.terminal {
+            if conn.file_transfer.is_some()
+                || conn.chat_only
+                || conn.port_forward_socket.is_some()
+                || conn.terminal
+            {
                 SEND_TIMEOUT_OTHER
             } else {
                 SEND_TIMEOUT_VIDEO
@@ -1487,7 +1525,9 @@ impl Connection {
             return false;
         }
         self.authorized = true;
-        let (conn_type, auth_conn_type) = if self.file_transfer.is_some() {
+        let (conn_type, auth_conn_type) = if self.chat_only {
+            (5, AuthConnType::Chat)
+        } else if self.file_transfer.is_some() {
             (1, AuthConnType::FileTransfer)
         } else if self.port_forward_socket.is_some() {
             (2, AuthConnType::PortForward)
@@ -1515,9 +1555,12 @@ impl Connection {
         );
         #[allow(unused_mut)]
         let mut username = crate::platform::get_active_username();
+        let (display_name, avatar) = local_profile_identity(&username);
         let mut res = LoginResponse::new();
         let mut pi = PeerInfo {
             username: username.clone(),
+            display_name,
+            avatar,
             version: VERSION.to_owned(),
             ..Default::default()
         };
@@ -1677,7 +1720,7 @@ impl Connection {
         if !self.terminal {
             self.handle_windows_specific_session(&mut pi, &mut wait_session_id_confirm);
         }
-        if self.file_transfer.is_some() || self.terminal {
+        if self.file_transfer.is_some() || self.chat_only || self.terminal {
             res.set_peer_info(pi);
         } else if self.view_camera {
             let supported_encoding = scrap::codec::Encoder::supported_encoding();
@@ -1758,7 +1801,12 @@ impl Connection {
         if let Some(o) = self.options_in_login.take() {
             self.update_options(&o).await;
         }
-        if let Some((dir, show_hidden)) = self.file_transfer.clone() {
+        if self.chat_only {
+            self.keyboard = false;
+            self.clipboard = false;
+            self.audio = false;
+            self.file = false;
+        } else if let Some((dir, show_hidden)) = self.file_transfer.clone() {
             let dir = if !dir.is_empty() && std::path::Path::new(&dir).is_dir() {
                 &dir
             } else {
@@ -1799,9 +1847,30 @@ impl Connection {
     #[inline]
     fn is_remote(&self) -> bool {
         self.file_transfer.is_none()
+            && !self.chat_only
             && self.port_forward_socket.is_none()
             && !self.view_camera
             && !self.terminal
+    }
+
+    fn direct_chat_policy(&self, peer_id: &str) -> String {
+        serde_json::from_str::<HashMap<String, String>>(&LocalConfig::get_option(
+            "direct-chat-contact-policies",
+        ))
+        .ok()
+        .and_then(|policies| policies.get(peer_id).cloned())
+        .unwrap_or_else(|| "ask".to_owned())
+    }
+
+    fn direct_chat_auto_allowed(&self, peer_id: &str) -> bool {
+        if LocalConfig::get_option("direct-chat-always-on") != "Y" {
+            return false;
+        }
+        match self.direct_chat_policy(peer_id).as_str() {
+            "allow" => true,
+            "deny" => false,
+            _ => LocalConfig::get_option("direct-chat-trusted-only") == "N",
+        }
     }
 
     fn try_sub_monitor_services(&mut self) {
@@ -1896,9 +1965,25 @@ impl Connection {
     }
 
     fn try_start_cm(&mut self, peer_id: String, name: String, authorized: bool) {
+        if authorized && !peer_id.is_empty() {
+            let mut peer = PeerConfig::load(&peer_id);
+            if !name.trim().is_empty() {
+                peer.info.display_name = name.trim().to_owned();
+            }
+            if !self.lr.avatar.trim().is_empty() {
+                peer.info.avatar = self.lr.avatar.trim().to_owned();
+            }
+            if !self.lr.my_platform.trim().is_empty() {
+                peer.info.platform = self.lr.my_platform.trim().to_owned();
+            }
+            peer.store(&peer_id);
+            #[cfg(feature = "flutter")]
+            crate::flutter_ffi::main_load_recent_peers();
+        }
         self.send_to_cm(ipc::Data::Login {
             id: self.inner.id(),
             is_file_transfer: self.file_transfer.is_some(),
+            is_chat: self.chat_only,
             is_view_camera: self.view_camera,
             is_terminal: self.terminal,
             port_forward: self.port_forward_address.clone(),
@@ -2290,6 +2375,14 @@ impl Connection {
                     }
                     self.file_transfer = Some((ft.dir, ft.show_hidden));
                 }
+                Some(login_request::Union::Chat(_chat)) => {
+                    self.chat_only = true;
+                    if self.direct_chat_policy(&lr.my_id) == "deny" {
+                        self.send_login_error("Direct messages rejected by this contact")
+                            .await;
+                        return false;
+                    }
+                }
                 Some(login_request::Union::ViewCamera(_vc)) => {
                     if !Self::permission(keys::OPTION_ENABLE_CAMERA, &self.control_permissions) {
                         self.send_login_error("No permission of viewing camera")
@@ -2407,6 +2500,15 @@ impl Connection {
                 self.send_login_error(crate::client::LOGIN_MSG_OFFLINE)
                     .await;
                 return false;
+            } else if self.chat_only && self.direct_chat_auto_allowed(&lr.my_id) {
+                if err_msg.is_empty() {
+                    if !self.send_logon_response_and_keep_alive().await {
+                        return false;
+                    }
+                    self.try_start_cm(lr.my_id.clone(), lr.my_name.clone(), self.authorized);
+                } else {
+                    self.send_login_error(err_msg).await;
+                }
             } else if (password::approve_mode() == ApproveMode::Click
                 && !(crate::get_builtin_option(keys::OPTION_ALLOW_LOGON_SCREEN_PASSWORD) == "Y"
                     && is_logon()))
@@ -2550,6 +2652,21 @@ impl Connection {
                 }
             }
         } else if self.authorized {
+            if self.chat_only {
+                let allowed = match msg.union.as_ref() {
+                    Some(message::Union::Misc(misc)) => matches!(
+                        misc.union.as_ref(),
+                        Some(misc::Union::ChatMessage(_))
+                            | Some(misc::Union::CloseReason(_))
+                    ),
+                    Some(message::Union::TestDelay(_)) => true,
+                    _ => false,
+                };
+                if !allowed {
+                    log::warn!("Dropped non-chat payload on chat-only connection");
+                    return true;
+                }
+            }
             if self.port_forward_socket.is_some() {
                 return true;
             }
@@ -3316,7 +3433,7 @@ impl Connection {
                                 }
                             } else if self.view_camera {
                                 self.try_sub_camera_displays();
-                            } else if !self.terminal {
+                            } else if !self.terminal && !self.chat_only {
                                 self.try_sub_monitor_services();
                             }
                         }
@@ -5521,12 +5638,14 @@ pub struct AuthedConn {
 
 impl Connection {
     fn viewer_session_key(&self) -> Option<SessionKey> {
-        self.viewer_state.as_ref().map(|v| {
-            SessionKey {
-                id: v.viewer_id.clone(),
-                conn_type: -1, // viewer pseudo-type, never collides with real ConnType
-                ..Default::default()
-            }
+        self.viewer_state.as_ref().map(|v| SessionKey {
+            peer_id: v.viewer_id.clone(),
+            name: if v.display_name.is_empty() {
+                v.viewer_id.clone()
+            } else {
+                v.display_name.clone()
+            },
+            session_id: 0,
         })
     }
 
@@ -5566,7 +5685,7 @@ impl Connection {
             .unwrap_or(false);
         if !verified {
             log::warn!(
-                "reject viewer {}: invalid invite token {!r}",
+                "reject viewer {}: invalid invite token {:?}",
                 viewer_id,
                 raw_token
             );

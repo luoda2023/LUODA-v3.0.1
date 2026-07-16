@@ -43,8 +43,7 @@ class ServerModel with ChangeNotifier {
 
   late String _emptyIdShow;
   late final IDTextEditingController _serverId;
-  final _serverPasswd =
-      TextEditingController(text: "");
+  final _serverPasswd = TextEditingController(text: "");
 
   final tabController = DesktopTabController(tabType: DesktopTabType.cm);
 
@@ -816,6 +815,7 @@ class ServerModel with ChangeNotifier {
 enum ClientType {
   remote,
   file,
+  chat,
   camera,
   portForward,
   terminal,
@@ -825,6 +825,7 @@ class Client {
   int id = 0; // client connections inner count id
   bool authorized = false;
   bool isFileTransfer = false;
+  bool isChat = false;
   bool isViewCamera = false;
   bool isTerminal = false;
   String portForward = "";
@@ -852,6 +853,7 @@ class Client {
     id = json['id'];
     authorized = json['authorized'];
     isFileTransfer = json['is_file_transfer'];
+    isChat = json['is_chat'] ?? false;
     // TODO: no entry then default.
     isViewCamera = json['is_view_camera'];
     isTerminal = json['is_terminal'] ?? false;
@@ -877,6 +879,7 @@ class Client {
     data['id'] = id;
     data['authorized'] = authorized;
     data['is_file_transfer'] = isFileTransfer;
+    data['is_chat'] = isChat;
     data['is_view_camera'] = isViewCamera;
     data['is_terminal'] = isTerminal;
     data['port_forward'] = portForward;
@@ -900,6 +903,8 @@ class Client {
   ClientType type_() {
     if (isFileTransfer) {
       return ClientType.file;
+    } else if (isChat) {
+      return ClientType.chat;
     } else if (isViewCamera) {
       return ClientType.camera;
     } else if (isTerminal) {
@@ -961,4 +966,3 @@ Future<void> showClientsMayNotBeChangedAlert(FFI? ffi) async {
     );
   });
 }
-

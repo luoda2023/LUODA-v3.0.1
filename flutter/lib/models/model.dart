@@ -122,6 +122,7 @@ class FfiModel with ChangeNotifier {
   var _reconnects = 1;
   DateTime? _offlineReconnectStartTime;
   bool _viewOnly = false;
+  String? _lastConnectionError;
   bool _showMyCursor = false;
   WeakReference<FFI> parent;
   late final SessionID sessionId;
@@ -151,6 +152,12 @@ class FfiModel with ChangeNotifier {
   bool? get secure => _secure;
 
   bool? get direct => _direct;
+
+  String? get lastConnectionError => _lastConnectionError;
+
+  void markConnectionClosed() {
+    notifyListeners();
+  }
 
   PeerInfo get pi => _pi;
 
@@ -912,6 +919,8 @@ class FfiModel with ChangeNotifier {
         type == 'restarting' ||
         (type is String && type.contains('error'))) {
       parent.target?.inputModel.setRelativeMouseMode(false);
+      _lastConnectionError = text?.toString();
+      notifyListeners();
     }
 
     if (type == 're-input-password') {
@@ -942,7 +951,8 @@ class FfiModel with ChangeNotifier {
       showWaitUacDialog(sessionId, dialogManager, type);
     } else if (type == 'elevation-error') {
       showElevationError(sessionId, type, title, text, dialogManager);
-    } else if (type == 'relay-hint' || type == 'relay-hint2') {
+    } else if ((type == 'relay-hint' || type == 'relay-hint2') &&
+        parent.target?.connType != ConnType.chat) {
       showRelayHintDialog(sessionId, type, title, text, dialogManager, peerId);
     } else if (text == kMsgboxTextWaitingForImage) {
       showConnectedWaitingForImage(dialogManager, sessionId, type, title, text);
@@ -953,10 +963,24 @@ class FfiModel with ChangeNotifier {
     } else {
       var hasRetry = evt['hasRetry'] == 'true';
       if (!hasRetry) {
-        hasRetry = shouldAutoRetryOnOffline(type, title, text);
+        hasRetry = shouldAutoReconnectDirectChat(type, title, text) ||
+            shouldAutoRetryOnOffline(type, title, text);
       }
       showMsgBox(sessionId, type, title, text, link, hasRetry, dialogManager);
     }
+  }
+
+  bool shouldAutoReconnectDirectChat(
+    String type,
+    String title,
+    String text,
+  ) {
+    final ffi = parent.target;
+    return ffi?.connType == ConnType.chat &&
+        type == 'error' &&
+        title == 'Connection Error' &&
+        text != 'Direct messages rejected by this contact' &&
+        bind.mainGetLocalOption(key: 'direct-chat-auto-reconnect') != 'N';
   }
 
   /// Auto-retry check for "Remote desktop is offline" error.
@@ -1057,7 +1081,9 @@ class FfiModel with ChangeNotifier {
       _timer = Timer(Duration(seconds: _reconnects), () {
         reconnect(dialogManager, sessionId, false);
       });
-      _reconnects *= 2;
+      _reconnects = parent.target?.connType == ConnType.chat
+          ? min(_reconnects * 2, 30)
+          : _reconnects * 2;
     } else {
       _reconnects = 1;
       _offlineReconnectStartTime = null;
@@ -1329,6 +1355,17 @@ class FfiModel with ChangeNotifier {
     _pi.username = evt['username'];
     _pi.hostname = evt['hostname'];
     _pi.platform = evt['platform'];
+    _pi.displayName = evt['display_name'] ?? '';
+    _pi.avatar = evt['avatar'] ?? '';
+    if (parent.target?.connType == ConnType.chat) {
+      parent.target?.chatModel.updatePeerIdentity(
+        peerId,
+        displayName: _pi.displayName.trim().isNotEmpty
+            ? _pi.displayName.trim()
+            : _pi.username,
+        avatar: _pi.avatar,
+      );
+    }
     _pi.sasEnabled = evt['sas_enabled'] == 'true';
     final currentDisplay = int.parse(evt['current_display']);
     if (_pi.primaryDisplay == kInvalidDisplayIndex) {
@@ -1423,6 +1460,7 @@ class FfiModel with ChangeNotifier {
     }
 
     _pi.isSet.value = true;
+    _lastConnectionError = null;
     stateGlobal.resetLastResolutionGroupValues(peerId);
 
     if (isDesktop || isWebDesktop) {
@@ -1671,10 +1709,8 @@ class FfiModel with ChangeNotifier {
         for (final key in updateJson.keys) {
           _pi.platformAdditions[key] = updateJson[key];
         }
-        if (!updateJson
-            .containsKey(kPlatformAdditionsLUODAVirtualDisplays)) {
-          _pi.platformAdditions
-              .remove(kPlatformAdditionsLUODAVirtualDisplays);
+        if (!updateJson.containsKey(kPlatformAdditionsLUODAVirtualDisplays)) {
+          _pi.platformAdditions.remove(kPlatformAdditionsLUODAVirtualDisplays);
         }
         if (!updateJson.containsKey(kPlatformAdditionsAmyuniVirtualDisplays)) {
           _pi.platformAdditions.remove(kPlatformAdditionsAmyuniVirtualDisplays);
@@ -3611,7 +3647,8 @@ enum ConnType {
   portForward,
   rdp,
   viewCamera,
-  terminal
+  terminal,
+  chat,
 }
 
 /// Flutter state manager and data communication with the Rust core.
@@ -3702,6 +3739,7 @@ class FFI {
     bool isPortForward = false,
     bool isRdp = false,
     bool isTerminal = false,
+    bool isChat = false,
     String? switchUuid,
     String? password,
     bool? isSharedPassword,
@@ -3719,9 +3757,16 @@ class FFI {
             (!(isPortForward && isFileTransfer)) &&
             (!(isTerminal && isFileTransfer)) &&
             (!(isTerminal && isViewCamera)) &&
-            (!(isTerminal && isPortForward)),
+            (!(isTerminal && isPortForward)) &&
+            (!(isChat && isFileTransfer)) &&
+            (!(isChat && isViewCamera)) &&
+            (!(isChat && isPortForward)) &&
+            (!(isChat && isTerminal)),
         'more than one connect type');
-    if (isFileTransfer) {
+    if (isChat) {
+      chatModel.resetClientMode();
+      connType = ConnType.chat;
+    } else if (isFileTransfer) {
       connType = ConnType.fileTransfer;
     } else if (isViewCamera) {
       connType = ConnType.viewCamera;
@@ -3750,6 +3795,7 @@ class FFI {
         isPortForward: isPortForward,
         isRdp: isRdp,
         isTerminal: isTerminal,
+        isChat: isChat,
         switchUuid: switchUuid ?? '',
         forceRelay: forceRelay ?? false,
         password: password ?? '',
@@ -3846,6 +3892,7 @@ class FFI {
         if (message is EventToUI_Event) {
           if (message.field0 == "close") {
             closed = true;
+            ffiModel.markConnectionClosed();
             debugPrint('Exit session event loop');
             return;
           }
@@ -4060,6 +4107,8 @@ class PeerInfo with ChangeNotifier {
   String username = '';
   String hostname = '';
   String platform = '';
+  String displayName = '';
+  String avatar = '';
   bool sasEnabled = false;
   bool isSupportMultiUiSession = false;
   int currentDisplay = 0;

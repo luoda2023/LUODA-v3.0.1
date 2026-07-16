@@ -123,6 +123,7 @@ fn wire_session_add_sync_impl(
     is_port_forward: impl Wire2Api<bool> + UnwindSafe,
     is_rdp: impl Wire2Api<bool> + UnwindSafe,
     is_terminal: impl Wire2Api<bool> + UnwindSafe,
+    is_chat: impl Wire2Api<bool> + UnwindSafe,
     switch_uuid: impl Wire2Api<String> + UnwindSafe,
     force_relay: impl Wire2Api<bool> + UnwindSafe,
     password: impl Wire2Api<String> + UnwindSafe,
@@ -143,6 +144,7 @@ fn wire_session_add_sync_impl(
             let api_is_port_forward = is_port_forward.wire2api();
             let api_is_rdp = is_rdp.wire2api();
             let api_is_terminal = is_terminal.wire2api();
+            let api_is_chat = is_chat.wire2api();
             let api_switch_uuid = switch_uuid.wire2api();
             let api_force_relay = force_relay.wire2api();
             let api_password = password.wire2api();
@@ -156,6 +158,7 @@ fn wire_session_add_sync_impl(
                 api_is_port_forward,
                 api_is_rdp,
                 api_is_terminal,
+                api_is_chat,
                 api_switch_uuid,
                 api_force_relay,
                 api_password,
@@ -1262,6 +1265,157 @@ fn wire_session_send_chat_impl(
             let api_session_id = session_id.wire2api();
             let api_text = text.wire2api();
             move |task_callback| Ok(session_send_chat(api_session_id, api_text))
+        },
+    )
+}
+fn wire_session_send_chat_to_viewer_impl(
+    port_: MessagePort,
+    session_id: impl Wire2Api<uuid::Uuid> + UnwindSafe,
+    to_viewer_id: impl Wire2Api<String> + UnwindSafe,
+    text: impl Wire2Api<String> + UnwindSafe,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap::<_, _, _, ()>(
+        WrapInfo {
+            debug_name: "session_send_chat_to_viewer",
+            port: Some(port_),
+            mode: FfiCallMode::Normal,
+        },
+        move || {
+            let api_session_id = session_id.wire2api();
+            let api_to_viewer_id = to_viewer_id.wire2api();
+            let api_text = text.wire2api();
+            move |task_callback| {
+                Ok(session_send_chat_to_viewer(
+                    api_session_id,
+                    api_to_viewer_id,
+                    api_text,
+                ))
+            }
+        },
+    )
+}
+fn wire_session_kick_viewer_impl(
+    port_: MessagePort,
+    session_id: impl Wire2Api<uuid::Uuid> + UnwindSafe,
+    viewer_id: impl Wire2Api<String> + UnwindSafe,
+    reason: impl Wire2Api<String> + UnwindSafe,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap::<_, _, _, ()>(
+        WrapInfo {
+            debug_name: "session_kick_viewer",
+            port: Some(port_),
+            mode: FfiCallMode::Normal,
+        },
+        move || {
+            let api_session_id = session_id.wire2api();
+            let api_viewer_id = viewer_id.wire2api();
+            let api_reason = reason.wire2api();
+            move |task_callback| {
+                Ok(session_kick_viewer(
+                    api_session_id,
+                    api_viewer_id,
+                    api_reason,
+                ))
+            }
+        },
+    )
+}
+fn wire_session_promote_viewer_impl(
+    port_: MessagePort,
+    session_id: impl Wire2Api<uuid::Uuid> + UnwindSafe,
+    viewer_id: impl Wire2Api<String> + UnwindSafe,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap::<_, _, _, ()>(
+        WrapInfo {
+            debug_name: "session_promote_viewer",
+            port: Some(port_),
+            mode: FfiCallMode::Normal,
+        },
+        move || {
+            let api_session_id = session_id.wire2api();
+            let api_viewer_id = viewer_id.wire2api();
+            move |task_callback| Ok(session_promote_viewer(api_session_id, api_viewer_id))
+        },
+    )
+}
+fn wire_session_raise_hand_impl(
+    port_: MessagePort,
+    session_id: impl Wire2Api<uuid::Uuid> + UnwindSafe,
+    viewer_id: impl Wire2Api<String> + UnwindSafe,
+    raised: impl Wire2Api<bool> + UnwindSafe,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap::<_, _, _, ()>(
+        WrapInfo {
+            debug_name: "session_raise_hand",
+            port: Some(port_),
+            mode: FfiCallMode::Normal,
+        },
+        move || {
+            let api_session_id = session_id.wire2api();
+            let api_viewer_id = viewer_id.wire2api();
+            let api_raised = raised.wire2api();
+            move |task_callback| {
+                Ok(session_raise_hand(
+                    api_session_id,
+                    api_viewer_id,
+                    api_raised,
+                ))
+            }
+        },
+    )
+}
+fn wire_session_request_invite_token_impl(
+    port_: MessagePort,
+    session_id: impl Wire2Api<uuid::Uuid> + UnwindSafe,
+    ttl_minutes: impl Wire2Api<i32> + UnwindSafe,
+    one_shot: impl Wire2Api<bool> + UnwindSafe,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap::<_, _, _, ()>(
+        WrapInfo {
+            debug_name: "session_request_invite_token",
+            port: Some(port_),
+            mode: FfiCallMode::Normal,
+        },
+        move || {
+            let api_session_id = session_id.wire2api();
+            let api_ttl_minutes = ttl_minutes.wire2api();
+            let api_one_shot = one_shot.wire2api();
+            move |task_callback| {
+                Ok(session_request_invite_token(
+                    api_session_id,
+                    api_ttl_minutes,
+                    api_one_shot,
+                ))
+            }
+        },
+    )
+}
+fn wire_session_join_as_viewer_impl(
+    port_: MessagePort,
+    session_id: impl Wire2Api<uuid::Uuid> + UnwindSafe,
+    token: impl Wire2Api<String> + UnwindSafe,
+    viewer_id: impl Wire2Api<String> + UnwindSafe,
+    display_name: impl Wire2Api<String> + UnwindSafe,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap::<_, _, _, ()>(
+        WrapInfo {
+            debug_name: "session_join_as_viewer",
+            port: Some(port_),
+            mode: FfiCallMode::Normal,
+        },
+        move || {
+            let api_session_id = session_id.wire2api();
+            let api_token = token.wire2api();
+            let api_viewer_id = viewer_id.wire2api();
+            let api_display_name = display_name.wire2api();
+            move |task_callback| {
+                Ok(session_join_as_viewer(
+                    api_session_id,
+                    api_token,
+                    api_viewer_id,
+                    api_display_name,
+                ))
+            }
         },
     )
 }

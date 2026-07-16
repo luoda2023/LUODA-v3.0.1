@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:luoda_flutter/mobile/pages/server_page.dart';
 import 'package:luoda_flutter/mobile/pages/settings_page.dart';
@@ -5,6 +8,8 @@ import 'package:luoda_flutter/web/settings_page.dart';
 import 'package:get/get.dart';
 import '../../common.dart';
 import '../../common/widgets/chat_page.dart';
+import '../../models/file_model.dart';
+import '../../models/model.dart';
 import '../../models/platform_model.dart';
 import '../../models/state_model.dart';
 import 'connection_page.dart';
@@ -29,9 +34,15 @@ class HomePageState extends State<HomePage> {
   int get selectedIndex => _selectedIndex;
   final List<PageShape> _pages = [];
   int _chatPageTabIndex = -1;
-  bool get isChatPageCurrentTab => isAndroid
-      ? _selectedIndex == _chatPageTabIndex
-      : false; // change this when ios have chat page
+  FFI? _directFileSession;
+  String _directFilePeerId = '';
+  bool get isChatPageCurrentTab =>
+      isMobile && _selectedIndex == _chatPageTabIndex;
+
+  void selectChatPage() {
+    if (_chatPageTabIndex < 0 || _selectedIndex == _chatPageTabIndex) return;
+    setState(() => _selectedIndex = _chatPageTabIndex);
+  }
 
   void refreshPages() {
     setState(() {
@@ -52,11 +63,169 @@ class HomePageState extends State<HomePage> {
         appBarActions: [],
       ));
     }
-    if (isAndroid && !bind.isOutgoingOnly()) {
+    if (isMobile) {
       _chatPageTabIndex = _pages.length;
-      _pages.addAll([ChatPage(type: ChatPageType.mobileMain), ServerPage()]);
+      _pages.add(ChatPage(
+        type: ChatPageType.mobileMain,
+        onAttachFile: _sendDirectChatFiles,
+        onRemoteAssist: _startRemoteFromChat,
+      ));
+      if (isAndroid && !bind.isOutgoingOnly()) {
+        _pages.add(ServerPage());
+      }
     }
     _pages.add(SettingsPage());
+  }
+
+  void _startRemoteFromChat() {
+    final peerId = gFFI.chatModel.currentKey.peerId.trim();
+    if (peerId.isEmpty) return;
+    connect(context, peerId);
+  }
+
+  Future<void> _sendDirectChatFiles() async {
+    final currentKey = gFFI.chatModel.currentKey;
+    final peerId = currentKey.peerId.trim();
+    final connected = currentKey.isOut
+        ? gFFI.connType == ConnType.chat &&
+            gFFI.ffiModel.pi.isSet.isTrue &&
+            gFFI.ffiModel.direct == true
+        : gFFI.serverModel.clients.any(
+            (client) =>
+                client.id == currentKey.connId &&
+                client.isChat &&
+                !client.disconnected,
+          );
+    if (peerId.isEmpty || !connected) {
+      showToast(translate('Connect to the contact before sending files.'));
+      return;
+    }
+
+    final picked = await FilePicker.platform.pickFiles(allowMultiple: true);
+    final files = picked?.files.where((file) => file.path != null).toList() ??
+        <PlatformFile>[];
+    if (files.isEmpty || !mounted) return;
+
+    final ffi = await _ensureDirectFileSession(peerId);
+    if (ffi == null || !mounted) return;
+    final items = SelectedItems(isLocal: true);
+    for (final file in files) {
+      items.add(
+        Entry()
+          ..path = file.path!
+          ..name = file.name
+          ..size = file.size,
+      );
+    }
+    await ffi.fileModel.localController.sendFiles(
+      items,
+      ffi.fileModel.remoteController.directoryData(),
+    );
+    if (gFFI.chatModel.currentKey.peerId.trim() == peerId) {
+      gFFI.chatModel.sendText(
+        '${translate('Sent file')}: ${files.map((file) => file.name).join(', ')}',
+      );
+    }
+    showToast(translate('Direct file transfer started.'));
+  }
+
+  Future<FFI?> _ensureDirectFileSession(String peerId) async {
+    final existing = _directFileSession;
+    if (existing != null &&
+        _directFilePeerId == peerId &&
+        !existing.closed &&
+        existing.ffiModel.pi.isSet.isTrue &&
+        existing.ffiModel.direct == true) {
+      return existing;
+    }
+    if (existing != null) {
+      _directFileSession = null;
+      _directFilePeerId = '';
+      await _disposeDirectFileSession(existing);
+    }
+
+    final ffi = FFI(null);
+    _directFileSession = ffi;
+    _directFilePeerId = peerId;
+    ffi.start(peerId, isFileTransfer: true, forceRelay: false);
+    ffi.dialogManager.showLoading(
+      translate('Preparing direct file transfer...'),
+      onCancel: () async {
+        if (_directFileSession == ffi) {
+          _directFileSession = null;
+          _directFilePeerId = '';
+        }
+        await _disposeDirectFileSession(ffi);
+      },
+    );
+
+    final deadline = DateTime.now().add(const Duration(seconds: 30));
+    while (mounted && DateTime.now().isBefore(deadline)) {
+      if (ffi.ffiModel.pi.isSet.isTrue) {
+        ffi.dialogManager.dismissAll();
+        if (ffi.ffiModel.direct != true) {
+          _directFileSession = null;
+          _directFilePeerId = '';
+          await _disposeDirectFileSession(ffi);
+          showToast(
+            translate('Direct connection failed. File relay is disabled.'),
+          );
+          return null;
+        }
+        if (await _waitForFileDirectories(ffi)) return ffi;
+        break;
+      }
+      if (ffi.closed || (ffi.ffiModel.lastConnectionError ?? '').isNotEmpty) {
+        break;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    }
+
+    ffi.dialogManager.dismissAll();
+    if (_directFileSession == ffi) {
+      _directFileSession = null;
+      _directFilePeerId = '';
+    }
+    final error = ffi.ffiModel.lastConnectionError;
+    await _disposeDirectFileSession(ffi);
+    showToast(
+      translate(
+        error?.isNotEmpty == true
+            ? error!
+            : 'Direct file transfer connection timed out.',
+      ),
+    );
+    return null;
+  }
+
+  Future<bool> _waitForFileDirectories(FFI ffi) async {
+    for (var attempt = 0; attempt < 30; attempt++) {
+      if (ffi.closed) return false;
+      final local = ffi.fileModel.localController.directory.value.path;
+      final remote = ffi.fileModel.remoteController.directory.value.path;
+      if (local.isNotEmpty && remote.isNotEmpty) return true;
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    }
+    return false;
+  }
+
+  Future<void> _disposeDirectFileSession(FFI ffi) async {
+    if (ffi.closed) return;
+    try {
+      await ffi.fileModel.close();
+    } finally {
+      await ffi.close();
+    }
+  }
+
+  @override
+  void dispose() {
+    final fileSession = _directFileSession;
+    _directFileSession = null;
+    if (fileSession != null) {
+      unawaited(_disposeDirectFileSession(fileSession));
+    }
+    super.dispose();
   }
 
   @override
@@ -112,8 +281,9 @@ class HomePageState extends State<HomePage> {
     if (isChatPageCurrentTab &&
         currentUser != null &&
         currentKey.peerId.isNotEmpty) {
-      final connected =
-          gFFI.serverModel.clients.any((e) => e.id == currentKey.connId);
+      final connected = currentKey.isOut
+          ? gFFI.ffiModel.pi.isSet.isTrue
+          : gFFI.serverModel.clients.any((e) => e.id == currentKey.connId);
       return Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -170,9 +340,7 @@ class WebHomePage extends StatelessWidget {
         title: Text(
           bind.mainGetAppNameSync(),
           style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0),
+              fontSize: 18, fontWeight: FontWeight.w700, letterSpacing: 0),
         ),
         actions: connectionPage.appBarActions,
       ),
@@ -252,11 +420,11 @@ class WebHomePage extends StatelessWidget {
       }
     }
     if (id != null) {
-      connect(context, id, 
-        isFileTransfer: isFileTransfer, 
-        isViewCamera: isViewCamera, 
-        isTerminal: isTerminal,
-        password: password);
+      connect(context, id,
+          isFileTransfer: isFileTransfer,
+          isViewCamera: isViewCamera,
+          isTerminal: isTerminal,
+          password: password);
     }
   }
 }

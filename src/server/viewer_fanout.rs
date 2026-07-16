@@ -21,14 +21,14 @@ use std::{collections::HashMap, sync::{Arc, Mutex}};
 
 use hbb_common::{
     message_proto::{ChatBroadcast, ChatChannel, Message, ViewerListUpdate},
-    tokio::sync::mpsc,
+    tokio::{sync::mpsc, time::Instant},
 };
 
 use crate::server::chat_broadcast::{self, PeerId};
 
 /// `Connection::inner.tx` (the non-video control mpsc) wrapped in `Arc`
 /// so a single `Sender` can be cheaply cloned into the fan-out table.
-pub type ControlSender = mpsc::UnboundedSender<(std::time::Instant, Arc<Message>)>;
+pub type ControlSender = mpsc::UnboundedSender<(Instant, Arc<Message>)>;
 
 /// Per-host-session fan-out state. One entry per active host session; the
 /// entry is created lazily by the first `register_*` and retired by the
@@ -58,21 +58,21 @@ impl SessionFanout {
     /// separately via `host_tx`.
     pub fn broadcast_to_viewers(&self, msg: Arc<Message>) {
         for (_, tx) in &self.viewers {
-            let _ = tx.send((std::time::Instant::now(), msg.clone()));
+            let _ = tx.send((Instant::now(), msg.clone()));
         }
     }
 
     /// Push a message to the host only.
     pub fn send_to_host(&self, msg: Arc<Message>) {
         if let Some(host) = &self.host_tx {
-            let _ = host.send((std::time::Instant::now(), msg));
+            let _ = host.send((Instant::now(), msg));
         }
     }
 
     /// Push a message to a single viewer id.
     pub fn send_to_viewer(&self, viewer_id: &str, msg: Arc<Message>) {
         if let Some(tx) = self.viewers.get(viewer_id) {
-            let _ = tx.send((std::time::Instant::now(), msg));
+            let _ = tx.send((Instant::now(), msg));
         }
     }
 }
@@ -106,8 +106,8 @@ pub fn register_host(host_id: &str, peer_id: PeerId, tx: ControlSender) {
     let f = for_session(host_id);
     let mut g = f.lock().unwrap();
     g.host_tx = Some(tx);
-    g.host_peer_id = Some(peer_id);
     chat_broadcast::for_session(host_id).join(&peer_id, "host");
+    g.host_peer_id = Some(peer_id);
 }
 
 /// Unregister the host sender (e.g. when the controlling peer
@@ -151,14 +151,14 @@ pub fn emit_chat(host_id: &str, cb: ChatBroadcast) -> usize {
         if Some(&peer) == g.host_peer_id.as_ref() {
             if let Some(host) = &g.host_tx {
                 let msg = wrap_chat(cb.clone());
-                let _ = host.send((std::time::Instant::now(), msg));
+                let _ = host.send((Instant::now(), msg));
                 delivered += 1;
             }
             continue;
         }
         if let Some(tx) = g.viewers.get(&peer) {
             let msg = wrap_chat(cb.clone());
-            let _ = tx.send((std::time::Instant::now(), msg));
+            let _ = tx.send((Instant::now(), msg));
             delivered += 1;
         }
     }
@@ -174,11 +174,11 @@ pub fn emit_viewer_list_update(host_id: &str, vlu: ViewerListUpdate) -> usize {
     let mut delivered = 0usize;
     let msg = wrap_viewer_list_update(vlu.clone());
     if let Some(host) = &g.host_tx {
-        let _ = host.send((std::time::Instant::now(), msg.clone()));
+        let _ = host.send((Instant::now(), msg.clone()));
         delivered += 1;
     }
     for (_, tx) in &g.viewers {
-        let _ = tx.send((std::time::Instant::now(), msg.clone()));
+        let _ = tx.send((Instant::now(), msg.clone()));
         delivered += 1;
     }
     delivered
@@ -190,7 +190,7 @@ pub fn emit_to_viewer(host_id: &str, viewer_id: &str, msg: Arc<Message>) -> bool
     let f = for_session(host_id);
     let g = f.lock().unwrap();
     if let Some(tx) = g.viewers.get(viewer_id) {
-        let _ = tx.send((std::time::Instant::now(), msg));
+        let _ = tx.send((Instant::now(), msg));
         true
     } else {
         false

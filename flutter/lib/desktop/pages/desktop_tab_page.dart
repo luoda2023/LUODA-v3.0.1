@@ -3,6 +3,7 @@ import 'package:luoda_flutter/common.dart';
 import 'package:luoda_flutter/consts.dart';
 import 'package:luoda_flutter/desktop/pages/desktop_home_page.dart';
 import 'package:luoda_flutter/desktop/pages/desktop_setting_page.dart';
+import 'package:luoda_flutter/common/widgets/peer_tab_page.dart';
 import 'package:luoda_flutter/desktop/widgets/tabbar_widget.dart';
 import 'package:luoda_flutter/models/platform_model.dart';
 import 'package:luoda_flutter/models/state_model.dart';
@@ -31,6 +32,20 @@ class DesktopTabPage extends StatefulWidget {
             key: const ValueKey(kTabLabelSettingPage),
             initialTabkey: initialPage,
           )));
+    } catch (e) {
+      debugPrintStack(label: '$e');
+    }
+  }
+
+  static Future<void> showHome({int peerTabIndex = 0}) async {
+    try {
+      final controller = Get.find<DesktopTabController>();
+      final index = controller.state.value.tabs
+          .indexWhere((tab) => tab.key == kTabLabelHomePage);
+      if (index >= 0) {
+        controller.jumpTo(index);
+      }
+      await PeerTabPage.selectDesktopTab(peerTabIndex);
     } catch (e) {
       debugPrintStack(label: '$e');
     }

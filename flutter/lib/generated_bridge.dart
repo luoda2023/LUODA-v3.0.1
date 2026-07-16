@@ -50,6 +50,7 @@ abstract class Luoda {
       required bool isPortForward,
       required bool isRdp,
       required bool isTerminal,
+      required bool isChat,
       required String switchUuid,
       required bool forceRelay,
       required String password,
@@ -1862,6 +1863,7 @@ class LuodaImpl implements Luoda {
       required bool isPortForward,
       required bool isRdp,
       required bool isTerminal,
+      required bool isChat,
       required String switchUuid,
       required bool forceRelay,
       required String password,
@@ -1875,14 +1877,15 @@ class LuodaImpl implements Luoda {
     var arg4 = isPortForward;
     var arg5 = isRdp;
     var arg6 = isTerminal;
-    var arg7 = _platform.api2wire_String(switchUuid);
-    var arg8 = forceRelay;
-    var arg9 = _platform.api2wire_String(password);
-    var arg10 = isSharedPassword;
-    var arg11 = _platform.api2wire_opt_String(connToken);
+    var arg7 = isChat;
+    var arg8 = _platform.api2wire_String(switchUuid);
+    var arg9 = forceRelay;
+    var arg10 = _platform.api2wire_String(password);
+    var arg11 = isSharedPassword;
+    var arg12 = _platform.api2wire_opt_String(connToken);
     return _platform.executeSync(FlutterRustBridgeSyncTask(
       callFfi: () => _platform.inner.wire_session_add_sync(arg0, arg1, arg2,
-          arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11),
+          arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12),
       parseSuccessData: _wire2api_String,
       constMeta: kSessionAddSyncConstMeta,
       argValues: [
@@ -1893,6 +1896,7 @@ class LuodaImpl implements Luoda {
         isPortForward,
         isRdp,
         isTerminal,
+        isChat,
         switchUuid,
         forceRelay,
         password,
@@ -1914,6 +1918,7 @@ class LuodaImpl implements Luoda {
           "isPortForward",
           "isRdp",
           "isTerminal",
+          "isChat",
           "switchUuid",
           "forceRelay",
           "password",
@@ -8385,6 +8390,7 @@ class LuodaWire implements FlutterRustBridgeWireBase {
     bool is_port_forward,
     bool is_rdp,
     bool is_terminal,
+    bool is_chat,
     ffi.Pointer<wire_uint_8_list> switch_uuid,
     bool force_relay,
     ffi.Pointer<wire_uint_8_list> password,
@@ -8399,6 +8405,7 @@ class LuodaWire implements FlutterRustBridgeWireBase {
       is_port_forward,
       is_rdp,
       is_terminal,
+      is_chat,
       switch_uuid,
       force_relay,
       password,
@@ -8417,6 +8424,7 @@ class LuodaWire implements FlutterRustBridgeWireBase {
               ffi.Bool,
               ffi.Bool,
               ffi.Bool,
+              ffi.Bool,
               ffi.Pointer<wire_uint_8_list>,
               ffi.Bool,
               ffi.Pointer<wire_uint_8_list>,
@@ -8426,6 +8434,7 @@ class LuodaWire implements FlutterRustBridgeWireBase {
       WireSyncReturn Function(
           ffi.Pointer<wire_uint_8_list>,
           ffi.Pointer<wire_uint_8_list>,
+          bool,
           bool,
           bool,
           bool,
@@ -13798,6 +13807,16 @@ class LuodaWire implements FlutterRustBridgeWireBase {
               ffi.Pointer<wire_uint_8_list>)>>('wire_main_get_buildin_option');
   late final _wire_main_get_buildin_option = _wire_main_get_buildin_optionPtr
       .asFunction<WireSyncReturn Function(ffi.Pointer<wire_uint_8_list>)>();
+
+  WireSyncReturn wire_get_settings_tab_config() {
+    return _wire_get_settings_tab_config();
+  }
+
+  late final _wire_get_settings_tab_configPtr =
+      _lookup<ffi.NativeFunction<WireSyncReturn Function()>>(
+          'wire_get_settings_tab_config');
+  late final _wire_get_settings_tab_config =
+      _wire_get_settings_tab_configPtr.asFunction<WireSyncReturn Function()>();
 
   void wire_main_check_hwcodec(
     int port_,

@@ -175,6 +175,8 @@ pub fn peer_get_sessions_count(id: String, conn_type: i32) -> SyncReturn<usize> 
         ConnType::RDP
     } else if conn_type == ConnType::TERMINAL as i32 {
         ConnType::TERMINAL
+    } else if conn_type == ConnType::CHAT as i32 {
+        ConnType::CHAT
     } else {
         ConnType::DEFAULT_CONN
     };
@@ -202,6 +204,7 @@ pub fn session_add_sync(
     is_port_forward: bool,
     is_rdp: bool,
     is_terminal: bool,
+    is_chat: bool,
     switch_uuid: String,
     force_relay: bool,
     password: String,
@@ -216,6 +219,7 @@ pub fn session_add_sync(
         is_port_forward,
         is_rdp,
         is_terminal,
+        is_chat,
         &switch_uuid,
         force_relay,
         password,
@@ -1695,6 +1699,7 @@ pub fn main_load_fav_peers() {
                             username: d.username.clone(),
                             hostname: d.hostname.clone(),
                             platform: d.platform.clone(),
+                            ..Default::default()
                         },
                         ..Default::default()
                     },

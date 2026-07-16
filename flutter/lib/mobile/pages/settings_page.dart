@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:luoda_flutter/common/widgets/setting_widgets.dart';
 import 'package:luoda_flutter/desktop/pages/desktop_setting_page.dart';
@@ -16,6 +17,7 @@ import '../../common/widgets/dialog.dart';
 import '../../common/widgets/login.dart';
 import '../../consts.dart';
 import '../../models/model.dart';
+import '../../models/peer_model.dart';
 import '../../models/platform_model.dart';
 import '../widgets/dialog.dart';
 import 'home_page.dart';
@@ -101,6 +103,10 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
   var _isUsingPublicServer = false;
   var _allowAskForNoteAtEndOfConnection = false;
   var _preventSleepWhileConnected = true;
+  var _directChatAlwaysOn = false;
+  var _directChatTrustedOnly = true;
+  var _directChatAutoReconnect = true;
+  var _showAdvancedSettings = false;
 
   _SettingsState() {
     _enableAbr = option2bool(
@@ -145,6 +151,12 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
         mainGetLocalBoolOptionSync(kOptionKeepAwakeDuringOutgoingSessions);
     _showTerminalExtraKeys =
         mainGetLocalBoolOptionSync(kOptionEnableShowTerminalExtraKeys);
+    _directChatAlwaysOn =
+        bind.mainGetLocalOption(key: 'direct-chat-always-on') == 'Y';
+    _directChatTrustedOnly =
+        bind.mainGetLocalOption(key: 'direct-chat-trusted-only') != 'N';
+    _directChatAutoReconnect =
+        bind.mainGetLocalOption(key: 'direct-chat-auto-reconnect') != 'N';
   }
 
   @override
@@ -678,9 +690,84 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
     final disabledSettings = bind.isDisableSettings();
     final hideSecuritySettings =
         bind.mainGetBuildinOption(key: kOptionHideSecuritySetting) == 'Y';
+    final localProfile = _localProfile();
+    final localDisplayName =
+        (localProfile['display_name'] ?? localProfile['name'] ?? '')
+            .toString()
+            .trim();
     final settings = SettingsList(
       sections: [
         customClientSection,
+        SettingsSection(
+          title: Text(translate('Profile and direct messages')),
+          tiles: [
+            SettingsTile.navigation(
+              leading: _localProfileAvatar(38),
+              title: Text(
+                localDisplayName.isEmpty
+                    ? translate('Local profile')
+                    : localDisplayName,
+              ),
+              description: Text(translate('Avatar and display name')),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onPressed: (_) => _editLocalProfile(),
+            ),
+            SettingsTile.switchTile(
+              leading: const Icon(Icons.mark_chat_unread_outlined),
+              title: Text(translate('Allow always-on direct messages')),
+              description: Text(translate('Available when LUODA is running')),
+              initialValue: _directChatAlwaysOn,
+              onToggle: (value) async {
+                await bind.mainSetLocalOption(
+                  key: 'direct-chat-always-on',
+                  value: value ? 'Y' : 'N',
+                );
+                setState(() => _directChatAlwaysOn = value);
+              },
+            ),
+            SettingsTile.switchTile(
+              leading: const Icon(Icons.verified_user_outlined),
+              title: Text(translate('Only trusted contacts can message me')),
+              initialValue: _directChatTrustedOnly,
+              enabled: _directChatAlwaysOn,
+              onToggle: _directChatAlwaysOn
+                  ? (value) async {
+                      await bind.mainSetLocalOption(
+                        key: 'direct-chat-trusted-only',
+                        value: value ? 'Y' : 'N',
+                      );
+                      setState(() => _directChatTrustedOnly = value);
+                    }
+                  : null,
+            ),
+            SettingsTile.switchTile(
+              leading: const Icon(Icons.sync_rounded),
+              title: Text(
+                translate('Reconnect trusted contacts automatically'),
+              ),
+              initialValue: _directChatAutoReconnect,
+              enabled: _directChatAlwaysOn,
+              onToggle: _directChatAlwaysOn
+                  ? (value) async {
+                      await bind.mainSetLocalOption(
+                        key: 'direct-chat-auto-reconnect',
+                        value: value ? 'Y' : 'N',
+                      );
+                      setState(() => _directChatAutoReconnect = value);
+                    }
+                  : null,
+            ),
+            SettingsTile.navigation(
+              leading: const Icon(Icons.manage_accounts_outlined),
+              title: Text(translate('Contact message permissions')),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              enabled: _directChatAlwaysOn,
+              onPressed: _directChatAlwaysOn
+                  ? (_) => _showContactMessagePermissions()
+                  : null,
+            ),
+          ],
+        ),
         if (!bind.isDisableAccount())
           SettingsSection(
             title: Text(translate('Account')),
@@ -851,7 +938,24 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
               },
             ),
         ]),
-        if (isAndroid)
+        SettingsSection(
+          title: Text(translate('More')),
+          tiles: [
+            SettingsTile.navigation(
+              leading: const Icon(Icons.tune_rounded),
+              title: Text(translate('Advanced settings')),
+              trailing: Icon(
+                _showAdvancedSettings
+                    ? Icons.expand_less_rounded
+                    : Icons.expand_more_rounded,
+              ),
+              onPressed: (_) => setState(
+                () => _showAdvancedSettings = !_showAdvancedSettings,
+              ),
+            ),
+          ],
+        ),
+        if (_showAdvancedSettings && isAndroid)
           SettingsSection(title: Text(translate('Hardware Codec')), tiles: [
             SettingsTile.switchTile(
               title: Text(translate('Enable hardware codec')),
@@ -868,7 +972,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                     },
             ),
           ]),
-        if (isAndroid)
+        if (_showAdvancedSettings && isAndroid)
           SettingsSection(
             title: Text(translate("Recording")),
             tiles: [
@@ -920,12 +1024,14 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
               ),
             ],
           ),
-        if (isAndroid &&
+        if (_showAdvancedSettings &&
+            isAndroid &&
             !disabledSettings &&
             !outgoingOnly &&
             !hideSecuritySettings)
           SettingsSection(title: Text('2FA'), tiles: tfaTiles),
-        if (isAndroid &&
+        if (_showAdvancedSettings &&
+            isAndroid &&
             !disabledSettings &&
             !outgoingOnly &&
             !hideSecuritySettings)
@@ -933,8 +1039,10 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
             title: Text(translate("Share screen")),
             tiles: shareScreenTiles,
           ),
-        if (!bind.isIncomingOnly()) defaultDisplaySection(),
-        if (isAndroid &&
+        if (_showAdvancedSettings && !bind.isIncomingOnly())
+          defaultDisplaySection(),
+        if (_showAdvancedSettings &&
+            isAndroid &&
             !disabledSettings &&
             !outgoingOnly &&
             !hideSecuritySettings)
@@ -985,6 +1093,311 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
       ],
     );
     return settings;
+  }
+
+  Map<String, dynamic> _localProfile() {
+    try {
+      final raw = bind.mainGetLocalOption(key: 'user_info');
+      if (raw.isNotEmpty) {
+        return Map<String, dynamic>.from(jsonDecode(raw) as Map);
+      }
+    } catch (_) {}
+    return <String, dynamic>{};
+  }
+
+  Widget _localProfileAvatar(double size, {String? avatar}) {
+    final value = avatar ?? (_localProfile()['avatar'] ?? '').toString();
+    final fallback = ColoredBox(
+      color: Theme.of(context).colorScheme.primary.withOpacity(0.12),
+      child: Icon(
+        Icons.person_rounded,
+        size: size * 0.58,
+        color: Theme.of(context).colorScheme.primary,
+      ),
+    );
+    return SizedBox(
+      width: size,
+      height: size,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: buildAvatarWidget(
+              avatar: value,
+              size: size,
+              borderRadius: 8,
+              fallback: fallback,
+            ) ??
+            fallback,
+      ),
+    );
+  }
+
+  Future<void> _editLocalProfile() async {
+    final profile = _localProfile();
+    final nameController = TextEditingController(
+      text: (profile['display_name'] ?? profile['name'] ?? '').toString(),
+    );
+    var avatar = (profile['avatar'] ?? '').toString();
+    String avatarMime = 'image/png';
+    Uint8List? selectedBytes;
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(translate('Local profile')),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              SizedBox(
+                width: 76,
+                height: 76,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: selectedBytes == null
+                      ? _localProfileAvatar(76, avatar: avatar)
+                      : Image.memory(selectedBytes!, fit: BoxFit.cover),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextButton.icon(
+                onPressed: () async {
+                  final result = await FilePicker.platform.pickFiles(
+                    type: FileType.image,
+                    withData: true,
+                  );
+                  final file = result?.files.single;
+                  final bytes = file?.bytes;
+                  if (bytes == null) return;
+                  if (bytes.length > 512 * 1024) {
+                    if (dialogContext.mounted) {
+                      ScaffoldMessenger.of(dialogContext).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            translate(
+                              'Avatar image must be smaller than 512 KB',
+                            ),
+                          ),
+                        ),
+                      );
+                    }
+                    return;
+                  }
+                  final extension = file?.extension?.toLowerCase();
+                  avatarMime = extension == 'jpg' || extension == 'jpeg'
+                      ? 'image/jpeg'
+                      : extension == 'webp'
+                          ? 'image/webp'
+                          : 'image/png';
+                  setDialogState(() => selectedBytes = bytes);
+                },
+                icon: const Icon(Icons.photo_outlined),
+                label: Text(translate('Choose image')),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: nameController,
+                maxLength: 32,
+                decoration: InputDecoration(
+                  labelText: translate('Display name'),
+                  prefixIcon: const Icon(Icons.person_outline_rounded),
+                ),
+              ),
+            ],
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: Text(translate('Cancel')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: Text(translate('Save')),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (saved != true) {
+      nameController.dispose();
+      return;
+    }
+    if (selectedBytes != null) {
+      avatar = 'data:$avatarMime;base64,${base64Encode(selectedBytes!)}';
+    }
+    profile['display_name'] = nameController.text.trim();
+    profile['avatar'] = avatar;
+    await bind.mainSetLocalOption(key: 'user_info', value: jsonEncode(profile));
+    gFFI.chatModel.refreshLocalIdentity(notify: true);
+    nameController.dispose();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _showContactMessagePermissions() async {
+    final policies = <String, String>{};
+    try {
+      final raw = bind.mainGetLocalOption(
+        key: 'direct-chat-contact-policies',
+      );
+      if (raw.isNotEmpty) {
+        policies.addAll(
+          Map<String, dynamic>.from(jsonDecode(raw) as Map).map(
+            (key, value) => MapEntry(key, value.toString()),
+          ),
+        );
+      }
+    } catch (_) {}
+
+    final peersById = <String, Peer>{};
+    for (final peer in <Peer>[
+      ...gFFI.recentPeersModel.peers,
+      ...gFFI.favoritePeersModel.peers,
+      ...gFFI.abModel.peersModel.peers,
+      ...gFFI.groupModel.peersModel.peers,
+    ]) {
+      peersById[peer.id] = peer;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => SafeArea(
+          child: SizedBox(
+            height: MediaQuery.sizeOf(context).height * 0.72,
+            child: Column(
+              children: <Widget>[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 8, 10),
+                  child: Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: Text(
+                          translate('Contact message permissions'),
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: translate('Close'),
+                        onPressed: () => Navigator.pop(sheetContext),
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: peersById.isEmpty
+                      ? Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Text(
+                              translate(
+                                'A contact will appear here after the first direct connection.',
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        )
+                      : ListView.separated(
+                          itemCount: peersById.length,
+                          separatorBuilder: (_, __) => const Divider(
+                            height: 1,
+                            indent: 72,
+                          ),
+                          itemBuilder: (context, index) {
+                            final peer = peersById.values.elementAt(index);
+                            final name = peer.alias.trim().isNotEmpty
+                                ? peer.alias.trim()
+                                : peer.displayName.trim().isNotEmpty
+                                    ? peer.displayName.trim()
+                                    : peer.hostname.trim().isNotEmpty
+                                        ? peer.hostname.trim()
+                                        : peer.username.trim().isNotEmpty
+                                            ? peer.username.trim()
+                                            : peer.id;
+                            final policy = policies[peer.id] ?? 'ask';
+                            final policyLabel = policy == 'allow'
+                                ? 'Allow'
+                                : policy == 'deny'
+                                    ? 'Reject'
+                                    : 'Ask every time';
+                            final avatarFallback = Container(
+                              width: 40,
+                              height: 40,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: str2color(name),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                name.characters.first,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            );
+                            return ListTile(
+                              leading: buildAvatarWidget(
+                                    avatar: peer.avatar,
+                                    size: 40,
+                                    borderRadius: 8,
+                                    fallback: avatarFallback,
+                                  ) ??
+                                  avatarFallback,
+                              title: Text(
+                                name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              subtitle: Text(
+                                '${peer.id}  ·  ${translate(policyLabel)}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              trailing: PopupMenuButton<String>(
+                                tooltip: translate('Message permission'),
+                                initialValue: policy,
+                                onSelected: (value) async {
+                                  setSheetState(
+                                    () => policies[peer.id] = value,
+                                  );
+                                  await bind.mainSetLocalOption(
+                                    key: 'direct-chat-contact-policies',
+                                    value: jsonEncode(policies),
+                                  );
+                                },
+                                itemBuilder: (_) => <PopupMenuEntry<String>>[
+                                  PopupMenuItem(
+                                    value: 'allow',
+                                    child: Text(translate('Allow')),
+                                  ),
+                                  PopupMenuItem(
+                                    value: 'ask',
+                                    child: Text(translate('Ask every time')),
+                                  ),
+                                  PopupMenuItem(
+                                    value: 'deny',
+                                    child: Text(translate('Reject')),
+                                  ),
+                                ],
+                                icon: const Icon(
+                                  Icons.chevron_right_rounded,
+                                  size: 20,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Future<bool> canStartOnBoot() async {
@@ -1090,7 +1503,7 @@ void showAbout(OverlayDialogManager dialogManager) {
         Text('Version: $version'),
         InkWell(
             onTap: () async {
-const url = 'https://dicad.cn/';
+              const url = 'https://dicad.cn/';
               await launchUrl(Uri.parse(url));
             },
             child: Padding(
