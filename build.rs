@@ -37,7 +37,9 @@ fn main() {
     #[cfg(windows)]
     build_windows();
     #[cfg(target_os = "macos")]
-    build_mac();
+    if std::env::var("CARGO_CFG_TARGET_OS").ok().as_deref() == Some("macos") {
+        build_mac();
+    }
 
     // Embed res/icon.ico into the Windows executable so the OS taskbar /
     // Explorer / shell display the LUODA-branded icon for luoda.exe.
