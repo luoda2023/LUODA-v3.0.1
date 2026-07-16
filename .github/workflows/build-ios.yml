@@ -25,6 +25,7 @@ on:
 env:
   VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
   CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+  IPHONEOS_DEPLOYMENT_TARGET: "13.0"
 
 jobs:
   build-ios:
@@ -62,9 +63,9 @@ jobs:
             ~/.cargo/git/db
             ~/Library/Caches/vcpkg/archives
             vcpkg_installed
-          key: ios-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'vcpkg.json') }}
+          key: ios13-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'vcpkg.json') }}
           restore-keys: |
-            ios-${{ runner.os }}-
+            ios13-${{ runner.os }}-
 
       - name: Configure Git for private forks
         run: |
@@ -146,6 +147,7 @@ jobs:
           brew install autoconf automake cmake libtool nasm pkg-config yasm
           git clone https://github.com/microsoft/vcpkg.git /tmp/vcpkg
           git -C /tmp/vcpkg checkout "$VCPKG_COMMIT_ID"
+          echo 'set(VCPKG_OSX_DEPLOYMENT_TARGET "13.0")' >> /tmp/vcpkg/triplets/community/arm64-ios.cmake
           /tmp/vcpkg/bootstrap-vcpkg.sh
           VCPKG_DEFAULT_HOST_TRIPLET="$VCPKG_HOST_TRIPLET" \
             /tmp/vcpkg/vcpkg install \
@@ -168,9 +170,9 @@ jobs:
           test -d "$VCPKG_DIR/include"
           test -d "$VCPKG_DIR/lib"
           export BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios="--target=arm64-apple-ios -isysroot $SDKROOT -I$VCPKG_DIR/include"
-          export CFLAGS_aarch64_apple_ios="-target arm64-apple-ios -isysroot $SDKROOT -I$VCPKG_DIR/include"
+          export CFLAGS_aarch64_apple_ios="-target arm64-apple-ios -miphoneos-version-min=$IPHONEOS_DEPLOYMENT_TARGET -isysroot $SDKROOT -I$VCPKG_DIR/include"
           export CXXFLAGS_aarch64_apple_ios="$CFLAGS_aarch64_apple_ios -include cstdint"
-          export CARGO_TARGET_AARCH64_APPLE_IOS_RUSTFLAGS="-L native=$VCPKG_DIR/lib"
+          export CARGO_TARGET_AARCH64_APPLE_IOS_RUSTFLAGS="-L native=$VCPKG_DIR/lib -C link-arg=-miphoneos-version-min=$IPHONEOS_DEPLOYMENT_TARGET"
           cargo build \
             --release \
             --target aarch64-apple-ios \
