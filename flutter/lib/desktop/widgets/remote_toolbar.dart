@@ -430,6 +430,9 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
     final List<Widget> toolbarItems = [];
     toolbarItems.add(_PinMenu(state: widget.state));
     toolbarItems.add(_ChatMenu(id: widget.id, ffi: widget.ffi));
+    if (widget.ffi.connType == ConnType.defaultConn) {
+      toolbarItems.add(_FileTransferMenu(id: widget.id));
+    }
     if (!isWebDesktop) {
       toolbarItems.add(_MobileActionMenu(ffi: widget.ffi));
     }
@@ -543,6 +546,22 @@ class _PinMenu extends StatelessWidget {
             ? _ToolbarTheme.hoverBlueColor
             : _ToolbarTheme.hoverInactiveColor,
       ),
+    );
+  }
+}
+
+class _FileTransferMenu extends StatelessWidget {
+  final String id;
+  const _FileTransferMenu({Key? key, required this.id}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return _IconMenuButton(
+      assetName: 'assets/file_transfer.svg',
+      tooltip: 'File Transfer',
+      onPressed: () => connect(context, id, isFileTransfer: true),
+      color: _ToolbarTheme.blueColor,
+      hoverColor: _ToolbarTheme.hoverBlueColor,
     );
   }
 }

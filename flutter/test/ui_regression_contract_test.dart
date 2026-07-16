@@ -128,10 +128,17 @@ void main() {
 
   test('remote assistance keeps chat and all existing session tools', () {
     expect(remoteToolbarSource, contains("translate('Text chat')"));
-    expect(remoteToolbarSource, contains('buildFileTransfer'));
-    expect(remoteToolbarSource, contains('buildDisplay'));
+    expect(remoteToolbarSource, contains('_FileTransferMenu'));
+    expect(remoteToolbarSource, contains('isFileTransfer: true'));
+    expect(remoteToolbarSource, contains('_DisplayMenu'));
     expect(
       remoteToolbarSource.indexOf('toolbarItems.add(_ChatMenu'),
+      lessThan(
+        remoteToolbarSource.indexOf('toolbarItems.add(_FileTransferMenu'),
+      ),
+    );
+    expect(
+      remoteToolbarSource.indexOf('toolbarItems.add(_FileTransferMenu'),
       lessThan(remoteToolbarSource.indexOf('_ControlMenu(')),
     );
   });
