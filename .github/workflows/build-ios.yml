@@ -24,6 +24,7 @@ on:
 
 env:
   VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
+  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
 
 jobs:
   build-ios:
@@ -81,10 +82,19 @@ jobs:
           cd flutter
           flutter pub get
           cd ..
-          flutter_rust_bridge_codegen \
-            --rust-input ./src/flutter_ffi.rs \
-            --dart-output ./flutter/lib/generated_bridge.dart \
-            --c-output ./flutter/ios/Runner/bridge_generated.h
+          for attempt in 1 2 3; do
+            if flutter_rust_bridge_codegen \
+              --rust-input ./src/flutter_ffi.rs \
+              --dart-output ./flutter/lib/generated_bridge.dart \
+              --c-output ./flutter/ios/Runner/bridge_generated.h; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              exit 1
+            fi
+            echo "FFI bridge generation failed (attempt $attempt/3); retrying..."
+            sleep $((attempt * 10))
+          done
 
       - name: Generate iOS app icons
         run: |
