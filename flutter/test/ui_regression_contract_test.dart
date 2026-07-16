@@ -131,7 +131,7 @@ void main() {
     expect(homePageSource, contains('_buildPrimaryRail'));
     expect(homePageSource, contains('_buildContactsPane'));
     expect(homePageSource, contains('_buildConversationWorkspace'));
-    expect(homePageSource, contains("'ID / IP:port'"));
+    expect(homePageSource, contains("'Paired ID / IP:port'"));
     expect(homePageSource, contains('ChatPage('));
     expect(homePageSource, contains('_sendFilesFromConversation'));
     expect(homePageSource, contains('_buildActiveTransferStrip'));
@@ -195,11 +195,9 @@ void main() {
     expect(mobileConnectionSource, contains('isChat: true'));
     expect(mobileConnectionSource, contains('SegmentedButton<bool>'));
     expect(mobileHomeSource, contains('void selectChatPage()'));
-    expect(chatPageSource, contains('isDirectOutgoingChat'));
-    expect(
-      chatPageSource,
-      contains('chatModel.parent.target?.ffiModel.direct == true'),
-    );
+    expect(chatPageSource, contains('currentKey.peerId.isEmpty'));
+    expect(chatPageSource, contains('onAttachFile'));
+    expect(chatPageSource, contains('onRemoteAssist'));
   });
 
   test('mobile shell keeps a readable chat-first WeChat-style hierarchy', () {

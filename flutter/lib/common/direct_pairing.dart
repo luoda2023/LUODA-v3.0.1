@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../common.dart';
+import '../models/platform_model.dart';
 
 class DirectPairing {
   const DirectPairing({
