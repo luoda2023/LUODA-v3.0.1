@@ -157,10 +157,10 @@ jobs:
           VCPKG_DIR="$GITHUB_WORKSPACE/vcpkg_installed/arm64-ios"
           test -d "$VCPKG_DIR/include"
           test -d "$VCPKG_DIR/lib"
-          export BINDGEN_EXTRA_CLANG_ARGS="--target=arm64-apple-ios -isysroot $SDKROOT -I$VCPKG_DIR/include"
-          export CFLAGS="-target arm64-apple-ios -isysroot $SDKROOT -I$VCPKG_DIR/include"
-          export CXXFLAGS="$CFLAGS -include cstdint"
-          export RUSTFLAGS="-L native=$VCPKG_DIR/lib"
+          export BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios="--target=arm64-apple-ios -isysroot $SDKROOT -I$VCPKG_DIR/include"
+          export CFLAGS_aarch64_apple_ios="-target arm64-apple-ios -isysroot $SDKROOT -I$VCPKG_DIR/include"
+          export CXXFLAGS_aarch64_apple_ios="$CFLAGS_aarch64_apple_ios -include cstdint"
+          export CARGO_TARGET_AARCH64_APPLE_IOS_RUSTFLAGS="-L native=$VCPKG_DIR/lib"
           cargo build \
             --release \
             --target aarch64-apple-ios \
