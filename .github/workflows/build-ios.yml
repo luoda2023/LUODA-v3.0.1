@@ -25,7 +25,6 @@ on:
 env:
   VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
   CARGO_NET_GIT_FETCH_WITH_CLI: "true"
-  IPHONEOS_DEPLOYMENT_TARGET: "13.0"
 
 jobs:
   build-ios:
@@ -163,6 +162,7 @@ jobs:
           VCPKG_DEFAULT_HOST_TRIPLET: ${{ env.VCPKG_HOST_TRIPLET }}
           VCPKG_TARGET_TRIPLET: arm64-ios
           VCPKGRS_TRIPLET: arm64-ios
+          IPHONEOS_DEPLOYMENT_TARGET: "13.0"
         run: |
           set -euo pipefail
           SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
