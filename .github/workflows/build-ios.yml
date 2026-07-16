@@ -89,8 +89,9 @@ jobs:
       - name: Generate iOS app icons
         run: |
           set -euo pipefail
-          python3 -m pip install pillow
-          python3 - <<'PY'
+          python3 -m venv "$RUNNER_TEMP/icon-venv"
+          "$RUNNER_TEMP/icon-venv/bin/python" -m pip install pillow
+          "$RUNNER_TEMP/icon-venv/bin/python" - <<'PY'
           import json
           from pathlib import Path
           from PIL import Image
