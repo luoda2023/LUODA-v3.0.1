@@ -6,7 +6,7 @@
 // 使用 igd-next crate 与路由器的 IGD (Internet Gateway Device) 通信。
 // ⚠ 需要路由器支持 UPnP（大部分家用路由器默认开启）。
 
-use hbb_common::log::{info, warn};
+use hbb_common::{config::Config, log::{info, warn}};
 
 pub const PORT_MAPPING_LEASE_SECONDS: u32 = 60 * 60;
 
@@ -54,8 +54,12 @@ fn try_add_mapping(port: u16) -> Result<(), Box<dyn std::error::Error>> {
         port,
         local_addr,
         PORT_MAPPING_LEASE_SECONDS,
-        "LUODA Remote Desktop",
+        "LDesk Direct Connection",
     )?;
+
+    if let Ok(public_ip) = gateway.get_external_ip() {
+        Config::set_option("public-ip".to_owned(), public_ip.to_string());
+    }
 
     Ok(())
 }

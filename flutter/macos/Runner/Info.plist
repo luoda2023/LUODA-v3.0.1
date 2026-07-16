@@ -44,7 +44,7 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Record the sound from microphone for the purpose of the remote desktop.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>LUODA uses the local network to accept direct IP remote connections.</string>
+	<string>LDesk uses the local network for direct IP chat, file transfer, and remote assistance.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
     <key>LSUIElement</key>

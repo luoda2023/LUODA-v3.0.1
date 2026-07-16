@@ -1212,14 +1212,19 @@ pub fn get_user_default_option(key: String) -> String {
 }
 
 pub fn get_fingerprint() -> String {
-    #[cfg(any(target_os = "android", target_os = "ios"))]
-    if Config::get_key_confirmed() {
-        return crate::common::pk_to_fingerprint(Config::get_key_pair().1);
+    let local_key = Config::get_key_pair().1;
+    let local = if local_key.len() == sodiumoxide::crypto::sign::PUBLICKEYBYTES {
+        crate::common::pk_to_fingerprint(local_key)
     } else {
-        return "".to_owned();
-    }
+        String::new()
+    };
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    return local;
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    return ipc::get_fingerprint();
+    {
+        let daemon = ipc::get_fingerprint();
+        return if daemon.is_empty() { local } else { daemon };
+    }
 }
 
 #[inline]

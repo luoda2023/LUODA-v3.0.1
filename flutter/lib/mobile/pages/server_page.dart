@@ -17,10 +17,10 @@ import 'home_page.dart';
 
 class ServerPage extends StatefulWidget implements PageShape {
   @override
-  final title = translate("Share screen");
+  final title = translate("Remote assistance");
 
   @override
-  final icon = const Icon(Icons.mobile_screen_share);
+  final icon = const Icon(Icons.desktop_windows_outlined);
 
   @override
   final appBarActions = (!bind.isDisableSettings() &&
@@ -480,10 +480,18 @@ class ServerInfo extends StatelessWidget {
     const Color colorNegative = Colors.red;
     const double iconMarginRight = 15;
     const double iconSize = 24;
-    const TextStyle textStyleHeading = TextStyle(
-        fontSize: 16.0, fontWeight: FontWeight.bold, color: Colors.grey);
-    const TextStyle textStyleValue =
-        TextStyle(fontSize: 25.0, fontWeight: FontWeight.bold);
+    final TextStyle textStyleHeading = TextStyle(
+      fontSize: 14,
+      fontWeight: FontWeight.w600,
+      color: Theme.of(context).brightness == Brightness.dark
+          ? MyTheme.mutedDark
+          : MyTheme.mutedLight,
+    );
+    const TextStyle textStyleValue = TextStyle(
+      fontSize: 20,
+      fontWeight: FontWeight.w600,
+      letterSpacing: 0,
+    );
 
     void copyToClipboard(String value) {
       Clipboard.setData(ClipboardData(text: value));
@@ -491,7 +499,15 @@ class ServerInfo extends StatelessWidget {
     }
 
     Widget ConnectionStateNotification() {
-      if (serverModel.connectStatus == -1) {
+      final directPort =
+          bind.mainGetOptionSync(key: kOptionDirectAccessPort).trim();
+      if (directPort.isNotEmpty) {
+        return Row(children: [
+          const Icon(Icons.check, color: colorPositive, size: iconSize)
+              .marginOnly(right: iconMarginRight),
+          Expanded(child: Text(translate('Direct listening'))),
+        ]);
+      } else if (serverModel.connectStatus == -1) {
         return Row(children: [
           const Icon(Icons.warning_amber_sharp,
                   color: colorNegative, size: iconSize)
@@ -530,9 +546,13 @@ class ServerInfo extends StatelessWidget {
               )
             ]),
             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              Text(
-                model.serverId.value.text,
-                style: textStyleValue,
+              Expanded(
+                child: Text(
+                  model.serverId.value.text,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: textStyleValue,
+                ),
               ),
               IconButton(
                   visualDensity: VisualDensity.compact,
@@ -551,9 +571,13 @@ class ServerInfo extends StatelessWidget {
               )
             ]),
             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              Text(
-                !showOneTime ? '-' : model.serverPasswd.value.text,
-                style: textStyleValue,
+              Expanded(
+                child: Text(
+                  !showOneTime ? '-' : model.serverPasswd.value.text,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: textStyleValue,
+                ),
               ),
               !showOneTime
                   ? SizedBox.shrink()
@@ -732,17 +756,167 @@ class PermissionChecker extends StatefulWidget {
   State<PermissionChecker> createState() => _PermissionCheckerState();
 }
 
-class _PermissionCheckerState extends State<PermissionChecker> {
+class _PermissionCheckerState extends State<PermissionChecker>
+    with WidgetsBindingObserver {
+  bool _isCompleting = false;
+  bool _notificationOk = androidVersion < 33;
+  bool _floatingWindowOk = androidVersion < 23;
+
+  bool get _floatingWindowRequired =>
+      bind.mainGetLocalOption(key: kOptionDisableFloatingWindow) != 'Y';
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _refreshSystemPermissions();
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    gFFI.serverModel.checkAndroidPermission();
+    _refreshSystemPermissions();
+  }
+
+  Future<void> _refreshSystemPermissions() async {
+    final notificationOk = androidVersion < 33 ||
+        await AndroidPermissionManager.check(kAndroid13Notification);
+    final floatingWindowOk = !_floatingWindowRequired ||
+        androidVersion < 23 ||
+        await AndroidPermissionManager.check(kSystemAlertWindow);
+    if (!mounted) return;
+    setState(() {
+      _notificationOk = notificationOk;
+      _floatingWindowOk = floatingWindowOk;
+    });
+  }
+
+  Future<void> _completePermissions(ServerModel serverModel) async {
+    if (_isCompleting) return;
+    setState(() => _isCompleting = true);
+    try {
+      if (!serverModel.fileOk) {
+        await serverModel.toggleFile();
+        if (!serverModel.fileOk) return;
+      }
+      if (androidVersion >= 30 && !serverModel.audioOk) {
+        await serverModel.toggleAudio();
+        if (!serverModel.audioOk) return;
+      }
+      if (!_notificationOk) {
+        _notificationOk =
+            await serverModel.checkRequestNotificationPermission();
+        if (!_notificationOk) return;
+      }
+      if (_floatingWindowRequired && !_floatingWindowOk) {
+        _floatingWindowOk = await serverModel.checkFloatingWindowPermission();
+        if (!_floatingWindowOk) return;
+      }
+      if (!serverModel.clipboardOk) {
+        await serverModel.toggleClipboard();
+      }
+      if (!serverModel.inputOk) {
+        showToast(translate(
+          'Enable input control in system settings, then return to LDesk.',
+        ));
+        AndroidPermissionManager.startAction(kActionAccessibilitySettings);
+        return;
+      }
+      if (!serverModel.mediaOk) {
+        if (gFFI.userModel.userName.value.isEmpty &&
+            bind.mainGetLocalOption(key: 'show-scam-warning') != 'N') {
+          showScamWarning(context, serverModel);
+        } else {
+          await serverModel.toggleService();
+        }
+        return;
+      }
+      showToast(translate('Permission setup complete'));
+    } finally {
+      if (mounted) {
+        setState(() => _isCompleting = false);
+        await _refreshSystemPermissions();
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final serverModel = Provider.of<ServerModel>(context);
     final hasAudioPermission = androidVersion >= 30;
-    final hideStopService =
-        isAndroid &&
-            bind.mainGetBuildinOption(key: kOptionHideStopService) == 'Y';
+    final hideStopService = isAndroid &&
+        bind.mainGetBuildinOption(key: kOptionHideStopService) == 'Y';
+    final states = <bool>[
+      serverModel.mediaOk,
+      serverModel.inputOk,
+      serverModel.fileOk,
+      serverModel.clipboardOk,
+      if (hasAudioPermission) serverModel.audioOk,
+      if (androidVersion >= 33) _notificationOk,
+      if (_floatingWindowRequired) _floatingWindowOk,
+    ];
+    final enabledCount = states.where((enabled) => enabled).length;
+    final allEnabled = enabledCount == states.length;
     return PaddingCard(
-        title: translate("Permissions"),
+        title: translate("Permission center"),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      allEnabled
+                          ? translate('All required permissions are ready')
+                          : '$enabledCount/${states.length} ${translate('permissions enabled')}',
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      translate('Only missing permissions will be requested.'),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            fontSize: 12,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              SizedBox(
+                height: 48,
+                child: ElevatedButton.icon(
+                  onPressed: allEnabled || _isCompleting
+                      ? null
+                      : () => _completePermissions(serverModel),
+                  icon: _isCompleting
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.verified_user_outlined, size: 20),
+                  label: Text(
+                    translate('Complete required permissions'),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+            ],
+          ).marginOnly(bottom: 8),
           serverModel.mediaOk && !hideStopService
               ? ElevatedButton.icon(
                       style: ButtonStyle(
@@ -779,6 +953,24 @@ class _PermissionCheckerState extends State<PermissionChecker> {
                 ]),
           PermissionRow(translate("Enable clipboard"), serverModel.clipboardOk,
               serverModel.toggleClipboard),
+          if (androidVersion >= 33)
+            PermissionRow(
+              translate('Notifications'),
+              _notificationOk,
+              () async {
+                await serverModel.checkRequestNotificationPermission();
+                await _refreshSystemPermissions();
+              },
+            ),
+          if (_floatingWindowRequired)
+            PermissionRow(
+              translate('Floating window'),
+              _floatingWindowOk,
+              () async {
+                await serverModel.checkFloatingWindowPermission();
+                await _refreshSystemPermissions();
+              },
+            ),
         ]));
   }
 }
@@ -831,11 +1023,8 @@ class ConnectionManager extends StatelessWidget {
                                   onPressed: () {
                                     gFFI.chatModel.changeCurrentKey(
                                         MessageKey(client.peerId, client.id));
-                                    final bar = navigationBarKey.currentWidget;
-                                    if (bar != null) {
-                                      bar as BottomNavigationBar;
-                                      bar.onTap!(1);
-                                    }
+                                    HomePage.homeKey.currentState
+                                        ?.selectChatPage();
                                   },
                                   icon: unreadTopRightBuilder(
                                       client.unreadChatMessageCount)))

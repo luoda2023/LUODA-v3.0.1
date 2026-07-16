@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:luoda_flutter/common/widgets/peers_view.dart';
+import 'package:luoda_flutter/common/direct_pairing.dart';
 import 'package:luoda_flutter/consts.dart';
 import 'package:luoda_flutter/models/ab_model.dart';
 import 'package:luoda_flutter/models/chat_model.dart';
@@ -342,7 +343,11 @@ class FfiModel with ChangeNotifier {
       } else if (name == 'set_multiple_windows_session') {
         handleMultipleWindowsSession(evt, sessionId, peerId);
       } else if (name == 'peer_info') {
-        handlePeerInfo(evt, peerId, false);
+        await handlePeerInfo(evt, peerId, false);
+        final ffi = parent.target;
+        if (ffi?.connType == ConnType.chat) {
+          await ffi!.chatModel.onDirectSessionReady();
+        }
       } else if (name == 'sync_peer_info') {
         handleSyncPeerInfo(evt, sessionId, peerId);
       } else if (name == 'sync_platform_additions') {
@@ -435,7 +440,24 @@ class FfiModel with ChangeNotifier {
       } else if (name == 'update_voice_call_state') {
         parent.target?.serverModel.updateVoiceCallState(evt);
       } else if (name == 'fingerprint') {
-        FingerprintState.find(peerId).value = evt['fingerprint'] ?? '';
+        final actual = (evt['fingerprint'] ?? '').toString();
+        FingerprintState.find(peerId).value = actual;
+        final ffi = parent.target;
+        if (ffi?.connType == ConnType.chat) {
+          final pairing = DirectPairingStore.find(
+            ffi!.chatModel.currentKey.peerId,
+          );
+          final expected = pairing?.fingerprint ?? '';
+          String normalized(String value) =>
+              value.replaceAll(':', '').replaceAll(' ', '').toLowerCase();
+          if (expected.isNotEmpty &&
+              normalized(actual) != normalized(expected)) {
+            await ffi.chatModel.markCurrentUndeliveredFailed();
+            showToast(translate('Direct identity verification failed'));
+            await ffi.close();
+            return;
+          }
+        }
       } else if (name == 'plugin_manager') {
         pluginManager.handleEvent(evt);
       } else if (name == 'plugin_event') {
@@ -920,7 +942,18 @@ class FfiModel with ChangeNotifier {
         (type is String && type.contains('error'))) {
       parent.target?.inputModel.setRelativeMouseMode(false);
       _lastConnectionError = text?.toString();
+      if (parent.target?.connType == ConnType.chat) {
+        final chatModel = parent.target?.chatModel;
+        if (chatModel != null) {
+          unawaited(chatModel.markCurrentUndeliveredFailed());
+        }
+      }
       notifyListeners();
+    }
+
+    if (parent.target?.suppressConnectionDialogs == true &&
+        title == 'Connection Error') {
+      return;
     }
 
     if (type == 're-input-password') {
@@ -1358,8 +1391,32 @@ class FfiModel with ChangeNotifier {
     _pi.displayName = evt['display_name'] ?? '';
     _pi.avatar = evt['avatar'] ?? '';
     if (parent.target?.connType == ConnType.chat) {
-      parent.target?.chatModel.updatePeerIdentity(
-        peerId,
+      final ffi = parent.target!;
+      final actualPeerId = (evt['peer_id'] ?? '').toString().trim();
+      final currentPeerId = ffi.chatModel.currentKey.peerId;
+      final chatPeerId = actualPeerId.isNotEmpty
+          ? actualPeerId
+          : currentPeerId.isEmpty
+              ? peerId
+              : currentPeerId;
+      if (actualPeerId.isNotEmpty && actualPeerId != currentPeerId) {
+        final endpoint = ffi.id.trim();
+        final fingerprint = FingerprintState.find(peerId).value;
+        if (DirectPairingStore.isDirectEndpoint(endpoint)) {
+          await DirectPairingStore.saveDiscovered(
+            peerId: actualPeerId,
+            endpoint: endpoint,
+            fingerprint: fingerprint,
+            displayName: _pi.displayName.trim().isNotEmpty
+                ? _pi.displayName.trim()
+                : _pi.username,
+            avatar: _pi.avatar,
+          );
+        }
+        await ffi.chatModel.remapCurrentPeer(actualPeerId);
+      }
+      ffi.chatModel.updatePeerIdentity(
+        chatPeerId,
         displayName: _pi.displayName.trim().isNotEmpty
             ? _pi.displayName.trim()
             : _pi.username,
@@ -3657,6 +3714,7 @@ class FFI {
   var version = '';
   var connType = ConnType.defaultConn;
   var closed = false;
+  var suppressConnectionDialogs = false;
 
   /// dialogManager use late to ensure init after main page binding [globalKey]
   late final dialogManager = OverlayDialogManager();

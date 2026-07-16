@@ -5,7 +5,7 @@ permissions:
   deployments: write
   packages: read
 
-name: Build LUODA macOS DMG
+name: Build LDesk macOS DMG
 
 on:
   workflow_dispatch:
@@ -16,6 +16,7 @@ on:
       - 'src/**'
       - 'libs/**'
       - 'flutter/**'
+      - 'Images/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'vcpkg.json'
@@ -66,6 +67,29 @@ jobs:
           echo "=== Verifying generated file ==="
           ls -la flutter/lib/generated_bridge.dart || echo "ERROR: generated_bridge.dart not created!"
           head -5 flutter/lib/generated_bridge.dart || echo "ERROR: Cannot read file!" 
+
+      - name: Generate macOS app icon
+        run: |
+          set -euo pipefail
+          SOURCE="$GITHUB_WORKSPACE/Images/icon-master-1056.png"
+          ICONSET="$RUNNER_TEMP/AppIcon.iconset"
+          mkdir -p "$ICONSET"
+          while read -r name size; do
+            sips -z "$size" "$size" "$SOURCE" --out "$ICONSET/$name" >/dev/null
+          done <<'EOF'
+          icon_16x16.png 16
+          icon_16x16@2x.png 32
+          icon_32x32.png 32
+          icon_32x32@2x.png 64
+          icon_128x128.png 128
+          icon_128x128@2x.png 256
+          icon_256x256.png 256
+          icon_256x256@2x.png 512
+          icon_512x512.png 512
+          icon_512x512@2x.png 1024
+          EOF
+          iconutil -c icns "$ICONSET" -o flutter/macos/Runner/AppIcon.icns
+          test -s flutter/macos/Runner/AppIcon.icns
 
       - name: Install dependencies via vcpkg
         run: |
@@ -155,6 +179,12 @@ jobs:
           CXXFLAGS="-I${VCPKG_INCLUDE} -I${BREW_INCLUDE} -include cstdint" \
           cargo build --release --features flutter
 
+      - name: Validate shared chat and UI contracts
+        timeout-minutes: 10
+        run: |
+          cd flutter
+          flutter test test/direct_chat_protocol_test.dart test/ui_regression_contract_test.dart
+
       - name: Build Flutter macOS
         run: |
           cd flutter
@@ -170,14 +200,14 @@ jobs:
         run: |
           brew install create-dmg
           mkdir -p dmg_folder
-          cp -r flutter/build/macos/Build/Products/Release/LUODA.app dmg_folder/
-          create-dmg --volname "LUODA" --window-size 800 400 --app-drop-link 600 185 "LUODA-3.1.1.dmg" dmg_folder/
+          cp -r flutter/build/macos/Build/Products/Release/LDesk.app dmg_folder/
+          create-dmg --volname "LDesk" --window-size 800 400 --app-drop-link 600 185 "LDesk-3.1.1.dmg" dmg_folder/
 
       - name: Upload DMG
         uses: actions/upload-artifact@v4
         with:
-          name: LUODA-3.1.1-DMG
-          path: LUODA-3.1.1.dmg
+          name: LDesk-3.1.1-DMG
+          path: LDesk-3.1.1.dmg
           if-no-files-found: error
 
       - name: Upload to Release
@@ -187,11 +217,10 @@ jobs:
           prerelease: false
           draft: true
           tag_name: v3.1.1
-          files: LUODA-3.1.1.dmg
+          files: LDesk-3.1.1.dmg
       - name: Upload runtime logs (always)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: runtime-logs-dmg
           path: .auto_build_logs/
-

@@ -234,6 +234,28 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
   }
 
   Widget network(BuildContext context) {
+    if (kServerlessDirectOnly) {
+      return _Card(
+        title: 'Network',
+        children: [
+          ListTile(
+            leading: const Icon(
+              Icons.shield_outlined,
+              color: _accentColor,
+            ),
+            title: Text(
+              translate('Serverless direct mode'),
+              style: const TextStyle(fontSize: _kContentFontSize),
+            ),
+            subtitle: Text(
+              translate(
+                'Only paired IP endpoints and LAN discovery are used. Rendezvous, relay, proxy, and cloud sync are disabled.',
+              ),
+            ),
+          ),
+        ],
+      );
+    }
     final hideServer =
         bind.mainGetBuildinOption(key: kOptionHideServerSetting) == 'Y';
     final hideProxy =

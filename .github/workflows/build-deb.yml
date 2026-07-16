@@ -5,7 +5,7 @@ permissions:
   deployments: write
   packages: read
 
-name: Build LUODA Linux DEB
+name: Build LDesk Linux DEB
 
 on:
   workflow_dispatch:
@@ -16,6 +16,7 @@ on:
       - 'src/**'
       - 'libs/**'
       - 'flutter/**'
+      - 'Images/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'vcpkg.json'
@@ -137,6 +138,12 @@ jobs:
           VCPKG_ROOT: ${{ env.VCPKG_ROOT }}
           CXXFLAGS: "-include cstdint"
 
+      - name: Validate shared chat and UI contracts
+        timeout-minutes: 10
+        run: |
+          cd flutter
+          flutter test test/direct_chat_protocol_test.dart test/ui_regression_contract_test.dart
+
       - name: Build Flutter Linux
         timeout-minutes: 30
         run: |
@@ -147,49 +154,48 @@ jobs:
         run: |
           mkdir -p tmpdeb/usr/bin tmpdeb/usr/share/luoda tmpdeb/DEBIAN
           mkdir -p tmpdeb/usr/share/luoda/files/systemd
+          mkdir -p tmpdeb/usr/share/applications
+          mkdir -p tmpdeb/usr/share/icons/hicolor/256x256/apps
           cp target/release/luoda tmpdeb/usr/bin/
           cp -r flutter/build/linux/x64/release/bundle/* tmpdeb/usr/share/luoda/
-          # Include systemd service file
           cp res/luoda.service tmpdeb/usr/share/luoda/files/systemd/
+          cp res/luoda.desktop tmpdeb/usr/share/luoda/files/
+          cp res/luoda.desktop tmpdeb/usr/share/applications/
+          cp res/luoda-link.desktop tmpdeb/usr/share/applications/
+          cp Images/icon-256.png tmpdeb/usr/share/icons/hicolor/256x256/apps/luoda.png
           cat > tmpdeb/DEBIAN/control << EOF
           Package: luoda
           Version: 3.1.1
           Architecture: amd64
-          Maintainer: LUODA
-          Description: LUODA Remote Desktop
+          Maintainer: LDesk
+          Description: LDesk Direct Chat and Remote Assistance
           EOF
           # Include postinst/prerm scripts to auto-start service
           cp res/DEBIAN/postinst tmpdeb/DEBIAN/
           cp res/DEBIAN/prerm tmpdeb/DEBIAN/
           chmod 755 tmpdeb/DEBIAN/postinst tmpdeb/DEBIAN/prerm
-          dpkg-deb --build tmpdeb luoda.deb
+          dpkg-deb --build tmpdeb LDesk-3.1.1.deb
 
       - name: Package RPM
         run: |
           sudo apt-get install -y alien rpm
-          sudo alien --to-rpm luoda.deb --scripts
+          sudo alien --to-rpm LDesk-3.1.1.deb --scripts
           ls -la *.rpm
-          mv *.rpm luoda.rpm
+          mv *.rpm LDesk-3.1.1.rpm
 
       - name: Upload DEB
         uses: actions/upload-artifact@v4
         with:
-          name: LUODA-3.1.1-DEB
-          path: luoda.deb
+          name: LDesk-3.1.1-DEB
+          path: LDesk-3.1.1.deb
           if-no-files-found: error
 
       - name: Upload RPM
         uses: actions/upload-artifact@v4
         with:
-          name: LUODA-3.1.1-RPM
-          path: luoda.rpm
+          name: LDesk-3.1.1-RPM
+          path: LDesk-3.1.1.rpm
           if-no-files-found: error
-
-      - name: Rename DEB/RPM for release
-        shell: pwsh
-        run: |
-          Copy-Item 'luoda.deb'  'LUODA-3.1.1.deb'
-          Copy-Item 'luoda.rpm'  'LUODA-3.1.1.rpm'
       - name: Upload to Release
         if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/3.1.1'
         uses: softprops/action-gh-release@v2
@@ -198,12 +204,11 @@ jobs:
           draft: true
           tag_name: v3.1.1
           files: |
-            LUODA-3.1.1.deb
-            LUODA-3.1.1.rpm
+            LDesk-3.1.1.deb
+            LDesk-3.1.1.rpm
       - name: Upload runtime logs (always)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: runtime-logs-deb
           path: .auto_build_logs/
-

@@ -8,6 +8,7 @@ import 'package:qr_code_scanner/qr_code_scanner.dart';
 import 'package:zxing2/qrcode.dart';
 
 import '../../common.dart';
+import '../../common/direct_pairing.dart';
 import '../../models/platform_model.dart';
 import '../widgets/dialog.dart';
 
@@ -20,6 +21,7 @@ class _ScanPageState extends State<ScanPage> {
   QRViewController? controller;
   final GlobalKey qrKey = GlobalKey(debugLabel: 'QR');
   StreamSubscription? scanSubscription;
+  bool _handlingScan = false;
 
   @override
   void reassemble() {
@@ -35,7 +37,7 @@ class _ScanPageState extends State<ScanPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Scan QR'),
+        title: Text(translate('Scan PC pairing QR')),
         actions: [
           _buildImagePickerButton(),
           _buildFlashToggleButton(),
@@ -55,10 +57,10 @@ class _ScanPageState extends State<ScanPage> {
       key: qrKey,
       onQRViewCreated: _onQRViewCreated,
       overlay: QrScannerOverlayShape(
-        borderColor: Colors.red,
-        borderRadius: 10,
-        borderLength: 30,
-        borderWidth: 10,
+        borderColor: MyTheme.accent,
+        borderRadius: 8,
+        borderLength: 28,
+        borderWidth: 5,
         cutOutSize: scanArea,
       ),
       onPermissionSet: (ctrl, p) => _onPermissionSet(context, ctrl, p),
@@ -71,14 +73,16 @@ class _ScanPageState extends State<ScanPage> {
     });
     scanSubscription = controller.scannedDataStream.listen((scanData) {
       if (scanData.code != null) {
-        showServerSettingFromQr(scanData.code!);
+        unawaited(_handleScannedValue(scanData.code!));
       }
     });
   }
 
   void _onPermissionSet(BuildContext context, QRViewController ctrl, bool p) {
     if (!p) {
-      showToast('No permission');
+      showToast(
+        translate('Camera permission is required to scan pairing QR codes.'),
+      );
     }
   }
 
@@ -97,45 +101,47 @@ class _ScanPageState extends State<ScanPage> {
 
         var reader = QRCodeReader();
         var result = reader.decode(bitmap);
-        if (result.text.startsWith(bind.mainUriPrefixSync())) {
-          handleUriLink(uriString: result.text);
-        } else {
-          showServerSettingFromQr(result.text);
-        }
+        await _handleScannedValue(result.text);
       } catch (e) {
-        showToast('No QR code found');
+        showToast(translate('No QR code found'));
       }
     }
   }
 
   Widget _buildImagePickerButton() {
-    return IconButton(
-      color: Colors.white,
-      icon: Icon(Icons.image_search),
-      iconSize: 32.0,
-      onPressed: _pickImage,
+    return Tooltip(
+      message: translate('Choose image'),
+      child: IconButton(
+        icon: const Icon(Icons.image_search_rounded),
+        iconSize: 24,
+        onPressed: _pickImage,
+      ),
     );
   }
 
   Widget _buildFlashToggleButton() {
-    return IconButton(
-      color: Colors.yellow,
-      icon: Icon(Icons.flash_on),
-      iconSize: 32.0,
-      onPressed: () async {
-        await controller?.toggleFlash();
-      },
+    return Tooltip(
+      message: translate('Toggle flashlight'),
+      child: IconButton(
+        icon: const Icon(Icons.flash_on_rounded),
+        iconSize: 24,
+        onPressed: () async {
+          await controller?.toggleFlash();
+        },
+      ),
     );
   }
 
   Widget _buildCameraSwitchButton() {
-    return IconButton(
-      color: Colors.white,
-      icon: Icon(Icons.switch_camera),
-      iconSize: 32.0,
-      onPressed: () async {
-        await controller?.flipCamera();
-      },
+    return Tooltip(
+      message: translate('Switch camera'),
+      child: IconButton(
+        icon: const Icon(Icons.cameraswitch_rounded),
+        iconSize: 24,
+        onPressed: () async {
+          await controller?.flipCamera();
+        },
+      ),
     );
   }
 
@@ -146,11 +152,40 @@ class _ScanPageState extends State<ScanPage> {
     super.dispose();
   }
 
-  void showServerSettingFromQr(String data) async {
+  Future<void> _handleScannedValue(String data) async {
+    if (_handlingScan) return;
+    _handlingScan = true;
+    final pairing = DirectPairingStore.parsePayload(data);
+    if (pairing != null) {
+      await controller?.pauseCamera();
+      await DirectPairingStore.save(pairing);
+      await bind.mainSetLocalOption(
+        key: 'direct-chat-always-on',
+        value: 'Y',
+      );
+      if (isAndroid) {
+        await gFFI.invokeMethod('set_direct_chat_service', true);
+      }
+      if (!mounted) return;
+      showToast(translate('PC paired for direct connection'));
+      Navigator.pop(context, pairing);
+      return;
+    }
+    if (data.startsWith(bind.mainUriPrefixSync())) {
+      await controller?.pauseCamera();
+      handleUriLink(uriString: data);
+      _handlingScan = false;
+      return;
+    }
+    await _showServerSettingFromQr(data);
+    _handlingScan = false;
+  }
+
+  Future<void> _showServerSettingFromQr(String data) async {
     closeConnection();
     await controller?.pauseCamera();
     if (!data.startsWith('config=')) {
-      showToast('Invalid QR code');
+      showToast(translate('Invalid QR code'));
       return;
     }
     try {
@@ -159,7 +194,7 @@ class _ScanPageState extends State<ScanPage> {
         showServerSettingsWithValue(sc, gFFI.dialogManager, null);
       });
     } catch (e) {
-      showToast('Invalid QR code');
+      showToast(translate('Invalid QR code'));
     }
   }
 }

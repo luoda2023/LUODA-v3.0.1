@@ -54,6 +54,7 @@ pub type NotifyMessageBox = fn(String, String, String, String) -> dyn Future<Out
 
 // the executable name of the portable version
 pub const PORTABLE_APPNAME_RUNTIME_ENV_KEY: &str = "LUODA_APPNAME";
+pub const DEFAULT_PRODUCT_DISPLAY_NAME: &str = "LDesk";
 
 pub const PLATFORM_WINDOWS: &str = "Windows";
 pub const PLATFORM_LINUX: &str = "Linux";
@@ -1001,7 +1002,12 @@ pub async fn do_check_software_update() -> hbb_common::ResultType<()> {
 
 #[inline]
 pub fn get_app_name() -> String {
-    hbb_common::config::APP_NAME.read().unwrap().clone()
+    let configured = hbb_common::config::APP_NAME.read().unwrap().clone();
+    if configured == "LUODA" {
+        DEFAULT_PRODUCT_DISPLAY_NAME.to_owned()
+    } else {
+        configured
+    }
 }
 
 #[inline]
@@ -1011,7 +1017,11 @@ pub fn is_luoda() -> bool {
 
 #[inline]
 pub fn get_uri_prefix() -> String {
-    format!("{}://", get_app_name().to_lowercase())
+    if is_luoda() {
+        "luoda://".to_owned()
+    } else {
+        format!("{}://", get_app_name().to_lowercase())
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -1989,7 +1999,11 @@ pub fn get_builtin_option(key: &str) -> String {
 
 #[inline]
 pub fn is_custom_client() -> bool {
-    cfg!(feature = "client_only") || get_app_name() != "LUODA" || std::env::var("LUODA_CLIENT_ONLY").map(|v| v == "1").unwrap_or(false)
+    cfg!(feature = "client_only")
+        || !is_luoda()
+        || std::env::var("LUODA_CLIENT_ONLY")
+            .map(|v| v == "1")
+            .unwrap_or(false)
 }
 
 /// 判断是否为客户端专用版（被控端专用，不含控制端UI）

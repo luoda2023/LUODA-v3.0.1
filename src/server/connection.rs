@@ -291,6 +291,9 @@ pub struct Connection {
     file_timer: crate::LUODAInterval,
     file_transfer: Option<(String, bool)>,
     chat_only: bool,
+    chat_companion_verified: bool,
+    authenticated_peer_id: Option<String>,
+    authenticated_peer_key: Option<String>,
     view_camera: bool,
     terminal: bool,
     port_forward_socket: Option<Framed<TcpStream, BytesCodec>>,
@@ -432,6 +435,8 @@ impl Connection {
         id: i32,
         server: super::ServerPtrWeak,
         control_permissions: Option<ControlPermissions>,
+        authenticated_peer_id: Option<String>,
+        authenticated_peer_key: Option<String>,
     ) {
         // Android is not supported yet, so we always set control_permissions to None.
         #[cfg(target_os = "android")]
@@ -485,6 +490,9 @@ impl Connection {
             file_timer: crate::luoda_interval(time::interval(SEC30)),
             file_transfer: None,
             chat_only: false,
+            chat_companion_verified: false,
+            authenticated_peer_id,
+            authenticated_peer_key,
             view_camera: false,
             terminal: false,
             port_forward_socket: None,
@@ -1525,6 +1533,7 @@ impl Connection {
             return false;
         }
         self.authorized = true;
+        self.remember_direct_chat_identity();
         let (conn_type, auth_conn_type) = if self.chat_only {
             (5, AuthConnType::Chat)
         } else if self.file_transfer.is_some() {
@@ -1561,6 +1570,7 @@ impl Connection {
             username: username.clone(),
             display_name,
             avatar,
+            peer_id: Config::get_id(),
             version: VERSION.to_owned(),
             ..Default::default()
         };
@@ -1863,6 +1873,12 @@ impl Connection {
     }
 
     fn direct_chat_auto_allowed(&self, peer_id: &str) -> bool {
+        if self.chat_companion_verified {
+            return true;
+        }
+        if !self.direct_chat_identity_matches(peer_id) {
+            return false;
+        }
         if LocalConfig::get_option("direct-chat-always-on") != "Y" {
             return false;
         }
@@ -1870,6 +1886,66 @@ impl Connection {
             "allow" => true,
             "deny" => false,
             _ => LocalConfig::get_option("direct-chat-trusted-only") == "N",
+        }
+    }
+
+    fn direct_chat_identity_matches(&self, peer_id: &str) -> bool {
+        if self.authenticated_peer_id.as_deref() != Some(peer_id) {
+            return false;
+        }
+        let Some(actual_key) = self.authenticated_peer_key.as_deref() else {
+            return false;
+        };
+        let pinned_key = serde_json::from_str::<HashMap<String, String>>(&LocalConfig::get_option(
+            "direct-chat-peer-keys-v1",
+        ))
+        .ok()
+        .and_then(|keys| keys.get(peer_id).cloned())
+        .or_else(|| {
+            serde_json::from_str::<serde_json::Value>(&LocalConfig::get_option(
+                "direct-pairings-v1",
+            ))
+            .ok()
+            .and_then(|pairings| {
+                pairings
+                    .get(peer_id)
+                    .and_then(|pairing| pairing.get("fingerprint"))
+                    .and_then(|fingerprint| fingerprint.as_str())
+                    .map(str::to_owned)
+            })
+        });
+        let normalize = |value: &str| {
+            value
+                .chars()
+                .filter(|c| !c.is_whitespace() && *c != ':')
+                .flat_map(char::to_lowercase)
+                .collect::<String>()
+        };
+        pinned_key
+            .map(|pinned| normalize(&pinned) == normalize(actual_key))
+            .unwrap_or(false)
+    }
+
+    fn remember_direct_chat_identity(&self) {
+        if !self.chat_only {
+            return;
+        }
+        let (Some(peer_id), Some(peer_key)) = (
+            self.authenticated_peer_id.as_deref(),
+            self.authenticated_peer_key.as_deref(),
+        ) else {
+            return;
+        };
+        if peer_id != self.lr.my_id {
+            return;
+        }
+        let mut keys = serde_json::from_str::<HashMap<String, String>>(
+            &LocalConfig::get_option("direct-chat-peer-keys-v1"),
+        )
+        .unwrap_or_default();
+        keys.insert(peer_id.to_owned(), peer_key.to_owned());
+        if let Ok(value) = serde_json::to_string(&keys) {
+            LocalConfig::set_option("direct-chat-peer-keys-v1".to_owned(), value);
         }
     }
 
@@ -2375,13 +2451,17 @@ impl Connection {
                     }
                     self.file_transfer = Some((ft.dir, ft.show_hidden));
                 }
-                Some(login_request::Union::Chat(_chat)) => {
+                Some(login_request::Union::Chat(chat)) => {
                     self.chat_only = true;
                     if self.direct_chat_policy(&lr.my_id) == "deny" {
                         self.send_login_error("Direct messages rejected by this contact")
                             .await;
                         return false;
                     }
+                    let local_secret =
+                        LocalConfig::get_option("direct-companion-secret-v1");
+                    self.chat_companion_verified = !local_secret.is_empty()
+                        && chat.pairing_secret == local_secret;
                 }
                 Some(login_request::Union::ViewCamera(_vc)) => {
                     if !Self::permission(keys::OPTION_ENABLE_CAMERA, &self.control_permissions) {
@@ -2509,6 +2589,13 @@ impl Connection {
                 } else {
                     self.send_login_error(err_msg).await;
                 }
+            } else if self.chat_only {
+                if err_msg.is_empty() {
+                    self.try_start_cm(lr.my_id, lr.my_name, false);
+                } else {
+                    self.send_login_error(err_msg).await;
+                }
+                return true;
             } else if (password::approve_mode() == ApproveMode::Click
                 && !(crate::get_builtin_option(keys::OPTION_ALLOW_LOGON_SCREEN_PASSWORD) == "Y"
                     && is_logon()))

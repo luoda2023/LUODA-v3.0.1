@@ -23,7 +23,7 @@ import '../../desktop/widgets/material_mod_popup_menu.dart' as mod_menu;
 
 class OnlineStatusWidget extends StatefulWidget {
   const OnlineStatusWidget({Key? key, this.onSvcStatusChanged})
-    : super(key: key);
+      : super(key: key);
 
   final VoidCallback? onSvcStatusChanged;
 
@@ -69,60 +69,59 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
   Widget build(BuildContext context) {
     final isIncomingOnly = bind.isIncomingOnly();
     startServiceWidget() => Offstage(
-      offstage: !_svcStopped.value,
-      child: InkWell(
-        onTap: () async {
-          await start_service(true);
-        },
-        child: Text(
-          translate("Start service"),
-          style: TextStyle(decoration: TextDecoration.underline, fontSize: em),
-        ),
-      ).marginOnly(left: em),
-    );
+          offstage: !_svcStopped.value,
+          child: InkWell(
+            onTap: () async {
+              await start_service(true);
+            },
+            child: Text(
+              translate("Start service"),
+              style:
+                  TextStyle(decoration: TextDecoration.underline, fontSize: em),
+            ),
+          ).marginOnly(left: em),
+        );
 
     setupServerWidget() => Flexible(
-      child: Offstage(
-        offstage:
-            !(!_svcStopped.value &&
+          child: Offstage(
+            offstage: !(!_svcStopped.value &&
                 stateGlobal.svcStatus.value == SvcStatus.ready &&
                 _svcIsUsingPublicServer.value),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Text(', ', style: TextStyle(fontSize: em)),
-            Flexible(child: _ServerAddressWidget(em: em)),
-          ],
-        ),
-      ),
-    );
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Text(', ', style: TextStyle(fontSize: em)),
+                Flexible(child: _ServerAddressWidget(em: em)),
+              ],
+            ),
+          ),
+        );
 
     basicWidget() => Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Container(
-          height: 8,
-          width: 8,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(4),
-            color:
-                _svcStopped.value ||
-                    stateGlobal.svcStatus.value != SvcStatus.ready
-                ? Colors.grey
-                : Color.fromARGB(255, 50, 190, 166),
-          ),
-        ).marginSymmetric(horizontal: em),
-        Container(
-          width: isIncomingOnly ? 226 : null,
-          child: _buildConnStatusMsg(),
-        ),
-        // stop
-        if (!isIncomingOnly) startServiceWidget(),
-        // ready && public
-        // No need to show the guide if is custom client.
-        if (!isIncomingOnly) setupServerWidget(),
-      ],
-    );
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(
+              height: 8,
+              width: 8,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(4),
+                color: _svcStopped.value ||
+                        stateGlobal.svcStatus.value != SvcStatus.ready
+                    ? Colors.grey
+                    : Color.fromARGB(255, 50, 190, 166),
+              ),
+            ).marginSymmetric(horizontal: em),
+            Container(
+              width: isIncomingOnly ? 226 : null,
+              child: _buildConnStatusMsg(),
+            ),
+            // stop
+            if (!isIncomingOnly) startServiceWidget(),
+            // ready && public
+            // No need to show the guide if is custom client.
+            if (!isIncomingOnly) setupServerWidget(),
+          ],
+        );
 
     return Container(
       height: height,
@@ -148,10 +147,10 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
       _svcStopped.value
           ? translate("Service is not running")
           : stateGlobal.svcStatus.value == SvcStatus.connecting
-          ? translate("connecting_status")
-          : stateGlobal.svcStatus.value == SvcStatus.notReady
-          ? translate("not_ready_status")
-          : translate('Ready'),
+              ? translate("connecting_status")
+              : stateGlobal.svcStatus.value == SvcStatus.notReady
+                  ? translate("not_ready_status")
+                  : translate('Direct listening'),
       style: TextStyle(fontSize: em),
     );
   }
@@ -159,27 +158,11 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
   updateStatus() async {
     final status =
         jsonDecode(await bind.mainGetConnectStatus()) as Map<String, dynamic>;
-    final statusNum = status['status_num'] as int;
-    if (statusNum == 0) {
-      stateGlobal.svcStatus.value = SvcStatus.connecting;
-    } else if (statusNum == -1) {
-      // If service is running but backend reports not_ready,
-      // it's likely a temporary IPC issue - show connecting instead
-      if (_svcStopped.value) {
-        stateGlobal.svcStatus.value = SvcStatus.notReady;
-      } else {
-        stateGlobal.svcStatus.value = SvcStatus.connecting;
-      }
-    } else if (statusNum == 1) {
-      stateGlobal.svcStatus.value = SvcStatus.ready;
-    } else {
-      if (_svcStopped.value) {
-        stateGlobal.svcStatus.value = SvcStatus.notReady;
-      } else {
-        stateGlobal.svcStatus.value = SvcStatus.connecting;
-      }
-    }
-    _svcIsUsingPublicServer.value = await bind.mainIsUsingPublicServer();
+    final directPort = bind.mainGetOptionSync(key: kOptionDirectAccessPort);
+    stateGlobal.svcStatus.value = !_svcStopped.value && directPort.isNotEmpty
+        ? SvcStatus.ready
+        : SvcStatus.notReady;
+    _svcIsUsingPublicServer.value = false;
     try {
       stateGlobal.videoConnCount.value = status['video_conn_count'] as int;
     } catch (_) {}
@@ -349,8 +332,8 @@ class _ConnectionPageState extends State<ConnectionPage>
                     Text(
                       translate('Access history devices'),
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
+                            fontWeight: FontWeight.w700,
+                          ),
                     ),
                     const SizedBox(height: 12),
                     Expanded(
@@ -399,19 +382,19 @@ class _ConnectionPageState extends State<ConnectionPage>
             Text(
               translate('Control Remote Desktop'),
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-              ),
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
             ),
             const SizedBox(height: 4),
             Text(
               translate('Enter Remote ID'),
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                fontSize: 14,
-                color: Theme.of(
-                  context,
-                ).textTheme.bodyMedium?.color?.withOpacity(.68),
-              ),
+                    fontSize: 14,
+                    color: Theme.of(
+                      context,
+                    ).textTheme.bodyMedium?.color?.withOpacity(.68),
+                  ),
             ),
             const SizedBox(height: 16),
             Row(
@@ -443,31 +426,31 @@ class _ConnectionPageState extends State<ConnectionPage>
                           );
                           _autocompleteOpts = [emptyPeer];
                         } else {
-                          String textWithoutSpaces = textEditingValue.text
-                              .replaceAll(" ", "");
+                          String textWithoutSpaces =
+                              textEditingValue.text.replaceAll(" ", "");
                           if (int.tryParse(textWithoutSpaces) != null) {
                             textEditingValue = TextEditingValue(
                               text: textWithoutSpaces,
                               selection: textEditingValue.selection,
                             );
                           }
-                          String textToFind = textEditingValue.text
-                              .toLowerCase();
+                          String textToFind =
+                              textEditingValue.text.toLowerCase();
                           _autocompleteOpts = _allPeersLoader.peers
                               .where(
                                 (peer) =>
                                     peer.id.toLowerCase().contains(
-                                      textToFind,
-                                    ) ||
+                                          textToFind,
+                                        ) ||
                                     peer.username.toLowerCase().contains(
-                                      textToFind,
-                                    ) ||
+                                          textToFind,
+                                        ) ||
                                     peer.hostname.toLowerCase().contains(
-                                      textToFind,
-                                    ) ||
+                                          textToFind,
+                                        ) ||
                                     peer.alias.toLowerCase().contains(
-                                      textToFind,
-                                    ),
+                                          textToFind,
+                                        ),
                               )
                               .toList();
                         }
@@ -475,134 +458,129 @@ class _ConnectionPageState extends State<ConnectionPage>
                       },
                       focusNode: _idFocusNode,
                       textEditingController: _idEditingController,
-                      fieldViewBuilder:
-                          (
-                            BuildContext context,
-                            TextEditingController fieldTextEditingController,
-                            FocusNode fieldFocusNode,
-                            VoidCallback onFieldSubmitted,
-                          ) {
-                            updateTextAndPreserveSelection(
-                              fieldTextEditingController,
-                              _idController.text,
-                            );
-                            return Obx(
-                              () => TextField(
-                                autocorrect: false,
-                                enableSuggestions: false,
-                                keyboardType: TextInputType.visiblePassword,
-                                focusNode: fieldFocusNode,
-                                style: const TextStyle(
-                                  fontSize: 15,
-                                  height: 1.2,
-                                ),
-                                maxLines: 1,
-                                cursorColor: Theme.of(
-                                  context,
-                                ).textTheme.titleLarge?.color,
-                                decoration: InputDecoration(
-                                  filled: false,
-                                  counterText: '',
-                                  hintText: _idInputFocused.value
-                                      ? null
-                                      : translate('Enter Remote ID'),
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 15,
-                                    vertical: 12,
-                                  ),
-                                ),
-                                controller: fieldTextEditingController,
-                                inputFormatters: [IDTextInputFormatter()],
-                                onChanged: (v) {
-                                  _idController.id = v;
-                                },
-                                onSubmitted: (_) {
-                                  onConnect();
-                                },
-                              ).workaroundFreezeLinuxMint(),
-                            );
-                          },
+                      fieldViewBuilder: (
+                        BuildContext context,
+                        TextEditingController fieldTextEditingController,
+                        FocusNode fieldFocusNode,
+                        VoidCallback onFieldSubmitted,
+                      ) {
+                        updateTextAndPreserveSelection(
+                          fieldTextEditingController,
+                          _idController.text,
+                        );
+                        return Obx(
+                          () => TextField(
+                            autocorrect: false,
+                            enableSuggestions: false,
+                            keyboardType: TextInputType.visiblePassword,
+                            focusNode: fieldFocusNode,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              height: 1.2,
+                            ),
+                            maxLines: 1,
+                            cursorColor: Theme.of(
+                              context,
+                            ).textTheme.titleLarge?.color,
+                            decoration: InputDecoration(
+                              filled: false,
+                              counterText: '',
+                              hintText: _idInputFocused.value
+                                  ? null
+                                  : translate('Enter Remote ID'),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 15,
+                                vertical: 12,
+                              ),
+                            ),
+                            controller: fieldTextEditingController,
+                            inputFormatters: [IDTextInputFormatter()],
+                            onChanged: (v) {
+                              _idController.id = v;
+                            },
+                            onSubmitted: (_) {
+                              onConnect();
+                            },
+                          ).workaroundFreezeLinuxMint(),
+                        );
+                      },
                       onSelected: (option) {
                         setState(() {
                           _idController.id = option.id;
                           FocusScope.of(context).unfocus();
                         });
                       },
-                      optionsViewBuilder:
-                          (
-                            BuildContext context,
-                            AutocompleteOnSelected<Peer> onSelected,
-                            Iterable<Peer> options,
-                          ) {
-                            options = _autocompleteOpts;
-                            double maxHeight = options.length * 50;
-                            if (options.length == 1) {
-                              maxHeight = 52;
-                            } else if (options.length == 3) {
-                              maxHeight = 146;
-                            } else if (options.length == 4) {
-                              maxHeight = 193;
-                            }
-                            maxHeight = maxHeight.clamp(0, 200);
+                      optionsViewBuilder: (
+                        BuildContext context,
+                        AutocompleteOnSelected<Peer> onSelected,
+                        Iterable<Peer> options,
+                      ) {
+                        options = _autocompleteOpts;
+                        double maxHeight = options.length * 50;
+                        if (options.length == 1) {
+                          maxHeight = 52;
+                        } else if (options.length == 3) {
+                          maxHeight = 146;
+                        } else if (options.length == 4) {
+                          maxHeight = 193;
+                        }
+                        maxHeight = maxHeight.clamp(0, 200);
 
-                            return Align(
-                              alignment: Alignment.topLeft,
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withOpacity(0.3),
-                                      blurRadius: 5,
-                                      spreadRadius: 1,
-                                    ),
-                                  ],
+                        return Align(
+                          alignment: Alignment.topLeft,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.3),
+                                  blurRadius: 5,
+                                  spreadRadius: 1,
                                 ),
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(5),
-                                  child: Material(
-                                    elevation: 4,
-                                    child: ConstrainedBox(
-                                      constraints: BoxConstraints(
-                                        maxHeight: maxHeight,
-                                        maxWidth: 319,
-                                      ),
-                                      child:
-                                          _allPeersLoader.peers.isEmpty &&
-                                              !_allPeersLoader.isPeersLoaded
-                                          ? Container(
-                                              height: 80,
-                                              child: Center(
-                                                child:
-                                                    CircularProgressIndicator(
-                                                      strokeWidth: 2,
-                                                    ),
-                                              ),
-                                            )
-                                          : Padding(
-                                              padding: const EdgeInsets.only(
-                                                top: 5,
-                                              ),
-                                              child: ListView(
-                                                children: options
-                                                    .map(
-                                                      (peer) =>
-                                                          AutocompletePeerTile(
-                                                            onSelect: () =>
-                                                                onSelected(
-                                                                  peer,
-                                                                ),
-                                                            peer: peer,
-                                                          ),
-                                                    )
-                                                    .toList(),
-                                              ),
-                                            ),
-                                    ),
+                              ],
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(5),
+                              child: Material(
+                                elevation: 4,
+                                child: ConstrainedBox(
+                                  constraints: BoxConstraints(
+                                    maxHeight: maxHeight,
+                                    maxWidth: 319,
                                   ),
+                                  child: _allPeersLoader.peers.isEmpty &&
+                                          !_allPeersLoader.isPeersLoaded
+                                      ? Container(
+                                          height: 80,
+                                          child: Center(
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          ),
+                                        )
+                                      : Padding(
+                                          padding: const EdgeInsets.only(
+                                            top: 5,
+                                          ),
+                                          child: ListView(
+                                            children: options
+                                                .map(
+                                                  (peer) =>
+                                                      AutocompletePeerTile(
+                                                    onSelect: () => onSelected(
+                                                      peer,
+                                                    ),
+                                                    peer: peer,
+                                                  ),
+                                                )
+                                                .toList(),
+                                          ),
+                                        ),
                                 ),
                               ),
-                            );
-                          },
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ),
                 ),
@@ -646,65 +624,59 @@ class _ConnectionPageState extends State<ConnectionPage>
                               final y = offset.dy;
                               await mod_menu
                                   .showMenu(
-                                    context: context,
-                                    position: RelativeRect.fromLTRB(x, y, x, y),
-                                    items:
-                                        [
-                                              (
-                                                'Transfer file',
-                                                () => onConnect(
-                                                  isFileTransfer: true,
-                                                ),
-                                              ),
-                                              (
-                                                'View camera',
-                                                () => onConnect(
-                                                  isViewCamera: true,
-                                                ),
-                                              ),
-                                              (
-                                                '${translate('Terminal')} (beta)',
-                                                () =>
-                                                    onConnect(isTerminal: true),
-                                              ),
-                                            ]
-                                            .map(
-                                              (e) => MenuEntryButton<String>(
-                                                childBuilder:
-                                                    (TextStyle? style) => Text(
-                                                      translate(e.$1),
-                                                      style: style,
-                                                    ),
-                                                proc: () => e.$2(),
-                                                padding: EdgeInsets.symmetric(
-                                                  horizontal:
-                                                      kDesktopMenuPadding.left,
-                                                ),
-                                                dismissOnClicked: true,
-                                              ),
-                                            )
-                                            .map(
-                                              (e) => e.build(
-                                                context,
-                                                const MenuConfig(
-                                                  commonColor:
-                                                      CustomPopupMenuTheme
-                                                          .commonColor,
-                                                  height: CustomPopupMenuTheme
-                                                      .height,
-                                                  dividerHeight:
-                                                      CustomPopupMenuTheme
-                                                          .dividerHeight,
-                                                ),
-                                              ),
-                                            )
-                                            .expand((i) => i)
-                                            .toList(),
-                                    elevation: 8,
-                                  )
+                                context: context,
+                                position: RelativeRect.fromLTRB(x, y, x, y),
+                                items: [
+                                  (
+                                    'Transfer file',
+                                    () => onConnect(
+                                          isFileTransfer: true,
+                                        ),
+                                  ),
+                                  (
+                                    'View camera',
+                                    () => onConnect(
+                                          isViewCamera: true,
+                                        ),
+                                  ),
+                                  (
+                                    '${translate('Terminal')} (beta)',
+                                    () => onConnect(isTerminal: true),
+                                  ),
+                                ]
+                                    .map(
+                                      (e) => MenuEntryButton<String>(
+                                        childBuilder: (TextStyle? style) =>
+                                            Text(
+                                          translate(e.$1),
+                                          style: style,
+                                        ),
+                                        proc: () => e.$2(),
+                                        padding: EdgeInsets.symmetric(
+                                          horizontal: kDesktopMenuPadding.left,
+                                        ),
+                                        dismissOnClicked: true,
+                                      ),
+                                    )
+                                    .map(
+                                      (e) => e.build(
+                                        context,
+                                        const MenuConfig(
+                                          commonColor:
+                                              CustomPopupMenuTheme.commonColor,
+                                          height: CustomPopupMenuTheme.height,
+                                          dividerHeight: CustomPopupMenuTheme
+                                              .dividerHeight,
+                                        ),
+                                      ),
+                                    )
+                                    .expand((i) => i)
+                                    .toList(),
+                                elevation: 8,
+                              )
                                   .then((_) {
-                                    _menuOpen.value = false;
-                                  });
+                                _menuOpen.value = false;
+                              });
                             },
                           ),
                         );

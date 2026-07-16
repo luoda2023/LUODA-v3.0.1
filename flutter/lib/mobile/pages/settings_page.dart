@@ -25,10 +25,10 @@ import 'scan_page.dart';
 
 class SettingsPage extends StatefulWidget implements PageShape {
   @override
-  final title = translate("Settings");
+  final title = translate("Me");
 
   @override
-  final icon = Icon(Icons.settings);
+  final icon = const Icon(Icons.person_outline_rounded);
 
   @override
   final appBarActions = bind.isDisableSettings() ? [] : [ScanButton()];
@@ -715,13 +715,16 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
             SettingsTile.switchTile(
               leading: const Icon(Icons.mark_chat_unread_outlined),
               title: Text(translate('Allow always-on direct messages')),
-              description: Text(translate('Available when LUODA is running')),
+              description: Text(translate('Available when LDesk is running')),
               initialValue: _directChatAlwaysOn,
               onToggle: (value) async {
                 await bind.mainSetLocalOption(
                   key: 'direct-chat-always-on',
                   value: value ? 'Y' : 'N',
                 );
+                if (isAndroid) {
+                  await gFFI.invokeMethod('set_direct_chat_service', value);
+                }
                 setState(() => _directChatAlwaysOn = value);
               },
             ),
@@ -768,7 +771,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
             ),
           ],
         ),
-        if (!bind.isDisableAccount())
+        if (!kServerlessDirectOnly && !bind.isDisableAccount())
           SettingsSection(
             title: Text(translate('Account')),
             tiles: [
@@ -798,7 +801,17 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
             ],
           ),
         SettingsSection(title: Text(translate("Settings")), tiles: [
-          if (!disabledSettings && !_hideNetwork && !_hideServer)
+          SettingsTile(
+            title: Text(translate('Serverless direct mode')),
+            description: Text(translate(
+              'Rendezvous, relay, proxy, and cloud sync are disabled.',
+            )),
+            leading: const Icon(Icons.shield_outlined),
+          ),
+          if (!kServerlessDirectOnly &&
+              !disabledSettings &&
+              !_hideNetwork &&
+              !_hideServer)
             SettingsTile(
                 title: Text(translate('ID/Relay Server')),
                 leading: Icon(Icons.cloud),
@@ -808,14 +821,17 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                     setState(callback);
                   });
                 }),
-          if (!_hideNetwork && !_hideProxy)
+          if (!kServerlessDirectOnly && !_hideNetwork && !_hideProxy)
             SettingsTile(
                 title: Text(translate('Socks5/Http(s) Proxy')),
                 leading: Icon(Icons.network_ping),
                 onPressed: (context) {
                   changeSocks5Proxy();
                 }),
-          if (!disabledSettings && !_hideNetwork && !_hideWebSocket)
+          if (!kServerlessDirectOnly &&
+              !disabledSettings &&
+              !_hideNetwork &&
+              !_hideWebSocket)
             SettingsTile.switchTile(
               title: Text(translate('Use WebSocket')),
               initialValue: _allowWebSocket,
@@ -830,7 +846,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                       });
                     },
             ),
-          if (!_isUsingPublicServer)
+          if (!kServerlessDirectOnly && !_isUsingPublicServer)
             SettingsTile.switchTile(
               title: Text(translate('Allow insecure TLS fallback')),
               initialValue: _allowInsecureTlsFallback,

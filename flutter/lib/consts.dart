@@ -21,8 +21,7 @@ const String kPlatformAdditionsIsWayland = "is_wayland";
 const String kPlatformAdditionsHeadless = "headless";
 const String kPlatformAdditionsIsInstalled = "is_installed";
 const String kPlatformAdditionsIddImpl = "idd_impl";
-const String kPlatformAdditionsLUODAVirtualDisplays =
-    "luoda_virtual_displays";
+const String kPlatformAdditionsLUODAVirtualDisplays = "luoda_virtual_displays";
 const String kPlatformAdditionsAmyuniVirtualDisplays =
     "amyuni_virtual_displays";
 const String kPlatformAdditionsHasFileClipboard = "has_file_clipboard";
@@ -163,7 +162,8 @@ const String kOptionShowVirtualMouse = "show-virtual-mouse";
 const String kOptionVirtualMouseScale = "virtual-mouse-scale";
 const String kOptionShowVirtualJoystick = "show-virtual-joystick";
 const String kOptionAllowAskForNoteAtEndOfConnection = "allow-ask-for-note";
-const String kOptionEnableShowTerminalExtraKeys = "enable-show-terminal-extra-keys";
+const String kOptionEnableShowTerminalExtraKeys =
+    "enable-show-terminal-extra-keys";
 
 // network options
 const String kOptionAllowWebSocket = "allow-websocket";
@@ -195,8 +195,10 @@ const String kOptionDisableFloatingWindow = "disable-floating-window";
 
 const String kOptionKeepScreenOn = "keep-screen-on";
 
-const String kOptionKeepAwakeDuringIncomingSessions = "keep-awake-during-incoming-sessions";
-const String kOptionKeepAwakeDuringOutgoingSessions = "keep-awake-during-outgoing-sessions";
+const String kOptionKeepAwakeDuringIncomingSessions =
+    "keep-awake-during-incoming-sessions";
+const String kOptionKeepAwakeDuringOutgoingSessions =
+    "keep-awake-during-outgoing-sessions";
 
 const String kOptionShowMobileAction = "showMobileActions";
 
@@ -414,6 +416,10 @@ const Duration kDebounceCustomScaleDuration = Duration(milliseconds: 300);
 // Magic numbers, maybe need to avoid it or use a better way to get them.
 const kMobileDelaySoftKeyboard = Duration(milliseconds: 30);
 const kMobileDelaySoftKeyboardFocus = Duration(milliseconds: 30);
+
+/// LDesk connects only to explicit peer endpoints and never uses rendezvous,
+/// relay, proxy, or cloud synchronization services.
+const kServerlessDirectOnly = true;
 
 /// Android constants
 const kActionApplicationDetailsSettings =

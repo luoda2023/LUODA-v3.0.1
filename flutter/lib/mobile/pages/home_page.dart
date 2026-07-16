@@ -6,13 +6,17 @@ import 'package:luoda_flutter/mobile/pages/server_page.dart';
 import 'package:luoda_flutter/mobile/pages/settings_page.dart';
 import 'package:luoda_flutter/web/settings_page.dart';
 import 'package:get/get.dart';
+import 'package:uuid/uuid.dart';
 import '../../common.dart';
+import '../../common/direct_pairing.dart';
 import '../../common/widgets/chat_page.dart';
+import '../../models/chat_model.dart';
 import '../../models/file_model.dart';
 import '../../models/model.dart';
 import '../../models/platform_model.dart';
 import '../../models/state_model.dart';
 import 'connection_page.dart';
+import 'scan_page.dart';
 
 abstract class PageShape extends Widget {
   final String title = "";
@@ -36,6 +40,9 @@ class HomePageState extends State<HomePage> {
   int _chatPageTabIndex = -1;
   FFI? _directFileSession;
   String _directFilePeerId = '';
+  FFI? _companionSyncSession;
+  String _companionSyncPeerId = '';
+  Timer? _directPairingSyncTimer;
   bool get isChatPageCurrentTab =>
       isMobile && _selectedIndex == _chatPageTabIndex;
 
@@ -43,6 +50,8 @@ class HomePageState extends State<HomePage> {
     if (_chatPageTabIndex < 0 || _selectedIndex == _chatPageTabIndex) return;
     setState(() => _selectedIndex = _chatPageTabIndex);
   }
+
+  Future<void> syncPairingsNow() => _syncLatestPairing();
 
   void refreshPages() {
     setState(() {
@@ -54,15 +63,17 @@ class HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     initPages();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_syncLatestPairing());
+    });
+    _directPairingSyncTimer = Timer.periodic(
+      const Duration(minutes: 30),
+      (_) => unawaited(_syncLatestPairing()),
+    );
   }
 
   void initPages() {
     _pages.clear();
-    if (!bind.isIncomingOnly()) {
-      _pages.add(ConnectionPage(
-        appBarActions: [],
-      ));
-    }
     if (isMobile) {
       _chatPageTabIndex = _pages.length;
       _pages.add(ChatPage(
@@ -70,9 +81,25 @@ class HomePageState extends State<HomePage> {
         onAttachFile: _sendDirectChatFiles,
         onRemoteAssist: _startRemoteFromChat,
       ));
-      if (isAndroid && !bind.isOutgoingOnly()) {
-        _pages.add(ServerPage());
-      }
+    }
+    if (!bind.isIncomingOnly()) {
+      _pages.add(ConnectionPage(
+        appBarActions: [
+          IconButton(
+            tooltip: translate('Pair phone'),
+            icon: const Icon(Icons.qr_code_scanner_rounded),
+            onPressed: () async {
+              final pairing = await Navigator.of(context).push<DirectPairing>(
+                MaterialPageRoute(builder: (_) => ScanPage()),
+              );
+              if (pairing != null) await _syncLatestPairing();
+            },
+          ),
+        ],
+      ));
+    }
+    if (isMobile && isAndroid && !bind.isOutgoingOnly()) {
+      _pages.add(ServerPage());
     }
     _pages.add(SettingsPage());
   }
@@ -80,7 +107,50 @@ class HomePageState extends State<HomePage> {
   void _startRemoteFromChat() {
     final peerId = gFFI.chatModel.currentKey.peerId.trim();
     if (peerId.isEmpty) return;
-    connect(context, peerId);
+    final endpoint = DirectPairingStore.resolveConnectionTarget(peerId);
+    if (endpoint == null) {
+      showToast(translate(
+        'Direct endpoint required. Scan the PC QR code or enter IP:port.',
+      ));
+      return;
+    }
+    connect(context, endpoint, forceRelay: false);
+  }
+
+  Future<void> _syncLatestPairing() async {
+    if (!mounted || !isMobile) return;
+    if (bind.mainGetLocalOption(key: 'direct-chat-always-on') != 'Y') return;
+    await gFFI.serverModel.updateClientState();
+    if (!mounted) return;
+    final pairing = DirectPairingStore.latestCompanion();
+    if (pairing == null) return;
+    final existing = _companionSyncSession;
+    if (existing != null &&
+        !existing.closed &&
+        _companionSyncPeerId == pairing.peerId &&
+        existing.ffiModel.pi.isSet.isTrue &&
+        existing.ffiModel.direct == true) {
+      return;
+    }
+    if (existing != null) {
+      await existing.close();
+    }
+    final ffi = FFI(const Uuid().v4obj());
+    _companionSyncSession = ffi;
+    _companionSyncPeerId = pairing.peerId;
+    ffi.chatModel.changeCurrentKey(
+      MessageKey(pairing.peerId, ChatModel.clientModeID),
+    );
+    ffi.chatModel.updatePeerIdentity(
+      pairing.peerId,
+      displayName: pairing.displayName,
+      avatar: '',
+    );
+    ffi.start(
+      pairing.connectionTarget,
+      isChat: true,
+      forceRelay: false,
+    );
   }
 
   Future<void> _sendDirectChatFiles() async {
@@ -122,9 +192,12 @@ class HomePageState extends State<HomePage> {
       ffi.fileModel.remoteController.directoryData(),
     );
     if (gFFI.chatModel.currentKey.peerId.trim() == peerId) {
-      gFFI.chatModel.sendText(
-        '${translate('Sent file')}: ${files.map((file) => file.name).join(', ')}',
-      );
+      for (final file in files) {
+        await gFFI.chatModel.sendFileRecord(
+          fileName: file.name,
+          fileSize: file.size,
+        );
+      }
     }
     showToast(translate('Direct file transfer started.'));
   }
@@ -144,10 +217,17 @@ class HomePageState extends State<HomePage> {
       await _disposeDirectFileSession(existing);
     }
 
-    final ffi = FFI(null);
+    final endpoint = DirectPairingStore.resolveConnectionTarget(peerId);
+    if (endpoint == null) {
+      showToast(translate(
+        'Direct endpoint required. Scan the PC QR code or enter IP:port.',
+      ));
+      return null;
+    }
+    final ffi = FFI(const Uuid().v4obj());
     _directFileSession = ffi;
     _directFilePeerId = peerId;
-    ffi.start(peerId, isFileTransfer: true, forceRelay: false);
+    ffi.start(endpoint, isFileTransfer: true, forceRelay: false);
     ffi.dialogManager.showLoading(
       translate('Preparing direct file transfer...'),
       onCancel: () async {
@@ -220,10 +300,16 @@ class HomePageState extends State<HomePage> {
 
   @override
   void dispose() {
+    _directPairingSyncTimer?.cancel();
     final fileSession = _directFileSession;
     _directFileSession = null;
     if (fileSession != null) {
       unawaited(_disposeDirectFileSession(fileSession));
+    }
+    final companionSession = _companionSyncSession;
+    _companionSyncSession = null;
+    if (companionSession != null && !companionSession.closed) {
+      unawaited(companionSession.close());
     }
     super.dispose();
   }
@@ -242,34 +328,73 @@ class HomePageState extends State<HomePage> {
           return false;
         },
         child: Scaffold(
-          // backgroundColor: MyTheme.grayBg,
+          backgroundColor: Theme.of(context).brightness == Brightness.dark
+              ? MyTheme.canvasDark
+              : const Color(0xFFEDEDED),
           appBar: AppBar(
             centerTitle: true,
+            toolbarHeight: 52,
+            elevation: 0,
+            backgroundColor: Theme.of(context).brightness == Brightness.dark
+                ? MyTheme.surfaceDark
+                : const Color(0xFFEDEDED),
             title: appTitle(),
             actions: _pages.elementAt(_selectedIndex).appBarActions,
           ),
-          bottomNavigationBar: BottomNavigationBar(
-            key: navigationBarKey,
-            items: _pages
-                .map((page) =>
-                    BottomNavigationBarItem(icon: page.icon, label: page.title))
-                .toList(),
-            currentIndex: _selectedIndex,
-            type: BottomNavigationBarType.fixed,
-            selectedItemColor: MyTheme.accent, //
-            unselectedItemColor: MyTheme.darkGray,
-            onTap: (index) => setState(() {
-              // close chat overlay when go chat page
-              if (_selectedIndex != index) {
-                _selectedIndex = index;
-                if (isChatPageCurrentTab) {
-                  gFFI.chatModel.hideChatIconOverlay();
-                  gFFI.chatModel.hideChatWindowOverlay();
-                  gFFI.chatModel.mobileClearClientUnread(
-                      gFFI.chatModel.currentKey.connId);
+          bottomNavigationBar: DecoratedBox(
+            decoration: BoxDecoration(
+              border: Border(
+                top: BorderSide(
+                  color: Theme.of(context).dividerColor,
+                  width: 0.5,
+                ),
+              ),
+            ),
+            child: BottomNavigationBar(
+              key: navigationBarKey,
+              items: _pages
+                  .map((page) => BottomNavigationBarItem(
+                        icon: page.icon,
+                        label: page.title,
+                      ))
+                  .toList(),
+              currentIndex: _selectedIndex,
+              type: BottomNavigationBarType.fixed,
+              backgroundColor: Theme.of(context).brightness == Brightness.dark
+                  ? MyTheme.surfaceDark
+                  : const Color(0xFFF7F7F7),
+              selectedItemColor: MyTheme.accent,
+              unselectedItemColor:
+                  Theme.of(context).brightness == Brightness.dark
+                      ? MyTheme.mutedDark
+                      : const Color(0xFF5D687A),
+              selectedFontSize: 12,
+              unselectedFontSize: 12,
+              selectedLabelStyle: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                letterSpacing: 0,
+              ),
+              unselectedLabelStyle: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w400,
+                letterSpacing: 0,
+              ),
+              iconSize: 24,
+              elevation: 0,
+              onTap: (index) => setState(() {
+                // close chat overlay when go chat page
+                if (_selectedIndex != index) {
+                  _selectedIndex = index;
+                  if (isChatPageCurrentTab) {
+                    gFFI.chatModel.hideChatIconOverlay();
+                    gFFI.chatModel.hideChatWindowOverlay();
+                    gFFI.chatModel.mobileClearClientUnread(
+                        gFFI.chatModel.currentKey.connId);
+                  }
                 }
-              }
-            }),
+              }),
+            ),
           ),
           body: _pages.elementAt(_selectedIndex),
         ));
@@ -283,44 +408,75 @@ class HomePageState extends State<HomePage> {
         currentKey.peerId.isNotEmpty) {
       final connected = currentKey.isOut
           ? gFFI.ffiModel.pi.isSet.isTrue
-          : gFFI.serverModel.clients.any((e) => e.id == currentKey.connId);
-      return Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Tooltip(
-            message: currentKey.isOut
-                ? translate('Outgoing connection')
-                : translate('Incoming connection'),
-            child: Icon(
-              currentKey.isOut
-                  ? Icons.call_made_rounded
-                  : Icons.call_received_rounded,
-            ),
-          ),
-          Expanded(
-            child: Center(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+          : gFFI.serverModel.clients
+              .any((e) => e.id == currentKey.connId && !e.disconnected);
+      final displayName = (currentUser.firstName ?? '').trim().isEmpty
+          ? currentUser.id
+          : currentUser.firstName!.trim();
+      return SizedBox(
+        width: double.infinity,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 26),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    "${currentUser.firstName}   ${currentUser.id}",
+                    displayName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0,
+                    ),
                   ),
-                  if (connected)
-                    Container(
-                      width: 10,
-                      height: 10,
-                      decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Color.fromARGB(255, 133, 246, 199)),
-                    ).marginSymmetric(horizontal: 2),
+                  Text(
+                    '${currentUser.id}  ${translate(connected ? 'Online' : 'Offline')}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      height: 1.2,
+                      color: Theme.of(context).brightness == Brightness.dark
+                          ? MyTheme.mutedDark
+                          : MyTheme.mutedLight,
+                    ),
+                  ),
                 ],
               ),
             ),
-          ),
-        ],
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Tooltip(
+                message: currentKey.isOut
+                    ? translate('Outgoing connection')
+                    : translate('Incoming connection'),
+                child: Icon(
+                  currentKey.isOut
+                      ? Icons.call_made_rounded
+                      : Icons.call_received_rounded,
+                  size: 18,
+                  color: connected ? MyTheme.accent : MyTheme.mutedLight,
+                ),
+              ),
+            ),
+          ],
+        ),
       );
     }
-    return Text(bind.mainGetAppNameSync());
+    return Text(
+      _pages.elementAt(_selectedIndex).title,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(
+        fontSize: 17,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0,
+      ),
+    );
   }
 }
 

@@ -17,7 +17,6 @@ import 'package:luoda_flutter/desktop/pages/desktop_setting_page.dart';
 import 'package:luoda_flutter/desktop/pages/desktop_tab_page.dart';
 import 'package:luoda_flutter/desktop/widgets/update_progress.dart';
 import 'package:luoda_flutter/desktop/widgets/desktop_primary_rail.dart';
-import 'package:luoda_flutter/models/ab_model.dart';
 import 'package:luoda_flutter/models/chat_model.dart';
 import 'package:luoda_flutter/models/file_model.dart';
 import 'package:luoda_flutter/models/model.dart';
@@ -30,10 +29,12 @@ import 'package:luoda_flutter/utils/multi_window_manager.dart';
 import 'package:luoda_flutter/utils/platform_channel.dart';
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:window_size/window_size.dart' as window_size;
 import '../widgets/button.dart';
+import '../../common/direct_pairing.dart';
 
 class DesktopHomePage extends StatefulWidget {
   /// 如果为 true，只显示左侧内容（客户端专用版）
@@ -63,6 +64,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   var watchIsInputMonitoring = false;
   var watchIsCanRecordAudio = false;
   Timer? _updateTimer;
+  Timer? _directChatKeepAliveTimer;
   bool isCardClosed = false;
   String _lastIp = '';
   String _lastLanIp = '';
@@ -88,7 +90,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   void _onClientConnect(String id, BuildContext buildCtx) {
     final trimmed = id.trim();
     if (trimmed.isEmpty) return;
-    connect(buildCtx, trimmed);
+    _connectDirect(buildCtx, trimmed);
   }
 
   @override
@@ -239,7 +241,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               textInputAction: TextInputAction.go,
               onSubmitted: _startDirectChat,
               decoration: InputDecoration(
-                hintText: 'ID / IP:port',
+                hintText: translate('Paired ID / IP:port'),
                 prefixIcon: const Icon(Icons.link_rounded, size: 19),
                 suffixIcon: IconButton(
                   tooltip: translate('Connect'),
@@ -269,6 +271,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w600,
                     ),
+                  ),
+                ),
+                Tooltip(
+                  message: translate('Pair phone'),
+                  child: IconButton(
+                    onPressed: () => _showPairingQrDialog(context),
+                    icon: const Icon(Icons.qr_code_2_rounded, size: 21),
                   ),
                 ),
                 Tooltip(
@@ -304,6 +313,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             ),
           ),
           Divider(height: 1, color: theme.dividerColor.withOpacity(0.65)),
+          _buildPairedContacts(context),
           Expanded(child: _buildContactSection(context)),
           Divider(height: 1, color: theme.dividerColor.withOpacity(0.65)),
           SizedBox(
@@ -335,7 +345,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   Widget _buildConversationWorkspace(BuildContext context) {
     final activeFfi = _activeDirectChatPeerId == null
         ? null
-        : _directChatSessions[_activeDirectChatPeerId];
+        : _directChatSessionFor(_activeDirectChatPeerId!);
     final activeModel = activeFfi?.chatModel ?? gFFI.chatModel;
     Widget workspace() => ChangeNotifierProvider.value(
           value: activeModel,
@@ -384,7 +394,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                               type: ChatPageType.desktopHome,
                               onAttachFile: () =>
                                   _sendFilesFromConversation(peerId),
-                              onRemoteAssist: () => connect(context, peerId),
+                              onRemoteAssist: () =>
+                                  _connectDirect(context, peerId),
                             )
                           : _buildEmptyConversation(
                               context,
@@ -497,7 +508,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               context,
               tooltip: translate('Remote Desktop'),
               icon: Icons.desktop_windows_outlined,
-              onPressed: enabled ? () => connect(context, peerId) : null,
+              onPressed: enabled ? () => _connectDirect(context, peerId) : null,
             ),
             PopupMenuButton<_ConversationAction>(
               tooltip: translate('More'),
@@ -652,7 +663,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               Text(
                 contact == null
                     ? translate(
-                        'Enter a device ID or IP:port in the contacts panel. Messages and files use the peer connection directly.',
+                        'Scan the PC QR code or enter an IP:port. No rendezvous or relay server is used.',
                       )
                     : '${contact.id}\n${contact.online ? translate('Online') : translate('Offline')}',
                 textAlign: TextAlign.center,
@@ -688,7 +699,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                       label: Text(translate('File Transfer')),
                     ),
                     OutlinedButton.icon(
-                      onPressed: () => connect(context, contact.id),
+                      onPressed: () => _connectDirect(context, contact.id),
                       icon: const Icon(
                         Icons.desktop_windows_outlined,
                         size: 18,
@@ -702,6 +713,66 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildPairedContacts(BuildContext context) {
+    return ValueListenableBuilder<int>(
+      valueListenable: DirectPairingStore.revision,
+      builder: (context, _, __) {
+        final pairings = DirectPairingStore.load().values.toList()
+          ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+        if (pairings.isEmpty) return const SizedBox.shrink();
+        final visible = pairings.take(3).toList(growable: false);
+        return ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: visible.length * 62),
+          child: ListView.builder(
+            padding: EdgeInsets.zero,
+            itemCount: visible.length,
+            itemExtent: 62,
+            itemBuilder: (context, index) {
+              final pairing = visible[index];
+              final title = pairing.displayName.isEmpty
+                  ? pairing.peerId
+                  : pairing.displayName;
+              return ListTile(
+                dense: true,
+                minLeadingWidth: 34,
+                leading: Container(
+                  width: 34,
+                  height: 34,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: str2color(title),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    title.characters.first,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                title: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 14),
+                ),
+                subtitle: Text(
+                  pairing.preferredEndpoint,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 12),
+                ),
+                trailing: const Icon(Icons.chevron_right_rounded, size: 18),
+                onTap: () => _startDirectChat(pairing.peerId),
+              );
+            },
+          ),
+        );
+      },
     );
   }
 
@@ -749,7 +820,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   }
 
   Widget _buildContactItem(BuildContext context, Peer peer) {
-    final ffi = _directChatSessions[peer.id];
+    final ffi = _directChatSessionFor(peer.id);
     if (ffi != null) {
       return AnimatedBuilder(
         animation: ffi.ffiModel,
@@ -771,11 +842,21 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           : Colors.transparent,
       child: InkWell(
         onTap: () {
+          final active = _directChatSessionFor(peer.id);
           setState(() {
             _selectedContact = peer;
-            _activeDirectChatPeerId =
-                _directChatSessions.containsKey(peer.id) ? peer.id : null;
+            _activeDirectChatPeerId = active == null ? null : peer.id;
           });
+          final model = active?.chatModel ?? gFFI.chatModel;
+          model.changeCurrentKey(
+            MessageKey(peer.id, ChatModel.clientModeID),
+          );
+          model.updatePeerIdentity(
+            peer.id,
+            displayName: _contactName(peer),
+            avatar: peer.avatar,
+          );
+          if (active == null) unawaited(_startDirectChat(peer.id));
         },
         onDoubleTap: () => _startDirectChat(peer.id),
         child: SizedBox(
@@ -867,7 +948,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   }
 
   (String, Color) _directDeliveryStatus(String peerId, {Peer? contact}) {
-    final ffi = _directChatSessions[peerId];
+    final ffi = _directChatSessionFor(peerId);
     if (ffi == null) {
       return contact?.online == true
           ? ('Online', const Color(0xFF238A57))
@@ -933,9 +1014,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       case 'discovered':
         return gFFI.lanPeersModel;
       case 'contacts':
-        return gFFI.abModel.peersModel;
+        return gFFI.recentPeersModel;
       case 'history':
-        return gFFI.groupModel.peersModel;
+        return gFFI.recentPeersModel;
       case 'chat':
       case 'recent':
       default:
@@ -953,11 +1034,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         bind.mainDiscover();
         break;
       case 'contacts':
-        await gFFI.abModel
-            .pullAb(force: ForcePullAb.listAndCurrent, quiet: true);
+        bind.mainLoadRecentPeers();
         break;
       case 'history':
-        await gFFI.groupModel.pull(force: true);
+        bind.mainLoadRecentPeers();
         break;
       case 'chat':
       case 'recent':
@@ -967,30 +1047,54 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     }
   }
 
-  Future<void> _startDirectChat(String rawPeerId) async {
-    final peerId = rawPeerId.trim().replaceAll(' ', '');
-    if (peerId.isEmpty) return;
+  Future<void> _startDirectChat(
+    String rawPeerId, {
+    bool activate = true,
+  }) async {
+    final requestedId = rawPeerId.trim().replaceAll(' ', '');
+    if (requestedId.isEmpty) return;
+    final pairing = DirectPairingStore.find(requestedId);
+    final endpoint = DirectPairingStore.resolveConnectionTarget(requestedId);
+    if (endpoint == null) {
+      _showConversationNotice(
+        translate(
+            'Direct endpoint required. Scan the PC QR code or enter IP:port.'),
+      );
+      return;
+    }
+    final peerId = pairing?.peerId ?? requestedId;
     final contact = _findContact(peerId);
-    final existing = _directChatSessions[peerId];
+    final existing = _directChatSessionFor(peerId);
     if (existing != null && !existing.closed) {
-      setState(() {
-        _activeDirectChatPeerId = peerId;
-        _selectedContact = contact;
-      });
-      existing.chatModel.requestChatInputFocus();
+      if (activate) {
+        existing.suppressConnectionDialogs = false;
+        setState(() {
+          _activeDirectChatPeerId = peerId;
+          _selectedContact = contact;
+        });
+        existing.chatModel.requestChatInputFocus();
+      }
       return;
     }
 
     final ffi = FFI(null);
+    ffi.suppressConnectionDialogs = !activate;
     ffi.chatModel.changeCurrentKey(MessageKey(peerId, ChatModel.clientModeID));
-    ffi.start(peerId, isChat: true, forceRelay: false);
+    ffi.chatModel.updatePeerIdentity(
+      peerId,
+      displayName: pairing?.displayName ??
+          (contact == null ? peerId : _contactName(contact)),
+      avatar: contact?.avatar ?? '',
+    );
+    ffi.start(endpoint, isChat: true, forceRelay: false);
     _directChatSessions[peerId] = ffi;
-    if (mounted) {
+    if (mounted && activate) {
       setState(() {
         _activeDirectChatPeerId = peerId;
         _selectedContact = contact;
       });
     }
+    if (!activate) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || ffi.closed) return;
       ffi.dialogManager.showLoading(
@@ -1015,9 +1119,62 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     return null;
   }
 
+  FFI? _directChatSessionFor(String peerId) {
+    final direct = _directChatSessions[peerId];
+    if (direct != null) return direct;
+    for (final ffi in _directChatSessions.values) {
+      if (ffi.chatModel.currentKey.peerId == peerId) return ffi;
+    }
+    return null;
+  }
+
+  Future<void> _maintainTrustedChatSessions() async {
+    if (!mounted ||
+        bind.mainGetLocalOption(key: 'direct-chat-always-on') != 'Y' ||
+        bind.mainGetLocalOption(key: 'direct-chat-auto-reconnect') == 'N') {
+      return;
+    }
+    Map<String, dynamic> policies = const <String, dynamic>{};
+    try {
+      final raw = bind.mainGetLocalOption(
+        key: 'direct-chat-contact-policies',
+      );
+      if (raw.isNotEmpty) {
+        policies = Map<String, dynamic>.from(jsonDecode(raw) as Map);
+      }
+    } catch (_) {}
+    for (final pairing in DirectPairingStore.load().values) {
+      if (!mounted ||
+          pairing.companion ||
+          policies[pairing.peerId] != 'allow') {
+        continue;
+      }
+      final existing = _directChatSessionFor(pairing.peerId);
+      final hasError =
+          existing?.ffiModel.lastConnectionError?.isNotEmpty == true;
+      if (existing != null && !existing.closed && hasError) {
+        await existing.close();
+      }
+      if (existing == null || existing.closed || hasError) {
+        await _startDirectChat(pairing.peerId, activate: false);
+      }
+    }
+  }
+
   Future<void> _closeDirectChat(String peerId) async {
-    final ffi = _directChatSessions.remove(peerId);
+    var registryKey = peerId;
+    var ffi = _directChatSessions[registryKey];
+    if (ffi == null) {
+      for (final entry in _directChatSessions.entries) {
+        if (entry.value.chatModel.currentKey.peerId == peerId) {
+          registryKey = entry.key;
+          ffi = entry.value;
+          break;
+        }
+      }
+    }
     if (ffi == null) return;
+    _directChatSessions.remove(registryKey);
     ffi.dialogManager.dismissAll();
     await ffi.close();
     if (mounted && _activeDirectChatPeerId == peerId) {
@@ -1026,7 +1183,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   }
 
   Future<void> _sendFilesFromConversation(String peerId) async {
-    final chatFfi = _directChatSessions[peerId];
+    final chatFfi = _directChatSessionFor(peerId);
     if (chatFfi == null ||
         chatFfi.closed ||
         !chatFfi.ffiModel.pi.isSet.isTrue ||
@@ -1059,9 +1216,12 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       items,
       ffi.fileModel.remoteController.directoryData(),
     );
-    chatFfi.chatModel.sendText(
-      '${translate('Sent file')}: ${files.map((file) => file.name).join(', ')}',
-    );
+    for (final file in files) {
+      await chatFfi.chatModel.sendFileRecord(
+        fileName: file.name,
+        fileSize: file.size,
+      );
+    }
     _showConversationNotice(translate('Direct file transfer started.'));
   }
 
@@ -1080,7 +1240,16 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
     final ffi = FFI(null);
     _directFileSessions[peerId] = ffi;
-    ffi.start(peerId, isFileTransfer: true, forceRelay: false);
+    final endpoint = DirectPairingStore.resolveConnectionTarget(peerId);
+    if (endpoint == null) {
+      _directFileSessions.remove(peerId);
+      _showConversationNotice(
+        translate(
+            'Direct endpoint required. Scan the PC QR code or enter IP:port.'),
+      );
+      return null;
+    }
+    ffi.start(endpoint, isFileTransfer: true, forceRelay: false);
     ffi.dialogManager.showLoading(
       translate('Preparing direct file transfer...'),
       onCancel: () async {
@@ -1183,6 +1352,105 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     );
   }
 
+  Future<void> _showPairingQrDialog(BuildContext context) async {
+    bind.mainCheckConnectStatus();
+    final payload = await DirectPairingStore.buildLocalPayload();
+    final pairing = DirectPairingStore.parsePayload(payload);
+    if (!mounted || pairing == null) {
+      _showConversationNotice(
+        translate(
+            'Direct listener is not ready. Check the LAN address and port.'),
+      );
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(translate('Pair phone directly')),
+        content: SizedBox(
+          width: 360,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                translate(
+                  'Scan with LDesk on the phone. Pairing data stays on both devices.',
+                ),
+                textAlign: TextAlign.center,
+                style: Theme.of(dialogContext).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 18),
+              ColoredBox(
+                color: Colors.white,
+                child: Padding(
+                  padding: const EdgeInsets.all(10),
+                  child: QrImageView(
+                    data: payload,
+                    version: QrVersions.auto,
+                    size: 240,
+                    gapless: true,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                pairing.preferredEndpoint,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                translate('No rendezvous or relay server'),
+                style: Theme.of(dialogContext).textTheme.bodySmall?.copyWith(
+                      color: MyTheme.accent,
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(translate('Close')),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _connectDirect(
+    BuildContext context,
+    String peerIdOrEndpoint, {
+    bool isFileTransfer = false,
+    bool isViewCamera = false,
+    bool isTerminal = false,
+    bool isTcpTunneling = false,
+  }) async {
+    final endpoint =
+        DirectPairingStore.resolveConnectionTarget(peerIdOrEndpoint);
+    if (endpoint == null) {
+      _showConversationNotice(
+        translate(
+            'Direct endpoint required. Scan the PC QR code or enter IP:port.'),
+      );
+      return;
+    }
+    await connect(
+      context,
+      endpoint,
+      isFileTransfer: isFileTransfer,
+      isViewCamera: isViewCamera,
+      isTerminal: isTerminal,
+      isTcpTunneling: isTcpTunneling,
+      forceRelay: false,
+    );
+  }
+
   Future<void> _showToolsMenu(BuildContext context) async {
     final id = _clientIdController.text.trim();
     await showModalBottomSheet<void>(
@@ -1198,7 +1466,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                   ? null
                   : () {
                       Navigator.pop(sheetContext);
-                      connect(context, id, isFileTransfer: true);
+                      _connectDirect(context, id, isFileTransfer: true);
                     },
             ),
             ListTile(
@@ -1209,7 +1477,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                   ? null
                   : () {
                       Navigator.pop(sheetContext);
-                      connect(context, id, isViewCamera: true);
+                      _connectDirect(context, id, isViewCamera: true);
                     },
             ),
             ListTile(
@@ -1220,7 +1488,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                   ? null
                   : () {
                       Navigator.pop(sheetContext);
-                      connect(context, id, isTerminal: true);
+                      _connectDirect(context, id, isTerminal: true);
                     },
             ),
           ],
@@ -1239,16 +1507,16 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         _sendFilesFromConversation(peerId);
         break;
       case _ConversationAction.remoteAssist:
-        connect(context, peerId);
+        _connectDirect(context, peerId);
         break;
       case _ConversationAction.camera:
-        connect(context, peerId, isViewCamera: true);
+        _connectDirect(context, peerId, isViewCamera: true);
         break;
       case _ConversationAction.terminal:
-        connect(context, peerId, isTerminal: true);
+        _connectDirect(context, peerId, isTerminal: true);
         break;
       case _ConversationAction.port:
-        connect(context, peerId, isTcpTunneling: true);
+        _connectDirect(context, peerId, isTcpTunneling: true);
         break;
     }
   }
@@ -2785,6 +3053,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   void initState() {
     super.initState();
     bind.mainLoadRecentPeers();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_maintainTrustedChatSessions());
+    });
+    _directChatKeepAliveTimer = Timer.periodic(
+      const Duration(minutes: 30),
+      (_) => unawaited(_maintainTrustedChatSessions()),
+    );
     _updateTimer = periodic_immediate(const Duration(seconds: 1), () async {
       await gFFI.serverModel.fetchID();
       final error = await bind.mainGetError();
@@ -3001,6 +3276,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     _uniLinksSubscription?.cancel();
     Get.delete<RxBool>(tag: 'stop-service');
     _updateTimer?.cancel();
+    _directChatKeepAliveTimer?.cancel();
     for (final ffi in _directChatSessions.values) {
       unawaited(ffi.close());
     }

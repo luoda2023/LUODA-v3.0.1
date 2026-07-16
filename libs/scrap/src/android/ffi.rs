@@ -22,6 +22,7 @@ use std::time::{Duration, Instant};
 lazy_static! {
     static ref JVM: RwLock<Option<JavaVM>> = RwLock::new(None);
     static ref MAIN_SERVICE_CTX: RwLock<Option<GlobalRef>> = RwLock::new(None); // MainService -> video service / audio service / info
+    static ref DIRECT_CHAT_SERVICE_CTX: RwLock<Option<GlobalRef>> = RwLock::new(None);
     static ref APPLICATION_CONTEXT: RwLock<Option<GlobalRef>> = RwLock::new(None);
     static ref VIDEO_RAW: Mutex<FrameRaw> = Mutex::new(FrameRaw::new("video", MAX_VIDEO_FRAME_TIMEOUT));
     static ref AUDIO_RAW: Mutex<FrameRaw> = Mutex::new(FrameRaw::new("audio", MAX_AUDIO_FRAME_TIMEOUT));
@@ -202,6 +203,25 @@ pub extern "system" fn Java_ffi_FFI_init(env: JNIEnv, _class: JClass, ctx: JObje
             let context_jobject = context.as_obj().as_raw() as *mut c_void;
             *MAIN_SERVICE_CTX.write().unwrap() = Some(context);
             init_ndk_context(java_vm, context_jobject);
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_ffi_FFI_initDirectChatService(
+    env: JNIEnv,
+    _class: JClass,
+    ctx: JObject,
+) {
+    log::debug!("DirectChatService init from java");
+    if let Ok(jvm) = env.get_java_vm() {
+        let mut jvm_lock = JVM.write().unwrap();
+        if jvm_lock.is_none() {
+            *jvm_lock = Some(jvm);
+        }
+        drop(jvm_lock);
+        if let Ok(context) = env.new_global_ref(ctx) {
+            *DIRECT_CHAT_SERVICE_CTX.write().unwrap() = Some(context);
         }
     }
 }
@@ -438,6 +458,37 @@ pub fn call_main_service_set_by_name(
     } else {
         return Err(JniError::ThrowFailed(-1));
     }
+}
+
+pub fn call_direct_chat_service_set_by_name(
+    name: &str,
+    arg1: Option<&str>,
+    arg2: Option<&str>,
+) -> JniResult<()> {
+    if let (Some(jvm), Some(ctx)) = (
+        JVM.read().unwrap().as_ref(),
+        DIRECT_CHAT_SERVICE_CTX.read().unwrap().as_ref(),
+    ) {
+        let mut env = jvm.attach_current_thread_as_daemon()?;
+        env.with_local_frame(10, |env| -> JniResult<()> {
+            let name = env.new_string(name)?;
+            let arg1 = env.new_string(arg1.unwrap_or(""))?;
+            let arg2 = env.new_string(arg2.unwrap_or(""))?;
+            env.call_method(
+                ctx,
+                "rustSetByName",
+                "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
+                &[
+                    JValue::Object(&JObject::from(name)),
+                    JValue::Object(&JObject::from(arg1)),
+                    JValue::Object(&JObject::from(arg2)),
+                ],
+            )?;
+            Ok(())
+        })?;
+        return Ok(());
+    }
+    Err(JniError::ThrowFailed(-1))
 }
 
 // Difference between MainService, MainActivity, JNI_OnLoad:

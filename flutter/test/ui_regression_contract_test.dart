@@ -32,6 +32,9 @@ void main() {
   final modelSource = File(
     'lib/models/model.dart',
   ).readAsStringSync();
+  final serverModelSource = File(
+    'lib/models/server_model.dart',
+  ).readAsStringSync();
   final mobileHomeSource = File(
     'lib/mobile/pages/home_page.dart',
   ).readAsStringSync();
@@ -41,9 +44,32 @@ void main() {
   final mobileSettingsSource = File(
     'lib/mobile/pages/settings_page.dart',
   ).readAsStringSync();
+  final mobileServerSource = File(
+    'lib/mobile/pages/server_page.dart',
+  ).readAsStringSync();
   final chatPageSource = File(
     'lib/common/widgets/chat_page.dart',
   ).readAsStringSync();
+  final directChatSource = File(
+    'lib/common/direct_chat.dart',
+  ).readAsStringSync();
+  final directPairingSource = File(
+    'lib/common/direct_pairing.dart',
+  ).readAsStringSync();
+  final androidPermissionSource = File(
+    'android/app/src/main/kotlin/com/luoda/remote/common.kt',
+  ).readAsStringSync();
+  final androidStringsSource = File(
+    'android/app/src/main/res/values/strings.xml',
+  ).readAsStringSync();
+  final androidDirectChatServiceSource = File(
+    'android/app/src/main/kotlin/com/luoda/remote/DirectChatService.kt',
+  ).readAsStringSync();
+  final androidMainServiceSource = File(
+    'android/app/src/main/kotlin/com/luoda/remote/MainService.kt',
+  ).readAsStringSync();
+  final commonRustSource = File('../src/common.rs').readAsStringSync();
+  final cargoSource = File('../Cargo.toml').readAsStringSync();
   final peerModelSource = File(
     'lib/models/peer_model.dart',
   ).readAsStringSync();
@@ -54,6 +80,10 @@ void main() {
   final serverConnectionSource = File(
     '../src/server/connection.rs',
   ).readAsStringSync();
+  final directListenerSource = File(
+    '../src/rendezvous_mediator.rs',
+  ).readAsStringSync();
+  final serverSource = File('../src/server.rs').readAsStringSync();
   final flutterBridgeSource = File('../src/flutter.rs').readAsStringSync();
 
   test('peer card more action has a real keyboard activation callback', () {
@@ -105,6 +135,9 @@ void main() {
     expect(homePageSource, contains('ChatPage('));
     expect(homePageSource, contains('_sendFilesFromConversation'));
     expect(homePageSource, contains('_buildActiveTransferStrip'));
+    expect(homePageSource, contains('_directChatSessionFor'));
+    expect(homePageSource, contains('_maintainTrustedChatSessions'));
+    expect(modelSource, contains('suppressConnectionDialogs'));
     expect(homePageSource, contains('ffi.ffiModel.direct != true'));
     expect(homePageSource, contains('chatFfi.ffiModel.direct != true'));
     expect(homePageSource, contains('localController.sendFiles'));
@@ -169,11 +202,59 @@ void main() {
     );
   });
 
+  test('mobile shell keeps a readable chat-first WeChat-style hierarchy', () {
+    expect(
+      mobileHomeSource.indexOf('_pages.add(ChatPage('),
+      lessThan(mobileHomeSource.indexOf('_pages.add(ConnectionPage(')),
+    );
+    expect(chatPageSource, contains('translate("Messages")'));
+    expect(mobileConnectionSource, contains('translate("Contacts")'));
+    expect(mobileServerSource, contains('translate("Remote assistance")'));
+    expect(mobileSettingsSource, contains('translate("Me")'));
+    expect(mobileHomeSource, contains('selectedFontSize: 12'));
+    expect(mobileHomeSource, contains('unselectedFontSize: 12'));
+    expect(mobileHomeSource, contains('fontSize: 17'));
+    expect(chatPageSource, contains('width: isDesktopHome ? 36 : 48'));
+    expect(chatPageSource, contains('fontSize: isDesktopHome ? 14 : 15'));
+    expect(chatPageSource, contains('fontSize: 11'));
+    expect(chatPageSource, contains('const Color(0xFF95EC69)'));
+  });
+
+  test('mobile permission center only requests missing permissions', () {
+    expect(mobileServerSource, contains('translate("Permission center")'));
+    expect(mobileServerSource, contains('_completePermissions'));
+    expect(mobileServerSource, contains('if (!serverModel.fileOk)'));
+    expect(mobileServerSource, contains('if (!serverModel.audioOk)'));
+    expect(mobileServerSource, contains('if (!_notificationOk)'));
+    expect(mobileServerSource, contains('if (!serverModel.inputOk)'));
+    expect(
+      mobileServerSource,
+      contains('didChangeAppLifecycleState(AppLifecycleState state)'),
+    );
+    expect(
+      androidPermissionSource,
+      contains('mapOf("type" to type, "result" to all)'),
+    );
+    expect(androidPermissionSource, isNot(contains('if (all)')));
+  });
+
+  test('LDesk branding preserves existing identity and URI compatibility', () {
+    expect(
+      commonRustSource,
+      contains('DEFAULT_PRODUCT_DISPLAY_NAME: &str = "LDesk"'),
+    );
+    expect(commonRustSource, contains('if configured == "LUODA"'));
+    expect(commonRustSource, contains('"luoda://".to_owned()'));
+    expect(androidStringsSource,
+        contains('<string name="app_name">LDesk</string>'));
+    expect(cargoSource, contains('ProductName = "LDesk"'));
+  });
+
   test('mobile conversation file transfer refuses relay sessions', () {
     expect(
       mobileHomeSource,
       contains(
-        'ffi.start(peerId, isFileTransfer: true, forceRelay: false)',
+        'DirectPairingStore.resolveConnectionTarget(peerId)',
       ),
     );
     expect(mobileHomeSource, contains('existing.ffiModel.direct == true'));
@@ -182,6 +263,97 @@ void main() {
     expect(
       mobileHomeSource,
       contains('Direct connection failed. File relay is disabled.'),
+    );
+  });
+
+  test('direct chat persists, acknowledges and incrementally synchronizes', () {
+    expect(directChatSource, contains('DirectChatDelivery.queued'));
+    expect(directChatSource, contains('DirectChatDelivery.sent'));
+    expect(directChatSource, contains('DirectChatDelivery.delivered'));
+    expect(directChatSource, contains('DirectChatDelivery.failed'));
+    expect(directChatSource, contains("DirectChatEnvelope('sync_request'"));
+    expect(directChatSource, contains("DirectChatEnvelope('receipt'"));
+    expect(directChatSource, contains('originSequence'));
+    expect(directChatSource, contains('record.originSequence >'));
+    expect(chatPageSource, contains("translate('Waiting to send')"));
+    expect(chatPageSource, contains("translate('Delivered')"));
+  });
+
+  test('restored inbound chat sessions request missed messages', () {
+    final restorePath = serverModelSource
+        .split('updateClientState([String? json]) async')[1]
+        .split('void addConnection')[0];
+    expect(
+      restorePath,
+      contains('chatModel.onDirectSessionReady('),
+    );
+    expect(
+      mobileHomeSource,
+      contains('await gFFI.serverModel.updateClientState()'),
+    );
+  });
+
+  test('paired direct sessions are encrypted and identity pinned', () {
+    expect(protocolSource, contains('bytes public_key = 2;'));
+    expect(protocolSource, contains('bytes signed_id = 3;'));
+    expect(protocolSource, contains('bytes identity_public_key = 4;'));
+    expect(protocolSource, contains('string pairing_secret = 3;'));
+    expect(directPairingSource, contains('String get connectionTarget'));
+    expect(directPairingSource, contains("'&sync="));
+    expect(clientSource, contains('secure_direct_connection'));
+    expect(clientSource, contains('Direct peer fingerprint mismatch'));
+    expect(clientSource, contains('identity_public_key'));
+    expect(clientSource, contains('direct_fallback_endpoint'));
+    expect(serverSource, contains('public_key: pk.into()'));
+    expect(
+      directListenerSource,
+      contains('hbb_common::Stream::from(tcp_stream, local_addr)'),
+    );
+    expect(
+      directListenerSource,
+      contains('let start_lan_listening = false;'),
+    );
+    expect(
+      serverConnectionSource,
+      contains('chat_companion_verified'),
+    );
+    expect(
+      serverConnectionSource,
+      contains('authenticated_peer_id'),
+    );
+    expect(
+      serverConnectionSource,
+      contains('direct-chat-peer-keys-v1'),
+    );
+  });
+
+  test('Android always-on chat uses a dedicated messaging service', () {
+    expect(
+      androidDirectChatServiceSource,
+      contains('class DirectChatService : Service()'),
+    );
+    expect(androidDirectChatServiceSource, contains('START_STICKY'));
+    expect(androidDirectChatServiceSource, contains('FFI.startServer'));
+    expect(
+      androidDirectChatServiceSource,
+      contains('FFI.initDirectChatService(this)'),
+    );
+    expect(
+      androidDirectChatServiceSource,
+      contains('"direct_chat_message"'),
+    );
+    expect(
+      flutterBridgeSource,
+      contains('call_direct_chat_service_set_by_name'),
+    );
+    expect(
+      mobileSettingsSource,
+      contains("invokeMethod('set_direct_chat_service', value)"),
+    );
+    expect(androidMainServiceSource, contains('val isChat ='));
+    expect(
+      androidMainServiceSource,
+      contains('!isFileTransfer && !isChat && !isStart'),
     );
   });
 
@@ -216,6 +388,7 @@ void main() {
   test('peer display name and avatar cross the direct protocol both ways', () {
     expect(protocolSource, contains('string display_name = 14;'));
     expect(protocolSource, contains('string avatar = 15;'));
+    expect(protocolSource, contains('string peer_id = 16;'));
     expect(clientSource, contains('display_name: pi.display_name.clone()'));
     expect(clientSource, contains('avatar: pi.avatar.clone()'));
     expect(serverConnectionSource, contains('local_profile_identity'));
@@ -234,7 +407,8 @@ void main() {
     expect(customJsonBody, isNot(contains('avatar')));
   });
 
-  test('local profile takes precedence over account profile on direct links', () {
+  test('local profile takes precedence over account profile on direct links',
+      () {
     final clientIdentity = clientSource
         .split('fn create_login_msg(')[1]
         .split('let mut lr = LoginRequest')[0];

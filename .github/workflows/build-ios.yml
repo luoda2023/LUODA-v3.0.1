@@ -1,0 +1,281 @@
+permissions:
+  contents: write
+  actions: read
+  checks: read
+
+name: Build LDesk iOS IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [3.1.1]
+    paths:
+      - 'build.rs'
+      - 'src/**'
+      - 'libs/**'
+      - 'flutter/**'
+      - 'Images/**'
+      - 'res/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'vcpkg.json'
+      - '.github/workflows/build-ios.yml'
+
+env:
+  VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
+
+jobs:
+  build-ios:
+    runs-on: macos-14
+    timeout-minutes: 240
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.5'
+          channel: stable
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: '1.88'
+          targets: aarch64-apple-ios
+
+      - name: Cache Cargo and vcpkg
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            ~/Library/Caches/vcpkg/archives
+            vcpkg_installed
+          key: ios-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'vcpkg.json') }}
+          restore-keys: |
+            ios-${{ runner.os }}-
+
+      - name: Configure Git for private forks
+        run: |
+          git config --global url."https://${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Generate FFI bridge for iOS
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          cargo install cargo-expand --version 1.0.95 --locked
+          cargo install flutter_rust_bridge_codegen \
+            --version 1.80.1 \
+            --features uuid \
+            --locked
+          cd flutter
+          flutter pub get
+          cd ..
+          flutter_rust_bridge_codegen \
+            --rust-input ./src/flutter_ffi.rs \
+            --dart-output ./flutter/lib/generated_bridge.dart \
+            --c-output ./flutter/ios/Runner/bridge_generated.h
+
+      - name: Generate iOS app icons
+        run: |
+          set -euo pipefail
+          python3 -m pip install pillow
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          from PIL import Image
+
+          root = Path.cwd()
+          source = Image.open(root / "Images/icon-master-1056.png").convert("RGBA")
+          flattened = Image.new("RGBA", source.size, "#FFFFFF")
+          flattened.alpha_composite(source)
+          flattened = flattened.convert("RGB")
+          icon_dir = root / "flutter/ios/Runner/Assets.xcassets/AppIcon.appiconset"
+          manifest = json.loads((icon_dir / "Contents.json").read_text())
+
+          generated = 0
+          for entry in manifest["images"]:
+              filename = entry.get("filename")
+              size = entry.get("size")
+              scale = entry.get("scale")
+              if not filename or not size or not scale:
+                  continue
+              pixels = round(float(size.split("x")[0]) * int(scale.rstrip("x")))
+              icon = flattened.resize((pixels, pixels), Image.Resampling.LANCZOS)
+              icon.save(icon_dir / filename, "PNG", optimize=True)
+              generated += 1
+
+          if generated == 0:
+              raise SystemExit("No iOS app icons were generated")
+          print(f"Generated {generated} opaque iOS app icons")
+          PY
+
+      - name: Install native dependencies
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            arm64) VCPKG_HOST_TRIPLET=arm64-osx ;;
+            x86_64) VCPKG_HOST_TRIPLET=x64-osx ;;
+            *)
+              echo "Unsupported macOS runner architecture: $(uname -m)"
+              exit 1
+              ;;
+          esac
+          echo "VCPKG_HOST_TRIPLET=$VCPKG_HOST_TRIPLET" >> "$GITHUB_ENV"
+          brew install autoconf automake cmake libtool nasm pkg-config yasm
+          git clone https://github.com/microsoft/vcpkg.git /tmp/vcpkg
+          git -C /tmp/vcpkg checkout "$VCPKG_COMMIT_ID"
+          /tmp/vcpkg/bootstrap-vcpkg.sh
+          VCPKG_DEFAULT_HOST_TRIPLET="$VCPKG_HOST_TRIPLET" \
+            /tmp/vcpkg/vcpkg install \
+              --triplet arm64-ios \
+              --x-install-root="$GITHUB_WORKSPACE/vcpkg_installed" \
+              --clean-after-build
+
+      - name: Build Rust static library for iOS
+        env:
+          VCPKG_ROOT: /tmp/vcpkg
+          VCPKG_INSTALLED_ROOT: ${{ github.workspace }}/vcpkg_installed/arm64-ios
+          VCPKG_DEFAULT_TRIPLET: arm64-ios
+          VCPKG_DEFAULT_HOST_TRIPLET: ${{ env.VCPKG_HOST_TRIPLET }}
+          VCPKG_TARGET_TRIPLET: arm64-ios
+          VCPKGRS_TRIPLET: arm64-ios
+        run: |
+          set -euo pipefail
+          SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
+          VCPKG_DIR="$GITHUB_WORKSPACE/vcpkg_installed/arm64-ios"
+          test -d "$VCPKG_DIR/include"
+          test -d "$VCPKG_DIR/lib"
+          export BINDGEN_EXTRA_CLANG_ARGS="--target=arm64-apple-ios -isysroot $SDKROOT -I$VCPKG_DIR/include"
+          export CFLAGS="-target arm64-apple-ios -isysroot $SDKROOT -I$VCPKG_DIR/include"
+          export CXXFLAGS="$CFLAGS -include cstdint"
+          export RUSTFLAGS="-L native=$VCPKG_DIR/lib"
+          cargo build \
+            --release \
+            --target aarch64-apple-ios \
+            --features flutter,hwcodec \
+            --lib
+          test -f target/aarch64-apple-ios/release/libluoda.a
+
+      - name: Prepare Flutter iOS project
+        working-directory: flutter
+        run: |
+          set -euo pipefail
+          flutter pub get
+          pod install --project-directory=ios
+
+      - name: Detect signing credentials
+        id: signing
+        env:
+          IOS_CERTIFICATE_BASE64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          IOS_KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
+        run: |
+          if [ -n "${IOS_CERTIFICATE_BASE64:-}" ] \
+            && [ -n "${IOS_CERTIFICATE_PASSWORD:-}" ] \
+            && [ -n "${IOS_PROVISIONING_PROFILE_BASE64:-}" ] \
+            && [ -n "${IOS_KEYCHAIN_PASSWORD:-}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::iOS signing secrets are incomplete; producing an unsigned IPA."
+          fi
+
+      - name: Install Apple signing credentials
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          IOS_CERTIFICATE_BASE64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          IOS_KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          CERTIFICATE_PATH="$RUNNER_TEMP/luoda-ios.p12"
+          PROFILE_PATH="$RUNNER_TEMP/luoda.mobileprovision"
+          KEYCHAIN_PATH="$RUNNER_TEMP/luoda-signing.keychain-db"
+          printf '%s' "$IOS_CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
+          printf '%s' "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$PROFILE_PATH"
+          security create-keychain -p "$IOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$IOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" \
+            -P "$IOS_CERTIFICATE_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -k "$IOS_KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH"
+          security cms -D -i "$PROFILE_PATH" > "$RUNNER_TEMP/profile.plist"
+          PROFILE_UUID="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$RUNNER_TEMP/profile.plist")"
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+
+      - name: Validate shared chat and UI contracts
+        timeout-minutes: 10
+        working-directory: flutter
+        run: flutter test test/direct_chat_protocol_test.dart test/ui_regression_contract_test.dart
+
+      - name: Build signed IPA
+        if: steps.signing.outputs.enabled == 'true'
+        working-directory: flutter
+        run: |
+          set -euo pipefail
+          flutter build ipa \
+            --release \
+            --export-options-plist=ios/exportOptions.ci.plist
+
+      - name: Build unsigned IPA
+        if: steps.signing.outputs.enabled != 'true'
+        working-directory: flutter
+        run: |
+          set -euo pipefail
+          flutter build ios --release --no-codesign
+          DIST_DIR="$PWD/build/ios/ipa"
+          rm -f "$DIST_DIR/LDesk-3.1.1-unsigned.ipa"
+          mkdir -p "$DIST_DIR/Payload"
+          cp -R build/ios/iphoneos/Runner.app "$DIST_DIR/Payload/"
+          cd "$DIST_DIR"
+          zip -qry LDesk-3.1.1-unsigned.ipa Payload
+
+      - name: Normalize signed IPA name
+        if: steps.signing.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
+          IPA="$(find flutter/build/ios/ipa -maxdepth 1 -type f -name '*.ipa' -print -quit)"
+          test -n "$IPA"
+          if [ "$IPA" != "flutter/build/ios/ipa/LDesk-3.1.1.ipa" ]; then
+            mv "$IPA" flutter/build/ios/ipa/LDesk-3.1.1.ipa
+          fi
+
+      - name: Verify IPA output
+        run: |
+          set -euo pipefail
+          find flutter/build/ios/ipa -maxdepth 1 -type f -name '*.ipa' -print -exec ls -lh {} \;
+          test -n "$(find flutter/build/ios/ipa -maxdepth 1 -type f -name '*.ipa' -print -quit)"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LDesk-3.1.1-iOS
+          path: flutter/build/ios/ipa/*.ipa
+          if-no-files-found: error
+
+      - name: Upload signed IPA to draft release
+        if: steps.signing.outputs.enabled == 'true' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/3.1.1'
+        uses: softprops/action-gh-release@v2
+        with:
+          prerelease: false
+          draft: true
+          tag_name: v3.1.1
+          files: flutter/build/ios/ipa/*.ipa

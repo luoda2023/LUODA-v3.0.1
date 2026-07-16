@@ -11,6 +11,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:luoda_flutter/models/peer_model.dart';
 
 import '../../common.dart';
+import '../../common/direct_pairing.dart';
 import '../../common/widgets/peer_tab_page.dart';
 import '../../common/widgets/autocomplete.dart';
 import '../../consts.dart';
@@ -24,10 +25,10 @@ class ConnectionPage extends StatefulWidget implements PageShape {
   ConnectionPage({Key? key, required this.appBarActions}) : super(key: key);
 
   @override
-  final icon = const Icon(Icons.connected_tv);
+  final icon = const Icon(Icons.contacts_outlined);
 
   @override
-  final title = translate("Connection");
+  final title = translate("Contacts");
 
   @override
   final List<Widget> appBarActions;
@@ -91,6 +92,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
             Obx(() => _buildUpdateUI(stateGlobal.updateUrl.value)),
           _buildConnectionModeSwitch(),
           _buildRemoteIDTextField(),
+          _buildPairedContacts(),
         ])),
         SliverFillRemaining(
           hasScrollBody: true,
@@ -108,7 +110,14 @@ class _ConnectionPageState extends State<ConnectionPage> {
     if (_chatMode) {
       await _startDirectChat(id);
     } else {
-      connect(context, id);
+      final endpoint = DirectPairingStore.resolveConnectionTarget(id);
+      if (endpoint == null) {
+        showToast(translate(
+          'Direct endpoint required. Scan the PC QR code or enter IP:port.',
+        ));
+        return;
+      }
+      connect(context, endpoint, forceRelay: false);
     }
   }
 
@@ -141,18 +150,34 @@ class _ConnectionPageState extends State<ConnectionPage> {
   }
 
   Future<void> _startDirectChat(String id) async {
+    final pairing = DirectPairingStore.find(id);
+    final endpoint = DirectPairingStore.resolveConnectionTarget(id);
+    if (endpoint == null) {
+      showToast(translate(
+        'Direct endpoint required. Scan the PC QR code or enter IP:port.',
+      ));
+      return;
+    }
+    final peerId = pairing?.peerId ?? id;
     final currentKey = gFFI.chatModel.currentKey;
     if (!gFFI.closed &&
         gFFI.connType == ConnType.chat &&
-        currentKey.peerId == id) {
+        currentKey.peerId == peerId) {
       HomePage.homeKey.currentState?.selectChatPage();
       return;
     }
     if (gFFI.ffiModel.pi.isSet.isTrue || gFFI.connType == ConnType.chat) {
       await gFFI.close();
     }
-    gFFI.chatModel.changeCurrentKey(MessageKey(id, ChatModel.clientModeID));
-    gFFI.start(id, isChat: true, forceRelay: false);
+    gFFI.chatModel.changeCurrentKey(MessageKey(peerId, ChatModel.clientModeID));
+    if (pairing != null) {
+      gFFI.chatModel.updatePeerIdentity(
+        peerId,
+        displayName: pairing.displayName,
+        avatar: '',
+      );
+    }
+    gFFI.start(endpoint, isChat: true, forceRelay: false);
     HomePage.homeKey.currentState?.selectChatPage();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (gFFI.closed) return;
@@ -161,6 +186,53 @@ class _ConnectionPageState extends State<ConnectionPage> {
         onCancel: () => gFFI.close(),
       );
     });
+  }
+
+  Widget _buildPairedContacts() {
+    return ValueListenableBuilder<int>(
+      valueListenable: DirectPairingStore.revision,
+      builder: (context, _, __) {
+        final pairings = DirectPairingStore.load().values.toList()
+          ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+        if (pairings.isEmpty) return const SizedBox.shrink();
+        return Container(
+          margin: const EdgeInsets.fromLTRB(2, 8, 2, 8),
+          decoration: BoxDecoration(
+            color: Theme.of(context).cardColor,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Column(
+            children: [
+              for (var index = 0; index < pairings.length; index++) ...[
+                ListTile(
+                  minVerticalPadding: 8,
+                  leading:
+                      const Icon(Icons.link_rounded, color: MyTheme.accent),
+                  title: Text(
+                    pairings[index].displayName.isEmpty
+                        ? pairings[index].peerId
+                        : pairings[index].displayName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 15),
+                  ),
+                  subtitle: Text(
+                    pairings[index].preferredEndpoint,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => _startDirectChat(pairings[index].peerId),
+                ),
+                if (index != pairings.length - 1)
+                  const Divider(height: 1, indent: 56),
+              ],
+            ],
+          ),
+        );
+      },
+    );
   }
 
   void onFocusChanged() {
@@ -296,7 +368,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
                           color: MyTheme.idColor,
                         ),
                         decoration: InputDecoration(
-                          labelText: translate('Remote ID'),
+                          labelText: translate('Paired ID / IP:port'),
                           // hintText: 'Enter your remote ID',
                           border: InputBorder.none,
                           helperStyle: const TextStyle(

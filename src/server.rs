@@ -225,6 +225,8 @@ pub async fn create_tcp_connection(
 ) -> ResultType<()> {
     let mut stream = stream;
     let id = server.write().unwrap().get_new_id();
+    let mut authenticated_peer_id = None;
+    let mut authenticated_peer_key = None;
     let (sk, pk) = Config::get_key_pair();
     if secure && pk.len() == sign::PUBLICKEYBYTES && sk.len() == sign::SECRETKEYBYTES {
         let mut sk_ = [0u8; sign::SECRETKEYBYTES];
@@ -244,6 +246,7 @@ pub async fn create_tcp_connection(
                 &sk,
             )
             .into(),
+            public_key: pk.into(),
             ..Default::default()
         });
         timeout(CONNECT_TIMEOUT, stream.send(&msg_out)).await??;
@@ -253,6 +256,26 @@ pub async fn create_tcp_connection(
                 if let Ok(msg_in) = Message::parse_from_bytes(&bytes) {
                     if let Some(message::Union::PublicKey(pk)) = msg_in.union {
                         if pk.asymmetric_value.len() == box_::PUBLICKEYBYTES {
+                            if !pk.signed_id.is_empty() || !pk.identity_public_key.is_empty() {
+                                if pk.identity_public_key.len() != sign::PUBLICKEYBYTES
+                                    || pk.signed_id.is_empty()
+                                {
+                                    bail!("Handshake failed: invalid peer identity");
+                                }
+                                let mut identity_key = [0u8; sign::PUBLICKEYBYTES];
+                                identity_key.copy_from_slice(&pk.identity_public_key);
+                                let identity_key = sign::PublicKey(identity_key);
+                                let (peer_id, signed_ephemeral_key) =
+                                    crate::decode_id_pk(&pk.signed_id, &identity_key)?;
+                                if signed_ephemeral_key[..] != pk.asymmetric_value[..] {
+                                    bail!("Handshake failed: peer identity key mismatch");
+                                }
+                                authenticated_peer_id = Some(peer_id);
+                                authenticated_peer_key =
+                                    Some(crate::common::pk_to_fingerprint(
+                                        pk.identity_public_key.to_vec(),
+                                    ));
+                            }
                             stream.set_key(tcp::Encrypt::decode(
                                 &pk.symmetric_value,
                                 &pk.asymmetric_value,
@@ -295,6 +318,8 @@ pub async fn create_tcp_connection(
         id,
         Arc::downgrade(&server),
         control_permissions,
+        authenticated_peer_id,
+        authenticated_peer_key,
     )
     .await;
     Ok(())

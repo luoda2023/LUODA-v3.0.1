@@ -4,7 +4,7 @@ version = "3.1.1"
 authors = ["LUODA <https://dicad.cn>"]
 edition = "2021"
 build= "build.rs"
-description = "LUODA Remote Desktop"
+description = "LDesk Direct Chat and Remote Assistance"
 default-run = "luoda"
 rust-version = "1.75"
 
@@ -214,9 +214,9 @@ exclude = ["vdi/host", "examples/custom_plugin"]
 libxdo-sys = { path = "libs/libxdo-sys-stub" }
 
 [package.metadata.winres]
-LegalCopyright = "Copyright © 2025 LUODA. All rights reserved."
-ProductName = "LUODA"
-FileDescription = "LUODA Remote Desktop"
+LegalCopyright = "Copyright © 2026 LDesk. All rights reserved."
+ProductName = "LDesk"
+FileDescription = "LDesk Direct Chat and Remote Assistance"
 OriginalFilename = "luoda.exe"
 
 [target.'cfg(target_os="windows")'.build-dependencies]
@@ -234,7 +234,7 @@ docopt = "1.1"
 tokio = { version = "1.44", features = ["macros", "rt-multi-thread"] }
 
 [package.metadata.bundle]
-name = "LUODA"
+name = "LDesk"
 identifier = "com.luoda.remote"
 icon = ["res/32x32.png", "res/128x128.png", "res/128x128@2x.png"]
 osx_minimum_system_version = "10.14"

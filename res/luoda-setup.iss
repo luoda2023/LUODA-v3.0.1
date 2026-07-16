@@ -1,7 +1,7 @@
-; LUODA Remote Desktop - Inno Setup Script
-#define MyAppName "LUODA"
+; LDesk - Inno Setup Script
+#define MyAppName "LDesk"
 #define MyAppVersion "3.1.1"
-#define MyAppPublisher "LUODA Team"
+#define MyAppPublisher "LDesk Team"
 #define MyAppURL "https://dicad.cn"
 #define MyAppExeName "luoda.exe"
 
@@ -17,12 +17,15 @@ DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 OutputDir=.
-OutputBaseFilename=LUODA-Setup
+OutputBaseFilename=LDesk-Setup
+VersionInfoVersion=3.1.1.0
+VersionInfoProductName=LDesk
+VersionInfoDescription=LDesk Direct Chat and Remote Assistance
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
 SetupIconFile=icon.ico
-UninstallDisplayName=Uninstall LUODA
+UninstallDisplayName=Uninstall LDesk
 UninstallDisplayIcon={app}\luoda.exe
 PrivilegesRequired=admin
 

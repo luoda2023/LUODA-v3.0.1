@@ -18,6 +18,8 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import '../consts.dart';
 import '../common.dart';
+import '../common/direct_chat.dart';
+import '../common/direct_pairing.dart';
 import '../common/widgets/overlay.dart';
 import '../main.dart';
 import 'model.dart';
@@ -31,13 +33,11 @@ class MessageKey {
 
   @override
   bool operator ==(other) {
-    return other is MessageKey &&
-        other.peerId == peerId &&
-        other.isOut == isOut;
+    return other is MessageKey && other.peerId == peerId;
   }
 
   @override
-  int get hashCode => peerId.hashCode ^ isOut.hashCode;
+  int get hashCode => peerId.hashCode;
 }
 
 class MessageBody {
@@ -81,14 +81,12 @@ class ChatModel with ChangeNotifier {
 
   @override
   void dispose() {
+    DirectChatRepository.instance.revision.removeListener(_onStoreRevision);
     textController.dispose();
     super.dispose();
   }
 
-  final ChatUser me = ChatUser(
-    id: Uuid().v4().toString(),
-    firstName: translate("Me"),
-  );
+  late final ChatUser me;
 
   late final Map<MessageKey, MessageBody> _messages = {};
 
@@ -120,6 +118,16 @@ class ChatModel with ChangeNotifier {
   late FocusNode inputNode;
 
   ChatModel(this.parent) {
+    me = ChatUser(
+      id: const Uuid().v4(),
+      firstName: translate("Me"),
+    );
+    DirectChatRepository.instance.revision.addListener(_onStoreRevision);
+    unawaited(DirectChatRepository.instance.deviceId.then((deviceId) {
+      me.id = deviceId;
+      notifyListeners();
+    }));
+    unawaited(_restoreRecentConversations());
     refreshLocalIdentity();
     sessionId = parent.target!.sessionId;
     inputNode = FocusNode(
@@ -148,6 +156,18 @@ class ChatModel with ChangeNotifier {
     );
   }
 
+  void _onStoreRevision() {
+    if (_currentKey.peerId.isEmpty) return;
+    unawaited(_restoreConversation(_currentKey));
+  }
+
+  Future<void> _restoreRecentConversations() async {
+    for (final peerId
+        in await DirectChatRepository.instance.conversationIds()) {
+      await _restoreConversation(MessageKey(peerId, clientModeID));
+    }
+  }
+
   ChatUser? get currentUser => _messages[_currentKey]?.chatUser;
 
   void refreshLocalIdentity({bool notify = false}) {
@@ -169,6 +189,11 @@ class ChatModel with ChangeNotifier {
     required String displayName,
     required String avatar,
   }) {
+    unawaited(DirectPairingStore.updateIdentity(
+      peerId,
+      displayName: displayName,
+      avatar: avatar,
+    ));
     var changed = false;
     for (final entry in _messages.entries) {
       if (entry.key.peerId != peerId) continue;
@@ -388,25 +413,25 @@ class ChatModel with ChangeNotifier {
     _currentKey = key;
     notifyListeners();
     mobileClearClientUnread(key.connId);
+    unawaited(_restoreConversation(key));
   }
 
-  receive(int id, String text) async {
+  receive(int id, String rawText) async {
     final session = parent.target;
     if (session == null) {
       debugPrint("Failed to receive msg, session state is null");
       return;
     }
-    if (text.isEmpty) return;
-    if (desktopType == DesktopType.cm) {
-      await showCmWindow();
-    }
+    if (rawText.isEmpty) return;
     String? peerId;
+    final client = id == clientModeID
+        ? null
+        : session.serverModel.clients
+            .firstWhereOrNull((client) => client.id == id);
     if (id == clientModeID) {
-      peerId = session.id;
+      peerId = _currentKey.peerId.isNotEmpty ? _currentKey.peerId : session.id;
     } else {
-      peerId = session.serverModel.clients
-          .firstWhereOrNull((e) => e.id == id)
-          ?.peerId;
+      peerId = client?.peerId;
     }
     if (peerId == null) {
       debugPrint("Failed to receive msg, peerId is null");
@@ -414,13 +439,12 @@ class ChatModel with ChangeNotifier {
     }
 
     final messagekey = MessageKey(peerId, id);
-
-    // mobile: first message show overlay icon
-    if (!isDesktop && chatIconOverlayEntry == null) {
-      showChatIconOverlay();
+    final envelope = DirectChatEnvelope.decode(rawText);
+    if (envelope != null && envelope.type != 'message') {
+      await _handleEnvelope(messagekey, envelope);
+      return;
     }
-    // show chat page
-    await showChatPage(messagekey);
+
     late final ChatUser chatUser;
     if (id == clientModeID) {
       chatUser = ChatUser(
@@ -430,7 +454,59 @@ class ChatModel with ChangeNotifier {
         profileImage: session.ffiModel.pi.avatar,
         id: peerId,
       );
+    } else {
+      if (client == null) {
+        debugPrint("Failed to receive msg, client is null");
+        return;
+      }
+      chatUser = ChatUser(
+        id: client.peerId,
+        firstName: client.name,
+        profileImage: client.avatar,
+      );
+    }
 
+    late final DirectChatRecord record;
+    if (envelope != null) {
+      try {
+        final incoming = DirectChatRecord.fromJson(envelope.data);
+        if (incoming.id.isEmpty ||
+            incoming.originDeviceId.isEmpty ||
+            incoming.originSequence <= 0) {
+          return;
+        }
+        record = incoming.copyWith(
+          conversationId: peerId,
+          direction: DirectChatDirection.incoming,
+          delivery: DirectChatDelivery.delivered,
+        );
+      } catch (_) {
+        return;
+      }
+      final inserted = await DirectChatRepository.instance.upsert(record);
+      _sendWire(messagekey, DirectChatEnvelope.receipt(record.id).encode());
+      if (!inserted) return;
+    } else {
+      record = await DirectChatRepository.instance.createIncomingLegacy(
+        conversationId: peerId,
+        text: rawText,
+        senderId: chatUser.id,
+        senderName: chatUser.firstName ?? '',
+        senderAvatar: '',
+      );
+    }
+
+    if (desktopType == DesktopType.cm) {
+      await showCmWindow();
+    }
+
+    // mobile: first message show overlay icon
+    if (!isDesktop && chatIconOverlayEntry == null) {
+      showChatIconOverlay();
+    }
+    // show chat page
+    await showChatPage(messagekey);
+    if (id == clientModeID) {
       if (isDesktop) {
         if (Get.isRegistered<DesktopTabController>()) {
           DesktopTabController tabController = Get.find<DesktopTabController>();
@@ -454,12 +530,7 @@ class ChatModel with ChangeNotifier {
         }
       }
     } else {
-      final client = session.serverModel.clients
-          .firstWhereOrNull((client) => client.id == id);
-      if (client == null) {
-        debugPrint("Failed to receive msg, client is null");
-        return;
-      }
+      if (client == null) return;
       if (isDesktop) {
         windowOnTop(null);
         // disable auto jumpTo other tab when hasFocus, and mark unread message
@@ -477,14 +548,8 @@ class ChatModel with ChangeNotifier {
           mobileUpdateUnreadSum();
         }
       }
-      chatUser = ChatUser(
-        id: client.peerId,
-        firstName: client.name,
-        profileImage: client.avatar,
-      );
     }
-    insertMessage(messagekey,
-        ChatMessage(text: text, user: chatUser, createdAt: DateTime.now()));
+    insertMessage(messagekey, _toChatMessage(record, chatUser));
     if (id == clientModeID || _currentKey.peerId.isEmpty) {
       // client or invalid
       _currentKey = messagekey;
@@ -494,18 +559,27 @@ class ChatModel with ChangeNotifier {
     notifyListeners();
   }
 
-  send(ChatMessage message) {
-    String trimmedText = message.text.trim();
+  void send(ChatMessage message) {
+    unawaited(_sendMessage(message));
+  }
+
+  Future<void> _sendMessage(ChatMessage message) async {
+    final trimmedText = message.text.trim();
     if (trimmedText.isEmpty) {
       return;
     }
-    message.text = trimmedText;
-    insertMessage(_currentKey, message);
-    if (_currentKey.connId == clientModeID && parent.target != null) {
-      bind.sessionSendChat(sessionId: sessionId, text: message.text);
-    } else {
-      bind.cmSendChat(connId: _currentKey.connId, msg: message.text);
-    }
+    final key = _currentKey;
+    if (key.peerId.isEmpty) return;
+    final record = await DirectChatRepository.instance.createOutgoing(
+      conversationId: key.peerId,
+      kind: DirectChatKind.text,
+      text: trimmedText,
+      senderId: me.id,
+      senderName: me.firstName ?? '',
+      senderAvatar: '',
+    );
+    insertMessage(key, _toChatMessage(record, me));
+    await _transmitRecord(key, record);
 
     notifyListeners();
     inputNode.requestFocus();
@@ -521,12 +595,311 @@ class ChatModel with ChangeNotifier {
     );
   }
 
+  Future<void> sendFileRecord({
+    required String fileName,
+    required int fileSize,
+    String fileSha256 = '',
+  }) async {
+    final key = _currentKey;
+    if (key.peerId.isEmpty || fileName.isEmpty) return;
+    final record = await DirectChatRepository.instance.createOutgoing(
+      conversationId: key.peerId,
+      kind: DirectChatKind.file,
+      text: '${translate('Sent file')}: $fileName',
+      senderId: me.id,
+      senderName: me.firstName ?? '',
+      senderAvatar: '',
+      fileName: fileName,
+      fileSize: fileSize,
+      fileSha256: fileSha256,
+    );
+    insertMessage(key, _toChatMessage(record, me));
+    await _transmitRecord(key, record);
+    notifyListeners();
+  }
+
+  Future<void> onDirectSessionReady({
+    String? peerId,
+    int? connId,
+  }) async {
+    final resolvedPeerId =
+        peerId?.trim().isNotEmpty == true ? peerId!.trim() : _currentKey.peerId;
+    if (resolvedPeerId.isEmpty) return;
+    final key = MessageKey(
+      resolvedPeerId,
+      connId ?? _currentKey.connId,
+    );
+    changeCurrentKey(key);
+    await _restoreConversation(key);
+
+    for (final record
+        in await DirectChatRepository.instance.pendingFor(resolvedPeerId)) {
+      await _transmitRecord(key, record);
+    }
+    final cursor = await DirectChatRepository.instance.cursor(
+      conversationId: resolvedPeerId,
+    );
+    _sendWire(key, DirectChatEnvelope.syncRequest(cursor).encode());
+
+    final pairing = DirectPairingStore.find(resolvedPeerId);
+    if (pairing?.companion == true && pairing!.syncSecret.isNotEmpty) {
+      final replicaCursor = await DirectChatRepository.instance.cursor();
+      _sendWire(
+        key,
+        DirectChatEnvelope.replicaRequest(
+          secret: pairing.syncSecret,
+          cursor: replicaCursor,
+          requestReply: true,
+        ).encode(),
+      );
+    }
+  }
+
+  Future<void> markCurrentUndeliveredFailed() async {
+    if (_currentKey.peerId.isEmpty) return;
+    await DirectChatRepository.instance.markUndeliveredFailed(
+      _currentKey.peerId,
+    );
+  }
+
+  Future<void> remapCurrentPeer(String peerId) async {
+    final previous = _currentKey;
+    if (peerId.isEmpty ||
+        previous.peerId.isEmpty ||
+        previous.peerId == peerId) {
+      return;
+    }
+    await DirectChatRepository.instance.remapConversation(
+      previous.peerId,
+      peerId,
+    );
+    final previousBody = _messages.remove(previous);
+    final next = MessageKey(peerId, previous.connId);
+    if (previousBody != null) {
+      previousBody.chatUser.id = peerId;
+      _messages[next] = previousBody;
+    }
+    _currentKey = next;
+    await _restoreConversation(next);
+  }
+
+  Future<void> _handleEnvelope(
+    MessageKey key,
+    DirectChatEnvelope envelope,
+  ) async {
+    switch (envelope.type) {
+      case 'receipt':
+        final id = (envelope.data['id'] ?? '').toString();
+        if (id.isNotEmpty) {
+          await DirectChatRepository.instance.markDelivery(
+            id,
+            DirectChatDelivery.delivered,
+          );
+        }
+        return;
+      case 'sync_request':
+        final cursor = _parseCursor(envelope.data['cursor']);
+        final records = await DirectChatRepository.instance.afterCursor(
+          cursor,
+          conversationId: key.peerId,
+          outgoingOnly: true,
+        );
+        for (final record in records) {
+          await _transmitRecord(key, record);
+        }
+        return;
+      case 'replica_request':
+        final secret = (envelope.data['secret'] ?? '').toString();
+        if (!DirectPairingStore.acceptsCompanionSecret(secret)) return;
+        final cursor = _parseCursor(envelope.data['cursor']);
+        final records = await DirectChatRepository.instance.afterCursor(cursor);
+        for (final record in records) {
+          _sendWire(
+            key,
+            DirectChatEnvelope.replicaMessage(record, secret).encode(),
+          );
+        }
+        _sendWire(
+          key,
+          DirectChatEnvelope('replica_contacts', <String, dynamic>{
+            'secret': secret,
+            'contacts': DirectPairingStore.exportContacts(),
+          }).encode(),
+        );
+        if (envelope.data['request_reply'] == true) {
+          final localCursor = await DirectChatRepository.instance.cursor();
+          _sendWire(
+            key,
+            DirectChatEnvelope.replicaRequest(
+              secret: secret,
+              cursor: localCursor,
+              requestReply: false,
+            ).encode(),
+          );
+        }
+        return;
+      case 'replica_message':
+        final secret = (envelope.data['secret'] ?? '').toString();
+        if (!DirectPairingStore.acceptsCompanionSecret(secret)) return;
+        try {
+          final record = DirectChatRecord.fromJson(
+            Map<String, dynamic>.from(envelope.data['record'] as Map),
+          );
+          await DirectChatRepository.instance.upsert(record);
+        } catch (_) {}
+        return;
+      case 'replica_contacts':
+        final secret = (envelope.data['secret'] ?? '').toString();
+        if (!DirectPairingStore.acceptsCompanionSecret(secret)) return;
+        await DirectPairingStore.mergeContacts(
+          envelope.data['contacts'] as List<dynamic>? ?? const [],
+        );
+        return;
+      default:
+        return;
+    }
+  }
+
+  Map<String, int> _parseCursor(dynamic value) {
+    try {
+      return Map<String, dynamic>.from(value as Map).map(
+        (key, value) => MapEntry(key, int.tryParse('$value') ?? 0),
+      );
+    } catch (_) {
+      return <String, int>{};
+    }
+  }
+
+  Future<void> _transmitRecord(
+    MessageKey key,
+    DirectChatRecord record,
+  ) async {
+    final sent = _sendWire(
+      key,
+      DirectChatEnvelope.message(record).encode(),
+    );
+    if (sent && record.delivery != DirectChatDelivery.delivered) {
+      await DirectChatRepository.instance.markDelivery(
+        record.id,
+        DirectChatDelivery.sent,
+      );
+    }
+  }
+
+  bool _sendWire(MessageKey key, String value) {
+    final ffi = parent.target;
+    if (ffi == null || ffi.closed) return false;
+    try {
+      if (key.connId == clientModeID) {
+        if (ffi.ffiModel.pi.isSet.isTrue != true) return false;
+        bind.sessionSendChat(sessionId: sessionId, text: value);
+        return true;
+      }
+      final client = ffi.serverModel.clients.firstWhereOrNull(
+        (client) =>
+            client.id == key.connId &&
+            client.authorized &&
+            !client.disconnected,
+      );
+      if (client == null) return false;
+      bind.cmSendChat(connId: key.connId, msg: value);
+      return true;
+    } catch (error) {
+      debugPrint('Failed to send direct chat message: $error');
+      return false;
+    }
+  }
+
+  Future<void> _restoreConversation(MessageKey key) async {
+    if (key.peerId.isEmpty) return;
+    final deviceId = await DirectChatRepository.instance.deviceId;
+    me.id = deviceId;
+    final records =
+        await DirectChatRepository.instance.forConversation(key.peerId);
+    updateConnIdOfKey(key);
+    final pairing = DirectPairingStore.find(key.peerId);
+    final body = _messages.putIfAbsent(
+      key,
+      () => MessageBody(
+        ChatUser(
+          id: key.peerId,
+          firstName: pairing?.displayName.isNotEmpty == true
+              ? pairing!.displayName
+              : key.peerId,
+          profileImage:
+              pairing?.avatar.isNotEmpty == true ? pairing!.avatar : null,
+        ),
+        <ChatMessage>[],
+      ),
+    );
+    final incoming = records.firstWhereOrNull((record) => !record.isOutgoing);
+    if (incoming != null) {
+      if (incoming.senderName.isNotEmpty) {
+        body.chatUser.firstName = incoming.senderName;
+      }
+      if (incoming.senderAvatar.isNotEmpty) {
+        body.chatUser.profileImage = incoming.senderAvatar;
+      }
+    }
+    body.chatMessages = records
+        .map((record) => _toChatMessage(
+              record,
+              record.isOutgoing ? me : body.chatUser,
+            ))
+        .toList(growable: true);
+    if (_currentKey == key) notifyListeners();
+  }
+
+  ChatMessage _toChatMessage(DirectChatRecord record, ChatUser user) {
+    MessageStatus status;
+    switch (record.delivery) {
+      case DirectChatDelivery.queued:
+      case DirectChatDelivery.failed:
+        status = MessageStatus.pending;
+        break;
+      case DirectChatDelivery.sent:
+        status = MessageStatus.none;
+        break;
+      case DirectChatDelivery.delivered:
+        status = MessageStatus.received;
+        break;
+    }
+    return ChatMessage(
+      text: record.text,
+      user: user,
+      createdAt: record.sentAt.toLocal(),
+      status: status,
+      customProperties: <String, dynamic>{
+        'ldesk_id': record.id,
+        'ldesk_delivery': record.delivery.name,
+        'ldesk_kind': record.kind.name,
+        if (record.fileName.isNotEmpty) 'ldesk_file_name': record.fileName,
+        if (record.fileSize > 0) 'ldesk_file_size': record.fileSize,
+        if (record.fileSha256.isNotEmpty)
+          'ldesk_file_sha256': record.fileSha256,
+      },
+    );
+  }
+
   insertMessage(MessageKey key, ChatMessage message) {
     updateConnIdOfKey(key);
     if (!_messages.containsKey(key)) {
       _messages[key] = MessageBody(message.user, []);
     }
-    _messages[key]?.insert(message);
+    final messages = _messages[key]!.chatMessages;
+    final messageId = message.customProperties?['ldesk_id']?.toString();
+    final index = messageId == null
+        ? -1
+        : messages.indexWhere(
+            (item) =>
+                item.customProperties?['ldesk_id']?.toString() == messageId,
+          );
+    if (index < 0) {
+      messages.add(message);
+    } else {
+      messages[index] = message;
+    }
+    messages.sort((a, b) => b.createdAt.compareTo(a.createdAt));
   }
 
   updateConnIdOfKey(MessageKey key) {
@@ -574,7 +947,7 @@ class ChatModel with ChangeNotifier {
   }
 
   resetClientMode() {
-    _messages[clientModeID]?.clear();
+    // Persistent direct-chat history is restored by peer ID after reconnect.
   }
 
   void requestChatInputFocus() {

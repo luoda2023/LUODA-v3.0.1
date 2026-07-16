@@ -922,6 +922,7 @@ impl InvokeUiSession for FlutterHandler {
                 ("platform", &pi.platform),
                 ("display_name", &pi.display_name),
                 ("avatar", &pi.avatar),
+                ("peer_id", &pi.peer_id),
                 ("sas_enabled", &pi.sas_enabled.to_string()),
                 ("displays", &displays),
                 ("version", &pi.version),
@@ -1483,7 +1484,9 @@ pub mod connection_manager {
     #[cfg(any(target_os = "android"))]
     use hbb_common::log;
     #[cfg(any(target_os = "android"))]
-    use scrap::android::call_main_service_set_by_name;
+    use scrap::android::{
+        call_direct_chat_service_set_by_name, call_main_service_set_by_name,
+    };
     use serde_json::json;
 
     use crate::ui_cm_interface::InvokeUiCM;
@@ -1504,6 +1507,14 @@ pub mod connection_manager {
             {
                 log::debug!("call_main_service_set_by_name fail,{}", e);
             }
+            #[cfg(target_os = "android")]
+            if let Err(e) = call_direct_chat_service_set_by_name(
+                "add_connection",
+                Some(&client_json),
+                None,
+            ) {
+                log::debug!("call_direct_chat_service_set_by_name fail,{}", e);
+            }
             // send to UI, refresh widget
             self.push_event("add_connection", &[("client", &client_json)]);
         }
@@ -1516,6 +1527,17 @@ pub mod connection_manager {
         }
 
         fn new_message(&self, id: i32, text: String) {
+            #[cfg(target_os = "android")]
+            {
+                let payload = json!({ "id": id, "text": &text }).to_string();
+                if let Err(e) = call_direct_chat_service_set_by_name(
+                    "direct_chat_message",
+                    Some(&payload),
+                    None,
+                ) {
+                    log::debug!("call_direct_chat_service_set_by_name fail,{}", e);
+                }
+            }
             self.push_event(
                 "chat_server_mode",
                 &[("id", &id.to_string()), ("text", &text)],

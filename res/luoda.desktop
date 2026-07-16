@@ -1,7 +1,7 @@
 [Desktop Entry]
-Name=LUODA
-GenericName=Remote Desktop
-Comment=Remote Desktop
+Name=LDesk
+GenericName=Direct Chat and Remote Assistance
+Comment=Direct IP chat, file transfer and remote assistance
 Exec=luoda %u
 Icon=luoda
 Terminal=false

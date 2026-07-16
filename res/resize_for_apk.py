@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Resize mac-icon.png for Android mipmap directories.
+Resize the branded master icon for Android mipmap directories.
 Run this BEFORE the Flutter build step in CI.
 
 Usage: python3 res/resize_for_apk.py
@@ -18,13 +18,19 @@ MIPMAP_SIZES = {
     "xxxhdpi": 192,
 }
 
+ICON_NAMES = (
+    "ic_launcher.png",
+    "ic_launcher_foreground.png",
+    "ic_launcher_round.png",
+)
+
 def main():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     # Go up to repo root
     repo_root = os.path.dirname(base_dir)  # res/ -> repo root
     apk_res = os.path.join(repo_root, "flutter", "android", "app", "src", "main", "res")
 
-    src_path = os.path.join(base_dir, "mac-icon.png")
+    src_path = os.path.join(repo_root, "Images", "icon-master-1056.png")
     dst_dir = apk_res
 
     if not os.path.exists(src_path):
@@ -46,19 +52,20 @@ def main():
             print(f"WARNING: mipmap dir not found: {mipmap_dir}, skipping")
             continue
 
-        dst_path = os.path.join(mipmap_dir, "ic_launcher_foreground.png")
+        for icon_name in ICON_NAMES:
+            dst_path = os.path.join(mipmap_dir, icon_name)
+            try:
+                resized = src.resize((size, size), Image.Resampling.LANCZOS)
+                resized.save(dst_path, "PNG")
+                print(f"  Generated {density} ({size}x{size}): {dst_path}")
+                success += 1
+            except Exception as e:
+                print(f"ERROR: Failed to generate {density}/{icon_name}: {e}")
 
-        try:
-            # High-quality Lanczos resize
-            resized = src.resize((size, size), Image.Resampling.LANCZOS)
-            resized.save(dst_path, "PNG")
-            print(f"  Generated {density} ({size}x{size}): {dst_path}")
-            success += 1
-        except Exception as e:
-            print(f"ERROR: Failed to generate {density}: {e}")
-
-    print(f"\nGenerated {success}/{len(MIPMAP_SIZES)} icon files.")
-    if success == len(MIPMAP_SIZES):
+    expected = len(MIPMAP_SIZES) * len(ICON_NAMES)
+    print()
+    print(f"Generated {success}/{expected} icon files.")
+    if success == expected:
         print("APK icons ready.")
     else:
         print("WARNING: Some icons were not generated!")

@@ -188,9 +188,26 @@ fn bare_direct_ip(peer: &str) -> Option<IpAddr> {
     IpAddr::from_str(peer).ok()
 }
 
+fn direct_endpoint(peer: &str) -> Option<String> {
+    explicit_direct_endpoint(peer).or_else(|| {
+        hbb_common::is_domain_port_str(peer).then(|| peer.to_owned())
+    })
+}
+
+fn fingerprint_public_key(value: &str) -> Option<Vec<u8>> {
+    let hex: String = value.chars().filter(|c| !c.is_whitespace() && *c != ':').collect();
+    if hex.len() != sign::PUBLICKEYBYTES * 2 {
+        return None;
+    }
+    (0..hex.len())
+        .step_by(2)
+        .map(|index| u8::from_str_radix(&hex[index..index + 2], 16).ok())
+        .collect()
+}
+
 #[cfg(test)]
 mod direct_endpoint_tests {
-    use super::{bare_direct_ip, explicit_direct_endpoint};
+    use super::{bare_direct_ip, explicit_direct_endpoint, fingerprint_public_key};
 
     #[test]
     fn parses_ipv4_with_port() {
@@ -213,6 +230,14 @@ mod direct_endpoint_tests {
         assert!(bare_direct_ip("10.0.0.8").is_some());
         assert!(bare_direct_ip("2001:db8::1").is_some());
         assert!(explicit_direct_endpoint("10.0.0.8:0").is_none());
+    }
+
+    #[test]
+    fn decodes_direct_public_key_fingerprint() {
+        let fingerprint = "0011 2233 4455 6677 8899 aabb ccdd eeff 0011 2233 4455 6677 8899 aabb ccdd eeff";
+        let key = fingerprint_public_key(fingerprint).unwrap();
+        assert_eq!(key.len(), 32);
+        assert_eq!(&key[..4], &[0x00, 0x11, 0x22, 0x33]);
     }
 }
 
@@ -306,15 +331,54 @@ impl Client {
         if config::is_incoming_only() {
             bail!("Incoming only mode");
         }
+        let (other_server, direct_fallback_endpoint) = {
+            let lch = interface.get_lch();
+            let lch = lch.read().unwrap();
+            (
+                lch.other_server.clone(),
+                lch.direct_fallback_endpoint.clone(),
+            )
+        };
+        if let Some((expected_id, endpoint, fingerprint)) = other_server.as_ref() {
+            if let Some(endpoint) = direct_endpoint(endpoint) {
+                let expected_pk = fingerprint_public_key(fingerprint)
+                    .ok_or_else(|| anyhow!("Invalid direct peer fingerprint"))?;
+                let mut endpoints = vec![endpoint];
+                if let Some(fallback) = direct_endpoint(&direct_fallback_endpoint) {
+                    if !endpoints.contains(&fallback) {
+                        endpoints.push(fallback);
+                    }
+                }
+                let mut errors = Vec::new();
+                for endpoint in endpoints {
+                    match connect_tcp_local(endpoint.as_str(), None, CONNECT_TIMEOUT).await {
+                        Ok(mut conn) => match Self::secure_direct_connection(
+                            expected_id,
+                            Some(expected_pk.as_slice()),
+                            &mut conn,
+                        )
+                        .await
+                        {
+                            Ok(pk) => {
+                                return Ok((
+                                    (conn, true, pk, None, "TCP"),
+                                    (0, String::new()),
+                                    false,
+                                ));
+                            }
+                            Err(error) => errors.push(format!("{endpoint}: {error}")),
+                        },
+                        Err(error) => errors.push(format!("{endpoint}: {error}")),
+                    }
+                }
+                bail!("Failed to connect to direct endpoints: {}", errors.join("; "));
+            }
+        }
         if let Some(endpoint) = explicit_direct_endpoint(peer) {
+            let mut conn = connect_tcp_local(endpoint.as_str(), None, CONNECT_TIMEOUT).await?;
+            let pk = Self::secure_direct_connection("", None, &mut conn).await?;
             return Ok((
-                (
-                    connect_tcp_local(endpoint.as_str(), None, CONNECT_TIMEOUT).await?,
-                    true,
-                    None,
-                    None,
-                    "TCP",
-                ),
+                (conn, true, pk, None, "TCP"),
                 (0, "".to_owned()),
                 false,
             ));
@@ -337,9 +401,10 @@ impl Client {
                 })
                 .collect();
             match select_ok(futures).await {
-                Ok((conn, _)) => {
+                Ok((mut conn, _)) => {
+                    let pk = Self::secure_direct_connection("", None, &mut conn).await?;
                     return Ok((
-                        (conn, true, None, None, "TCP"),
+                        (conn, true, pk, None, "TCP"),
                         (0, "".to_owned()),
                         false,
                     ));
@@ -355,20 +420,21 @@ impl Client {
         }
         // Allow connect to {domain}:{port}
         if hbb_common::is_domain_port_str(peer) {
+            let mut conn = connect_tcp_local(peer, None, CONNECT_TIMEOUT).await?;
+            let pk = Self::secure_direct_connection("", None, &mut conn).await?;
             return Ok((
-                (
-                    connect_tcp_local(peer, None, CONNECT_TIMEOUT).await?,
-                    true,
-                    None,
-                    None,
-                    "TCP",
-                ),
+                (conn, true, pk, None, "TCP"),
                 (0, "".to_owned()),
                 false,
             ));
         }
 
-        let other_server = interface.get_lch().read().unwrap().other_server.clone();
+        if crate::is_luoda() {
+            bail!(
+                "Direct endpoint required: LDesk does not use rendezvous or relay servers"
+            );
+        }
+
         let (peer, other_server, key, token) = if let Some((a, b, c)) = other_server.as_ref() {
             (a.as_ref(), b.as_ref(), c.as_ref(), "")
         } else {
@@ -841,6 +907,74 @@ impl Client {
         };
         log::debug!("{} punch secure_connection ok", punch_type);
         Ok((conn, direct, pk, kcp, typ))
+    }
+
+    async fn secure_direct_connection(
+        expected_peer_id: &str,
+        expected_public_key: Option<&[u8]>,
+        conn: &mut Stream,
+    ) -> ResultType<Option<Vec<u8>>> {
+        let bytes = timeout(READ_TIMEOUT, conn.next())
+            .await?
+            .ok_or_else(|| anyhow!("Direct peer closed during secure handshake"))??;
+        let msg_in = Message::parse_from_bytes(&bytes)
+            .map_err(|_| anyhow!("Invalid direct peer handshake"))?;
+        let signed_id = match msg_in.union {
+            Some(message::Union::SignedId(value)) => value,
+            _ => bail!("Direct peer did not provide a signed identity"),
+        };
+        let announced_public_key = signed_id.public_key.to_vec();
+        if announced_public_key.len() != sign::PUBLICKEYBYTES {
+            bail!("Direct peer public key is invalid");
+        }
+        if let Some(expected) = expected_public_key {
+            if expected != announced_public_key.as_slice() {
+                bail!("Direct peer fingerprint mismatch");
+            }
+        }
+        let mut sign_key = [0u8; sign::PUBLICKEYBYTES];
+        sign_key.copy_from_slice(&announced_public_key);
+        let sign_key = sign::PublicKey(sign_key);
+        let (peer_id, their_pk_b) = decode_id_pk(&signed_id.id, &sign_key)
+            .map_err(|_| anyhow!("Direct peer signature verification failed"))?;
+        if !expected_peer_id.is_empty() && peer_id != expected_peer_id {
+            bail!("Direct peer ID mismatch");
+        }
+        let (asymmetric_value, symmetric_value, key) = create_symmetric_key_msg(their_pk_b);
+        let (identity_secret, identity_public) = Config::get_key_pair();
+        if identity_secret.len() != sign::SECRETKEYBYTES
+            || identity_public.len() != sign::PUBLICKEYBYTES
+        {
+            bail!("Local direct identity key is invalid");
+        }
+        let mut identity_secret_key = [0u8; sign::SECRETKEYBYTES];
+        identity_secret_key.copy_from_slice(&identity_secret);
+        let identity_secret_key = sign::SecretKey(identity_secret_key);
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        let local_id = Config::get_id_or(crate::DEVICE_ID.lock().unwrap().clone());
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        let local_id = Config::get_id();
+        let signed_id = sign::sign(
+            &IdPk {
+                id: local_id,
+                pk: asymmetric_value.clone(),
+                ..Default::default()
+            }
+            .write_to_bytes()
+            .unwrap_or_default(),
+            &identity_secret_key,
+        );
+        let mut msg_out = Message::new();
+        msg_out.set_public_key(PublicKey {
+            asymmetric_value,
+            symmetric_value,
+            signed_id: signed_id.into(),
+            identity_public_key: identity_public.into(),
+            ..Default::default()
+        });
+        timeout(CONNECT_TIMEOUT, conn.send(&msg_out)).await??;
+        conn.set_key(key);
+        Ok(Some(announced_public_key))
     }
 
     /// Establish secure connection with the server.
@@ -1836,6 +1970,8 @@ pub struct LoginConfigHandler {
     switch_uuid: Option<String>,
     pub save_ab_password_to_recent: bool, // true: connected with ab password
     pub other_server: Option<(String, String, String)>,
+    direct_pairing_secret: String,
+    direct_fallback_endpoint: String,
     pub custom_fps: Arc<Mutex<Option<usize>>>,
     pub last_auto_fps: Option<usize>,
     pub adapter_luid: Option<i64>,
@@ -1875,14 +2011,20 @@ impl LoginConfigHandler {
         conn_token: Option<String>,
     ) {
         let mut id = id;
+        self.direct_pairing_secret.clear();
+        self.direct_fallback_endpoint.clear();
         if id.contains("@") {
             let mut v = id.split("@");
             let raw_id: &str = v.next().unwrap_or_default();
             let mut server_key = v.next().unwrap_or_default().split('?');
             let server = server_key.next().unwrap_or_default();
             let args = server_key.next().unwrap_or_default();
-            let key = if server == PUBLIC_SERVER {
-                config::RS_PUB_KEY.to_owned()
+            let (key, pairing_secret, fallback_endpoint) = if server == PUBLIC_SERVER {
+                (
+                    config::RS_PUB_KEY.to_owned(),
+                    String::new(),
+                    String::new(),
+                )
             } else {
                 let mut args_map: HashMap<String, &str> = HashMap::new();
                 for arg in args.split('&') {
@@ -1893,8 +2035,18 @@ impl LoginConfigHandler {
                     }
                 }
                 let key = args_map.remove("key").unwrap_or_default();
-                key.to_owned()
+                let pairing_secret = args_map.remove("sync").unwrap_or_default();
+                let fallback_endpoint = args_map.remove("fallback").unwrap_or_default();
+                (
+                    key.to_owned(),
+                    pairing_secret.to_owned(),
+                    fallback_endpoint.to_owned(),
+                )
             };
+            self.direct_pairing_secret = pairing_secret;
+            if direct_endpoint(&fallback_endpoint).is_some() {
+                self.direct_fallback_endpoint = fallback_endpoint;
+            }
 
             // here we can check <id>/r@server
             let real_id = crate::ui_interface::handle_relay_id(raw_id).to_string();
@@ -1902,7 +2054,11 @@ impl LoginConfigHandler {
                 force_relay = true;
             }
             self.other_server = Some((real_id.clone(), server.to_owned(), key));
-            id = format!("{real_id}@{server}");
+            id = if direct_endpoint(server).is_some() {
+                real_id
+            } else {
+                format!("{real_id}@{server}")
+            };
         } else {
             let real_id = crate::ui_interface::handle_relay_id(&id);
             if real_id != id {
@@ -2593,6 +2749,9 @@ impl LoginConfigHandler {
     /// * `username` - The name of the peer.
     /// * `pi` - The peer info.
     pub fn handle_peer_info(&mut self, pi: &PeerInfo) {
+        if !pi.peer_id.is_empty() {
+            self.id = pi.peer_id.clone();
+        }
         if !pi.version.is_empty() {
             self.version = hbb_common::get_version_number(&pi.version);
         }
@@ -2713,9 +2872,13 @@ impl LoginConfigHandler {
         let my_id = Config::get_id_or(crate::DEVICE_ID.lock().unwrap().clone());
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         let my_id = Config::get_id();
-        let (my_id, pure_id) = if let Some((id, _, _)) = self.other_server.as_ref() {
-            let server = Config::get_rendezvous_server();
-            (format!("{my_id}@{server}"), id.clone())
+        let (my_id, pure_id) = if let Some((id, other_server, _)) = self.other_server.as_ref() {
+            if direct_endpoint(other_server).is_some() {
+                (my_id, id.clone())
+            } else {
+                let server = Config::get_rendezvous_server();
+                (format!("{my_id}@{server}"), id.clone())
+            }
         } else {
             (my_id, self.id.clone())
         };
@@ -2804,6 +2967,7 @@ impl LoginConfigHandler {
             ConnType::CHAT => lr.set_chat(ChatSession {
                 persistent: true,
                 direct_only: true,
+                pairing_secret: self.direct_pairing_secret.clone(),
                 ..Default::default()
             }),
             ConnType::PORT_FORWARD | ConnType::RDP => lr.set_port_forward(PortForward {

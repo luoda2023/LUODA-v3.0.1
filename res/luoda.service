@@ -1,5 +1,5 @@
 [Unit]
-Description=LUODA Remote Desktop
+Description=LDesk Direct Chat and Remote Assistance
 Requires=network.target
 After=systemd-user-sessions.service
 

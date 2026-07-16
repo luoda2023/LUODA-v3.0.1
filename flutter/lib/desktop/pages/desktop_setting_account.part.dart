@@ -1,4 +1,4 @@
-﻿part of 'desktop_setting_page.dart';
+part of 'desktop_setting_page.dart';
 
 class _Account extends StatefulWidget {
   const _Account({Key? key}) : super(key: key);
@@ -6,6 +6,7 @@ class _Account extends StatefulWidget {
   @override
   State<_Account> createState() => _AccountState();
 }
+
 class _AccountState extends State<_Account> {
   @override
   Widget build(BuildContext context) {
@@ -13,7 +14,23 @@ class _AccountState extends State<_Account> {
     return ListView(
       controller: scrollController,
       children: [
-        _Card(title: 'Account', children: [accountAction(), useInfo()]),
+        _Card(
+          title: 'Account',
+          children: kServerlessDirectOnly
+              ? [
+                  ListTile(
+                    leading: const Icon(
+                      Icons.person_outline_rounded,
+                      color: _accentColor,
+                    ),
+                    title: Text(translate('Local profile only')),
+                    subtitle: Text(translate(
+                      'LDesk stores the name, avatar, contacts, and pairing data on this device only.',
+                    )),
+                  ),
+                ]
+              : [accountAction(), useInfo()],
+        ),
       ],
     ).marginOnly(bottom: _kListViewBottomMargin);
   }
@@ -28,7 +45,9 @@ class _AccountState extends State<_Account> {
                   ? loginDialog()
                   : logOutConfirmDialog()
             },
-        icon: gFFI.userModel.userName.value.isEmpty ? Icons.login : Icons.logout));
+        icon: gFFI.userModel.userName.value.isEmpty
+            ? Icons.login
+            : Icons.logout));
   }
 
   Widget useInfo() {

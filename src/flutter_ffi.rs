@@ -1262,67 +1262,8 @@ pub fn main_check_connect_status() {
             crate::ui_interface::set_option("lan-ip".to_owned(), ip.to_string());
         }
     }
-    // Fetch public IP via HTTP first (most reliable), fallback to STUN
-    #[cfg(not(target_os = "ios"))]
-    crate::ui_interface::set_option("public-ip".to_owned(), String::new());
-    #[cfg(not(target_os = "ios"))]
-    std::thread::spawn(|| {
-        // Try HTTP services first (returns same IP for all machines behind same NAT)
-        let http_sources = [
-            "https://api.ipify.org",
-            "https://checkip.amazonaws.com",
-        ];
-        let mut public_ip = String::new();
-        for url in http_sources {
-            match reqwest::blocking::Client::builder()
-                .timeout(std::time::Duration::from_secs(3))
-                .build()
-            {
-                Ok(client) => match client.get(url).send() {
-                    Ok(resp) => {
-                        if let Ok(text) = resp.text() {
-                            let ip = text.trim().parse::<std::net::Ipv4Addr>();
-                            if let Ok(ip) = ip {
-                                if !crate::direct_access::is_public_ipv4(ip) {
-                                    continue;
-                                }
-                                public_ip = ip.to_string();
-                                log::info!("Got public IP from {}: {}", url, public_ip);
-                                crate::ui_interface::set_option(
-                                    "public-ip".to_owned(),
-                                    public_ip.clone(),
-                                );
-                                break;
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        log::warn!("Failed to get public IP from {}: {}", url, e);
-                    }
-                },
-                Err(e) => {
-                    log::warn!("Failed to create HTTP client for {}: {}", url, e);
-                }
-            }
-        }
-        // Fallback to STUN if HTTP failed (STUN may report different mapped addresses per device)
-        if public_ip.is_empty() {
-            log::info!("HTTP public IP lookup failed, falling back to STUN");
-            use hbb_common::tokio;
-            if let Ok(rt) = tokio::runtime::Runtime::new() {
-                if let Ok((addr, _)) = rt.block_on(crate::common::test_nat_ipv4()) {
-                    if let std::net::IpAddr::V4(ip) = addr.ip() {
-                        if crate::direct_access::is_public_ipv4(ip) {
-                            crate::ui_interface::set_option(
-                                "public-ip".to_owned(),
-                                ip.to_string(),
-                            );
-                        }
-                    }
-                }
-            }
-        }
-    });
+    // Public IP is populated only by the local router's UPnP response.
+    // No HTTP IP lookup or STUN service is used in serverless mode.
 }
 
 pub fn main_is_using_public_server() -> bool {
@@ -3250,6 +3191,7 @@ pub fn session_get_common(
 #[cfg(target_os = "android")]
 pub mod server_side {
     use hbb_common::{config, log};
+    use std::sync::atomic::{AtomicBool, Ordering};
     use jni::{
         errors::{Error as JniError, Result as JniResult},
         objects::{JClass, JObject, JString},
@@ -3259,6 +3201,8 @@ pub mod server_side {
 
     use crate::start_server;
 
+    static SERVER_STARTED: AtomicBool = AtomicBool::new(false);
+
     #[no_mangle]
     pub unsafe extern "system" fn Java_ffi_FFI_startServer(
         env: JNIEnv,
@@ -3267,6 +3211,10 @@ pub mod server_side {
         custom_client_config: JString,
     ) {
         log::debug!("startServer from jvm");
+        if SERVER_STARTED.swap(true, Ordering::SeqCst) {
+            log::debug!("startServer ignored because the Android server is already running");
+            return;
+        }
         let mut env = env;
         if let Ok(app_dir) = env.get_string(&app_dir) {
             *config::APP_DIR.write().unwrap() = app_dir.into();

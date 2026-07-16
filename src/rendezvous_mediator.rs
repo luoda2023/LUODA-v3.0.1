@@ -60,13 +60,17 @@ impl RendezvousMediator {
     }
 
     pub async fn start_all() {
-        crate::test_nat_type();
+        if !crate::is_luoda() {
+            crate::test_nat_type();
+        }
         if config::is_outgoing_only() {
             loop {
                 sleep(1.).await;
             }
         }
-        crate::hbbs_http::sync::start();
+        if !crate::is_luoda() {
+            crate::hbbs_http::sync::start();
+        }
         #[cfg(target_os = "windows")]
         // Auto-update disabled for LUODA custom build
         if false && crate::platform::is_installed() && crate::is_server() {
@@ -74,7 +78,9 @@ impl RendezvousMediator {
         }
         check_zombie();
         let server = new_server();
-        if config::option2bool("stop-service", &Config::get_option("stop-service")) {
+        if !crate::is_luoda()
+            && config::option2bool("stop-service", &Config::get_option("stop-service"))
+        {
             crate::test_rendezvous_server();
         }
         let server_cloned = server.clone();
@@ -83,6 +89,8 @@ impl RendezvousMediator {
         });
         #[cfg(target_os = "android")]
         let start_lan_listening = true;
+        #[cfg(target_os = "ios")]
+        let start_lan_listening = false;
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         let start_lan_listening = crate::platform::is_installed();
         if start_lan_listening {
@@ -96,6 +104,12 @@ impl RendezvousMediator {
             crate::platform::linux_desktop_manager::start_xdesktop();
         }
         scrap::codec::test_av1();
+        if crate::is_luoda() {
+            log::info!("LDesk serverless mode: direct listener and LAN discovery only");
+            loop {
+                sleep(3600.).await;
+            }
+        }
         loop {
             let timeout = Arc::new(RwLock::new(CONNECT_TIMEOUT));
             let conn_start_time = Instant::now();
@@ -968,7 +982,7 @@ async fn direct_server(server: ServerPtr) {
                             server,
                             hbb_common::Stream::from(tcp_stream, local_addr),
                             addr,
-                            false,
+                            true,
                             None,
                         )
                         .await

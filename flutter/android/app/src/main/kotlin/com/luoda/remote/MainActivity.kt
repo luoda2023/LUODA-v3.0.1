@@ -98,6 +98,18 @@ class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val directChatPrefs = getSharedPreferences(KEY_SHARED_PREFERENCES, MODE_PRIVATE)
+        val directChatEnabled = directChatPrefs.getBoolean(
+            KEY_DIRECT_CHAT_ALWAYS_ON,
+            FFI.getLocalOption("direct-chat-always-on") == "Y",
+        )
+        directChatPrefs.edit()
+            .putBoolean(KEY_DIRECT_CHAT_ALWAYS_ON, directChatEnabled)
+            .apply()
+        DirectChatService.setEnabled(
+            this,
+            directChatEnabled,
+        )
         if (_rdClipboardManager == null) {
             _rdClipboardManager = RdClipboardManager(getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
             FFI.setClipboardManager(_rdClipboardManager!!)
@@ -153,6 +165,19 @@ class MainActivity : FlutterActivity() {
                         it.destroy()
                         result.success(true)
                     } ?: let {
+                        result.success(false)
+                    }
+                }
+                "set_direct_chat_service" -> {
+                    if (call.arguments is Boolean) {
+                        val enabled = call.arguments as Boolean
+                        getSharedPreferences(KEY_SHARED_PREFERENCES, MODE_PRIVATE)
+                            .edit()
+                            .putBoolean(KEY_DIRECT_CHAT_ALWAYS_ON, enabled)
+                            .apply()
+                        DirectChatService.setEnabled(this, enabled)
+                        result.success(true)
+                    } else {
                         result.success(false)
                     }
                 }
