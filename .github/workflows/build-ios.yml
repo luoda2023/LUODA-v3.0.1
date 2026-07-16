@@ -49,6 +49,9 @@ jobs:
           toolchain: '1.88'
           targets: aarch64-apple-ios
 
+      - name: Install rustfmt
+        run: rustup component add rustfmt
+
       - name: Cache Cargo and vcpkg
         uses: actions/cache@v4
         with:
