@@ -170,7 +170,7 @@ class ColorThemeExtension extends ThemeExtension<ColorThemeExtension> {
     border: Color(0xFFDCE5F2),
     border2: Color(0xFFAAB8CC),
     border3: Colors.black26,
-    highlight: Color(0xFFEAF2FF),
+    highlight: Color(0xFFEBF9F0),
     drag_indicator: Color(0xFF5D687A),
     shadow: Colors.black,
     errorBannerBg: Color(0xFFFDEEEB),
@@ -184,7 +184,7 @@ class ColorThemeExtension extends ThemeExtension<ColorThemeExtension> {
     border: Color(0xFF333B49),
     border2: Color(0xFF7D899B),
     border3: Colors.white24,
-    highlight: Color(0xFF263750),
+    highlight: Color(0xFF19382A),
     drag_indicator: Color(0xFFAAB5C5),
     shadow: Colors.grey,
     errorBannerBg: Color(0xFF470F2D),
@@ -250,9 +250,9 @@ class ColorThemeExtension extends ThemeExtension<ColorThemeExtension> {
 class MyTheme {
   MyTheme._();
 
-  static const Color primary = Color(0xFF0B6EF3);
-  static const Color primaryHover = Color(0xFF095FCC);
-  static const Color primarySoft = Color(0xFFEAF2FF);
+  static const Color primary = Color(0xFF07C160);
+  static const Color primaryHover = Color(0xFF06AD56);
+  static const Color primarySoft = Color(0xFFEBF9F0);
   static const Color canvasLight = Color(0xFFF5F8FC);
   static const Color surfaceLight = Color(0xFFFFFFFF);
   static const Color textLight = Color(0xFF141A24);
@@ -263,13 +263,13 @@ class MyTheme {
   static const Color textDark = Color(0xFFEDF2F8);
   static const Color mutedDark = Color(0xFFAAB5C5);
   static const Color borderDark = Color(0xFF333B49);
-  static const Color accentDark = Color(0xFF4D9BFF);
+  static const Color accentDark = Color(0xFF2CCB72);
 
   // Backward-compatible aliases used throughout the application.
   static const Color grayBg = canvasLight;
   static const Color accent = primary;
-  static const Color accent50 = Color(0x770B6EF3);
-  static const Color accent80 = Color(0xAA0B6EF3);
+  static const Color accent50 = Color(0x7707C160);
+  static const Color accent80 = Color(0xAA07C160);
   static const Color canvasColor = canvasDark;
   static const Color border = borderLight;
   static const Color idColor = primary;

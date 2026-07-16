@@ -221,7 +221,7 @@ pub fn emit_viewer_list_snapshot(host_id: &str, total_uplink_bps: u64) -> usize 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hbb_common::message_proto::ChatChannel;
+    use hbb_common::message_proto::{message, ChatChannel};
     use hbb_common::tokio::sync::mpsc;
     use std::time::Instant;
 
@@ -257,6 +257,7 @@ mod tests {
             to_id: String::new(),
             text: "hello".to_string(),
             sent_at: 0,
+            ..Default::default()
         };
         let delivered = emit_chat(&sid, cb.clone());
         // host + v2 (v1 is sender, excluded by route)
@@ -264,10 +265,16 @@ mod tests {
 
         let host_msg = h_rx.try_recv().expect("host receives chat");
         assert!(host_msg.1.has_chat_broadcast());
-        assert_eq!(host_msg.1.get_chat_broadcast().text, "hello");
+        match host_msg.1.union.as_ref() {
+            Some(message::Union::ChatBroadcast(chat)) => assert_eq!(chat.text, "hello"),
+            _ => panic!("expected chat broadcast"),
+        }
 
         let v2_msg = v2_rx.try_recv().expect("v2 receives chat");
-        assert_eq!(v2_msg.1.get_chat_broadcast().text, "hello");
+        match v2_msg.1.union.as_ref() {
+            Some(message::Union::ChatBroadcast(chat)) => assert_eq!(chat.text, "hello"),
+            _ => panic!("expected chat broadcast"),
+        }
 
         // Sender (v1) must not receive its own message.
         assert!(v1_rx.try_recv().is_err());
@@ -287,7 +294,10 @@ mod tests {
         register_viewer(&sid, "v1", v1_tx);
         register_viewer(&sid, "v2", v2_tx);
 
-        let vlu = ViewerListUpdate { viewers: Vec::new() };
+        let vlu = ViewerListUpdate {
+            viewers: Vec::new(),
+            ..Default::default()
+        };
         let delivered = emit_viewer_list_update(&sid, vlu);
         assert_eq!(delivered, 3);
 
@@ -321,6 +331,7 @@ mod tests {
             to_id: String::new(),
             text: "after kick".to_string(),
             sent_at: 0,
+            ..Default::default()
         };
         let delivered = emit_chat(&sid, cb);
         // Only v2 receives (host itself is excluded by `route`; v1 is gone).
@@ -343,7 +354,10 @@ mod tests {
         register_viewer(&sid, "v2", v2_tx);
 
         let mut m = Message::new();
-        m.set_viewer_list_update(ViewerListUpdate { viewers: Vec::new() });
+        m.set_viewer_list_update(ViewerListUpdate {
+            viewers: Vec::new(),
+            ..Default::default()
+        });
         let arc = Arc::new(m);
 
         assert!(emit_to_viewer(&sid, "v2", arc.clone()));

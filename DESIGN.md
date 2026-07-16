@@ -2,9 +2,9 @@
 name: LUODA Remote Center
 description: A calm and precise desktop control surface for secure remote access.
 colors:
-  primary: "#0B6EF3"
-  primary-hover: "#095FCC"
-  primary-soft: "#EAF2FF"
+  primary: "#07C160"
+  primary-hover: "#06AD56"
+  primary-soft: "#EBF9F0"
   canvas: "#F5F8FC"
   surface: "#FFFFFF"
   surface-dark: "#1B2029"
@@ -81,19 +81,19 @@ LUODA should feel like a focused control surface: clear enough for first-time us
 
 **Key Characteristics:**
 
-- Restrained blue accent on clean neutral surfaces.
+- Restrained WeChat green accent on clean neutral surfaces.
 - Dense but calm desktop information hierarchy.
 - Familiar controls with explicit hover, focus, active, disabled, and error states.
 - Structural responsive behavior rather than viewport-scaled typography.
 
 ## Colors
 
-The palette uses one technical blue for actions and selection, supported by cool neutral surfaces and semantic status colors.
+The palette uses WeChat green for actions and selection, supported by cool neutral surfaces and semantic status colors.
 
 ### Primary
 
-- **Control Blue:** Primary actions, selected navigation, focus rings, and active controls only.
-- **Control Blue Soft:** Selected navigation backgrounds and low-emphasis information states.
+- **WeChat Green:** Primary actions, selected navigation, focus rings, and active controls only.
+- **WeChat Green Soft:** Selected navigation backgrounds and low-emphasis information states.
 
 ### Neutral
 
@@ -105,7 +105,7 @@ The palette uses one technical blue for actions and selection, supported by cool
 
 ### Named Rules
 
-**The One Accent Rule.** Control Blue is used for actions and state, never as ambient decoration.
+**The One Accent Rule.** WeChat Green is used for actions and state, never as ambient decoration.
 
 **The Semantic State Rule.** Online and warning colors always include a text label or icon; color alone never communicates state.
 
@@ -141,8 +141,8 @@ The system is flat by default. Depth comes from tonal separation and precise out
 ### Buttons
 
 - **Shape:** Compact, gently curved rectangle (8px radius).
-- **Primary:** Control Blue with white content and a stable 44px height.
-- **Hover / Focus:** Darker blue on hover; a visible blue focus ring for keyboard use.
+- **Primary:** WeChat Green with white content and a stable 44px height.
+- **Hover / Focus:** Darker green on hover; a visible green focus ring for keyboard use.
 - **Secondary / Ghost:** White or transparent surface with a Cool Divider outline and Deep Ink content.
 
 ### Cards / Containers
@@ -156,12 +156,12 @@ The system is flat by default. Depth comes from tonal separation and precise out
 ### Inputs / Fields
 
 - **Style:** White field, one-pixel Cool Divider outline, and 8px radius.
-- **Focus:** Control Blue outline with no layout shift.
+- **Focus:** WeChat Green outline with no layout shift.
 - **Error / Disabled:** Semantic error outline; disabled content remains legible and clearly inactive.
 
 ### Navigation
 
-The main shell uses icon-and-label navigation with a soft blue selected state. Settings use a stable left category rail and a scrollable content pane. Navigation selection changes in 180ms and does not animate layout.
+The main shell uses icon-and-label navigation with a soft green selected state. Settings use a stable left category rail and a scrollable content pane. Navigation selection changes in 180ms and does not animate layout.
 
 ### Identity Panel
 
