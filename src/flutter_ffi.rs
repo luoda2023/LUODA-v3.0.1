@@ -89,6 +89,7 @@ fn initialize(app_dir: &str, custom_client_config: &str) {
         {
             log::info!("Presetting permanent password 666999");
             config::Config::set_permanent_password("666999");
+            #[cfg(not(target_os = "ios"))]
             let _ = crate::ipc::set_permanent_password("666999".to_string());
         }
 
@@ -2255,6 +2256,7 @@ pub fn main_stop_service() {
     // stop the mediator, NOT kill the entire GUI process.
     // Tray exit uses a separate close/quit mechanism.
     log::info!("DBG: main_stop_service calling restart() - NO exit");
+    #[cfg(not(target_os = "ios"))]
     crate::rendezvous_mediator::RendezvousMediator::restart();
 }
 

@@ -1,4 +1,4 @@
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", target_os = "ios"))]
 mod android_opus_stub;
 mod keyboard;
 /// cbindgen:ignore
