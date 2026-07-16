@@ -1,4 +1,5 @@
 use hbb_common::password_security;
+use hbb_common::sodiumoxide::crypto::sign;
 use hbb_common::{
     allow_err,
     bytes::Bytes,
@@ -1213,7 +1214,7 @@ pub fn get_user_default_option(key: String) -> String {
 
 pub fn get_fingerprint() -> String {
     let local_key = Config::get_key_pair().1;
-    let local = if local_key.len() == sodiumoxide::crypto::sign::PUBLICKEYBYTES {
+    let local = if local_key.len() == sign::PUBLICKEYBYTES {
         crate::common::pk_to_fingerprint(local_key)
     } else {
         String::new()
