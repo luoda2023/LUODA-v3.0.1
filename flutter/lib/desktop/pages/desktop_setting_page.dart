@@ -3,8 +3,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image/image.dart' as img;
 import 'package:luoda_flutter/common.dart';
 import 'package:luoda_flutter/common/widgets/audio_input.dart';
 import 'package:luoda_flutter/common/widgets/setting_widgets.dart';

@@ -1,6 +1,24 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import '../../common.dart';
+
+const String kDesktopRailBackgroundOption = 'desktop-rail-background-image-v1';
+const Color kDesktopRailSelectedForeground = Color(0xFF057A3A);
+final ValueNotifier<int> desktopRailBackgroundRevision = ValueNotifier<int>(0);
+
+Uint8List? decodeDesktopRailBackground(String value) {
+  final separator = value.indexOf(',');
+  final payload = separator < 0 ? value : value.substring(separator + 1);
+  if (payload.isEmpty) return null;
+  try {
+    return base64Decode(payload);
+  } on FormatException {
+    return null;
+  }
+}
 
 class DesktopRailDestination {
   const DesktopRailDestination({
@@ -28,6 +46,7 @@ class DesktopPrimaryRail extends StatelessWidget {
     this.settingsSelected = false,
     this.avatar,
     this.onAvatarPressed,
+    this.onPairPhone,
     this.onMore,
   });
 
@@ -40,95 +59,134 @@ class DesktopPrimaryRail extends StatelessWidget {
   final bool settingsSelected;
   final Widget? avatar;
   final VoidCallback? onAvatarPressed;
+  final VoidCallback? onPairPhone;
   final VoidCallback? onMore;
 
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      width: width,
-      decoration: BoxDecoration(
-        color: dark ? const Color(0xFF24262B) : null,
-        gradient: dark
-            ? null
-            : const LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: <Color>[
-                  Color(0xFFF0D1D2),
-                  Color(0xFFE7E6EA),
-                  Color(0xFFD9D9E1),
-                ],
-              ),
-      ),
-      child: Column(
-        children: <Widget>[
-          const SizedBox(height: 14),
-          Tooltip(
-            message: translate('Account'),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(8),
-              onTap: onAvatarPressed,
-              child: SizedBox(
-                width: 44,
-                height: 44,
-                child: ClipRRect(
+    return ValueListenableBuilder<int>(
+      valueListenable: desktopRailBackgroundRevision,
+      builder: (context, _, __) {
+        final value =
+            bind.mainGetLocalOption(key: kDesktopRailBackgroundOption);
+        final backgroundBytes = decodeDesktopRailBackground(value);
+        final hasBackground = backgroundBytes != null;
+        return Container(
+          width: width,
+          decoration: BoxDecoration(
+            color: hasBackground
+                ? const Color(0xFF24262B)
+                : dark
+                    ? const Color(0xFF24262B)
+                    : null,
+            gradient: hasBackground || dark
+                ? null
+                : const LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: <Color>[
+                      Color(0xFFF0D1D2),
+                      Color(0xFFE7E6EA),
+                      Color(0xFFD9D9E1),
+                    ],
+                  ),
+            image: hasBackground
+                ? DecorationImage(
+                    image: MemoryImage(backgroundBytes!),
+                    fit: BoxFit.cover,
+                    filterQuality: FilterQuality.medium,
+                    colorFilter: const ColorFilter.mode(
+                      Color(0x80000000),
+                      BlendMode.darken,
+                    ),
+                  )
+                : null,
+          ),
+          child: Column(
+            children: <Widget>[
+              const SizedBox(height: 14),
+              Tooltip(
+                message: translate('Account'),
+                child: InkWell(
                   borderRadius: BorderRadius.circular(8),
-                  child: avatar ??
-                      Image.asset(
-                        'assets/avatar.png',
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => ColoredBox(
-                          color: Theme.of(context).colorScheme.primary,
-                          child: const Icon(
-                            Icons.person_rounded,
-                            color: Colors.white,
+                  onTap: onAvatarPressed,
+                  child: SizedBox(
+                    width: 44,
+                    height: 44,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: avatar ??
+                          Image.asset(
+                            'assets/avatar.png',
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => ColoredBox(
+                              color: Theme.of(context).colorScheme.primary,
+                              child: const Icon(
+                                Icons.person_rounded,
+                                color: Colors.white,
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
+                    ),
+                  ),
                 ),
               ),
-            ),
-          ),
-          const SizedBox(height: 14),
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(vertical: 2),
-              child: Column(
-                children: destinations
-                    .map(
-                      (destination) => _RailButton(
-                        destination: destination,
-                        selected: destination.id == selectedId,
-                        onTap: () => onSelected(destination.id),
-                      ),
-                    )
-                    .toList(),
+              const SizedBox(height: 14),
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Column(
+                    children: destinations
+                        .map(
+                          (destination) => _RailButton(
+                            destination: destination,
+                            selected: destination.id == selectedId,
+                            onTap: () => onSelected(destination.id),
+                            imageBackground: hasBackground,
+                          ),
+                        )
+                        .toList(),
+                  ),
+                ),
               ),
-            ),
+              if (onPairPhone != null)
+                _RailButton(
+                  destination: const DesktopRailDestination(
+                    id: 'pair-phone',
+                    label: 'Pair phone',
+                    icon: Icons.phone_android_rounded,
+                  ),
+                  selected: false,
+                  onTap: onPairPhone,
+                  imageBackground: hasBackground,
+                ),
+              _RailButton(
+                destination: const DesktopRailDestination(
+                  id: 'settings',
+                  label: 'Settings',
+                  icon: Icons.settings_outlined,
+                  selectedIcon: Icons.settings_rounded,
+                ),
+                selected: settingsSelected,
+                onTap: onSettings,
+                imageBackground: hasBackground,
+              ),
+              _RailButton(
+                destination: const DesktopRailDestination(
+                  id: 'more',
+                  label: 'More',
+                  icon: Icons.menu_rounded,
+                ),
+                selected: false,
+                onTap: onMore,
+                imageBackground: hasBackground,
+              ),
+              const SizedBox(height: 10),
+            ],
           ),
-          _RailButton(
-            destination: const DesktopRailDestination(
-              id: 'settings',
-              label: 'Settings',
-              icon: Icons.settings_outlined,
-              selectedIcon: Icons.settings_rounded,
-            ),
-            selected: settingsSelected,
-            onTap: onSettings,
-          ),
-          _RailButton(
-            destination: const DesktopRailDestination(
-              id: 'more',
-              label: 'More',
-              icon: Icons.menu_rounded,
-            ),
-            selected: false,
-            onTap: onMore,
-          ),
-          const SizedBox(height: 10),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -137,19 +195,25 @@ class _RailButton extends StatelessWidget {
   const _RailButton({
     required this.destination,
     required this.selected,
+    required this.imageBackground,
     required this.onTap,
   });
 
   final DesktopRailDestination destination;
   final bool selected;
+  final bool imageBackground;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final foreground = selected
-        ? theme.colorScheme.primary
-        : theme.colorScheme.onSurface.withOpacity(0.58);
+    final foreground = imageBackground
+        ? selected
+            ? kDesktopRailSelectedForeground
+            : Colors.white.withOpacity(0.88)
+        : selected
+            ? theme.colorScheme.primary
+            : theme.colorScheme.onSurface.withOpacity(0.58);
     return Tooltip(
       message: translate(destination.label),
       waitDuration: const Duration(milliseconds: 350),
@@ -158,9 +222,17 @@ class _RailButton extends StatelessWidget {
         child: InkWell(
           borderRadius: BorderRadius.circular(8),
           onTap: onTap,
-          child: SizedBox(
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutQuart,
             width: 48,
             height: 44,
+            decoration: BoxDecoration(
+              color: imageBackground && selected
+                  ? Colors.white.withOpacity(0.94)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(8),
+            ),
             child: Stack(
               alignment: Alignment.center,
               clipBehavior: Clip.none,

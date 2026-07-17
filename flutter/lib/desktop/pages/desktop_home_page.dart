@@ -72,6 +72,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   bool _passwordVisible = false;
   String _selectedRailId = 'chat';
   Peer? _selectedContact;
+  String? _selectedConversationPeerId;
   final Map<String, FFI> _directChatSessions = <String, FFI>{};
   final Map<String, FFI> _directFileSessions = <String, FFI>{};
   String? _activeDirectChatPeerId;
@@ -221,6 +222,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         await _loadContactSection(id);
       },
       onSettings: DesktopTabPage.onAddSetting,
+      onPairPhone: () => _showPairingQrDialog(context),
       onMore: () => _showToolsMenu(context),
     );
   }
@@ -313,7 +315,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             ),
           ),
           Divider(height: 1, color: theme.dividerColor.withOpacity(0.65)),
-          _buildPairedContacts(context),
           Expanded(child: _buildContactSection(context)),
           Divider(height: 1, color: theme.dividerColor.withOpacity(0.65)),
           SizedBox(
@@ -352,7 +353,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           child: Consumer<ChatModel>(
             builder: (context, model, _) {
               final user = model.currentUser;
-              final selectedPeerId = _selectedContact?.id ?? '';
+              final selectedPeerId =
+                  _selectedConversationPeerId ?? _selectedContact?.id ?? '';
               final userMatchesSelection = selectedPeerId.isEmpty ||
                   user?.id.trim() == selectedPeerId.trim();
               final peerId =
@@ -720,66 +722,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     );
   }
 
-  Widget _buildPairedContacts(BuildContext context) {
-    return ValueListenableBuilder<int>(
-      valueListenable: DirectPairingStore.revision,
-      builder: (context, _, __) {
-        final pairings = DirectPairingStore.load().values.toList()
-          ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-        if (pairings.isEmpty) return const SizedBox.shrink();
-        final visible = pairings.take(3).toList(growable: false);
-        return ConstrainedBox(
-          constraints: BoxConstraints(maxHeight: visible.length * 62),
-          child: ListView.builder(
-            padding: EdgeInsets.zero,
-            itemCount: visible.length,
-            itemExtent: 62,
-            itemBuilder: (context, index) {
-              final pairing = visible[index];
-              final title = pairing.displayName.isEmpty
-                  ? pairing.peerId
-                  : pairing.displayName;
-              return ListTile(
-                dense: true,
-                minLeadingWidth: 34,
-                leading: Container(
-                  width: 34,
-                  height: 34,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: str2color(title),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    title.characters.first,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                title: Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 14),
-                ),
-                subtitle: Text(
-                  pairing.preferredEndpoint,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 12),
-                ),
-                trailing: const Icon(Icons.chevron_right_rounded, size: 18),
-                onTap: () => _startDirectChat(pairing.peerId),
-              );
-            },
-          ),
-        );
-      },
-    );
-  }
-
   Widget _buildContactSection(BuildContext context) {
     if (_selectedRailId == 'vip') {
       return const PeerTabPage(showTabStrip: false);
@@ -789,6 +731,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       animation: Listenable.merge(<Listenable>[
         model,
         gFFI.serverModel,
+        DirectPairingStore.revision,
       ]),
       builder: (context, _) {
         final query = _contactSearchController.text.trim().toLowerCase();
@@ -798,7 +741,19 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 return _contactName(peer).toLowerCase().contains(query) ||
                     peer.id.toLowerCase().contains(query);
               }).toList();
-        if (peers.isEmpty) {
+        final peerIds = peers.map((peer) => peer.id).toSet();
+        final standalonePairings =
+            DirectPairingStore.load().values.where((pairing) {
+          if (peerIds.contains(pairing.peerId)) return false;
+          if (query.isEmpty) return true;
+          return pairing.peerId.toLowerCase().contains(query) ||
+              pairing.displayName.toLowerCase().contains(query) ||
+              pairing.endpoints.any(
+                (endpoint) => endpoint.toLowerCase().contains(query),
+              );
+        }).toList()
+              ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+        if (peers.isEmpty && standalonePairings.isEmpty) {
           return Center(
             child: Padding(
               padding: const EdgeInsets.all(24),
@@ -817,12 +772,112 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         }
         return ListView.separated(
           padding: const EdgeInsets.symmetric(vertical: 4),
-          itemCount: peers.length,
+          itemCount: standalonePairings.length + peers.length,
           separatorBuilder: (_, __) => const SizedBox(height: 1),
-          itemBuilder: (context, index) =>
-              _buildContactItem(context, peers[index]),
+          itemBuilder: (context, index) {
+            if (index < standalonePairings.length) {
+              return _buildPairedContactItem(
+                context,
+                standalonePairings[index],
+              );
+            }
+            return _buildContactItem(
+              context,
+              peers[index - standalonePairings.length],
+            );
+          },
         );
       },
+    );
+  }
+
+  Widget _buildPairedContactItem(
+    BuildContext context,
+    DirectPairing pairing,
+  ) {
+    final ffi = _directChatSessionFor(pairing.peerId);
+    if (ffi != null) {
+      return AnimatedBuilder(
+        animation: ffi.ffiModel,
+        builder: (context, _) => _buildPairedContactItemBody(context, pairing),
+      );
+    }
+    return _buildPairedContactItemBody(context, pairing);
+  }
+
+  Widget _buildPairedContactItemBody(
+    BuildContext context,
+    DirectPairing pairing,
+  ) {
+    final theme = Theme.of(context);
+    final name =
+        pairing.displayName.isEmpty ? pairing.peerId : pairing.displayName;
+    final selected = _selectedConversationPeerId == pairing.peerId;
+    final delivery = _directDeliveryStatus(pairing.peerId);
+    return Material(
+      color: selected
+          ? theme.colorScheme.onSurface.withOpacity(0.08)
+          : Colors.transparent,
+      child: InkWell(
+        onTap: () => _startDirectChat(pairing.peerId),
+        child: SizedBox(
+          height: 66,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            child: Row(
+              children: <Widget>[
+                _buildConversationAvatar(
+                  avatar: pairing.avatar,
+                  name: name,
+                  initial: name.characters.first,
+                  size: 42,
+                ),
+                const SizedBox(width: 11),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Row(
+                        children: <Widget>[
+                          Expanded(
+                            child: Text(
+                              pairing.peerId,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSurface
+                                    .withOpacity(0.48),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            translate(delivery.$1),
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: delivery.$2,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -840,7 +895,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   Widget _buildContactItemBody(BuildContext context, Peer peer) {
     final theme = Theme.of(context);
     final name = _contactName(peer);
-    final selected = _selectedContact?.id == peer.id;
+    final selected = _selectedConversationPeerId == peer.id;
     final initial = name.trim().isEmpty ? '?' : name.trim().characters.first;
     final delivery = _contactDeliveryStatus(peer);
     return Material(
@@ -850,13 +905,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       child: InkWell(
         onTap: () {
           final registered = _directChatSessionFor(peer.id);
-          final active = registered != null && !registered.closed
-              ? registered
-              : null;
+          final active =
+              registered != null && !registered.closed ? registered : null;
           final incoming =
               active == null ? _incomingDirectChatClientFor(peer.id) : null;
           setState(() {
             _selectedContact = peer;
+            _selectedConversationPeerId = peer.id;
             _activeDirectChatPeerId = active == null ? null : peer.id;
           });
           final model = active?.chatModel ?? gFFI.chatModel;
@@ -1093,6 +1148,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         setState(() {
           _activeDirectChatPeerId = peerId;
           _selectedContact = contact;
+          _selectedConversationPeerId = peerId;
         });
         existing.chatModel.requestChatInputFocus();
       }
@@ -1115,6 +1171,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         setState(() {
           _activeDirectChatPeerId = null;
           _selectedContact = contact;
+          _selectedConversationPeerId = peerId;
         });
         gFFI.chatModel.requestChatInputFocus();
       }
@@ -1136,6 +1193,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       setState(() {
         _activeDirectChatPeerId = peerId;
         _selectedContact = contact;
+        _selectedConversationPeerId = peerId;
       });
     }
     if (!activate) return;

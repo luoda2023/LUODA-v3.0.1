@@ -26,8 +26,14 @@ void main() {
   final settingsSource = File(
     'lib/desktop/pages/desktop_setting_page.dart',
   ).readAsStringSync();
+  final settingsGeneralSource = File(
+    'lib/desktop/pages/desktop_setting_general.part.dart',
+  ).readAsStringSync();
   final remoteToolbarSource = File(
     'lib/desktop/widgets/remote_toolbar.dart',
+  ).readAsStringSync();
+  final desktopRailSource = File(
+    'lib/desktop/widgets/desktop_primary_rail.dart',
   ).readAsStringSync();
   final modelSource = File(
     'lib/models/model.dart',
@@ -150,6 +156,43 @@ void main() {
     expect(homePageSource, contains('!client.disconnected'));
     expect(homePageSource, contains('incoming?.id ?? ChatModel.clientModeID'));
     expect(homePageSource, contains('active == null && incoming == null'));
+  });
+
+  test('desktop contact list includes every paired direct contact', () {
+    expect(homePageSource, contains('_buildPairedContactItem'));
+    expect(
+      homePageSource,
+      contains('standalonePairings.length + peers.length'),
+    );
+    expect(homePageSource, isNot(contains('pairings.take(3)')));
+  });
+
+  test('desktop bottom rail opens the phone pairing QR code', () {
+    expect(desktopRailSource, contains('onPairPhone'));
+    expect(desktopRailSource, contains('Icons.phone_android_rounded'));
+    expect(
+      homePageSource,
+      contains('onPairPhone: () => _showPairingQrDialog(context)'),
+    );
+  });
+
+  test('desktop rail background is local, configurable, and readable', () {
+    expect(
+      desktopRailSource,
+      contains("'desktop-rail-background-image-v1'"),
+    );
+    expect(desktopRailSource, contains('desktopRailBackgroundRevision'));
+    expect(desktopRailSource, contains('MemoryImage('));
+    expect(desktopRailSource, contains('Color(0x80000000)'));
+    expect(settingsGeneralSource, contains('FileType.image'));
+    expect(settingsGeneralSource, contains('img.bakeOrientation'));
+    expect(settingsGeneralSource, contains('img.copyResize'));
+    expect(settingsGeneralSource, contains('img.encodeJpg'));
+    expect(settingsGeneralSource, contains('bind.mainSetLocalOption('));
+    expect(
+      settingsGeneralSource,
+      contains('desktopRailBackgroundRevision.value++'),
+    );
   });
 
   test('settings keep every category while allowing advanced grouping', () {

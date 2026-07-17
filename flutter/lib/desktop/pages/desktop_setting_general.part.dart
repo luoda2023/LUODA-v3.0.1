@@ -1,4 +1,61 @@
-﻿part of 'desktop_setting_page.dart';
+part of 'desktop_setting_page.dart';
+
+const int _kMaxRailBackgroundInputBytes = 12 * 1024 * 1024;
+const int _kMaxRailBackgroundStoredBytes = 2 * 1024 * 1024;
+const int _kRailBackgroundLongEdge = 1600;
+
+Uint8List? _prepareDesktopRailBackground(Uint8List bytes) {
+  final source = img.decodeImage(bytes);
+  if (source == null) return null;
+
+  var image = img.bakeOrientation(source);
+  if (image.width > _kRailBackgroundLongEdge ||
+      image.height > _kRailBackgroundLongEdge) {
+    image = image.width >= image.height
+        ? img.copyResize(
+            image,
+            width: _kRailBackgroundLongEdge,
+            interpolation: img.Interpolation.cubic,
+          )
+        : img.copyResize(
+            image,
+            height: _kRailBackgroundLongEdge,
+            interpolation: img.Interpolation.cubic,
+          );
+  }
+  var encoded = img.encodeJpg(image, quality: 82);
+  if (encoded.length > _kMaxRailBackgroundStoredBytes &&
+      (image.width > 1200 || image.height > 1200)) {
+    image = image.width >= image.height
+        ? img.copyResize(
+            image,
+            width: 1200,
+            interpolation: img.Interpolation.cubic,
+          )
+        : img.copyResize(
+            image,
+            height: 1200,
+            interpolation: img.Interpolation.cubic,
+          );
+    encoded = img.encodeJpg(image, quality: 72);
+  }
+  if (encoded.length > _kMaxRailBackgroundStoredBytes &&
+      (image.width > 900 || image.height > 900)) {
+    image = image.width >= image.height
+        ? img.copyResize(
+            image,
+            width: 900,
+            interpolation: img.Interpolation.cubic,
+          )
+        : img.copyResize(
+            image,
+            height: 900,
+            interpolation: img.Interpolation.cubic,
+          );
+    encoded = img.encodeJpg(image, quality: 64);
+  }
+  return encoded;
+}
 
 class _General extends StatefulWidget {
   const _General({Key? key}) : super(key: key);
@@ -6,6 +63,7 @@ class _General extends StatefulWidget {
   @override
   State<_General> createState() => _GeneralState();
 }
+
 class _GeneralState extends State<_General> {
   final RxBool serviceStop = isWeb
       ? RxBool(false)
@@ -23,6 +81,7 @@ class _GeneralState extends State<_General> {
       children: [
         if (!isWeb) service(),
         theme(),
+        railBackground(),
         language(),
         if (!isWeb) audio(context),
         if (!isWeb) record(context),
@@ -194,6 +253,245 @@ class _GeneralState extends State<_General> {
           },
         ),
       ],
+    );
+  }
+
+  Widget railBackground() {
+    final value = bind.mainGetLocalOption(key: kDesktopRailBackgroundOption);
+    final backgroundBytes = decodeDesktopRailBackground(value);
+    final hasBackground = backgroundBytes != null;
+    final theme = Theme.of(context);
+
+    Widget details() => Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(
+              translate(
+                hasBackground ? 'Custom background' : 'Default background',
+              ),
+              style: theme.textTheme.bodyLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              translate('Stored only on this device'),
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
+                OutlinedButton.icon(
+                  onPressed: _chooseRailBackground,
+                  icon: const Icon(Icons.image_outlined, size: 19),
+                  label: Text(
+                    translate(hasBackground ? 'Change' : 'Choose image'),
+                  ),
+                ),
+                if (hasBackground)
+                  TextButton.icon(
+                    onPressed: _clearRailBackground,
+                    icon: const Icon(Icons.restart_alt_rounded, size: 19),
+                    label: Text(translate('Clear')),
+                  ),
+              ],
+            ),
+          ],
+        );
+
+    return _Card(
+      title: 'Sidebar background',
+      description: 'sidebar_background_tip',
+      children: <Widget>[
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final preview = _railBackgroundPreview(backgroundBytes);
+            if (constraints.maxWidth < 480) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  preview,
+                  const SizedBox(height: 16),
+                  details(),
+                ],
+              );
+            }
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: <Widget>[
+                preview,
+                const SizedBox(width: 20),
+                Expanded(child: details()),
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _railBackgroundPreview(Uint8List? backgroundBytes) {
+    final hasBackground = backgroundBytes != null;
+    return Container(
+      width: DesktopPrimaryRail.width,
+      height: 156,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: const Color(0xFFD9D9E1),
+        gradient: hasBackground
+            ? null
+            : const LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: <Color>[
+                  Color(0xFFF0D1D2),
+                  Color(0xFFE7E6EA),
+                  Color(0xFFD9D9E1),
+                ],
+              ),
+        border: Border.all(color: Theme.of(context).dividerColor),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Stack(
+        children: <Widget>[
+          if (hasBackground)
+            Positioned.fill(
+              child: Image.memory(
+                backgroundBytes!,
+                fit: BoxFit.cover,
+                filterQuality: FilterQuality.medium,
+                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+              ),
+            ),
+          if (hasBackground)
+            const Positioned.fill(
+              child: ColoredBox(color: Color(0x80000000)),
+            ),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            child: Column(
+              children: <Widget>[
+                Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primary,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Icon(
+                    Icons.person_rounded,
+                    color: Colors.white,
+                    size: 19,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  width: 34,
+                  height: 32,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: hasBackground
+                        ? Colors.white.withOpacity(0.94)
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Icon(
+                    Icons.chat_bubble_rounded,
+                    color: hasBackground
+                        ? kDesktopRailSelectedForeground
+                        : Theme.of(context).colorScheme.primary,
+                    size: 19,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Icon(
+                  Icons.contacts_rounded,
+                  color: hasBackground
+                      ? Colors.white.withOpacity(0.88)
+                      : Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withOpacity(0.58),
+                  size: 19,
+                ),
+                const Spacer(),
+                Icon(
+                  Icons.settings_rounded,
+                  color: hasBackground
+                      ? Colors.white.withOpacity(0.88)
+                      : Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withOpacity(0.58),
+                  size: 19,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _chooseRailBackground() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      withData: true,
+    );
+    final file = result?.files.single;
+    Uint8List? bytes = file?.bytes;
+    if (bytes == null && file?.path != null) {
+      bytes = await File(file!.path!).readAsBytes();
+    }
+    if (bytes == null) return;
+    if (bytes.length > _kMaxRailBackgroundInputBytes) {
+      _showRailBackgroundMessage('background_image_too_large_tip');
+      return;
+    }
+
+    Uint8List? prepared;
+    try {
+      prepared = await compute(_prepareDesktopRailBackground, bytes);
+    } catch (error) {
+      debugPrint('Failed to prepare rail background: $error');
+    }
+    if (!mounted) return;
+    if (prepared == null) {
+      _showRailBackgroundMessage('invalid_background_image_tip');
+      return;
+    }
+    if (prepared.length > _kMaxRailBackgroundStoredBytes) {
+      _showRailBackgroundMessage('background_image_too_large_tip');
+      return;
+    }
+
+    await bind.mainSetLocalOption(
+      key: kDesktopRailBackgroundOption,
+      value: 'data:image/jpeg;base64,${base64Encode(prepared)}',
+    );
+    if (!mounted) return;
+    desktopRailBackgroundRevision.value++;
+    setState(() {});
+  }
+
+  Future<void> _clearRailBackground() async {
+    await bind.mainSetLocalOption(
+      key: kDesktopRailBackgroundOption,
+      value: '',
+    );
+    if (!mounted) return;
+    desktopRailBackgroundRevision.value++;
+    setState(() {});
+  }
+
+  void _showRailBackgroundMessage(String key) {
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.removeCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(content: Text(translate(key))),
     );
   }
 
