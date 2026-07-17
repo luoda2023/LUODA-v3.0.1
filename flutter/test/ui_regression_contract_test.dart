@@ -735,6 +735,10 @@ void main() {
       clientWorkflowSource,
       contains('Smoke test LDesk client identity panel'),
     );
+    expect(
+      clientWorkflowSource,
+      contains('Normalize Windows resource encoding'),
+    );
   });
 
   test('Android always-on chat uses a dedicated messaging service', () {
