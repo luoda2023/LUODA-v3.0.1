@@ -120,6 +120,9 @@ void main() {
   final clientWorkflowSource = File(
     '../.github/workflows/build-client-exe.yml',
   ).readAsStringSync();
+  final msiWorkflowSource = File(
+    '../.github/workflows/build-msi.yml',
+  ).readAsStringSync();
   final cargoSource = File('../Cargo.toml').readAsStringSync();
   final peerModelSource = File(
     'lib/models/peer_model.dart',
@@ -750,6 +753,15 @@ void main() {
         .split('Stream<EventToUI> sessionStart')[0];
     expect(sessionAdd, contains('required bool isChat'));
     expect(sessionAdd, contains("'isChat': isChat"));
+  });
+
+  test('MSI normalizes Windows resources before Flutter build', () {
+    final normalization =
+        msiWorkflowSource.indexOf('Normalize Windows resource encoding');
+    final flutterBuild =
+        msiWorkflowSource.indexOf('Build Flutter Windows');
+    expect(normalization, greaterThan(0));
+    expect(flutterBuild, greaterThan(normalization));
   });
 
   test('Android always-on chat uses a dedicated messaging service', () {

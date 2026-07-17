@@ -137,6 +137,17 @@ jobs:
           SODIUM_LIB_DIR: C:\\\\vcpkg\\\\installed\\\\x64-windows-static\\\\lib
           CXXFLAGS: -include cstdint
 
+      - name: Normalize Windows resource encoding
+        shell: pwsh
+        run: |
+          $path = 'flutter/windows/runner/Runner.rc'
+          $content = [IO.File]::ReadAllText($path, [Text.Encoding]::Unicode)
+          [IO.File]::WriteAllText(
+            $path,
+            $content,
+            [Text.UTF8Encoding]::new($false)
+          )
+
       - name: Build Flutter Windows
         timeout-minutes: 15
         run: |
@@ -254,7 +265,6 @@ jobs:
         with:
           name: runtime-logs-msi
           path: .auto_build_logs/
-
 
 
 
