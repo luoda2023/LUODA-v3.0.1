@@ -133,96 +133,109 @@ class _ConnectionTabPageState extends State<ConnectionTabPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final isDark = theme.brightness == Brightness.dark;
-    final tabCanvas = isDark ? MyTheme.canvasDark : MyTheme.canvasLight;
-    final tabSurface = isDark ? MyTheme.surfaceDark : MyTheme.surfaceLight;
-    final child = Scaffold(
-      backgroundColor: colorScheme.background,
-      body: DesktopTab(
-        controller: tabController,
-        onWindowCloseButton: handleWindowCloseButton,
-        tail: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _RelativeMouseModeHint(tabController: tabController),
-            const AddButton(),
-          ],
-        ),
-        selectedBorderColor: colorScheme.primary,
-        selectedTabBackgroundColor: tabSurface,
-        unSelectedTabBackgroundColor: tabCanvas,
-        pageViewBuilder: (pageView) => pageView,
-        labelGetter: DesktopTab.tablabelGetter,
-        tabBuilder: (key, icon, label, themeConf) => Obx(() {
-          final connectionType = ConnectionTypeState.find(key);
-          if (!connectionType.isValid()) {
-            return Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                icon,
-                label,
-              ],
-            );
-          } else {
-            bool secure =
-                connectionType.secure.value == ConnectionType.strSecure;
-            bool direct =
-                connectionType.direct.value == ConnectionType.strDirect;
-            String msgConn = getConnectionText(
-                secure, direct, connectionType.stream_type.value);
-            var msgFingerprint = '${translate('Fingerprint')}:\n';
-            var fingerprint = FingerprintState.find(key).value;
-            if (fingerprint.isEmpty) {
-              fingerprint = 'N/A';
-            }
-            if (fingerprint.length > 5 * 8) {
-              var first = fingerprint.substring(0, 39);
-              var second = fingerprint.substring(40);
-              msgFingerprint += '$first\n$second';
+    const chrome = Color(0xFF20232A);
+    const chromeRaised = Color(0xFF282C34);
+    final remoteTheme = theme.copyWith(
+      brightness: Brightness.dark,
+      scaffoldBackgroundColor: const Color(0xFF11151C),
+      colorScheme: const ColorScheme.dark(
+        primary: Color(0xFF07C160),
+        surface: chromeRaised,
+        background: Color(0xFF11151C),
+        onSurface: Color(0xFFF2F3F5),
+      ),
+      dividerColor: const Color(0xFF383D47),
+    );
+    final child = Theme(
+      data: remoteTheme,
+      child: Scaffold(
+        backgroundColor: remoteTheme.colorScheme.background,
+        body: DesktopTab(
+          controller: tabController,
+          onWindowCloseButton: handleWindowCloseButton,
+          topBarHeight: 42,
+          topBar: _RemoteWindowTitleBar(
+            controller: tabController,
+            windowId: windowId(),
+            onCloseWindow: _closeRemoteWindow,
+            menuBuilder: _tabMenuBuilder,
+          ),
+          selectedBorderColor: remoteTheme.colorScheme.primary,
+          selectedTabBackgroundColor: chromeRaised,
+          unSelectedTabBackgroundColor: chrome,
+          pageViewBuilder: (pageView) => pageView,
+          labelGetter: DesktopTab.tablabelGetter,
+          tabBuilder: (key, icon, label, themeConf) => Obx(() {
+            final connectionType = ConnectionTypeState.find(key);
+            if (!connectionType.isValid()) {
+              return Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  icon,
+                  label,
+                ],
+              );
             } else {
-              msgFingerprint += fingerprint;
+              bool secure =
+                  connectionType.secure.value == ConnectionType.strSecure;
+              bool direct =
+                  connectionType.direct.value == ConnectionType.strDirect;
+              String msgConn = getConnectionText(
+                  secure, direct, connectionType.stream_type.value);
+              var msgFingerprint = '${translate('Fingerprint')}:\n';
+              var fingerprint = FingerprintState.find(key).value;
+              if (fingerprint.isEmpty) {
+                fingerprint = 'N/A';
+              }
+              if (fingerprint.length > 5 * 8) {
+                var first = fingerprint.substring(0, 39);
+                var second = fingerprint.substring(40);
+                msgFingerprint += '$first\n$second';
+              } else {
+                msgFingerprint += fingerprint;
+              }
+
+              final tab = Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  icon,
+                  Tooltip(
+                    message: '$msgConn\n$msgFingerprint',
+                    child: SvgPicture.asset(
+                      'assets/${connectionType.secure.value}${connectionType.direct.value}.svg',
+                      width: themeConf.iconSize,
+                      height: themeConf.iconSize,
+                    ).paddingOnly(right: 5),
+                  ),
+                  label,
+                  unreadMessageCountBuilder(UnreadChatCountState.find(key))
+                      .marginOnly(left: 4),
+                ],
+              );
+
+              return Listener(
+                onPointerDown: (e) {
+                  if (e.kind != ui.PointerDeviceKind.mouse) {
+                    return;
+                  }
+                  final remotePage = tabController.state.value.tabs
+                      .firstWhere((tab) => tab.key == key)
+                      .page as RemotePage;
+                  if (remotePage.ffi.ffiModel.pi.isSet.isTrue &&
+                      e.buttons == 2) {
+                    showRightMenu(
+                      (CancelFunc cancelFunc) {
+                        return _tabMenuBuilder(key, cancelFunc);
+                      },
+                      target: e.position,
+                    );
+                  }
+                },
+                child: tab,
+              );
             }
-
-            final tab = Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                icon,
-                Tooltip(
-                  message: '$msgConn\n$msgFingerprint',
-                  child: SvgPicture.asset(
-                    'assets/${connectionType.secure.value}${connectionType.direct.value}.svg',
-                    width: themeConf.iconSize,
-                    height: themeConf.iconSize,
-                  ).paddingOnly(right: 5),
-                ),
-                label,
-                unreadMessageCountBuilder(UnreadChatCountState.find(key))
-                    .marginOnly(left: 4),
-              ],
-            );
-
-            return Listener(
-              onPointerDown: (e) {
-                if (e.kind != ui.PointerDeviceKind.mouse) {
-                  return;
-                }
-                final remotePage = tabController.state.value.tabs
-                    .firstWhere((tab) => tab.key == key)
-                    .page as RemotePage;
-                if (remotePage.ffi.ffiModel.pi.isSet.isTrue && e.buttons == 2) {
-                  showRightMenu(
-                    (CancelFunc cancelFunc) {
-                      return _tabMenuBuilder(key, cancelFunc);
-                    },
-                    target: e.position,
-                  );
-                }
-              },
-              child: tab,
-            );
-          }
-        }),
+          }),
+        ),
       ),
     );
     final tabWidget = isLinux
@@ -248,6 +261,11 @@ class _ConnectionTabPageState extends State<ConnectionTabPage> {
               enableResizeEdges: subWindowManagerEnableResizeEdges,
               windowId: stateGlobal.windowId,
             ));
+  }
+
+  Future<void> _closeRemoteWindow() async {
+    if (!await handleWindowCloseButton()) return;
+    await WindowController.fromWindowId(windowId()).close();
   }
 
   // Note: Some dup code to ../widgets/remote_toolbar
@@ -566,6 +584,310 @@ class _ConnectionTabPageState extends State<ConnectionTabPage> {
     }
     _update_remote_count();
     return returnValue;
+  }
+}
+
+class _RemoteWindowTitleBar extends StatefulWidget {
+  final DesktopTabController controller;
+  final int windowId;
+  final Future<void> Function() onCloseWindow;
+  final Widget Function(String, CancelFunc) menuBuilder;
+
+  const _RemoteWindowTitleBar({
+    required this.controller,
+    required this.windowId,
+    required this.onCloseWindow,
+    required this.menuBuilder,
+  });
+
+  @override
+  State<_RemoteWindowTitleBar> createState() => _RemoteWindowTitleBarState();
+}
+
+class _RemoteWindowTitleBarState extends State<_RemoteWindowTitleBar> {
+  bool _retryScheduled = false;
+
+  void _retryAfterRemotePageMounts() {
+    if (_retryScheduled) return;
+    _retryScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _retryScheduled = false;
+      if (mounted) setState(() {});
+    });
+  }
+
+  FFI? _selectedFfi(RemotePage page) {
+    try {
+      return page.ffi;
+    } catch (_) {
+      _retryAfterRemotePageMounts();
+      return null;
+    }
+  }
+
+  String _resolution(FFI ffi) {
+    final pi = ffi.ffiModel.pi;
+    final display = pi.currentDisplay;
+    if (display == kAllDisplayValue) return translate('Select Monitor');
+    if (display < 0 || display >= pi.displays.length) return '-';
+    final current = pi.displays[display];
+    return '${current.width}x${current.height}';
+  }
+
+  Future<void> _returnToConversation(String peerId) async {
+    await luodaWinManager.call(
+      WindowType.Main,
+      kWindowEventOpenDirectChat,
+      {'id': peerId},
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Color(0xFF20232A),
+        border: Border(
+          bottom: BorderSide(color: Color(0xFF343944), width: 1),
+        ),
+      ),
+      child: Obx(() {
+        final state = widget.controller.state.value;
+        if (state.tabs.isEmpty || state.selected >= state.tabs.length) {
+          return const SizedBox.shrink();
+        }
+        final tab = state.selectedTabInfo;
+        final peerId = tab.key;
+        final remotePage = tab.page as RemotePage;
+        final ffi = _selectedFfi(remotePage);
+        final title = DesktopTab.tablabelGetter(peerId).value;
+
+        return Row(
+          children: [
+            if (isMacOS && !kUseCompatibleUiMode) const SizedBox(width: 78),
+            Expanded(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onPanStart: (_) =>
+                    WindowController.fromWindowId(widget.windowId)
+                        .startDragging(),
+                onDoubleTap: () => toggleMaximize(false),
+                child: Row(
+                  children: [
+                    const SizedBox(width: 12),
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: ffi?.ffiModel.pi.isSet.isTrue == true
+                            ? const Color(0xFF07C160)
+                            : const Color(0xFFF0A020),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 9),
+                    Flexible(
+                      child: Text(
+                        '${translate('Remote Desktop')} - $title',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFFF2F3F5),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    if (ffi != null && MediaQuery.sizeOf(context).width >= 900)
+                      AnimatedBuilder(
+                        animation: Listenable.merge([
+                          ffi.ffiModel,
+                          ffi.qualityMonitorModel,
+                        ]),
+                        builder: (context, _) {
+                          final data = ffi.qualityMonitorModel.data;
+                          final delay =
+                              data.delay == null ? '-' : '${data.delay}ms';
+                          return Row(
+                            children: [
+                              const SizedBox(width: 22),
+                              _RemoteTelemetryText(
+                                label: translate('Delay'),
+                                value: delay,
+                              ),
+                              _RemoteTelemetryText(
+                                label: translate('Speed'),
+                                value: data.speed ?? '-',
+                              ),
+                              _RemoteTelemetryText(
+                                label: translate('Display'),
+                                value: _resolution(ffi),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            _RelativeMouseModeHint(tabController: widget.controller),
+            if (state.tabs.length > 1)
+              PopupMenuButton<String>(
+                tooltip: translate('Sessions'),
+                onSelected: (id) => widget.controller.jumpToByKey(id),
+                color: const Color(0xFF282C34),
+                itemBuilder: (context) => state.tabs
+                    .map((item) => PopupMenuItem<String>(
+                          value: item.key,
+                          child: Text(
+                            DesktopTab.tablabelGetter(item.key).value,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ))
+                    .toList(),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.layers_outlined, size: 16),
+                      const SizedBox(width: 5),
+                      Text('${state.tabs.length}'),
+                    ],
+                  ),
+                ),
+              ),
+            _RemoteTitleAction(
+              tooltip: 'Back to chat',
+              icon: Icons.chat_bubble_outline_rounded,
+              onTap: () => _returnToConversation(peerId),
+            ),
+            _RemoteTitleAction(
+              tooltip: 'New Connection',
+              icon: Icons.add_rounded,
+              onTap: () => luodaWinManager.call(
+                WindowType.Main,
+                kWindowMainWindowOnTop,
+                '',
+              ),
+            ),
+            _RemoteTitleAction(
+              tooltip: 'More',
+              icon: Icons.more_horiz_rounded,
+              onTapDown: (details) => showRightMenu(
+                (cancel) => widget.menuBuilder(peerId, cancel),
+                target: details.globalPosition,
+              ),
+            ),
+            if (!isMacOS && !kUseCompatibleUiMode) ...[
+              _RemoteTitleAction(
+                tooltip: 'Minimize',
+                icon: Icons.remove_rounded,
+                onTap: () =>
+                    WindowController.fromWindowId(widget.windowId).minimize(),
+              ),
+              Obx(() => _RemoteTitleAction(
+                    tooltip:
+                        stateGlobal.isMaximized.isTrue ? 'Restore' : 'Maximize',
+                    icon: stateGlobal.isMaximized.isTrue
+                        ? Icons.filter_none_rounded
+                        : Icons.crop_square_rounded,
+                    onTap: () => toggleMaximize(false),
+                  )),
+              _RemoteTitleAction(
+                tooltip: 'Close',
+                icon: Icons.close_rounded,
+                isClose: true,
+                onTap: widget.onCloseWindow,
+              ),
+            ],
+          ],
+        );
+      }),
+    );
+  }
+}
+
+class _RemoteTelemetryText extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _RemoteTelemetryText({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 14),
+      child: Text.rich(
+        TextSpan(
+          text: '$label ',
+          style: const TextStyle(color: Color(0xFF9299A6), fontSize: 11),
+          children: [
+            TextSpan(
+              text: value,
+              style: const TextStyle(
+                color: Color(0xFFDDE1E7),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+        maxLines: 1,
+      ),
+    );
+  }
+}
+
+class _RemoteTitleAction extends StatefulWidget {
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback? onTap;
+  final GestureTapDownCallback? onTapDown;
+  final bool isClose;
+
+  const _RemoteTitleAction({
+    required this.tooltip,
+    required this.icon,
+    this.onTap,
+    this.onTapDown,
+    this.isClose = false,
+  });
+
+  @override
+  State<_RemoteTitleAction> createState() => _RemoteTitleActionState();
+}
+
+class _RemoteTitleActionState extends State<_RemoteTitleAction> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final background = !_hovered
+        ? Colors.transparent
+        : widget.isClose
+            ? const Color(0xFFC42B1C)
+            : const Color(0xFF343944);
+    return Tooltip(
+      message: translate(widget.tooltip),
+      child: InkWell(
+        onHover: (value) => setState(() => _hovered = value),
+        onTap: widget.onTap,
+        onTapDown: widget.onTapDown,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          width: 42,
+          height: 41,
+          alignment: Alignment.center,
+          color: background,
+          child: Icon(
+            widget.icon,
+            size: 17,
+            color: const Color(0xFFDDE1E7),
+          ),
+        ),
+      ),
+    );
   }
 }
 

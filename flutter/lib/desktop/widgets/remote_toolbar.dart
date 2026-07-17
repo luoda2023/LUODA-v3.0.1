@@ -126,6 +126,8 @@ class _ToolbarTheme {
   static const double dividerHeight = 12.0;
 
   static const double buttonSize = 40;
+  static const double labeledButtonWidth = 60;
+  static const double labeledButtonHeight = 54;
   static const double iconSize = 20;
   static const double buttonHMargin = 2;
   static const double buttonVMargin = 2;
@@ -233,6 +235,7 @@ class _ToolbarTheme {
     );
   }
 }
+
 typedef DismissFunc = void Function();
 
 class RemoteMenuEntry {
@@ -284,6 +287,9 @@ class RemoteMenuEntry {
 }
 
 class RemoteToolbar extends StatefulWidget {
+  static const double expandedHeight = 58;
+  static const double collapsedHeight = 40;
+
   final String id;
   final FFI ffi;
   final ToolbarState state;
@@ -433,6 +439,7 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
     toolbarItems.add(_ChatMenu(id: widget.id, ffi: widget.ffi));
     if (widget.ffi.connType == ConnType.defaultConn) {
       toolbarItems.add(_FileTransferMenu(id: widget.id));
+      toolbarItems.add(_TerminalMenu(id: widget.id));
     }
     if (!isWebDesktop) {
       toolbarItems.add(_MobileActionMenu(ffi: widget.ffi));
@@ -452,6 +459,8 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
 
     toolbarItems
         .add(_ControlMenu(id: widget.id, ffi: widget.ffi, state: widget.state));
+    toolbarItems.add(_ClipboardMenu(ffi: widget.ffi));
+    toolbarItems.add(_ScreenshotMenu(ffi: widget.ffi));
     toolbarItems.add(_DisplayMenu(
       id: widget.id,
       ffi: widget.ffi,
@@ -467,35 +476,28 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
     }
     if (!isWeb) toolbarItems.add(_RecordMenu());
     toolbarItems.add(_CloseMenu(id: widget.id, ffi: widget.ffi));
-    const toolbarBorderRadius =
-        BorderRadius.all(Radius.circular(_ToolbarTheme.iconRadius));
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Material(
-          elevation: _ToolbarTheme.elevation,
-          shadowColor: Theme.of(context).shadowColor.withOpacity(0.18),
-          borderRadius: toolbarBorderRadius,
-          color: _ToolbarTheme.surfaceColor(context),
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Theme(
-              data: themeData(),
-              child: _ToolbarTheme.borderWrapper(
-                  context,
-                  Row(
-                    children: [
-                      SizedBox(width: _ToolbarTheme.buttonHMargin * 2),
-                      ...toolbarItems,
-                      SizedBox(width: _ToolbarTheme.buttonHMargin * 2)
-                    ],
-                  ),
-                  toolbarBorderRadius),
-            ),
+    return Container(
+      width: double.infinity,
+      height: RemoteToolbar.expandedHeight,
+      decoration: BoxDecoration(
+        color: _ToolbarTheme.surfaceColor(context),
+        border: Border(
+          bottom: BorderSide(color: _ToolbarTheme.borderColor(context)),
+        ),
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Theme(
+          data: themeData(),
+          child: Row(
+            children: [
+              const SizedBox(width: 6),
+              ...toolbarItems,
+              const SizedBox(width: 6),
+            ],
           ),
         ),
-        _buildDraggableCollapse(context),
-      ],
+      ),
     );
   }
 
@@ -540,6 +542,7 @@ class _PinMenu extends StatelessWidget {
       () => _IconMenuButton(
         assetName: state.pin ? "assets/pinned.svg" : "assets/unpinned.svg",
         tooltip: state.pin ? 'Unpin Toolbar' : 'Pin Toolbar',
+        label: 'Toolbar',
         onPressed: state.switchPin,
         color:
             state.pin ? _ToolbarTheme.blueColor : _ToolbarTheme.inactiveColor,
@@ -560,7 +563,128 @@ class _FileTransferMenu extends StatelessWidget {
     return _IconMenuButton(
       assetName: 'assets/file_transfer.svg',
       tooltip: 'File Transfer',
+      label: 'File',
       onPressed: () => connect(context, id, isFileTransfer: true),
+      color: _ToolbarTheme.blueColor,
+      hoverColor: _ToolbarTheme.hoverBlueColor,
+    );
+  }
+}
+
+class _TerminalMenu extends StatelessWidget {
+  final String id;
+  const _TerminalMenu({Key? key, required this.id}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return _IconMenuButton(
+      icon: const Icon(Icons.terminal_rounded),
+      tooltip: 'Terminal',
+      onPressed: () => connect(context, id, isTerminal: true),
+      color: _ToolbarTheme.blueColor,
+      hoverColor: _ToolbarTheme.hoverBlueColor,
+    );
+  }
+}
+
+class _ClipboardMenu extends StatefulWidget {
+  final FFI ffi;
+  const _ClipboardMenu({Key? key, required this.ffi}) : super(key: key);
+
+  @override
+  State<_ClipboardMenu> createState() => _ClipboardMenuState();
+}
+
+class _ClipboardMenuState extends State<_ClipboardMenu> {
+  static const _option = 'disable-clipboard';
+
+  @override
+  Widget build(BuildContext context) {
+    final ffiModel = Provider.of<FfiModel>(context);
+    final visible = widget.ffi.connType == ConnType.defaultConn &&
+        ffiModel.keyboard &&
+        ffiModel.permissions['clipboard'] != false;
+    if (!visible) return const Offstage();
+
+    final disabled = ffiModel.viewOnly ||
+        bind.sessionGetToggleOptionSync(
+          sessionId: widget.ffi.sessionId,
+          arg: _option,
+        );
+    return _IconMenuButton(
+      icon: const Icon(Icons.content_paste_rounded),
+      tooltip: disabled ? 'Enable clipboard' : 'Disable clipboard',
+      label: 'Clipboard',
+      onPressed: ffiModel.viewOnly
+          ? null
+          : () {
+              bind.sessionToggleOption(
+                sessionId: widget.ffi.sessionId,
+                value: _option,
+              );
+              setState(() {});
+            },
+      color: disabled ? _ToolbarTheme.inactiveColor : _ToolbarTheme.blueColor,
+      hoverColor: disabled
+          ? _ToolbarTheme.hoverInactiveColor
+          : _ToolbarTheme.hoverBlueColor,
+    );
+  }
+}
+
+class _ScreenshotMenu extends StatefulWidget {
+  final FFI ffi;
+  const _ScreenshotMenu({Key? key, required this.ffi}) : super(key: key);
+
+  @override
+  State<_ScreenshotMenu> createState() => _ScreenshotMenuState();
+}
+
+class _ScreenshotMenuState extends State<_ScreenshotMenu> {
+  @override
+  Widget build(BuildContext context) {
+    final ffiModel = Provider.of<FfiModel>(context);
+    final supported = bind.sessionGetCommonSync(
+          sessionId: widget.ffi.sessionId,
+          key: 'is_screenshot_supported',
+          param: '',
+        ) ==
+        'true';
+    if (!supported) return const Offstage();
+    final busy = ffiModel.timerScreenshot != null;
+    return _IconMenuButton(
+      icon: const Icon(Icons.photo_camera_outlined),
+      tooltip: busy ? 'Taking screenshot' : 'Take screenshot',
+      label: 'Screenshot',
+      onPressed: busy
+          ? null
+          : () {
+              final display = ffiModel.pi.currentDisplay;
+              if (display == kAllDisplayValue) {
+                msgBox(
+                  widget.ffi.sessionId,
+                  'custom-nook-nocancel-hasclose-info',
+                  'Take screenshot',
+                  'screenshot-merged-screen-not-supported-tip',
+                  '',
+                  widget.ffi.dialogManager,
+                );
+                return;
+              }
+              bind.sessionTakeScreenshot(
+                sessionId: widget.ffi.sessionId,
+                display: display,
+              );
+              setState(() {
+                ffiModel.timerScreenshot = Timer(
+                  const Duration(seconds: 30),
+                  () {
+                    ffiModel.timerScreenshot = null;
+                    if (mounted) setState(() {});
+                  },
+                );
+              });
+            },
       color: _ToolbarTheme.blueColor,
       hoverColor: _ToolbarTheme.hoverBlueColor,
     );
@@ -577,6 +701,7 @@ class _MobileActionMenu extends StatelessWidget {
     return Obx(() => _IconMenuButton(
           assetName: 'assets/actions_mobile.svg',
           tooltip: 'Mobile Actions',
+          label: 'Actions',
           onPressed: () => ffi.dialogManager.setMobileActionsOverlayVisible(
               !ffi.dialogManager.mobileActionsOverlayVisible.value),
           color: ffi.dialogManager.mobileActionsOverlayVisible.isTrue
@@ -617,6 +742,7 @@ class _MonitorMenu extends StatelessWidget {
         globalMonitorsWidget(width, Colors.white, Colors.black38);
     return _IconSubmenuButton(
         tooltip: 'Select Monitor',
+        label: 'Monitor',
         icon: monitorsIcon,
         ffi: ffi,
         width: width.value,
@@ -832,6 +958,7 @@ class _ControlMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     return _IconSubmenuButton(
         tooltip: 'Control Actions',
+        label: 'Control',
         svg: "assets/actions.svg",
         color: _ToolbarTheme.blueColor,
         hoverColor: _ToolbarTheme.hoverBlueColor,
@@ -952,8 +1079,8 @@ class ScreenAdjustor {
   }
 
   _getScreenInfoDesktop() async {
-    final v = await luodaWinManager.call(
-        WindowType.Main, kWindowGetWindowInfo, '');
+    final v =
+        await luodaWinManager.call(WindowType.Main, kWindowGetWindowInfo, '');
     return v.result;
   }
 
@@ -1109,6 +1236,7 @@ class _DisplayMenuState extends State<_DisplayMenu> {
 
     return _IconSubmenuButton(
       tooltip: 'Display Settings',
+      label: 'Display',
       svg: "assets/display.svg",
       ffi: widget.ffi,
       color: _ToolbarTheme.blueColor,
@@ -1858,6 +1986,7 @@ class _KeyboardMenu extends StatelessWidget {
 
     return _IconSubmenuButton(
         tooltip: 'Keyboard Settings',
+        label: 'Keyboard',
         svg: "assets/keyboard_mouse.svg",
         ffi: ffi,
         color: _ToolbarTheme.blueColor,
@@ -2132,16 +2261,17 @@ class _ChatMenuState extends State<_ChatMenu> {
     } else {
       return _IconSubmenuButton(
           tooltip: 'Chat',
+          label: 'Chat',
           key: chatButtonKey,
           svg: 'assets/chat.svg',
           ffi: widget.ffi,
           color: _ToolbarTheme.blueColor,
           hoverColor: _ToolbarTheme.hoverBlueColor,
           menuChildrenGetter: (_) => [
-            textChat(),
-            collaboration(),
-            voiceCall(),
-          ]);
+                textChat(),
+                collaboration(),
+                voiceCall(),
+              ]);
     }
   }
 
@@ -2149,6 +2279,7 @@ class _ChatMenuState extends State<_ChatMenu> {
     return _IconMenuButton(
       assetName: 'assets/message_24dp_5F6368.svg',
       tooltip: 'Text chat',
+      label: 'Chat',
       key: chatButtonKey,
       onPressed: _textChatOnPressed,
       color: _ToolbarTheme.blueColor,
@@ -2180,7 +2311,10 @@ class _ChatMenuState extends State<_ChatMenu> {
     Offset? initPos;
     if (renderBox != null) {
       final pos = renderBox.localToGlobal(Offset.zero);
-      initPos = Offset(pos.dx, pos.dy + _ToolbarTheme.dividerHeight);
+      initPos = Offset(
+        pos.dx,
+        pos.dy + RemoteToolbar.expandedHeight + 8,
+      );
     }
     widget.ffi.chatModel
         .changeCurrentKey(MessageKey(widget.ffi.id, ChatModel.clientModeID));
@@ -2253,6 +2387,7 @@ class _VoiceCallMenu extends StatelessWidget {
           case VoiceCallStatus.connected:
             return _IconSubmenuButton(
               tooltip: 'Voice call',
+              label: 'Voice call',
               svg: 'assets/voice_call.svg',
               color: _ToolbarTheme.blueColor,
               hoverColor: _ToolbarTheme.hoverBlueColor,
@@ -2292,6 +2427,7 @@ class _RecordMenu extends StatelessWidget {
       tooltip: recordingModel.start
           ? 'Stop session recording'
           : 'Start session recording',
+      label: 'Recording',
       onPressed: () => recordingModel.toggle(),
       color: recordingModel.start
           ? _ToolbarTheme.redColor
@@ -2330,6 +2466,7 @@ class _IconMenuButton extends StatefulWidget {
   final String? assetName;
   final Widget? icon;
   final String tooltip;
+  final String? label;
   final Color color;
   final Color hoverColor;
   final VoidCallback? onPressed;
@@ -2342,6 +2479,7 @@ class _IconMenuButton extends StatefulWidget {
     this.assetName,
     this.icon,
     required this.tooltip,
+    this.label,
     required this.color,
     required this.hoverColor,
     required this.onPressed,
@@ -2376,9 +2514,39 @@ class _IconMenuButtonState extends State<_IconMenuButton> {
             height: _ToolbarTheme.iconSize,
           ),
     );
+    final showLabel = widget.topLevel;
+    final content = showLabel
+        ? Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SizedBox(height: 22, child: Center(child: icon)),
+              const SizedBox(height: 2),
+              SizedBox(
+                width: _ToolbarTheme.labeledButtonWidth - 8,
+                child: Text(
+                  translate(widget.label ?? widget.tooltip),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w500,
+                    height: 1.15,
+                  ),
+                ),
+              ),
+            ],
+          )
+        : icon;
     final button = SizedBox(
-      width: widget.width ?? _ToolbarTheme.buttonSize,
-      height: _ToolbarTheme.buttonSize,
+      width: widget.width ??
+          (showLabel
+              ? _ToolbarTheme.labeledButtonWidth
+              : _ToolbarTheme.buttonSize),
+      height: showLabel
+          ? _ToolbarTheme.labeledButtonHeight
+          : _ToolbarTheme.buttonSize,
       child: MenuItemButton(
         style: _ToolbarTheme.iconButtonStyle(context, widget.hoverColor),
         onHover: (value) => setState(() {
@@ -2387,7 +2555,7 @@ class _IconMenuButtonState extends State<_IconMenuButton> {
         onPressed: widget.onPressed,
         child: Tooltip(
           message: translate(widget.tooltip),
-          child: Center(child: icon),
+          child: Center(child: content),
         ),
       ),
     ).marginSymmetric(
@@ -2400,8 +2568,10 @@ class _IconMenuButtonState extends State<_IconMenuButton> {
     return button;
   }
 }
+
 class _IconSubmenuButton extends StatefulWidget {
   final String tooltip;
+  final String? label;
   final String? svg;
   final Widget? icon;
   final Color color;
@@ -2416,6 +2586,7 @@ class _IconSubmenuButton extends StatefulWidget {
     this.svg,
     this.icon,
     required this.tooltip,
+    this.label,
     required this.color,
     required this.hoverColor,
     required this.menuChildrenGetter,
@@ -2451,9 +2622,34 @@ class _IconSubmenuButtonState extends State<_IconSubmenuButton> {
             height: _ToolbarTheme.iconSize,
           ),
     );
+    final content = Column(
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        SizedBox(height: 22, child: Center(child: icon)),
+        const SizedBox(height: 2),
+        SizedBox(
+          width: _ToolbarTheme.labeledButtonWidth - 8,
+          child: Text(
+            translate(widget.label ?? widget.tooltip),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w500,
+              height: 1.15,
+            ),
+          ),
+        ),
+      ],
+    );
+    final requestedWidth = widget.width ?? _ToolbarTheme.labeledButtonWidth;
     final button = SizedBox(
-      width: widget.width ?? _ToolbarTheme.buttonSize,
-      height: _ToolbarTheme.buttonSize,
+      width: requestedWidth < _ToolbarTheme.labeledButtonWidth
+          ? _ToolbarTheme.labeledButtonWidth
+          : requestedWidth,
+      height: _ToolbarTheme.labeledButtonHeight,
       child: SubmenuButton(
         menuStyle: widget.menuStyle ?? _ToolbarTheme.defaultMenuStyle(context),
         style: _ToolbarTheme.iconButtonStyle(context, widget.hoverColor),
@@ -2466,7 +2662,7 @@ class _IconSubmenuButtonState extends State<_IconSubmenuButton> {
             .toList(),
         child: Tooltip(
           message: translate(widget.tooltip),
-          child: Center(child: icon),
+          child: Center(child: content),
         ),
       ),
     );
@@ -2478,6 +2674,7 @@ class _IconSubmenuButtonState extends State<_IconSubmenuButton> {
     ]);
   }
 }
+
 class _SubmenuButton extends StatelessWidget {
   final List<Widget> menuChildren;
   final Widget? child;
@@ -2709,13 +2906,13 @@ class _DraggableShowHideState extends State<_DraggableShowHide> {
       padding: const MaterialStatePropertyAll(EdgeInsets.zero),
       foregroundColor:
           MaterialStatePropertyAll(Theme.of(context).colorScheme.onSurface),
-      shape: MaterialStateProperty.resolveWith((states) =>
-          RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(_ToolbarTheme.iconRadius),
-            side: states.contains(MaterialState.focused)
-                ? BorderSide(color: Theme.of(context).colorScheme.primary)
-                : BorderSide.none,
-          )),
+      shape:
+          MaterialStateProperty.resolveWith((states) => RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(_ToolbarTheme.iconRadius),
+                side: states.contains(MaterialState.focused)
+                    ? BorderSide(color: Theme.of(context).colorScheme.primary)
+                    : BorderSide.none,
+              )),
     );
     final isFullscreen = stateGlobal.fullscreen;
     const double iconSize = 20;

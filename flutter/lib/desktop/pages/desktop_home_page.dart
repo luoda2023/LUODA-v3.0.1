@@ -3644,6 +3644,12 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         await luodaWinManager.registerActiveWindow(call.arguments["id"]);
       } else if (call.method == kWindowEventHide) {
         await luodaWinManager.unregisterActiveWindow(call.arguments['id']);
+      } else if (call.method == kWindowEventOpenDirectChat) {
+        await windowOnTop(null);
+        final peerId = call.arguments['id']?.toString() ?? '';
+        if (peerId.isNotEmpty) {
+          await _startDirectChat(peerId);
+        }
       } else if (call.method == kWindowConnect) {
         await connectMainDesktop(
           call.arguments['id'],

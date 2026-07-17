@@ -876,5 +876,16 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Local profile only", "\u{4ec5}\u{672c}\u{5730}\u{4e2a}\u{4eba}\u{8d44}\u{6599}"),
         ("LDesk stores the name, avatar, contacts, and pairing data on this device only.", "LDesk \u{4ec5}\u{5728}\u{672c}\u{673a}\u{4fdd}\u{5b58}\u{540d}\u{79f0}\u{3001}\u{5934}\u{50cf}\u{3001}\u{8054}\u{7cfb}\u{4eba}\u{548c}\u{7ed1}\u{5b9a}\u{6570}\u{636e}\u{3002}"),
         ("Scan the PC QR code or enter an IP:port. No rendezvous or relay server is used.", "\u{626b}\u{63cf} PC \u{4e8c}\u{7ef4}\u{7801}\u{6216}\u{8f93}\u{5165} IP:\u{7aef}\u{53e3}\u{3002}\u{4e0d}\u{4f7f}\u{7528}\u{4efb}\u{4f55}\u{4e2d}\u{95f4}\u{6216}\u{4e2d}\u{7ee7}\u{670d}\u{52a1}\u{5668}\u{3002}"),
+        ("Back to chat", "\u{8fd4}\u{56de}\u{5bf9}\u{8bdd}"),
+        ("Clipboard", "\u{526a}\u{8d34}\u{677f}"),
+        ("Screenshot", "\u{622a}\u{56fe}"),
+        ("Sessions", "\u{4f1a}\u{8bdd}"),
+        ("Toolbar", "\u{5de5}\u{5177}\u{680f}"),
+        ("Monitor", "\u{5c4f}\u{5e55}"),
+        ("Control", "\u{63a7}\u{5236}"),
+        ("Keyboard", "\u{952e}\u{76d8}"),
+        ("File", "\u{6587}\u{4ef6}"),
+        ("Actions", "\u{64cd}\u{4f5c}"),
+        ("Terminal", "\u{7ec8}\u{7aef}"),
     ].iter().cloned().collect();
 }

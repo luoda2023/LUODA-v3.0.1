@@ -384,30 +384,51 @@ class _RemotePageState extends State<RemotePage>
     bodyWidget() {
       return Stack(
         children: [
-          Container(
-              color: kColorCanvas,
-              child: RawKeyFocusScope(
-                  focusNode: _rawKeyFocusNode,
-                  onFocusChange: (bool imageFocused) {
-                    debugPrint(
-                        "onFocusChange(window active:${!_isWindowBlur}) $imageFocused");
-                    // See [onWindowBlur].
-                    if (isWindows) {
-                      if (_isWindowBlur) {
-                        imageFocused = false;
-                        Future.delayed(Duration.zero, () {
-                          _rawKeyFocusNode.unfocus();
-                        });
+          Column(
+            children: [
+              Obx(() {
+                final toolbarVisible =
+                    !_ffi.inputModel.relativeMouseMode.value &&
+                        widget.toolbarState.initialized.isTrue &&
+                        widget.toolbarState.hide.isFalse;
+                if (!toolbarVisible) return const SizedBox.shrink();
+                return SizedBox(
+                  height: widget.toolbarState.collapse.isTrue
+                      ? RemoteToolbar.collapsedHeight
+                      : RemoteToolbar.expandedHeight,
+                );
+              }),
+              Expanded(
+                child: Container(
+                  color: const Color(0xFF11151C),
+                  child: RawKeyFocusScope(
+                    focusNode: _rawKeyFocusNode,
+                    onFocusChange: (bool imageFocused) {
+                      debugPrint(
+                          "onFocusChange(window active:${!_isWindowBlur}) $imageFocused");
+                      // See [onWindowBlur].
+                      if (isWindows) {
+                        if (_isWindowBlur) {
+                          imageFocused = false;
+                          Future.delayed(Duration.zero, () {
+                            _rawKeyFocusNode.unfocus();
+                          });
+                        }
+                        if (imageFocused) {
+                          _ffi.inputModel.enterOrLeave(true);
+                        } else {
+                          _ffi.inputModel.enterOrLeave(false);
+                        }
                       }
-                      if (imageFocused) {
-                        _ffi.inputModel.enterOrLeave(true);
-                      } else {
-                        _ffi.inputModel.enterOrLeave(false);
-                      }
-                    }
-                  },
-                  inputModel: _ffi.inputModel,
-                  child: getBodyForDesktop(context))),
+                    },
+                    inputModel: _ffi.inputModel,
+                    child: getBodyForDesktop(context),
+                  ),
+                ),
+              ),
+              _RemoteSessionStatusBar(id: widget.id, ffi: _ffi),
+            ],
+          ),
           Stack(
             children: [
               _ffi.ffiModel.pi.isSet.isTrue &&
@@ -640,6 +661,177 @@ class _RemotePageState extends State<RemotePage>
 
   @override
   bool get wantKeepAlive => true;
+}
+
+class _RemoteSessionStatusBar extends StatefulWidget {
+  final String id;
+  final FFI ffi;
+
+  const _RemoteSessionStatusBar({required this.id, required this.ffi});
+
+  @override
+  State<_RemoteSessionStatusBar> createState() =>
+      _RemoteSessionStatusBarState();
+}
+
+class _RemoteSessionStatusBarState extends State<_RemoteSessionStatusBar> {
+  late final DateTime _startedAt = DateTime.now();
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  String get _elapsed {
+    final duration = DateTime.now().difference(_startedAt);
+    final hours = duration.inHours.toString().padLeft(2, '0');
+    final minutes = (duration.inMinutes % 60).toString().padLeft(2, '0');
+    final seconds = (duration.inSeconds % 60).toString().padLeft(2, '0');
+    return '$hours:$minutes:$seconds';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 30,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: const BoxDecoration(
+        color: Color(0xFF20232A),
+        border: Border(
+          top: BorderSide(color: Color(0xFF343944), width: 1),
+        ),
+      ),
+      child: AnimatedBuilder(
+        animation: Listenable.merge([
+          widget.ffi.ffiModel,
+          widget.ffi.qualityMonitorModel,
+        ]),
+        builder: (context, _) => Obx(() {
+          final connection = ConnectionTypeState.find(widget.id);
+          final connected = connection.isValid();
+          final secure = connection.secure.value == ConnectionType.strSecure;
+          final direct = connection.direct.value == ConnectionType.strDirect;
+          final connectionLabel = connected
+              ? getConnectionText(
+                  secure,
+                  direct,
+                  connection.stream_type.value,
+                )
+              : translate('Connecting...');
+          final data = widget.ffi.qualityMonitorModel.data;
+          return LayoutBuilder(builder: (context, constraints) {
+            final showQuality = constraints.maxWidth >= 620;
+            final showPeer = constraints.maxWidth >= 760;
+            return Row(
+              children: [
+                Container(
+                  width: 7,
+                  height: 7,
+                  decoration: BoxDecoration(
+                    color: connected
+                        ? const Color(0xFF07C160)
+                        : const Color(0xFFF0A020),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 7),
+                Text(
+                  connectionLabel,
+                  style: const TextStyle(
+                    color: Color(0xFFC8CDD6),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                const Icon(
+                  Icons.schedule_rounded,
+                  size: 13,
+                  color: Color(0xFF858D9A),
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  _elapsed,
+                  style: const TextStyle(
+                    color: Color(0xFFAAB0BB),
+                    fontSize: 11,
+                  ),
+                ),
+                if (showQuality) ...[
+                  const SizedBox(width: 18),
+                  _RemoteStatusValue(label: 'FPS', value: data.fps ?? '-'),
+                  _RemoteStatusValue(
+                    label: translate('Delay'),
+                    value: data.delay == null ? '-' : '${data.delay}ms',
+                  ),
+                  _RemoteStatusValue(
+                    label: translate('Speed'),
+                    value: data.speed ?? '-',
+                  ),
+                ],
+                const Spacer(),
+                if (showPeer)
+                  Flexible(
+                    child: Tooltip(
+                      message: widget.id,
+                      child: Text(
+                        '${translate('ID')}  ${widget.id}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFFAAB0BB),
+                          fontSize: 11,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            );
+          });
+        }),
+      ),
+    );
+  }
+}
+
+class _RemoteStatusValue extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _RemoteStatusValue({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 14),
+      child: Text.rich(
+        TextSpan(
+          text: '$label ',
+          style: const TextStyle(color: Color(0xFF858D9A), fontSize: 11),
+          children: [
+            TextSpan(
+              text: value,
+              style: const TextStyle(
+                color: Color(0xFFD0D4DB),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+        maxLines: 1,
+      ),
+    );
+  }
 }
 
 /// A widget that tracks the view size and updates CanvasModel.updateViewStyle()
