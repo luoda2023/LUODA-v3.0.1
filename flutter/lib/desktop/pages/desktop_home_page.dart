@@ -2286,7 +2286,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                             ),
                           ),
                           Text(
-                            translate('LUODA Remote Assistance'),
+                            "LDesk ${translate('Remote assistance')}",
                             style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.bold,
@@ -2369,7 +2369,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               ),
             ),
             Text(
-              translate('LUODA Remote Assistance'),
+              "LDesk ${translate('Remote assistance')}",
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.bold,

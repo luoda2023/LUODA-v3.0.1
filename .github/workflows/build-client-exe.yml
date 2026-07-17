@@ -1,4 +1,4 @@
-name: Build LUODA Client EXE
+name: Build LDesk Client EXE
 on:
   workflow_dispatch:
   push:
@@ -8,6 +8,7 @@ on:
       - 'src/**'
       - 'libs/**'
       - 'flutter/**'
+      - 'Images/**'
       - 'res/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
@@ -32,6 +33,24 @@ jobs:
         with:
           submodules: false
           token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify branded icon assets
+        shell: powershell
+        run: |
+          $checks = @(
+            @{ Source = 'Images\icon.ico'; Target = 'res\icon.ico' },
+            @{ Source = 'Images\icon.ico'; Target = 'flutter\assets\icon.ico' },
+            @{ Source = 'Images\icon.ico'; Target = 'flutter\windows\runner\resources\app_icon.ico' },
+            @{ Source = 'Images\icon-512.png'; Target = 'flutter\assets\icon.png' },
+            @{ Source = 'Images\icon-512.png'; Target = 'flutter\assets\avatar.png' },
+            @{ Source = 'Images\icon-32.ico'; Target = 'res\tray-icon.ico' }
+          )
+          foreach ($check in $checks) {
+            $sourceHash = (Get-FileHash -LiteralPath $check.Source -Algorithm SHA256).Hash
+            $targetHash = (Get-FileHash -LiteralPath $check.Target -Algorithm SHA256).Hash
+            if ($sourceHash -ne $targetHash) {
+              throw "Brand icon mismatch: $($check.Target)"
+            }
+          }
       - name: Cache Cargo registry
         uses: actions/cache@v4
         with:
@@ -109,6 +128,23 @@ jobs:
           VCPKG_DEFAULT_TRIPLET: ${{ matrix.arch == 'x86' && 'x86-windows-static' || 'x64-windows-static' }}
           CXXFLAGS: -include cstdint
           SODIUM_LIB_DIR: C:\vcpkg\installed\${{ matrix.arch == 'x86' && 'x86-windows-static' || 'x64-windows-static' }}\lib
+      - name: Validate direct IP client safeguards
+        if: matrix.arch == 'x64'
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          LUODA_CLIENT_ONLY=1 cargo test --release --features "flutter,client_only" --lib direct_endpoint_tests -- --nocapture
+        env:
+          VCPKG_ROOT: C:\vcpkg
+          VCPKG_DEFAULT_TRIPLET: x64-windows-static
+          CXXFLAGS: -include cstdint
+          SODIUM_LIB_DIR: C:\vcpkg\installed\x64-windows-static\lib
+      - name: Validate client UI contract
+        if: matrix.arch == 'x64'
+        timeout-minutes: 5
+        run: |
+          cd flutter
+          flutter test test/ui_regression_contract_test.dart
       - name: Build Flutter Windows
         if: matrix.arch == 'x64'
         timeout-minutes: 15
@@ -136,11 +172,11 @@ jobs:
               throw "Required Flutter font asset is missing: $fontPath"
             }
           }
-      - name: Sign executable with LUODA icon
+      - name: Sign executable with LDesk icon
         shell: bash
         run: |
           choco install rcedit -y
-          rcedit "flutter/build/windows/x64/runner/Release/luoda.exe" --set-icon "res/icon.ico"
+          rcedit "flutter/build/windows/x64/runner/Release/luoda.exe" --set-icon "Images/icon.ico"
       - name: Build portable packer
         timeout-minutes: 15
         shell: bash
@@ -170,21 +206,80 @@ jobs:
           cargo build --release
           cd ../..
           mkdir -p SignOutput
-          cp target/release/luoda-portable-packer.exe SignOutput/LUODA-Client-x64.exe
+          cp target/release/luoda-portable-packer.exe SignOutput/LDesk-Client-x64.exe
           echo "=== Final Client EXE ==="
-          ls -la SignOutput/LUODA-Client-x64.exe
+          ls -la SignOutput/LDesk-Client-x64.exe
+      - name: Smoke test LDesk client identity panel
+        if: matrix.arch == 'x64'
+        timeout-minutes: 2
+        shell: pwsh
+        run: |
+          Add-Type @'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class LDeskWindow {
+            [StructLayout(LayoutKind.Sequential)]
+            public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+            [DllImport("user32.dll")]
+            public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+          }
+          '@
+          $startedAt = Get-Date
+          $launcher = Start-Process `
+            -FilePath (Resolve-Path 'SignOutput\LDesk-Client-x64.exe') `
+            -WorkingDirectory (Resolve-Path 'SignOutput') `
+            -PassThru
+          $windowProcess = $null
+          try {
+            $deadline = [DateTime]::UtcNow.AddSeconds(30)
+            do {
+              Start-Sleep -Milliseconds 500
+              $windowProcess = Get-Process | Where-Object {
+                $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle -like '*LDesk*'
+              } | Where-Object {
+                try { $_.StartTime -ge $startedAt.AddSeconds(-2) } catch { $false }
+              } | Select-Object -First 1
+            } while ($null -eq $windowProcess -and [DateTime]::UtcNow -lt $deadline)
+            if ($null -eq $windowProcess) {
+              throw 'LDesk client did not create its identity window within 30 seconds'
+            }
+            $windowProcess.Refresh()
+            if (-not $windowProcess.Responding) {
+              throw 'LDesk client identity window is not responding'
+            }
+            $rect = New-Object LDeskWindow+RECT
+            if (-not [LDeskWindow]::GetWindowRect($windowProcess.MainWindowHandle, [ref]$rect)) {
+              throw 'Failed to inspect the LDesk client window bounds'
+            }
+            $width = $rect.Right - $rect.Left
+            $height = $rect.Bottom - $rect.Top
+            if ([Math]::Abs($width - 380) -gt 32 -or [Math]::Abs($height - 500) -gt 32) {
+              throw "Unexpected LDesk client window size: ${width}x${height}"
+            }
+          } finally {
+            if ($null -ne $windowProcess -and -not $windowProcess.HasExited) {
+              Stop-Process -Id $windowProcess.Id -Force -ErrorAction SilentlyContinue
+            }
+            if (-not $launcher.HasExited) {
+              Stop-Process -Id $launcher.Id -Force -ErrorAction SilentlyContinue
+            }
+          }
       - name: Verify Windows version metadata
         shell: powershell
         run: |
-          $version = (Get-Item "SignOutput\LUODA-Client-x64.exe").VersionInfo
+          $version = (Get-Item "SignOutput\LDesk-Client-x64.exe").VersionInfo
           if ($version.FileVersion -ne "3.1.1" -or $version.ProductVersion -ne "3.1.1") {
             throw "Unexpected client EXE version: FileVersion=$($version.FileVersion), ProductVersion=$($version.ProductVersion)"
+          }
+          if ($version.ProductName -ne "LDesk" -or
+              $version.FileDescription -ne "LDesk Direct Chat and Remote Assistance") {
+            throw "Unexpected client EXE branding: ProductName=$($version.ProductName), FileDescription=$($version.FileDescription)"
           }
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LUODA-3.1.1-Client-${{ matrix.arch }}
-          path: SignOutput/LUODA-Client-x64.exe
+          name: LDesk-3.1.1-Client-${{ matrix.arch }}
+          path: SignOutput/LDesk-Client-x64.exe
           if-no-files-found: error
       - name: Upload runtime logs (always)
         if: always()
@@ -196,7 +291,7 @@ jobs:
         if: matrix.arch == 'x64'
         shell: pwsh
         run: |
-          Copy-Item 'SignOutput/LUODA-Client-x64.exe' 'SignOutput/LUODA-3.1.1-Client-x64.exe'
+          Copy-Item 'SignOutput/LDesk-Client-x64.exe' 'SignOutput/LDesk-3.1.1-Client-x64.exe'
       - name: Upload to v3.1.1 Release (client)
         if: matrix.arch == 'x64' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/3.1.1'
         uses: softprops/action-gh-release@v2
@@ -204,4 +299,4 @@ jobs:
           prerelease: false
           draft: true
           tag_name: v3.1.1
-          files: SignOutput/LUODA-3.1.1-Client-x64.exe
+          files: SignOutput/LDesk-3.1.1-Client-x64.exe

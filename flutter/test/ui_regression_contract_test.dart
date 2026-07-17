@@ -114,6 +114,9 @@ void main() {
   final flutterCommonSource = File(
     'lib/common.dart',
   ).readAsStringSync();
+  final clientWorkflowSource = File(
+    '../.github/workflows/build-client-exe.yml',
+  ).readAsStringSync();
   final cargoSource = File('../Cargo.toml').readAsStringSync();
   final peerModelSource = File(
     'lib/models/peer_model.dart',
@@ -706,6 +709,31 @@ void main() {
     expect(
       desktopTabSource,
       contains('windowManager.setSize(kCustomClientWindowSize)'),
+    );
+  });
+
+  test('custom client EXE is a dedicated LDesk identity panel', () {
+    final clientPanel = homePageSource
+        .split('Widget buildLeftPane(BuildContext context) {')[1]
+        .split('final isIncomingOnly =')[0];
+    expect(clientPanel, contains('buildIDBoard(context)'));
+    expect(clientPanel, contains('buildPasswordBoard(context)'));
+    expect(clientPanel, contains('buildDirectAccessBoard(context)'));
+    expect(
+      clientPanel,
+      contains('"LDesk \${translate(\'Remote assistance\')}"'),
+    );
+    expect(clientPanel, isNot(contains('_buildRemoteCenter')));
+    expect(clientPanel, isNot(contains('DesktopSettingPage')));
+    expect(desktopTabSource, contains('final title = compactClient'));
+    expect(desktopTabSource, contains("translate('Remote assistance')"));
+    expect(clientWorkflowSource, contains('name: Build LDesk Client EXE'));
+    expect(clientWorkflowSource, contains('SignOutput/LDesk-Client-x64.exe'));
+    expect(clientWorkflowSource, contains('LDesk-3.1.1-Client-x64.exe'));
+    expect(clientWorkflowSource, contains('Images\\icon.ico'));
+    expect(
+      clientWorkflowSource,
+      contains('Smoke test LDesk client identity panel'),
     );
   });
 

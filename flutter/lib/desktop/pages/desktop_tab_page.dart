@@ -130,9 +130,11 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
                 final key = state.tabs.isEmpty
                     ? kTabLabelHomePage
                     : state.tabs[selected].key;
-                final title = key == kTabLabelSettingPage
-                    ? translate('Settings')
-                    : translate('Messages');
+                final title = compactClient
+                    ? translate('Remote assistance')
+                    : key == kTabLabelSettingPage
+                        ? translate('Settings')
+                        : translate('Messages');
                 return LDeskMainTitleBar(
                   title: title,
                   showThemeToggle: !compactClient,
