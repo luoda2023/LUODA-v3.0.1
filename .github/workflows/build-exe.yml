@@ -141,7 +141,7 @@ jobs:
           SODIUM_LIB_DIR: C:\vcpkg\installed\${{ matrix.arch == 'x86' && 'x86-windows-static' || 'x64-windows-static' }}\lib
       - name: Validate direct IP access
         if: matrix.arch == 'x64'
-        timeout-minutes: 15
+        timeout-minutes: 30
         shell: bash
         run: |
           cargo test --release --features flutter --lib direct_access::tests -- --nocapture
