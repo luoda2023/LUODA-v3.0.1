@@ -209,6 +209,16 @@ void main() {
     expect(chatPageSource, contains('onRemoteAssist'));
   });
 
+  test('mobile messages open from a WeChat-style conversation list', () {
+    expect(mobileHomeSource, contains('class _MobileMessagesPage'));
+    expect(mobileHomeSource, contains('_pages.add(_MobileMessagesPage('));
+    expect(mobileHomeSource, contains('ListView.separated('));
+    expect(mobileHomeSource, contains('_latestMessageTime'));
+    expect(mobileHomeSource, contains('_openCurrentConversation'));
+    expect(mobileHomeSource, contains('isMobile && _chatDetailOpen'));
+    expect(mobileHomeSource, contains('Navigator.of(context).push'));
+  });
+
   test('mobile contacts reuse an authorized inbound chat session', () {
     expect(mobileConnectionSource, contains('lastIndexWhere((client) =>'));
     expect(
@@ -223,7 +233,7 @@ void main() {
 
   test('mobile shell keeps a readable chat-first WeChat-style hierarchy', () {
     expect(
-      mobileHomeSource.indexOf('_pages.add(ChatPage('),
+      mobileHomeSource.indexOf('_pages.add(_MobileMessagesPage('),
       lessThan(mobileHomeSource.indexOf('_pages.add(ConnectionPage(')),
     );
     expect(chatPageSource, contains('translate("Messages")'));

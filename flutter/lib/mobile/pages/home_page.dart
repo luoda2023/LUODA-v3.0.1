@@ -38,17 +38,79 @@ class HomePageState extends State<HomePage> {
   int get selectedIndex => _selectedIndex;
   final List<PageShape> _pages = [];
   int _chatPageTabIndex = -1;
+  int _contactsPageTabIndex = -1;
+  bool _chatDetailOpen = false;
   FFI? _directFileSession;
   String _directFilePeerId = '';
   FFI? _companionSyncSession;
   String _companionSyncPeerId = '';
   Timer? _directPairingSyncTimer;
-  bool get isChatPageCurrentTab =>
-      isMobile && _selectedIndex == _chatPageTabIndex;
+  bool get isChatPageCurrentTab => isMobile && _chatDetailOpen;
 
   void selectChatPage() {
-    if (_chatPageTabIndex < 0 || _selectedIndex == _chatPageTabIndex) return;
-    setState(() => _selectedIndex = _chatPageTabIndex);
+    if (_chatPageTabIndex < 0) return;
+    if (_selectedIndex != _chatPageTabIndex) {
+      setState(() => _selectedIndex = _chatPageTabIndex);
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_openCurrentConversation());
+    });
+  }
+
+  void _selectContactsPage() {
+    if (_contactsPageTabIndex < 0 || _selectedIndex == _contactsPageTabIndex) {
+      return;
+    }
+    setState(() => _selectedIndex = _contactsPageTabIndex);
+  }
+
+  void _openConversation(MessageKey key) {
+    gFFI.chatModel.changeCurrentKey(key);
+    gFFI.chatModel.mobileClearClientUnread(key.connId);
+    unawaited(_openCurrentConversation());
+  }
+
+  Future<void> _openCurrentConversation() async {
+    final key = gFFI.chatModel.currentKey;
+    if (!mounted || _chatDetailOpen || key.peerId.isEmpty) return;
+    _chatDetailOpen = true;
+    try {
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => AnimatedBuilder(
+            animation: gFFI.chatModel,
+            builder: (context, __) {
+              final user = gFFI.chatModel.currentUser;
+              final currentKey = gFFI.chatModel.currentKey;
+              final name = (user?.firstName ?? '').trim();
+              return Scaffold(
+                appBar: AppBar(
+                  centerTitle: true,
+                  elevation: 0,
+                  title: Text(
+                    name.isEmpty ? currentKey.peerId : name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0,
+                    ),
+                  ),
+                ),
+                body: ChatPage(
+                  type: ChatPageType.mobileMain,
+                  onAttachFile: _sendDirectChatFiles,
+                  onRemoteAssist: _startRemoteFromChat,
+                ),
+              );
+            },
+          ),
+        ),
+      );
+    } finally {
+      _chatDetailOpen = false;
+    }
   }
 
   Future<void> syncPairingsNow() => _syncLatestPairing();
@@ -76,13 +138,13 @@ class HomePageState extends State<HomePage> {
     _pages.clear();
     if (isMobile) {
       _chatPageTabIndex = _pages.length;
-      _pages.add(ChatPage(
-        type: ChatPageType.mobileMain,
-        onAttachFile: _sendDirectChatFiles,
-        onRemoteAssist: _startRemoteFromChat,
+      _pages.add(_MobileMessagesPage(
+        onOpenConversation: _openConversation,
+        onNewConversation: _selectContactsPage,
       ));
     }
     if (!bind.isIncomingOnly()) {
+      _contactsPageTabIndex = _pages.length;
       _pages.add(ConnectionPage(
         appBarActions: [
           IconButton(
@@ -97,6 +159,8 @@ class HomePageState extends State<HomePage> {
           ),
         ],
       ));
+    } else {
+      _contactsPageTabIndex = -1;
     }
     if (isMobile && isAndroid && !bind.isOutgoingOnly()) {
       _pages.add(ServerPage());
@@ -386,7 +450,7 @@ class HomePageState extends State<HomePage> {
                 // close chat overlay when go chat page
                 if (_selectedIndex != index) {
                   _selectedIndex = index;
-                  if (isChatPageCurrentTab) {
+                  if (_selectedIndex == _chatPageTabIndex) {
                     gFFI.chatModel.hideChatIconOverlay();
                     gFFI.chatModel.hideChatWindowOverlay();
                     gFFI.chatModel.mobileClearClientUnread(
@@ -401,72 +465,6 @@ class HomePageState extends State<HomePage> {
   }
 
   Widget appTitle() {
-    final currentUser = gFFI.chatModel.currentUser;
-    final currentKey = gFFI.chatModel.currentKey;
-    if (isChatPageCurrentTab &&
-        currentUser != null &&
-        currentKey.peerId.isNotEmpty) {
-      final connected = currentKey.isOut
-          ? gFFI.ffiModel.pi.isSet.isTrue
-          : gFFI.serverModel.clients
-              .any((e) => e.id == currentKey.connId && !e.disconnected);
-      final displayName = (currentUser.firstName ?? '').trim().isEmpty
-          ? currentUser.id
-          : currentUser.firstName!.trim();
-      return SizedBox(
-        width: double.infinity,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 26),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    displayName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 0,
-                    ),
-                  ),
-                  Text(
-                    '${currentUser.id}  ${translate(connected ? 'Online' : 'Offline')}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 12,
-                      height: 1.2,
-                      color: Theme.of(context).brightness == Brightness.dark
-                          ? MyTheme.mutedDark
-                          : MyTheme.mutedLight,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Tooltip(
-                message: currentKey.isOut
-                    ? translate('Outgoing connection')
-                    : translate('Incoming connection'),
-                child: Icon(
-                  currentKey.isOut
-                      ? Icons.call_made_rounded
-                      : Icons.call_received_rounded,
-                  size: 18,
-                  color: connected ? MyTheme.accent : MyTheme.mutedLight,
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
     return Text(
       _pages.elementAt(_selectedIndex).title,
       maxLines: 1,
@@ -475,6 +473,284 @@ class HomePageState extends State<HomePage> {
         fontSize: 17,
         fontWeight: FontWeight.w600,
         letterSpacing: 0,
+      ),
+    );
+  }
+}
+
+class _MobileMessagesPage extends StatefulWidget implements PageShape {
+  const _MobileMessagesPage({
+    required this.onOpenConversation,
+    required this.onNewConversation,
+  });
+
+  final ValueChanged<MessageKey> onOpenConversation;
+  final VoidCallback onNewConversation;
+
+  @override
+  String get title => translate('Messages');
+
+  @override
+  Widget get icon => unreadTopRightBuilder(gFFI.chatModel.mobileUnreadSum);
+
+  @override
+  List<Widget> get appBarActions => <Widget>[
+        IconButton(
+          tooltip: translate('New conversation'),
+          onPressed: onNewConversation,
+          icon: const Icon(Icons.add_circle_outline_rounded),
+        ),
+      ];
+
+  @override
+  State<_MobileMessagesPage> createState() => _MobileMessagesPageState();
+}
+
+class _MobileMessagesPageState extends State<_MobileMessagesPage> {
+  final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  DateTime _latestMessageTime(MapEntry<MessageKey, MessageBody> entry) {
+    final messages = entry.value.chatMessages;
+    if (messages.isEmpty) {
+      return DateTime.fromMillisecondsSinceEpoch(0);
+    }
+    return messages
+        .map((message) => message.createdAt)
+        .reduce((latest, value) => value.isAfter(latest) ? value : latest);
+  }
+
+  String _messagePreview(MapEntry<MessageKey, MessageBody> entry) {
+    if (entry.value.chatMessages.isEmpty) {
+      return translate('Start a conversation');
+    }
+    final message = entry.value.chatMessages.reduce(
+      (latest, value) =>
+          value.createdAt.isAfter(latest.createdAt) ? value : latest,
+    );
+    final properties = message.customProperties;
+    if (properties?['ldesk_kind'] == 'file') {
+      final fileName = (properties?['ldesk_file_name'] ?? '').toString();
+      return fileName.isEmpty
+          ? translate('File Transfer')
+          : '${translate('File Transfer')}: $fileName';
+    }
+    return message.text.trim().isEmpty
+        ? translate('Message')
+        : message.text.trim();
+  }
+
+  String _timeLabel(DateTime value) {
+    if (value.millisecondsSinceEpoch == 0) return '';
+    final now = DateTime.now();
+    if (value.year == now.year &&
+        value.month == now.month &&
+        value.day == now.day) {
+      return '${value.hour.toString().padLeft(2, '0')}:'
+          '${value.minute.toString().padLeft(2, '0')}';
+    }
+    if (value.year == now.year) return '${value.month}/${value.day}';
+    return '${value.year}/${value.month}/${value.day}';
+  }
+
+  Widget _avatar(MapEntry<MessageKey, MessageBody> entry) {
+    final user = entry.value.chatUser;
+    final name = (user.firstName ?? user.id).trim();
+    final initial = name.isEmpty ? '?' : name.characters.first;
+    final fallback = Container(
+      width: 48,
+      height: 48,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: str2color(name),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        initial,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 18,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+    return buildAvatarWidget(
+          avatar: user.profileImage ?? '',
+          size: 48,
+          borderRadius: 8,
+          fallback: fallback,
+        ) ??
+        fallback;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return ChangeNotifierProvider.value(
+      value: gFFI.chatModel,
+      child: Consumer<ChatModel>(
+        builder: (context, model, _) {
+          final query = _searchController.text.trim().toLowerCase();
+          final entries = model.messages.entries.where((entry) {
+            if (entry.key.peerId.isEmpty) return false;
+            if (query.isEmpty) return true;
+            final user = entry.value.chatUser;
+            return entry.key.peerId.toLowerCase().contains(query) ||
+                (user.firstName ?? '').toLowerCase().contains(query) ||
+                _messagePreview(entry).toLowerCase().contains(query);
+          }).toList(growable: false)
+            ..sort(
+              (a, b) => _latestMessageTime(b).compareTo(_latestMessageTime(a)),
+            );
+          return ColoredBox(
+            color: dark ? MyTheme.canvasDark : const Color(0xFFEDEDED),
+            child: Column(
+              children: <Widget>[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                  child: SizedBox(
+                    height: 38,
+                    child: TextField(
+                      controller: _searchController,
+                      onChanged: (_) => setState(() {}),
+                      decoration: InputDecoration(
+                        hintText: translate('Search'),
+                        prefixIcon: const Icon(Icons.search_rounded, size: 19),
+                        filled: true,
+                        fillColor: dark ? MyTheme.surfaceDark : Colors.white,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: BorderSide.none,
+                        ),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: entries.isEmpty
+                      ? Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(28),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: <Widget>[
+                                Icon(
+                                  Icons.forum_outlined,
+                                  size: 60,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurface
+                                      .withOpacity(0.18),
+                                ),
+                                const SizedBox(height: 14),
+                                Text(
+                                  translate('No conversations yet'),
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleMedium
+                                      ?.copyWith(fontWeight: FontWeight.w600),
+                                ),
+                                const SizedBox(height: 14),
+                                FilledButton.icon(
+                                  onPressed: widget.onNewConversation,
+                                  icon: const Icon(
+                                    Icons.person_add_alt_1_rounded,
+                                    size: 18,
+                                  ),
+                                  label: Text(translate('Contacts')),
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                      : ListView.separated(
+                          itemCount: entries.length,
+                          separatorBuilder: (_, __) => Divider(
+                            height: 1,
+                            indent: 74,
+                            color: Theme.of(context).dividerColor,
+                          ),
+                          itemBuilder: (context, index) {
+                            final entry = entries[index];
+                            final user = entry.value.chatUser;
+                            final name = (user.firstName ?? '').trim();
+                            final client =
+                                gFFI.serverModel.clients.firstWhereOrNull(
+                              (client) =>
+                                  client.peerId == entry.key.peerId &&
+                                  client.isChat &&
+                                  !client.disconnected,
+                            );
+                            final muted =
+                                dark ? MyTheme.mutedDark : MyTheme.mutedLight;
+                            return Material(
+                              color: dark ? MyTheme.surfaceDark : Colors.white,
+                              child: ListTile(
+                                minLeadingWidth: 48,
+                                horizontalTitleGap: 12,
+                                minVerticalPadding: 10,
+                                contentPadding:
+                                    const EdgeInsets.symmetric(horizontal: 14),
+                                leading: _avatar(entry),
+                                title: Row(
+                                  children: <Widget>[
+                                    Expanded(
+                                      child: Text(
+                                        name.isEmpty ? entry.key.peerId : name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      _timeLabel(_latestMessageTime(entry)),
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: muted,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                subtitle: Row(
+                                  children: <Widget>[
+                                    Expanded(
+                                      child: Text(
+                                        _messagePreview(entry),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          color: muted,
+                                        ),
+                                      ),
+                                    ),
+                                    if (client != null)
+                                      unreadMessageCountBuilder(
+                                        client.unreadChatMessageCount,
+                                      ).marginOnly(left: 8),
+                                  ],
+                                ),
+                                onTap: () =>
+                                    widget.onOpenConversation(entry.key),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
