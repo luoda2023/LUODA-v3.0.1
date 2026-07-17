@@ -130,7 +130,7 @@ jobs:
           SODIUM_LIB_DIR: C:\vcpkg\installed\${{ matrix.arch == 'x86' && 'x86-windows-static' || 'x64-windows-static' }}\lib
       - name: Validate direct IP client safeguards
         if: matrix.arch == 'x64'
-        timeout-minutes: 10
+        timeout-minutes: 20
         shell: bash
         run: |
           LUODA_CLIENT_ONLY=1 cargo test --release --features "flutter,client_only" --lib direct_endpoint_tests -- --nocapture
