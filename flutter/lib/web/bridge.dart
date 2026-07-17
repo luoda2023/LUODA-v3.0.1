@@ -82,6 +82,7 @@ class Luoda {
       required bool isPortForward,
       required bool isRdp,
       required bool isTerminal,
+      required bool isChat,
       required String switchUuid,
       required bool forceRelay,
       required String password,
@@ -96,7 +97,8 @@ class Luoda {
         'is_shared_password': isSharedPassword,
         'isFileTransfer': isFileTransfer,
         'isViewCamera': isViewCamera,
-        'isTerminal': isTerminal
+        'isTerminal': isTerminal,
+        'isChat': isChat
       })
     ]);
   }

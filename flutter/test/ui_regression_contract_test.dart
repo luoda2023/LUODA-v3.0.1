@@ -114,6 +114,9 @@ void main() {
   final flutterCommonSource = File(
     'lib/common.dart',
   ).readAsStringSync();
+  final webBridgeSource = File(
+    'lib/web/bridge.dart',
+  ).readAsStringSync();
   final clientWorkflowSource = File(
     '../.github/workflows/build-client-exe.yml',
   ).readAsStringSync();
@@ -739,6 +742,14 @@ void main() {
       clientWorkflowSource,
       contains('Normalize Windows resource encoding'),
     );
+  });
+
+  test('web session bridge accepts direct chat sessions', () {
+    final sessionAdd = webBridgeSource
+        .split('String sessionAddSync(')[1]
+        .split('Stream<EventToUI> sessionStart')[0];
+    expect(sessionAdd, contains('required bool isChat'));
+    expect(sessionAdd, contains("'isChat': isChat"));
   });
 
   test('Android always-on chat uses a dedicated messaging service', () {
