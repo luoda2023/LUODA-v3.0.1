@@ -72,6 +72,7 @@ pub struct Session<T: InvokeUiSession> {
     pub reconnect_count: Arc<AtomicUsize>,
     pub last_audit_note: Arc<Mutex<String>>,
     pub audit_guid: Arc<Mutex<String>>,
+    pub viewer_join: Arc<RwLock<Option<JoinAsViewer>>>,
 }
 
 #[derive(Clone)]
@@ -186,6 +187,20 @@ impl SessionPermissionConfig {
 }
 
 impl<T: InvokeUiSession> Session<T> {
+    pub fn prepare_viewer(
+        &self,
+        token: String,
+        viewer_id: String,
+        display_name: String,
+    ) {
+        *self.viewer_join.write().unwrap() = Some(JoinAsViewer {
+            token,
+            viewer_id,
+            display_name,
+            ..Default::default()
+        });
+    }
+
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     pub fn get_permission_config(&self) -> SessionPermissionConfig {
         SessionPermissionConfig {
@@ -1865,6 +1880,10 @@ impl<T: InvokeUiSession> FileManager for Session<T> {}
 impl<T: InvokeUiSession> Interface for Session<T> {
     fn get_lch(&self) -> Arc<RwLock<LoginConfigHandler>> {
         return self.lc.clone();
+    }
+
+    fn viewer_join_request(&self) -> Option<JoinAsViewer> {
+        self.viewer_join.read().unwrap().clone()
     }
 
     fn send(&self, data: Data) {

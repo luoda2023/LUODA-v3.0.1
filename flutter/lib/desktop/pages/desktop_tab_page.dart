@@ -117,17 +117,6 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
               showMinimize: !compactClient,
               showMaximize: !compactClient,
               showClose: true,
-              tail: Offstage(
-                offstage: bind.isIncomingOnly() ||
-                    bind.isDisableSettings() ||
-                    isCustomClient,
-                child: ActionIcon(
-                  message: 'Settings',
-                  icon: IconFont.menu,
-                  onTap: DesktopTabPage.onAddSetting,
-                  isClose: false,
-                ),
-              ),
             )));
     return isMacOS || kUseCompatibleUiMode
         ? tabWidget

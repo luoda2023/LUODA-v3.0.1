@@ -12,6 +12,8 @@ import 'package:luoda_flutter/models/peer_model.dart';
 
 import '../../common.dart';
 import '../../common/direct_pairing.dart';
+import '../../common/direct_viewer_invite.dart';
+import '../../common/widgets/join_viewer_page.dart';
 import '../../common/widgets/peer_tab_page.dart';
 import '../../common/widgets/autocomplete.dart';
 import '../../consts.dart';
@@ -21,6 +23,8 @@ import '../../models/platform_model.dart';
 import 'home_page.dart';
 
 /// Connection page for connecting to a remote peer.
+enum _ConnectionMode { chat, remote, viewer }
+
 class ConnectionPage extends StatefulWidget implements PageShape {
   ConnectionPage({Key? key, required this.appBarActions}) : super(key: key);
 
@@ -39,7 +43,8 @@ class ConnectionPage extends StatefulWidget implements PageShape {
 
 /// State for the connection page.
 class _ConnectionPageState extends State<ConnectionPage> {
-  bool _chatMode = true;
+  _ConnectionMode _connectionMode = _ConnectionMode.chat;
+  bool _openingViewerInvite = false;
 
   /// Controller for the id input bar.
   final _idController = IDTextEditingController();
@@ -66,6 +71,10 @@ class _ConnectionPageState extends State<ConnectionPage> {
   @override
   void initState() {
     super.initState();
+    pendingViewerInvite.addListener(_handlePendingViewerInvite);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _handlePendingViewerInvite();
+    });
     _allPeersLoader.init(setState);
     _idFocusNode.addListener(onFocusChanged);
     if (_idController.text.isEmpty) {
@@ -107,9 +116,9 @@ class _ConnectionPageState extends State<ConnectionPage> {
   Future<void> onConnect() async {
     final id = _idController.id.trim().replaceAll(' ', '');
     if (id.isEmpty) return;
-    if (_chatMode) {
+    if (_connectionMode == _ConnectionMode.chat) {
       await _startDirectChat(id);
-    } else {
+    } else if (_connectionMode == _ConnectionMode.remote) {
       final endpoint = DirectPairingStore.resolveConnectionTarget(id);
       if (endpoint == null) {
         showToast(translate(
@@ -118,6 +127,8 @@ class _ConnectionPageState extends State<ConnectionPage> {
         return;
       }
       connect(context, endpoint, forceRelay: false);
+    } else {
+      await _openJoinViewer(initialEndpoint: id);
     }
   }
 
@@ -126,27 +137,80 @@ class _ConnectionPageState extends State<ConnectionPage> {
       padding: const EdgeInsets.fromLTRB(2, 10, 2, 2),
       child: SizedBox(
         width: double.infinity,
-        child: SegmentedButton<bool>(
-          segments: <ButtonSegment<bool>>[
-            ButtonSegment<bool>(
-              value: true,
+        child: SegmentedButton<_ConnectionMode>(
+          segments: <ButtonSegment<_ConnectionMode>>[
+            ButtonSegment<_ConnectionMode>(
+              value: _ConnectionMode.chat,
               icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18),
               label: Text(translate('Chat')),
             ),
-            ButtonSegment<bool>(
-              value: false,
+            ButtonSegment<_ConnectionMode>(
+              value: _ConnectionMode.remote,
               icon: const Icon(Icons.desktop_windows_outlined, size: 18),
               label: Text(translate('Remote assistance')),
             ),
+            ButtonSegment<_ConnectionMode>(
+              value: _ConnectionMode.viewer,
+              icon: const Icon(Icons.visibility_outlined, size: 18),
+              label: Text(translate('Join as Viewer')),
+            ),
           ],
-          selected: <bool>{_chatMode},
+          selected: <_ConnectionMode>{_connectionMode},
           showSelectedIcon: false,
           onSelectionChanged: (selection) {
-            setState(() => _chatMode = selection.first);
+            setState(() => _connectionMode = selection.first);
           },
         ),
       ),
     );
+  }
+
+  Future<void> _openJoinViewer({
+    String initialEndpoint = '',
+    ViewerInviteLink? invite,
+  }) async {
+    if (_openingViewerInvite) return;
+    _openingViewerInvite = true;
+    try {
+      await Navigator.of(context).push<bool>(
+        MaterialPageRoute<bool>(
+          builder: (_) => JoinViewerPage(
+            initialEndpoint: invite?.endpoint.isNotEmpty == true
+                ? invite!.endpoint
+                : initialEndpoint,
+            initialToken: invite?.token,
+            initialDisplayName: gFFI.chatModel.me.firstName,
+            onJoinRequested: ({
+              required endpoint,
+              required token,
+              required viewerId,
+              required displayName,
+            }) async {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted) return;
+                connect(
+                  context,
+                  endpoint,
+                  viewerToken: token,
+                  viewerId: viewerId,
+                  viewerDisplayName: displayName,
+                );
+              });
+            },
+          ),
+        ),
+      );
+    } finally {
+      _openingViewerInvite = false;
+    }
+  }
+
+  void _handlePendingViewerInvite() {
+    final invite = takePendingViewerInvite();
+    if (invite == null || !mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _openJoinViewer(invite: invite);
+    });
   }
 
   Future<void> _startDirectChat(String id) async {
@@ -519,6 +583,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
 
   @override
   void dispose() {
+    pendingViewerInvite.removeListener(_handlePendingViewerInvite);
     _uniLinksSubscription?.cancel();
     _idController.dispose();
     _idFocusNode.removeListener(onFocusChanged);

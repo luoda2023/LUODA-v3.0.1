@@ -40,6 +40,7 @@ import 'desktop/pages/view_camera_page.dart' as desktop_view_camera;
 import 'package:luoda_flutter/desktop/widgets/remote_toolbar.dart';
 import 'models/model.dart';
 import 'models/platform_model.dart';
+import 'common/direct_viewer_invite.dart';
 
 import 'package:luoda_flutter/native/win32.dart'
     if (dart.library.html) 'package:luoda_flutter/web/win32.dart';
@@ -2594,6 +2595,14 @@ setEnvTerminalAdmin() {
 
 // uri link handler
 bool handleUriLink({List<String>? cmdArgs, Uri? uri, String? uriString}) {
+  final viewerUri = uri ??
+      (uriString == null ? null : Uri.tryParse(uriString)) ??
+      (cmdArgs == null || cmdArgs.isEmpty
+          ? null
+          : Uri.tryParse(cmdArgs.first));
+  if (viewerUri != null && publishViewerInvite(viewerUri)) {
+    return true;
+  }
   List<String>? args;
   if (cmdArgs != null && cmdArgs.isNotEmpty) {
     args = cmdArgs;
@@ -2889,6 +2898,9 @@ connectMainDesktop(
   String? password,
   String? connToken,
   bool? isSharedPassword,
+  String? viewerToken,
+  String? viewerId,
+  String? viewerDisplayName,
 }) async {
   if (isFileTransfer) {
     await luodaWinManager.newFileTransfer(
@@ -2929,6 +2941,9 @@ connectMainDesktop(
       password: password,
       isSharedPassword: isSharedPassword,
       forceRelay: forceRelay,
+      viewerToken: viewerToken,
+      viewerId: viewerId,
+      viewerDisplayName: viewerDisplayName,
     );
   }
 }
@@ -2950,6 +2965,9 @@ connect(
   String? password,
   String? connToken,
   bool? isSharedPassword,
+  String? viewerToken,
+  String? viewerId,
+  String? viewerDisplayName,
 }) async {
   if (id == '') return;
   if (!isDesktop || desktopType == DesktopType.main) {
@@ -2985,6 +3003,9 @@ connect(
         password: password,
         isSharedPassword: isSharedPassword,
         forceRelay: forceRelay,
+        viewerToken: viewerToken,
+        viewerId: viewerId,
+        viewerDisplayName: viewerDisplayName,
       );
     } else {
       await luodaWinManager.call(WindowType.Main, kWindowConnect, {
@@ -2998,6 +3019,9 @@ connect(
         'isSharedPassword': isSharedPassword,
         'forceRelay': forceRelay,
         'connToken': connToken,
+        'viewerToken': viewerToken,
+        'viewerId': viewerId,
+        'viewerDisplayName': viewerDisplayName,
       });
     }
   } else {
@@ -3085,6 +3109,9 @@ connect(
               toolbarState: ToolbarState(),
               password: password,
               isSharedPassword: isSharedPassword,
+              viewerToken: viewerToken,
+              viewerId: viewerId,
+              viewerDisplayName: viewerDisplayName,
             ),
           ),
         );
@@ -3097,6 +3124,9 @@ connect(
               password: password,
               isSharedPassword: isSharedPassword,
               forceRelay: forceRelay,
+              viewerToken: viewerToken,
+              viewerId: viewerId,
+              viewerDisplayName: viewerDisplayName,
             ),
           ),
         );

@@ -487,6 +487,70 @@ class Luoda {
         () => js.context.callMethod('setByName', ['send_chat', text]));
   }
 
+  Future<void> sessionSendChatToViewer({
+    required UuidValue sessionId,
+    required String toViewerId,
+    required String text,
+    dynamic hint,
+  }) async {
+    throw UnsupportedError('Viewer sessions are not supported on web');
+  }
+
+  Future<void> sessionKickViewer({
+    required UuidValue sessionId,
+    required String viewerId,
+    required String reason,
+    dynamic hint,
+  }) async {
+    throw UnsupportedError('Viewer sessions are not supported on web');
+  }
+
+  Future<void> sessionPromoteViewer({
+    required UuidValue sessionId,
+    required String viewerId,
+    dynamic hint,
+  }) async {
+    throw UnsupportedError('Viewer sessions are not supported on web');
+  }
+
+  Future<void> sessionRaiseHand({
+    required UuidValue sessionId,
+    required String viewerId,
+    required bool raised,
+    dynamic hint,
+  }) async {
+    throw UnsupportedError('Viewer sessions are not supported on web');
+  }
+
+  Future<void> sessionRequestInviteToken({
+    required UuidValue sessionId,
+    required int ttlMinutes,
+    required bool oneShot,
+    dynamic hint,
+  }) async {
+    throw UnsupportedError('Viewer sessions are not supported on web');
+  }
+
+  Future<void> sessionPrepareViewer({
+    required UuidValue sessionId,
+    required String token,
+    required String viewerId,
+    required String displayName,
+    dynamic hint,
+  }) async {
+    throw UnsupportedError('Viewer sessions are not supported on web');
+  }
+
+  Future<void> sessionJoinAsViewer({
+    required UuidValue sessionId,
+    required String token,
+    required String viewerId,
+    required String displayName,
+    dynamic hint,
+  }) async {
+    throw UnsupportedError('Viewer sessions are not supported on web');
+  }
+
   Future<void> sessionPeerOption(
       {required UuidValue sessionId,
       required String name,

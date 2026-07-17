@@ -11,6 +11,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:luoda_flutter/common.dart';
+import 'package:luoda_flutter/common/direct_viewer_invite.dart';
 import 'package:luoda_flutter/consts.dart';
 import 'package:luoda_flutter/models/platform_model.dart';
 import 'package:luoda_flutter/models/viewer_session_model.dart';
@@ -52,6 +53,7 @@ class InviteViewerResult {
 class InviteViewerDialog extends StatefulWidget {
   final UuidValue sessionId;
   final String hostLabel;
+  final String hostEndpoint;
   final ViewerSessionModel viewerSessionModel;
 
   /// Optional injector for the FFI call — only used by tests; production
@@ -66,6 +68,7 @@ class InviteViewerDialog extends StatefulWidget {
     super.key,
     required this.sessionId,
     required this.hostLabel,
+    required this.hostEndpoint,
     required this.viewerSessionModel,
     this.requestInviteToken,
   });
@@ -76,6 +79,7 @@ class InviteViewerDialog extends StatefulWidget {
     BuildContext context, {
     required UuidValue sessionId,
     required String hostLabel,
+    required String hostEndpoint,
     required ViewerSessionModel viewerSessionModel,
   }) {
     return showDialog<InviteViewerResult>(
@@ -84,6 +88,7 @@ class InviteViewerDialog extends StatefulWidget {
       builder: (_) => InviteViewerDialog(
         sessionId: sessionId,
         hostLabel: hostLabel,
+        hostEndpoint: hostEndpoint,
         viewerSessionModel: viewerSessionModel,
       ),
     );
@@ -158,6 +163,14 @@ class _InviteViewerDialogState extends State<InviteViewerDialog> {
   }
 
   Future<void> _generate() async {
+    if (!isViewerDirectEndpoint(widget.hostEndpoint)) {
+      setState(() {
+        _lastError = translate(
+          'Direct endpoint required. Reconnect by IP:port before inviting a viewer.',
+        );
+      });
+      return;
+    }
     setState(() {
       _generating = true;
       _lastError = null;
@@ -195,7 +208,10 @@ class _InviteViewerDialogState extends State<InviteViewerDialog> {
     }
   }
 
-  String get _deeplink => 'luoda://join/${_shortCode ?? ''}';
+  String get _deeplink => ViewerInviteLink(
+        endpoint: widget.hostEndpoint,
+        token: _shortCode ?? '',
+      ).toUri().toString();
 
   @override
   Widget build(BuildContext context) {

@@ -46,13 +46,19 @@ class RemotePage extends StatefulWidget {
       required this.id,
       this.password,
       this.isSharedPassword,
-      this.forceRelay})
+      this.forceRelay,
+      this.viewerToken,
+      this.viewerId,
+      this.viewerDisplayName})
       : super(key: key);
 
   final String id;
   final String? password;
   final bool? isSharedPassword;
   final bool? forceRelay;
+  final String? viewerToken;
+  final String? viewerId;
+  final String? viewerDisplayName;
 
   @override
   State<RemotePage> createState() => _RemotePageState(id);
@@ -96,6 +102,9 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
       password: widget.password,
       isSharedPassword: widget.isSharedPassword,
       forceRelay: widget.forceRelay,
+      viewerToken: widget.viewerToken,
+      viewerId: widget.viewerId,
+      viewerDisplayName: widget.viewerDisplayName,
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: []);

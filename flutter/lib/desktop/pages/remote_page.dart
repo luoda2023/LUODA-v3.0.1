@@ -45,6 +45,9 @@ class RemotePage extends StatefulWidget {
     this.switchUuid,
     this.forceRelay,
     this.isSharedPassword,
+    this.viewerToken,
+    this.viewerId,
+    this.viewerDisplayName,
   }) : super(key: key) {
     initSharedStates(id);
   }
@@ -59,6 +62,9 @@ class RemotePage extends StatefulWidget {
   final String? switchUuid;
   final bool? forceRelay;
   final bool? isSharedPassword;
+  final String? viewerToken;
+  final String? viewerId;
+  final String? viewerDisplayName;
   final SimpleWrapper<State<RemotePage>?> _lastState = SimpleWrapper(null);
   final DesktopTabController? tabController;
 
@@ -137,6 +143,9 @@ class _RemotePageState extends State<RemotePage>
       tabWindowId: widget.tabWindowId,
       display: widget.display,
       displays: widget.displays,
+      viewerToken: widget.viewerToken,
+      viewerId: widget.viewerId,
+      viewerDisplayName: widget.viewerDisplayName,
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: []);

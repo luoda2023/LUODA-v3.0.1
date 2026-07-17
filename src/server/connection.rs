@@ -10,6 +10,7 @@ use hbb_common::message_proto::{
 /// are accepted.
 #[derive(Clone)]
 pub struct ViewerState {
+    pub host_id: String,
     pub viewer_id: String,
     pub display_name: String,
     pub is_host: bool,
@@ -18,8 +19,9 @@ pub struct ViewerState {
 }
 
 impl ViewerState {
-    pub fn new(viewer_id: String, display_name: String) -> Self {
+    pub fn new(host_id: String, viewer_id: String, display_name: String) -> Self {
         Self {
+            host_id,
             viewer_id,
             display_name,
             is_host: false,
@@ -2386,9 +2388,16 @@ impl Connection {
         // JoinAsViewer is the very first message from a viewer-mode client (after
         // receiving an InviteToken out-of-band). It bypasses normal LoginRequest
         // validation and admits the connection as a view-only audience.
-        if let Some(message::Union::JoinAsViewer(jv)) = msg.union {
-            self.handle_join_as_viewer(jv).await;
-            return true;
+        let viewer_join = match msg.union.as_ref() {
+            Some(message::Union::JoinAsViewer(jv)) => Some(jv.clone()),
+            Some(message::Union::Misc(misc)) => match misc.union.as_ref() {
+                Some(misc::Union::JoinAsViewer(jv)) => Some(jv.clone()),
+                _ => None,
+            },
+            _ => None,
+        };
+        if let Some(jv) = viewer_join {
+            return self.handle_join_as_viewer(jv).await;
         }
         // If this connection is already admitted as a viewer, accept only the
         // narrow set of viewer -> host control messages and drop everything else.
@@ -2401,15 +2410,24 @@ impl Connection {
                     self.handle_viewer_raise_hand(rh).await;
                 }
                 Some(message::Union::Misc(misc)) => {
-                    if let Some(misc::Union::CloseReason(s)) = &misc.union {
-                        log::info!(
-                            "receive close reason from viewer {}: {}",
-                            self.viewer_state.as_ref().map(|v| v.viewer_id.as_str()).unwrap_or(""),
-                            s
-                        );
-                        self.on_close("Peer close", true).await;
-                        raii::AuthedConnID::check_remove_session(self.inner.id(), self.session_key());
-                        return false;
+                    match misc.union {
+                        Some(misc::Union::ChatBroadcast(cb)) => {
+                            self.handle_viewer_chat_broadcast(cb).await;
+                        }
+                        Some(misc::Union::RaiseHand(rh)) => {
+                            self.handle_viewer_raise_hand(rh).await;
+                        }
+                        Some(misc::Union::CloseReason(s)) => {
+                            log::info!(
+                                "receive close reason from viewer {}: {}",
+                                self.viewer_state.as_ref().map(|v| v.viewer_id.as_str()).unwrap_or(""),
+                                s
+                            );
+                            self.on_close("Peer close", true).await;
+                            raii::AuthedConnID::check_remove_session(self.inner.id(), self.session_key());
+                            return false;
+                        }
+                        _ => {}
                     }
                 }
                 _ => {
@@ -2761,7 +2779,32 @@ impl Connection {
             // ever arrive over an authorized host connection from the controlling
             // peer (not from viewers; viewer-sent messages are intercepted earlier
             // at the top of on_message).
+            if let Some(message::Union::Misc(misc)) = msg.union.as_ref() {
+                match misc.union.as_ref() {
+                    Some(misc::Union::ChatBroadcast(cb)) => {
+                        self.handle_host_chat_broadcast(cb.clone()).await;
+                        return true;
+                    }
+                    Some(misc::Union::KickViewer(kv)) => {
+                        self.handle_kick_viewer(kv.clone()).await;
+                        return true;
+                    }
+                    Some(misc::Union::PromoteViewer(pv)) => {
+                        self.handle_promote_viewer(pv.clone()).await;
+                        return true;
+                    }
+                    Some(misc::Union::RequestInviteToken(req)) => {
+                        self.handle_request_invite_token(req.clone()).await;
+                        return true;
+                    }
+                    _ => {}
+                }
+            }
             match msg.union {
+                Some(message::Union::ChatBroadcast(cb)) => {
+                    self.handle_host_chat_broadcast(cb).await;
+                    return true;
+                }
                 Some(message::Union::KickViewer(kv)) => {
                     self.handle_kick_viewer(kv).await;
                     return true;
@@ -4533,6 +4576,12 @@ impl Connection {
             return;
         }
         self.closed = true;
+        if let Some(viewer) = self.viewer_state.take() {
+            viewer_registry::REGISTRY.remove_viewer(&viewer.host_id, &viewer.viewer_id);
+            chat_broadcast::for_session(&viewer.host_id).leave(&viewer.viewer_id);
+            viewer_fanout::unregister_viewer(&viewer.host_id, &viewer.viewer_id);
+            let _ = viewer_fanout::emit_viewer_list_snapshot(&viewer.host_id, 0);
+        }
         // If voice A,B -> C, and A,B has voice call
         // B disconnects, C will reset the voice call input.
         //
@@ -5742,12 +5791,10 @@ impl Connection {
     /// the viewer on this connection, register it with the registry (so any
     /// future viewer-list refresh on the controlling client will include it),
     /// and immediately start streaming the current display to the new viewer.
-    async fn handle_join_as_viewer(&mut self, jv: JoinAsViewer) {
+    async fn handle_join_as_viewer(&mut self, jv: JoinAsViewer) -> bool {
         let viewer_id = jv.viewer_id.clone();
         let display_name = jv.display_name.clone();
         let raw_token = jv.token.clone();
-        let session = self.session_key();
-        let host_id = session.peer_id.clone();
 
         // The viewer may present either the full 32-char invite token or a
         // 12-char Crockford base32 short code (optionally hyphenated). Try
@@ -5766,11 +5813,7 @@ impl Connection {
         // Validate invite token against the registry. The controlling peer
         // registered this token earlier when sending the invite; viewers that
         // present an unknown / already-consumed / expired token are rejected.
-        let verified = viewer_registry::REGISTRY
-            .consume_token(&canonical_token)
-            .map(|h| h == host_id)
-            .unwrap_or(false);
-        if !verified {
+        let Some(host_id) = viewer_registry::REGISTRY.consume_token(&canonical_token) else {
             log::warn!(
                 "reject viewer {}: invalid invite token {:?}",
                 viewer_id,
@@ -5778,11 +5821,15 @@ impl Connection {
             );
             let _ = self.send_close_reason("invalid invite").await;
             self.on_close("invalid viewer invite", false).await;
-            return;
-        }
+            return false;
+        };
 
         // Construct viewer state and link it onto this connection.
-        let state = ViewerState::new(viewer_id.clone(), display_name.clone());
+        let state = ViewerState::new(
+            host_id.clone(),
+            viewer_id.clone(),
+            display_name.clone(),
+        );
         self.viewer_state = Some(state.clone());
 
         // Admit the viewer into the per-host registry (synchronous, in-memory).
@@ -5795,7 +5842,29 @@ impl Connection {
             log::warn!("viewer {} admit failed: {:?}", viewer_id, err);
             let _ = self.send_close_reason("viewer cap reached").await;
             self.on_close("viewer cap reached", false).await;
-            return;
+            return false;
+        }
+
+        self.lr.my_id = viewer_id.clone();
+        self.lr.my_name = display_name.clone();
+        self.lr.my_platform = "Viewer".to_owned();
+        self.lr.version = VERSION.to_owned();
+        self.keyboard = false;
+        self.clipboard = false;
+        self.file = false;
+        self.restart = false;
+        self.block_input = false;
+        self.disable_keyboard = true;
+        self.disable_clipboard = true;
+        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+        {
+            self.enable_file_transfer = false;
+        }
+
+        if !self.send_logon_response_and_keep_alive().await {
+            viewer_registry::REGISTRY.remove_viewer(&host_id, &viewer_id);
+            self.viewer_state = None;
+            return false;
         }
 
         // Subscribe this connection to the per-host ChatHub so subsequent
@@ -5819,13 +5888,18 @@ impl Connection {
             display_name,
             host_id
         );
+        true
     }
 
     /// A viewer is broadcasting a chat message. Forward it into the session's
     /// [chat_broadcast::ChatHub] so it is fanned out to the host and every
     /// other viewer via the routing logic in ChatHub::route.
     async fn handle_viewer_chat_broadcast(&self, cb: ChatBroadcast) {
-        let host_id = self.session_key().peer_id;
+        let host_id = self
+            .viewer_state
+            .as_ref()
+            .map(|state| state.host_id.clone())
+            .unwrap_or_default();
         let hub = chat_broadcast::for_session(&host_id);
         let from_id = self
             .viewer_state
@@ -5857,11 +5931,37 @@ impl Connection {
         );
     }
 
+    async fn handle_host_chat_broadcast(&self, cb: ChatBroadcast) {
+        let session = self.session_key();
+        let host_id = session.peer_id;
+        let from_name = if session.name.is_empty() {
+            host_id.clone()
+        } else {
+            session.name
+        };
+        let msg = match cb.channel.enum_value() {
+            Ok(ChatChannel::CHAT_CHANNEL_PRIVATE) if !cb.to_id.is_empty() => {
+                chat_broadcast::ChatHub::private(&host_id, &from_name, &cb.to_id, &cb.text)
+            }
+            _ => chat_broadcast::ChatHub::public(&host_id, &from_name, &cb.text),
+        };
+        let delivered = viewer_fanout::emit_chat(&host_id, msg);
+        log::debug!(
+            "host chat broadcast in {}: delivered to {} viewers",
+            host_id,
+            delivered
+        );
+    }
+
     /// A viewer raised (or lowered) their hand. Update local state so the
     /// host UI and other viewers can render the badge. The transport layer
     /// is responsible for emitting a ViewerBadgeUpdate downstream.
     async fn handle_viewer_raise_hand(&mut self, rh: RaiseHand) {
-        let host_id = self.session_key().peer_id;
+        let host_id = self
+            .viewer_state
+            .as_ref()
+            .map(|state| state.host_id.clone())
+            .unwrap_or_default();
         if let Some(state) = self.viewer_state.as_mut() {
             state.raise_hand = rh.raised;
             state.raise_hand_at = if rh.raised {
@@ -5926,13 +6026,16 @@ impl Connection {
         let session = self.session_key();
         let host_id = session.peer_id.clone();
         let session_id = host_id.clone();
+        if let Some(tx) = self.inner.tx.clone() {
+            viewer_fanout::register_host(&host_id, host_id.clone(), tx);
+        }
         let ttl = if req.ttl_minutes == 0 {
             None
         } else {
             Some(std::time::Duration::from_secs((req.ttl_minutes as u64) * 60))
         };
         let mut token = viewer_registry::REGISTRY
-            .issue_token(&host_id, &session_id, ttl);
+            .issue_token_with_policy(&host_id, &session_id, ttl, req.one_shot);
         let short_code = crate::server::invite_code::encode_short_code(&token.token);
         token.short_code = short_code.clone();
         token.one_shot = req.one_shot;

@@ -101,6 +101,16 @@ impl Registry {
     /// shipping the [`InviteToken`] to the client (e.g. via existing
     /// rendezvous-mediated control message or QR code).
     pub fn issue_token(&self, host_id: &str, session_id: &str, ttl: Option<Duration>) -> InviteToken {
+        self.issue_token_with_policy(host_id, session_id, ttl, true)
+    }
+
+    pub fn issue_token_with_policy(
+        &self,
+        host_id: &str,
+        session_id: &str,
+        ttl: Option<Duration>,
+        one_shot: bool,
+    ) -> InviteToken {
         let bucket = self.bucket(host_id);
         let mut b = bucket.lock().unwrap();
         let token = uuid::Uuid::new_v4().simple().to_string();
@@ -110,8 +120,13 @@ impl Registry {
         // and is burned by the first consume instead. We still surface the
         // caller-supplied 0 for the public InviteToken so clients can tell
         // one-shot from TTL'd tokens.
-        let one_shot = ttl == Duration::ZERO;
-        let stored_expiry = if one_shot { now_wall + DEFAULT_TOKEN_TTL * 3600 } else { now_wall + ttl };
+        let zero_ttl = ttl == Duration::ZERO;
+        let one_shot = one_shot || zero_ttl;
+        let stored_expiry = if zero_ttl {
+            now_wall + DEFAULT_TOKEN_TTL * 3600
+        } else {
+            now_wall + ttl
+        };
         let short_code =
             crate::server::invite_code::encode_short_code(&token);
         b.invites.insert(
@@ -144,14 +159,20 @@ impl Registry {
         let outer = self.inner.lock().unwrap();
         for (_host_id, bucket_arc) in outer.iter() {
             let mut b = bucket_arc.lock().unwrap();
-            if let Some(inv) = b.invites.remove(token) {
+            if let Some(inv) = b.invites.get(token).cloned() {
+                if inv.one_shot || inv.expires_at > SystemTime::now() {
+                    if inv.one_shot {
+                        b.invites.remove(token);
+                        if !inv.short_code.is_empty() {
+                            b.short_codes.remove(&inv.short_code);
+                        }
+                    }
+                    return Some(inv.host_id);
+                }
+                b.invites.remove(token);
                 if !inv.short_code.is_empty() {
                     b.short_codes.remove(&inv.short_code);
                 }
-                if inv.one_shot || inv.expires_at > SystemTime::now() {
-                    return Some(inv.host_id);
-                }
-                // expired: drop and continue scanning
             }
         }
         None

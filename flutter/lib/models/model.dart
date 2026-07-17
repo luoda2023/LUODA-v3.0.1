@@ -3749,6 +3749,9 @@ class FFI {
   late final Peers recentPeersModel; // global
   late final Peers favoritePeersModel; // global
   late final Peers lanPeersModel; // global
+  bool viewerMode = false;
+  String viewerId = '';
+  String viewerDisplayName = '';
 
   // Terminal model registry for multiple terminals
   final Map<int, TerminalModel> _terminalModels = {};
@@ -3816,8 +3819,22 @@ class FFI {
     int? tabWindowId,
     int? display,
     List<int>? displays,
+    String? viewerToken,
+    String? viewerId,
+    String? viewerDisplayName,
   }) {
     closed = false;
+    viewerMode = viewerToken?.trim().isNotEmpty == true;
+    this.viewerId = viewerMode
+        ? (viewerId?.trim().isNotEmpty == true
+            ? viewerId!.trim()
+            : const Uuid().v4())
+        : '';
+    this.viewerDisplayName = viewerMode
+        ? (viewerDisplayName?.trim().isNotEmpty == true
+            ? viewerDisplayName!.trim()
+            : 'viewer')
+        : '';
     if (isMobile) mobileReset();
     assert(
         (!(isPortForward && isViewCamera)) &&
@@ -3899,6 +3916,15 @@ class FFI {
 
     if (isDesktop) {
       inputModel.updateTrackpadSpeed();
+    }
+
+    if (viewerMode) {
+      bind.sessionPrepareViewer(
+        sessionId: sessionId,
+        token: viewerToken!.trim(),
+        viewerId: this.viewerId,
+        displayName: this.viewerDisplayName,
+      );
     }
 
     // CAUTION: `sessionStart()` and `sessionStartWithDisplays()` are an async functions.

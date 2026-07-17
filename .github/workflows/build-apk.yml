@@ -351,7 +351,7 @@ jobs:
         timeout-minutes: 10
         run: |
           cd flutter
-          flutter test test/direct_chat_protocol_test.dart test/ui_regression_contract_test.dart
+          flutter test test/direct_chat_protocol_test.dart test/viewer_invite_link_test.dart test/ui_regression_contract_test.dart
 
       - name: Build APK (split per ABI)
         timeout-minutes: 30

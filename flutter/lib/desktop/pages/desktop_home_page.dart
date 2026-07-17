@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:luoda_flutter/common.dart';
 import 'package:luoda_flutter/common/widgets/animated_rotation_widget.dart';
 import 'package:luoda_flutter/common/widgets/chat_page.dart';
+import 'package:luoda_flutter/common/widgets/join_viewer_page.dart';
 import 'package:luoda_flutter/common/widgets/custom_password.dart';
 import 'package:luoda_flutter/common/widgets/peer_tab_page.dart';
 import 'package:luoda_flutter/consts.dart';
@@ -35,6 +36,7 @@ import 'package:window_manager/window_manager.dart';
 import 'package:window_size/window_size.dart' as window_size;
 import '../widgets/button.dart';
 import '../../common/direct_pairing.dart';
+import '../../common/direct_viewer_invite.dart';
 
 class DesktopHomePage extends StatefulWidget {
   /// 如果为 true，只显示左侧内容（客户端专用版）
@@ -73,6 +75,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   String _selectedRailId = 'chat';
   Peer? _selectedContact;
   String? _selectedConversationPeerId;
+  bool _openingViewerInvite = false;
   final Map<String, FFI> _directChatSessions = <String, FFI>{};
   final Map<String, FFI> _directFileSessions = <String, FFI>{};
   String? _activeDirectChatPeerId;
@@ -276,6 +279,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                   ),
                 ),
                 Tooltip(
+                  message: translate('Join as Viewer'),
+                  child: IconButton(
+                    onPressed: () => _showJoinViewerPage(context),
+                    icon: const Icon(Icons.visibility_outlined, size: 21),
+                  ),
+                ),
+                Tooltip(
                   message: translate('Pair phone'),
                   child: IconButton(
                     onPressed: () => _showPairingQrDialog(context),
@@ -314,9 +324,15 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               ),
             ),
           ),
-          Divider(height: 1, color: theme.dividerColor.withOpacity(0.65)),
+          Divider(
+            height: 1,
+            color: dark ? const Color(0xFF3A3D43) : const Color(0xFFE5E5E7),
+          ),
           Expanded(child: _buildContactSection(context)),
-          Divider(height: 1, color: theme.dividerColor.withOpacity(0.65)),
+          Divider(
+            height: 1,
+            color: dark ? const Color(0xFF3A3D43) : const Color(0xFFE5E5E7),
+          ),
           SizedBox(
             height: 50,
             child: Row(
@@ -366,6 +382,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                   : _contactName(_selectedContact!);
               final hasConversation =
                   user != null && userMatchesSelection && peerId.isNotEmpty;
+              final canStartDirectSession =
+                  DirectPairingStore.resolveConnectionTarget(peerId) != null;
               return ColoredBox(
                 color: Theme.of(context).brightness == Brightness.dark
                     ? const Color(0xFF1C1E23)
@@ -381,7 +399,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                               ? selectedName
                               : translate('Direct chat'),
                       peerId: peerId,
-                      enabled: hasConversation,
+                      hasConversation: hasConversation,
+                      canStartDirectSession: canStartDirectSession,
                       contact: _selectedContact,
                       avatar:
                           user?.profileImage ?? _selectedContact?.avatar ?? '',
@@ -425,7 +444,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     BuildContext context, {
     required String title,
     required String peerId,
-    required bool enabled,
+    required bool hasConversation,
+    required bool canStartDirectSession,
     required Peer? contact,
     required String avatar,
   }) {
@@ -438,7 +458,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         padding: const EdgeInsets.symmetric(horizontal: 18),
         child: Row(
           children: <Widget>[
-            if (contact != null || enabled) ...<Widget>[
+            if (contact != null || hasConversation) ...<Widget>[
               _buildConversationAvatar(
                 avatar: avatar,
                 name: title,
@@ -507,18 +527,21 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               context,
               tooltip: translate('File Transfer'),
               icon: Icons.attach_file_rounded,
-              onPressed:
-                  enabled ? () => _sendFilesFromConversation(peerId) : null,
+              onPressed: hasConversation
+                  ? () => _sendFilesFromConversation(peerId)
+                  : null,
             ),
             _conversationActionButton(
               context,
               tooltip: translate('Remote Desktop'),
               icon: Icons.desktop_windows_outlined,
-              onPressed: enabled ? () => _connectDirect(context, peerId) : null,
+              onPressed: canStartDirectSession
+                  ? () => _connectDirect(context, peerId)
+                  : null,
             ),
             PopupMenuButton<_ConversationAction>(
               tooltip: translate('More'),
-              enabled: enabled,
+              enabled: canStartDirectSession,
               onSelected: (action) =>
                   _handleConversationAction(context, action, peerId),
               itemBuilder: (context) => <PopupMenuEntry<_ConversationAction>>[
@@ -820,6 +843,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           : Colors.transparent,
       child: InkWell(
         onTap: () => _startDirectChat(pairing.peerId),
+        onDoubleTap: () => _connectDirect(context, pairing.peerId),
         child: SizedBox(
           height: 66,
           child: Padding(
@@ -930,7 +954,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             unawaited(_startDirectChat(peer.id));
           }
         },
-        onDoubleTap: () => _startDirectChat(peer.id),
+        onDoubleTap: () => _connectDirect(context, peer.id),
         child: SizedBox(
           height: 66,
           child: Padding(
@@ -1476,6 +1500,48 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     );
   }
 
+  Future<void> _showJoinViewerPage(
+    BuildContext context, {
+    ViewerInviteLink? invite,
+  }) async {
+    if (_openingViewerInvite) return;
+    _openingViewerInvite = true;
+    try {
+      await Navigator.of(context).push<bool>(
+        MaterialPageRoute<bool>(
+          builder: (_) => JoinViewerPage(
+            initialEndpoint: invite?.endpoint ?? _clientIdController.text,
+            initialToken: invite?.token,
+            initialDisplayName: gFFI.chatModel.me.firstName,
+            onJoinRequested: ({
+              required endpoint,
+              required token,
+              required viewerId,
+              required displayName,
+            }) async {
+              await luodaWinManager.newRemoteDesktop(
+                endpoint,
+                viewerToken: token,
+                viewerId: viewerId,
+                viewerDisplayName: displayName,
+              );
+            },
+          ),
+        ),
+      );
+    } finally {
+      _openingViewerInvite = false;
+    }
+  }
+
+  void _handlePendingViewerInvite() {
+    final invite = takePendingViewerInvite();
+    if (invite == null || !mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _showJoinViewerPage(context, invite: invite);
+    });
+  }
+
   Future<void> _showPairingQrDialog(BuildContext context) async {
     bind.mainCheckConnectStatus();
     final payload = await DirectPairingStore.buildLocalPayload();
@@ -1564,15 +1630,27 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       );
       return;
     }
-    await connect(
-      context,
-      endpoint,
-      isFileTransfer: isFileTransfer,
-      isViewCamera: isViewCamera,
-      isTerminal: isTerminal,
-      isTcpTunneling: isTcpTunneling,
-      forceRelay: false,
-    );
+    try {
+      await connect(
+        context,
+        endpoint,
+        isFileTransfer: isFileTransfer,
+        isViewCamera: isViewCamera,
+        isTerminal: isTerminal,
+        isTcpTunneling: isTcpTunneling,
+        forceRelay: false,
+      );
+    } on TimeoutException catch (error) {
+      debugPrint('Direct connection window timed out: $error');
+      _showConversationNotice(
+        translate('Connection window timed out. Please try again.'),
+      );
+    } catch (error) {
+      debugPrint('Failed to open direct connection window: $error');
+      _showConversationNotice(
+        translate('Unable to open the connection window.'),
+      );
+    }
   }
 
   Future<void> _showToolsMenu(BuildContext context) async {
@@ -3176,6 +3254,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   @override
   void initState() {
     super.initState();
+    pendingViewerInvite.addListener(_handlePendingViewerInvite);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _handlePendingViewerInvite();
+    });
     bind.mainLoadRecentPeers();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_maintainTrustedChatSessions());
@@ -3305,6 +3387,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           password: call.arguments['password'],
           forceRelay: call.arguments['forceRelay'],
           connToken: call.arguments['connToken'],
+          viewerToken: call.arguments['viewerToken'],
+          viewerId: call.arguments['viewerId'],
+          viewerDisplayName: call.arguments['viewerDisplayName'],
         );
       } else if (call.method == kWindowBumpMouse) {
         return RdPlatformChannel.instance.bumpMouse(
@@ -3397,6 +3482,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
   @override
   void dispose() {
+    pendingViewerInvite.removeListener(_handlePendingViewerInvite);
     _uniLinksSubscription?.cancel();
     Get.delete<RxBool>(tag: 'stop-service');
     _updateTimer?.cancel();

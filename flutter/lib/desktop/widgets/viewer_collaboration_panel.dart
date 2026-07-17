@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import 'package:luoda_flutter/common.dart';
+import 'package:luoda_flutter/common/direct_pairing.dart';
 import 'package:luoda_flutter/common/widgets/shared_chat_panel.dart';
 import 'package:luoda_flutter/common/widgets/viewer_list_panel.dart';
 import 'package:luoda_flutter/models/model.dart';
@@ -46,6 +47,9 @@ class ViewerCollaborationPanel extends StatelessWidget {
     final theme = Theme.of(context);
     final width = math.min(440.0, MediaQuery.sizeOf(context).width);
     final localName = (ffi.chatModel.me.firstName ?? '').trim();
+    final hostEndpoint =
+        DirectPairingStore.resolveEndpoint(ffi.id) ?? ffi.id.trim();
+    final isHost = !ffi.viewerMode;
     return SafeArea(
       child: Align(
         alignment: Alignment.centerRight,
@@ -76,13 +80,14 @@ class ViewerCollaborationPanel extends StatelessWidget {
                             ),
                           ),
                           TextButton.icon(
-                            onPressed: ffi.closed
+                            onPressed: ffi.closed || !isHost
                                 ? null
                                 : () => InviteViewerDialog.show(
                                       context,
                                       sessionId: ffi.sessionId,
                                       hostLabel:
                                           '${translate('Remote Desktop')}: ${ffi.id}',
+                                      hostEndpoint: hostEndpoint,
                                       viewerSessionModel:
                                           ffi.viewerSessionModel,
                                     ),
@@ -114,13 +119,14 @@ class ViewerCollaborationPanel extends StatelessWidget {
                         ViewerListPanel(
                           sessionId: ffi.sessionId,
                           viewerSessionModel: ffi.viewerSessionModel,
-                          isHost: true,
+                          isHost: isHost,
+                          selfViewerId: ffi.viewerId,
                         ),
                         SharedChatPanel(
                           sessionId: ffi.sessionId,
                           viewerSessionModel: ffi.viewerSessionModel,
-                          isHost: true,
-                          selfViewerId: 'host',
+                          isHost: isHost,
+                          selfViewerId: isHost ? 'host' : ffi.viewerId,
                           selfDisplayName:
                               localName.isEmpty ? translate('Me') : localName,
                         ),

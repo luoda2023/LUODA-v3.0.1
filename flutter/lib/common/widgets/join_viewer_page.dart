@@ -2,7 +2,7 @@
 //
 // Contract source: docs/3.1.1-features.md §12 item 2.
 //
-// This file is a *contract stub*. The call site
+// This production widget joins a viewer over a direct endpoint. The call site
 // `bind.sessionJoinAsViewer(...)` resolves to the frb wrapper generated
 // from `flutter_ffi::session_join_as_viewer` (`src/flutter_ffi.rs` L761).
 // `flutter_rust_bridge_codegen` must be re-run on the online Flutter
@@ -16,6 +16,8 @@ import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:luoda_flutter/common.dart';
+import 'package:luoda_flutter/common/direct_pairing.dart';
+import 'package:luoda_flutter/common/direct_viewer_invite.dart';
 import 'package:luoda_flutter/consts.dart';
 import 'package:luoda_flutter/models/platform_model.dart';
 
@@ -34,8 +36,16 @@ import 'package:luoda_flutter/models/platform_model.dart';
 ///      the session's viewer registry.
 class JoinViewerPage extends StatefulWidget {
   final UuidValue? sessionIdHint;
+  final String? initialEndpoint;
   final String? initialToken;
   final String? initialDisplayName;
+
+  final Future<void> Function({
+    required String endpoint,
+    required String token,
+    required String viewerId,
+    required String displayName,
+  })? onJoinRequested;
 
   /// Optional injector for the FFI call — used by tests; production
   /// code leaves this null and the page binds against [platformFFI.ffiBind].
@@ -49,8 +59,10 @@ class JoinViewerPage extends StatefulWidget {
   const JoinViewerPage({
     super.key,
     this.sessionIdHint,
+    this.initialEndpoint,
     this.initialToken,
     this.initialDisplayName,
+    this.onJoinRequested,
     this.joinAsViewer,
   });
 
@@ -59,6 +71,7 @@ class JoinViewerPage extends StatefulWidget {
 }
 
 class _JoinViewerPageState extends State<JoinViewerPage> {
+  late final TextEditingController _endpointCtrl;
   late final TextEditingController _tokenCtrl;
   late final TextEditingController _displayNameCtrl;
   bool _submitting = false;
@@ -67,23 +80,22 @@ class _JoinViewerPageState extends State<JoinViewerPage> {
   @override
   void initState() {
     super.initState();
+    _endpointCtrl = TextEditingController(text: widget.initialEndpoint ?? '');
     _tokenCtrl = TextEditingController(text: widget.initialToken ?? '');
-    _displayNameCtrl =
-        TextEditingController(text: widget.initialDisplayName ?? _defaultName());
+    _displayNameCtrl = TextEditingController(
+        text: widget.initialDisplayName ?? _defaultName());
   }
 
   @override
   void dispose() {
+    _endpointCtrl.dispose();
     _tokenCtrl.dispose();
     _displayNameCtrl.dispose();
     super.dispose();
   }
 
   static String _defaultName() {
-    // Online-codegen: wire to `bind.getMyName()` once that helper is
-    // re-exported (already available in RustDesk-flutter as
-    // `bind.mainGetMyName()`). For now we leave a placeholder.
-    return '';
+    return (gFFI.chatModel.me.firstName ?? '').trim();
   }
 
   String _normalizeToken(String raw) {
@@ -94,9 +106,20 @@ class _JoinViewerPageState extends State<JoinViewerPage> {
   }
 
   Future<void> _submit() async {
+    final endpointInput = _endpointCtrl.text.trim();
+    final endpoint = DirectPairingStore.resolveEndpoint(endpointInput) ??
+        endpointInput.replaceAll(' ', '');
+    if (!isViewerDirectEndpoint(endpoint)) {
+      setState(
+        () => _error = translate(
+          'Direct endpoint required. Scan the PC QR code or enter IP:port.',
+        ),
+      );
+      return;
+    }
     final raw = _tokenCtrl.text.trim();
     if (raw.isEmpty) {
-      setState(() => _error = 'Invite code cannot be empty');
+      setState(() => _error = translate('Invite code cannot be empty'));
       return;
     }
     final token = _normalizeToken(raw);
@@ -105,7 +128,7 @@ class _JoinViewerPageState extends State<JoinViewerPage> {
         : 'viewer';
     final viewerId = const Uuid().v4();
     final sessionId = widget.sessionIdHint;
-    if (sessionId == null) {
+    if (sessionId == null && widget.onJoinRequested == null) {
       // Without an active session hint we cannot dial into the viewer
       // channel — the deep-link / navigation path that reached this
       // page is expected to supply one. Surface a clear error rather
@@ -120,9 +143,16 @@ class _JoinViewerPageState extends State<JoinViewerPage> {
     });
 
     try {
-      if (widget.joinAsViewer != null) {
+      if (widget.onJoinRequested != null) {
+        await widget.onJoinRequested!(
+          endpoint: endpoint,
+          token: token,
+          viewerId: viewerId,
+          displayName: displayName,
+        );
+      } else if (widget.joinAsViewer != null) {
         await widget.joinAsViewer!(
-          sessionId: sessionId,
+          sessionId: sessionId!,
           token: token,
           viewerId: viewerId,
           displayName: displayName,
@@ -130,7 +160,7 @@ class _JoinViewerPageState extends State<JoinViewerPage> {
       } else {
         // Online-codegen target — wire to frb-generated helper.
         await bind.sessionJoinAsViewer(
-          sessionId: sessionId,
+          sessionId: sessionId!,
           token: token,
           viewerId: viewerId,
           displayName: displayName,
@@ -170,6 +200,40 @@ class _JoinViewerPageState extends State<JoinViewerPage> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                Icon(
+                  Icons.visibility_outlined,
+                  size: 36,
+                  color: theme.colorScheme.primary,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  translate('Join as Viewer'),
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  translate(
+                    'View only. Keyboard, mouse, clipboard and file transfer stay disabled.',
+                  ),
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 24),
+                TextField(
+                  controller: _endpointCtrl,
+                  keyboardType: TextInputType.url,
+                  textInputAction: TextInputAction.next,
+                  decoration: InputDecoration(
+                    labelText: translate('Direct endpoint'),
+                    hintText: '203.0.113.8:21118',
+                    prefixIcon: const Icon(Icons.link_rounded),
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
                 TextField(
                   controller: _tokenCtrl,
                   textCapitalization: TextCapitalization.characters,
@@ -179,7 +243,8 @@ class _JoinViewerPageState extends State<JoinViewerPage> {
                     border: const OutlineInputBorder(),
                   ),
                   inputFormatters: [
-                    FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9\- ]')),
+                    FilteringTextInputFormatter.allow(
+                        RegExp(r'[A-Za-z0-9\- ]')),
                   ],
                 ),
                 const SizedBox(height: 16),
@@ -191,9 +256,18 @@ class _JoinViewerPageState extends State<JoinViewerPage> {
                   ),
                 ),
                 const SizedBox(height: 24),
-                ElevatedButton(
-                  onPressed: _submitting ? null : _submit,
-                  child: Text(translate('Join as Viewer')),
+                SizedBox(
+                  height: 44,
+                  child: ElevatedButton.icon(
+                    onPressed: _submitting ? null : _submit,
+                    icon: _submitting
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.visibility_rounded),
+                    label: Text(translate('Join as Viewer')),
+                  ),
                 ),
                 if (_error != null) ...[
                   const SizedBox(height: 12),

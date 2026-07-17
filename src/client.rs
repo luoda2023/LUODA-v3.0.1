@@ -3871,6 +3871,9 @@ async fn send_switch_login_request(
 pub trait Interface: Send + Clone + 'static + Sized {
     /// Send message data to remote peer.
     fn send(&self, data: Data);
+    fn viewer_join_request(&self) -> Option<JoinAsViewer> {
+        None
+    }
     fn msgbox(&self, msgtype: &str, title: &str, text: &str, link: &str);
     fn handle_login_error(&self, err: &str) -> bool;
     fn handle_peer_info(&self, pi: PeerInfo);

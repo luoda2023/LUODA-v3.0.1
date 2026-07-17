@@ -20,6 +20,12 @@ void main() {
   final homePageSource = File(
     'lib/desktop/pages/desktop_home_page.dart',
   ).readAsStringSync();
+  final desktopTabSource = File(
+    'lib/desktop/pages/desktop_tab_page.dart',
+  ).readAsStringSync();
+  final multiWindowManagerSource = File(
+    'lib/utils/multi_window_manager.dart',
+  ).readAsStringSync();
   final addressBookSource = File(
     'lib/common/widgets/address_book.dart',
   ).readAsStringSync();
@@ -43,6 +49,9 @@ void main() {
   ).readAsStringSync();
   final inviteViewerSource = File(
     'lib/desktop/widgets/invite_viewer_dialog.dart',
+  ).readAsStringSync();
+  final joinViewerSource = File(
+    'lib/common/widgets/join_viewer_page.dart',
   ).readAsStringSync();
   final desktopRailSource = File(
     'lib/desktop/widgets/desktop_primary_rail.dart',
@@ -98,6 +107,9 @@ void main() {
     '../libs/hbb_common/protos/message.proto',
   ).readAsStringSync();
   final clientSource = File('../src/client.rs').readAsStringSync();
+  final clientIoLoopSource = File(
+    '../src/client/io_loop.rs',
+  ).readAsStringSync();
   final serverConnectionSource = File(
     '../src/server/connection.rs',
   ).readAsStringSync();
@@ -106,6 +118,12 @@ void main() {
   ).readAsStringSync();
   final serverSource = File('../src/server.rs').readAsStringSync();
   final flutterBridgeSource = File('../src/flutter.rs').readAsStringSync();
+  final serverConnectionViewerSource = File(
+    '../src/server/connection.rs',
+  ).readAsStringSync();
+  final uiSessionSource = File(
+    '../src/ui_session_interface.rs',
+  ).readAsStringSync();
 
   test('viewer control events are intercepted before ordinary chat', () {
     final guards = RegExp(
@@ -138,6 +156,45 @@ void main() {
     expect(viewerCollaborationSource, contains('InviteViewerDialog.show('));
     expect(viewerCollaborationSource, contains('ViewerListPanel('));
     expect(viewerCollaborationSource, contains('SharedChatPanel('));
+  });
+
+  test('viewer join is a reachable direct session on desktop and mobile', () {
+    expect(joinViewerSource, isNot(contains('contract stub')));
+    expect(joinViewerSource, contains('Direct endpoint'));
+    expect(joinViewerSource, contains('onJoinRequested'));
+    expect(homePageSource, contains('JoinViewerPage('));
+    expect(mobileConnectionSource, contains('_ConnectionMode.viewer'));
+    expect(mobileConnectionSource, contains('JoinViewerPage('));
+    expect(inviteViewerSource, contains('ViewerInviteLink('));
+  });
+
+  test('viewer wire mode is configured before the session starts', () {
+    final configure = modelSource.indexOf('sessionPrepareViewer(');
+    final start = modelSource.indexOf('sessionStart(sessionId:');
+    expect(configure, greaterThanOrEqualTo(0));
+    expect(start, greaterThan(configure));
+    expect(uiSessionSource, contains('fn viewer_join_request(&self)'));
+    expect(clientIoLoopSource, contains('viewer_join_request()'));
+    expect(clientIoLoopSource, contains('peer.send(&viewer_join)'));
+  });
+
+  test('server routes Flutter misc viewer controls and starts video', () {
+    expect(
+      serverConnectionViewerSource,
+      contains('Some(misc::Union::JoinAsViewer(jv))'),
+    );
+    expect(
+      serverConnectionViewerSource,
+      contains('Some(misc::Union::ChatBroadcast(cb))'),
+    );
+    expect(
+      serverConnectionViewerSource,
+      contains('viewer_fanout::register_host('),
+    );
+    expect(
+      serverConnectionViewerSource,
+      contains('send_logon_response_and_keep_alive().await'),
+    );
   });
 
   test('peer card more action has a real keyboard activation callback', () {
@@ -224,6 +281,46 @@ void main() {
     );
   });
 
+  test('desktop settings entry exists only in the bottom primary rail', () {
+    expect(homePageSource, contains('onSettings: DesktopTabPage.onAddSetting'));
+    expect(desktopTabSource, isNot(contains("message: 'Settings'")));
+    expect(desktopTabSource, isNot(contains('tail: Offstage(')));
+  });
+
+  test('selected and recent contacts can start remote desktop directly', () {
+    expect(homePageSource, contains('final canStartDirectSession ='));
+    expect(
+      homePageSource,
+      contains('canStartDirectSession: canStartDirectSession'),
+    );
+    expect(
+      homePageSource,
+      contains(
+        'onDoubleTap: () => _connectDirect(context, pairing.peerId)',
+      ),
+    );
+    expect(
+      homePageSource,
+      contains('onDoubleTap: () => _connectDirect(context, peer.id)'),
+    );
+  });
+
+  test('contact pane uses restrained dividers below the search controls', () {
+    expect(homePageSource, contains('Color(0xFFE5E5E7)'));
+    expect(homePageSource, contains('Color(0xFF3A3D43)'));
+    expect(
+      homePageSource,
+      isNot(contains('theme.dividerColor.withOpacity(0.65)')),
+    );
+  });
+
+  test('desktop session window calls cannot wait forever', () {
+    expect(multiWindowManagerSource, contains('_sessionProbeTimeout'));
+    expect(multiWindowManagerSource, contains('_sessionLaunchTimeout'));
+    expect(multiWindowManagerSource, contains('.timeout('));
+    expect(multiWindowManagerSource, contains('_discardUnresponsiveWindow'));
+  });
+
   test('desktop rail background is local, configurable, and readable', () {
     expect(
       desktopRailSource,
@@ -291,9 +388,17 @@ void main() {
   });
 
   test('mobile connection defaults to direct chat and keeps remote assist', () {
-    expect(mobileConnectionSource, contains('bool _chatMode = true'));
+    expect(
+      mobileConnectionSource,
+      contains(
+        '_ConnectionMode _connectionMode = _ConnectionMode.chat',
+      ),
+    );
     expect(mobileConnectionSource, contains('isChat: true'));
-    expect(mobileConnectionSource, contains('SegmentedButton<bool>'));
+    expect(
+      mobileConnectionSource,
+      contains('SegmentedButton<_ConnectionMode>'),
+    );
     expect(mobileHomeSource, contains('void selectChatPage()'));
     expect(chatPageSource, contains('currentKey.peerId.isEmpty'));
     expect(chatPageSource, contains('onAttachFile'));

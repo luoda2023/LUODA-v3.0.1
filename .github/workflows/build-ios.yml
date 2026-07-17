@@ -241,7 +241,7 @@ jobs:
       - name: Validate shared chat and UI contracts
         timeout-minutes: 10
         working-directory: flutter
-        run: flutter test test/direct_chat_protocol_test.dart test/ui_regression_contract_test.dart
+        run: flutter test test/direct_chat_protocol_test.dart test/viewer_invite_link_test.dart test/ui_regression_contract_test.dart
 
       - name: Build signed IPA
         if: steps.signing.outputs.enabled == 'true'

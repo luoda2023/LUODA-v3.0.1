@@ -147,6 +147,7 @@ jobs:
           cargo test --release --features flutter --lib direct_access::tests -- --nocapture
           cargo test --release --features flutter --lib direct_endpoint_tests -- --nocapture
           cargo test --release --features flutter --lib direct_port_tests -- --nocapture
+          cargo test --release --features flutter --test viewer_invite_policy -- --nocapture
         env:
           VCPKG_ROOT: C:\vcpkg
           VCPKG_DEFAULT_TRIPLET: x64-windows-static
@@ -158,7 +159,7 @@ jobs:
         run: |
           cd flutter
           flutter pub get
-          flutter test test/direct_chat_protocol_test.dart test/ui_regression_contract_test.dart
+          flutter test test/direct_chat_protocol_test.dart test/viewer_invite_link_test.dart test/ui_regression_contract_test.dart
       - name: Normalize Windows resource encoding
         if: matrix.arch == 'x64'
         shell: pwsh
@@ -253,6 +254,44 @@ jobs:
             echo "=== Final portable EXE ==="
             ls -la SignOutput/LDesk-portable-x64.exe
           fi
+      - name: Smoke test Windows main window responsiveness
+        if: matrix.arch == 'x64'
+        timeout-minutes: 2
+        shell: pwsh
+        run: |
+          $releaseDir = Resolve-Path 'Release'
+          $exe = Join-Path $releaseDir 'luoda.exe'
+          $process = Start-Process `
+            -FilePath $exe `
+            -WorkingDirectory $releaseDir `
+            -PassThru
+          try {
+            $deadline = [DateTime]::UtcNow.AddSeconds(30)
+            do {
+              Start-Sleep -Milliseconds 500
+              $process.Refresh()
+              if ($process.HasExited) {
+                throw "LDesk exited during startup with code $($process.ExitCode)"
+              }
+            } while (
+              $process.MainWindowHandle -eq 0 -and
+              [DateTime]::UtcNow -lt $deadline
+            )
+            if ($process.MainWindowHandle -eq 0) {
+              throw 'LDesk did not create a main window within 30 seconds'
+            }
+            for ($attempt = 0; $attempt -lt 5; $attempt++) {
+              Start-Sleep -Seconds 1
+              $process.Refresh()
+              if ($process.HasExited -or -not $process.Responding) {
+                throw 'LDesk main window stopped responding during startup'
+              }
+            }
+          } finally {
+            if (-not $process.HasExited) {
+              Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            }
+          }
       - name: Verify Windows version metadata
         if: matrix.arch == 'x64'
         shell: powershell

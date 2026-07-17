@@ -830,6 +830,8 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Direct connection failed. File relay is disabled.", "直连失败，已禁止通过中继传输文件。"),
         ("Direct file transfer connection timed out.", "直连文件传输连接超时。"),
         ("Direct file transfer started.", "已开始直连文件传输。"),
+        ("Connection window timed out. Please try again.", "连接窗口响应超时，请重试。"),
+        ("Unable to open the connection window.", "无法打开连接窗口。"),
         ("Sent file", "已发送文件"),
         ("Waiting to send", "\u{5f85}\u{53d1}\u{9001}"),
         ("Sent", "\u{5df2}\u{53d1}\u{9001}"),

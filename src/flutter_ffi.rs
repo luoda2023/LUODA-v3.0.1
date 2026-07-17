@@ -758,6 +758,17 @@ pub fn session_request_invite_token(session_id: SessionID, ttl_minutes: i32, one
     }
 }
 
+pub fn session_prepare_viewer(
+    session_id: SessionID,
+    token: String,
+    viewer_id: String,
+    display_name: String,
+) {
+    if let Some(session) = sessions::get_session_by_session_id(&session_id) {
+        session.prepare_viewer(token, viewer_id, display_name);
+    }
+}
+
 /// Viewer -> host: announce the caller as a viewer using an invite token
 /// (12-char Crockford short-code or full token). The Flutter layer is
 /// responsible for generating a fresh `viewer_id` (UUID v4). Returns

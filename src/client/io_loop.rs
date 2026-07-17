@@ -191,6 +191,14 @@ impl<T: InvokeUiSession> Remote<T> {
                         .set_fingerprint(crate::common::pk_to_fingerprint(pk.unwrap_or_default()));
                 }
 
+                if let Some(request) = self.handler.viewer_join_request() {
+                    let mut misc = Misc::new();
+                    misc.set_join_as_viewer(request);
+                    let mut viewer_join = Message::new();
+                    viewer_join.set_misc(misc);
+                    allow_err!(peer.send(&viewer_join).await);
+                }
+
                 // just build for now
                 #[cfg(not(any(target_os = "windows", feature = "unix-file-copy-paste")))]
                 let (_tx_holder, mut rx_clip_client) = mpsc::unbounded_channel::<i32>();

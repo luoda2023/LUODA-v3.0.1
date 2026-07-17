@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:desktop_multi_window/desktop_multi_window.dart';
@@ -56,6 +57,8 @@ class LUODAMultiWindowManager {
   LUODAMultiWindowManager._();
 
   static final instance = LUODAMultiWindowManager._();
+  static const _sessionProbeTimeout = Duration(seconds: 2);
+  static const _sessionLaunchTimeout = Duration(seconds: 8);
 
   final Set<int> _inactiveWindows = {};
   final Set<int> _activeWindows = {};
@@ -65,6 +68,13 @@ class LUODAMultiWindowManager {
   final List<int> _viewCameraWindows = List.empty(growable: true);
   final List<int> _portForwardWindows = List.empty(growable: true);
   final List<int> _terminalWindows = List.empty(growable: true);
+
+  void _discardUnresponsiveWindow(int windowId, List<int> windows) {
+    windows.remove(windowId);
+    _activeWindows.remove(windowId);
+    _inactiveWindows.remove(windowId);
+    unawaited(_notifyActiveWindow());
+  }
 
   moveTabToNewWindow(int windowId, String peerId, String sessionId,
       WindowType windowType) async {
@@ -230,6 +240,9 @@ class LUODAMultiWindowManager {
     bool? isRDP,
     bool? isSharedPassword,
     String? connToken,
+    String? viewerToken,
+    String? viewerId,
+    String? viewerDisplayName,
   }) async {
     var params = {
       "type": type.index,
@@ -237,6 +250,11 @@ class LUODAMultiWindowManager {
       "password": password,
       "forceRelay": forceRelay
     };
+    if (viewerToken != null) {
+      params['viewerToken'] = viewerToken;
+      params['viewerId'] = viewerId;
+      params['viewerDisplayName'] = viewerDisplayName;
+    }
     if (switchUuid != null) {
       params['switch_uuid'] = switchUuid;
     }
@@ -255,16 +273,34 @@ class LUODAMultiWindowManager {
     bool openInTabs = type != WindowType.RemoteDesktop ||
         mainGetLocalBoolOptionSync(kOptionOpenNewConnInTabs);
 
-    if (windows.length > 1 || !openInTabs) {
-      for (final windowId in windows) {
-        if (await DesktopMultiWindow.invokeMethod(
-            windowId, kWindowEventActiveSession, remoteId)) {
-          return MultiWindowCallResult(windowId, null);
-        }
+    for (final windowId in List<int>.of(windows)) {
+      try {
+        final active = await DesktopMultiWindow.invokeMethod(
+          windowId,
+          kWindowEventActiveSession,
+          remoteId,
+        ).timeout(_sessionProbeTimeout);
+        if (active == true) return MultiWindowCallResult(windowId, null);
+      } on TimeoutException catch (error) {
+        debugPrint('Window $windowId stopped responding: $error');
+        _discardUnresponsiveWindow(windowId, windows);
+      } on PlatformException catch (error) {
+        debugPrint('Window $windowId is unavailable: $error');
+        _discardUnresponsiveWindow(windowId, windows);
+      } catch (error) {
+        debugPrint('Window $windowId could not be queried: $error');
+        _discardUnresponsiveWindow(windowId, windows);
       }
     }
 
-    return _newSession(openInTabs, type, methodName, remoteId, windows, msg);
+    return _newSession(
+      openInTabs,
+      type,
+      methodName,
+      remoteId,
+      windows,
+      msg,
+    ).timeout(_sessionLaunchTimeout);
   }
 
   Future<MultiWindowCallResult> newRemoteDesktop(
@@ -273,6 +309,9 @@ class LUODAMultiWindowManager {
     bool? isSharedPassword,
     String? switchUuid,
     bool? forceRelay,
+    String? viewerToken,
+    String? viewerId,
+    String? viewerDisplayName,
   }) async {
     return await newSession(
       WindowType.RemoteDesktop,
@@ -283,6 +322,9 @@ class LUODAMultiWindowManager {
       forceRelay: forceRelay,
       switchUuid: switchUuid,
       isSharedPassword: isSharedPassword,
+      viewerToken: viewerToken,
+      viewerId: viewerId,
+      viewerDisplayName: viewerDisplayName,
     );
   }
 
