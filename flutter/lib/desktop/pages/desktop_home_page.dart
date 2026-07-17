@@ -37,6 +37,7 @@ import 'package:window_size/window_size.dart' as window_size;
 import '../widgets/button.dart';
 import '../../common/direct_pairing.dart';
 import '../../common/direct_viewer_invite.dart';
+import '../../common/wechat_ui_tokens.dart';
 
 class DesktopHomePage extends StatefulWidget {
   /// 如果为 true，只显示左侧内容（客户端专用版）
@@ -141,7 +142,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     return LayoutBuilder(
       builder: (context, constraints) {
         final showRail = constraints.maxWidth >= 820;
-        final contactsWidth = constraints.maxWidth >= 1180 ? 316.0 : 288.0;
+        final contactsWidth = constraints.maxWidth >= 1240 ? 316.0 : 300.0;
         final dark = Theme.of(context).brightness == Brightness.dark;
         return ColoredBox(
           color: dark ? const Color(0xFF191B20) : const Color(0xFFF7F7F8),
@@ -244,98 +245,115 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       _ => 'Contacts',
     };
     return ColoredBox(
-      color: dark ? const Color(0xFF25272C) : const Color(0xFFF0F0F2),
+      color: dark ? const Color(0xFF25272C) : kWeChatListSurfaceColor,
       child: Column(
         children: <Widget>[
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
-            child: TextField(
-              key: const ValueKey('direct-chat-address-field'),
-              controller: _clientIdController,
-              focusNode: _clientIdFocusNode,
-              textInputAction: TextInputAction.go,
-              onSubmitted: _startDirectChat,
-              decoration: InputDecoration(
-                hintText: translate('Paired ID / IP:port'),
-                prefixIcon: const Icon(Icons.link_rounded, size: 19),
-                suffixIcon: IconButton(
-                  tooltip: translate('Connect'),
-                  onPressed: () => _startDirectChat(_clientIdController.text),
-                  icon: const Icon(Icons.arrow_forward_rounded, size: 20),
-                ),
-                filled: true,
-                fillColor: dark ? const Color(0xFF32343A) : Colors.white,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide.none,
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 12,
-                ),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 12, 8),
+            padding: const EdgeInsets.fromLTRB(16, 14, 12, 10),
             child: Row(
               children: <Widget>[
                 Expanded(
-                  child: Text(
-                    translate(sectionTitle),
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
+                  child: SizedBox(
+                    height: 34,
+                    child: TextField(
+                      controller: _contactSearchController,
+                      onChanged: (_) => setState(() {}),
+                      onSubmitted: (value) {
+                        if (DirectPairingStore.resolveConnectionTarget(value) !=
+                            null) {
+                          _startDirectChat(value);
+                        }
+                      },
+                      decoration: InputDecoration(
+                        hintText: translate(
+                          _selectedRailId == 'chat'
+                              ? 'Search conversations'
+                              : 'Search',
+                        ),
+                        prefixIcon: const Icon(Icons.search_rounded, size: 18),
+                        filled: true,
+                        fillColor:
+                            dark ? const Color(0xFF32343A) : kWeChatCanvasColor,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: BorderSide.none,
+                        ),
+                        contentPadding: EdgeInsets.zero,
+                      ),
                     ),
                   ),
                 ),
-                Tooltip(
-                  message: translate('Join as Viewer'),
-                  child: IconButton(
-                    onPressed: () => _showJoinViewerPage(context),
-                    icon: const Icon(Icons.visibility_outlined, size: 21),
-                  ),
-                ),
-                Tooltip(
-                  message: translate('Pair phone'),
-                  child: IconButton(
-                    onPressed: () => _showPairingQrDialog(context),
-                    icon: const Icon(Icons.qr_code_2_rounded, size: 21),
-                  ),
-                ),
-                Tooltip(
-                  message: translate('My Identity'),
-                  child: IconButton(
-                    onPressed: () => _showIdentityDialog(context),
-                    icon: const Icon(Icons.badge_outlined, size: 20),
-                  ),
+                const SizedBox(width: 8),
+                PopupMenuButton<String>(
+                  tooltip: translate('Add'),
+                  icon: const Icon(Icons.add_circle_outline_rounded, size: 24),
+                  onSelected: (value) {
+                    switch (value) {
+                      case 'connect':
+                        _showDirectConnectDialog(context);
+                        return;
+                      case 'viewer':
+                        _showJoinViewerPage(context);
+                        return;
+                      case 'pair-phone':
+                        _showPairingQrDialog(context);
+                        return;
+                      case 'identity':
+                        _showIdentityDialog(context);
+                        return;
+                    }
+                  },
+                  itemBuilder: (context) => <PopupMenuEntry<String>>[
+                    PopupMenuItem<String>(
+                      value: 'connect',
+                      child: Text(translate('Connect by ID / IP')),
+                    ),
+                    PopupMenuItem<String>(
+                      value: 'viewer',
+                      child: Text(translate('Join as Viewer')),
+                    ),
+                    PopupMenuItem<String>(
+                      value: 'pair-phone',
+                      child: Text(translate('Pair phone')),
+                    ),
+                    PopupMenuItem<String>(
+                      value: 'identity',
+                      child: Text(translate('My Identity')),
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-            child: SizedBox(
-              height: 34,
-              child: TextField(
-                controller: _contactSearchController,
-                onChanged: (_) => setState(() {}),
-                decoration: InputDecoration(
-                  hintText: translate(
-                    _selectedRailId == 'chat'
-                        ? 'Search conversations'
-                        : 'Search',
-                  ),
-                  prefixIcon: const Icon(Icons.search_rounded, size: 18),
-                  filled: true,
-                  fillColor:
-                      dark ? const Color(0xFF32343A) : const Color(0xFFF9F9FA),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide.none,
-                  ),
-                  contentPadding: EdgeInsets.zero,
+          SizedBox(
+            height: 48,
+            child: Row(
+              children: <Widget>[
+                const SizedBox(width: 20),
+                Icon(
+                  _selectedRailId == 'chat'
+                      ? Icons.format_list_bulleted_rounded
+                      : Icons.contacts_outlined,
+                  size: 19,
+                  color: theme.colorScheme.onSurface.withOpacity(0.56),
                 ),
-              ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Text(
+                    translate(sectionTitle),
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurface.withOpacity(0.64),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                Icon(
+                  Icons.keyboard_arrow_down_rounded,
+                  size: 20,
+                  color: theme.colorScheme.onSurface.withOpacity(0.56),
+                ),
+                const SizedBox(width: 16),
+              ],
             ),
           ),
           Divider(
@@ -343,33 +361,51 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             color: dark ? const Color(0xFF3A3D43) : const Color(0xFFE5E5E7),
           ),
           Expanded(child: _buildContactSection(context)),
-          Divider(
-            height: 1,
-            color: dark ? const Color(0xFF3A3D43) : const Color(0xFFE5E5E7),
-          ),
-          SizedBox(
-            height: 50,
-            child: Row(
-              children: <Widget>[
-                const SizedBox(width: 14),
-                const Icon(Icons.shield_outlined, size: 18),
-                const SizedBox(width: 9),
-                Expanded(
-                  child: Text(
-                    translate('Direct IP Access'),
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 120, child: OnlineStatusWidget()),
-                const SizedBox(width: 8),
-              ],
-            ),
-          ),
         ],
       ),
+    );
+  }
+
+  void _showDirectConnectDialog(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        void connect() {
+          final target = _clientIdController.text.trim();
+          if (target.isEmpty) return;
+          Navigator.of(dialogContext).pop();
+          _startDirectChat(target);
+        }
+
+        return AlertDialog(
+          title: Text(translate('Connect by ID / IP')),
+          content: SizedBox(
+            width: 360,
+            child: TextField(
+              key: const ValueKey('direct-chat-address-field'),
+              controller: _clientIdController,
+              focusNode: _clientIdFocusNode,
+              autofocus: true,
+              textInputAction: TextInputAction.go,
+              onSubmitted: (_) => connect(),
+              decoration: InputDecoration(
+                labelText: translate('Paired ID / IP:port'),
+                prefixIcon: const Icon(Icons.link_rounded, size: 20),
+              ),
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: Text(translate('Cancel')),
+            ),
+            FilledButton(
+              onPressed: connect,
+              child: Text(translate('Connect')),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -401,7 +437,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               return ColoredBox(
                 color: Theme.of(context).brightness == Brightness.dark
                     ? const Color(0xFF1C1E23)
-                    : const Color(0xFFFAFAFB),
+                    : kWeChatCanvasColor,
                 child: Column(
                   children: <Widget>[
                     _buildConversationHeader(
@@ -415,9 +451,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                       peerId: peerId,
                       hasConversation: hasConversation,
                       canStartDirectSession: canStartDirectSession,
-                      contact: _selectedContact,
-                      avatar:
-                          user?.profileImage ?? _selectedContact?.avatar ?? '',
                     ),
                     Divider(height: 1, color: Theme.of(context).dividerColor),
                     if (hasConversation)
@@ -460,80 +493,49 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     required String peerId,
     required bool hasConversation,
     required bool canStartDirectSession,
-    required Peer? contact,
-    required String avatar,
   }) {
     final theme = Theme.of(context);
-    final status = _directDeliveryStatus(peerId, contact: contact);
-    final initial = title.trim().isEmpty ? '?' : title.trim().characters.first;
+    final status = _directDeliveryStatus(peerId, contact: _selectedContact);
     return SizedBox(
-      height: 64,
+      height: 60,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 18),
+        padding: const EdgeInsets.only(left: 20, right: 10),
         child: Row(
           children: <Widget>[
-            if (contact != null || hasConversation) ...<Widget>[
-              _buildConversationAvatar(
-                avatar: avatar,
-                name: title,
-                initial: initial,
-                size: 38,
-              ),
-              const SizedBox(width: 11),
-            ],
             Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Row(
                 children: <Widget>[
-                  Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  if (peerId.isNotEmpty)
-                    Row(
-                      children: <Widget>[
-                        Flexible(
-                          child: Text(
-                            peerId,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color:
-                                  theme.colorScheme.onSurface.withOpacity(0.5),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 7),
-                        Container(
-                          width: 5,
-                          height: 5,
-                          decoration: BoxDecoration(
-                            color: status.$2,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          translate(status.$1),
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: status.$2,
-                          ),
-                        ),
-                      ],
-                    )
-                  else
-                    Text(
-                      translate('Select a contact to start chatting'),
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurface.withOpacity(0.5),
+                  Flexible(
+                    child: Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                        letterSpacing: 0,
                       ),
                     ),
+                  ),
+                  if (peerId.isNotEmpty) ...<Widget>[
+                    const SizedBox(width: 10),
+                    Container(
+                      width: 5,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: status.$2,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      translate(status.$1),
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: status.$2,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -953,12 +955,15 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           );
         }
         return ListView.separated(
-          padding: const EdgeInsets.symmetric(vertical: 4),
+          padding: EdgeInsets.zero,
           itemCount: entries.length,
           separatorBuilder: (_, __) => Divider(
             height: 1,
-            indent: 67,
-            color: theme.dividerColor,
+            indent: 78,
+            endIndent: 14,
+            color: Theme.of(context).brightness == Brightness.dark
+                ? const Color(0xFF3A3D43)
+                : kWeChatDividerColor,
           ),
           itemBuilder: (context, index) {
             final entry = entries[index];
@@ -975,17 +980,19 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             );
             return Material(
               color: selected
-                  ? theme.colorScheme.onSurface.withOpacity(0.08)
+                  ? Theme.of(context).brightness == Brightness.dark
+                      ? const Color(0xFF087A4E)
+                      : kWeChatSelectedConversationColor
                   : Colors.transparent,
               child: InkWell(
                 onTap: () => _openConversation(entry),
                 onDoubleTap: () => _connectDirect(context, peerId),
                 child: SizedBox(
-                  height: 68,
+                  height: 80,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 9,
+                      horizontal: 15,
+                      vertical: 11,
                     ),
                     child: Row(
                       children: <Widget>[
@@ -993,9 +1000,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                           avatar: user.profileImage ?? '',
                           name: displayName,
                           initial: displayName.characters.first,
-                          size: 42,
+                          size: 46,
                         ),
-                        const SizedBox(width: 11),
+                        const SizedBox(width: 13),
                         Expanded(
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
@@ -1009,7 +1016,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                       overflow: TextOverflow.ellipsis,
                                       style:
                                           theme.textTheme.bodyLarge?.copyWith(
+                                        color: selected ? Colors.white : null,
                                         fontWeight: FontWeight.w500,
+                                        fontSize: 16,
+                                        letterSpacing: 0,
                                       ),
                                     ),
                                   ),
@@ -1019,8 +1029,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                       _conversationTime(entry),
                                     ),
                                     style: theme.textTheme.labelSmall?.copyWith(
-                                      color: theme.colorScheme.onSurface
-                                          .withOpacity(0.46),
+                                      color: selected
+                                          ? Colors.white.withOpacity(0.82)
+                                          : theme.colorScheme.onSurface
+                                              .withOpacity(0.46),
                                     ),
                                   ),
                                 ],
@@ -1035,8 +1047,12 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                       overflow: TextOverflow.ellipsis,
                                       style:
                                           theme.textTheme.bodySmall?.copyWith(
-                                        color: theme.colorScheme.onSurface
-                                            .withOpacity(0.52),
+                                        color: selected
+                                            ? Colors.white.withOpacity(0.88)
+                                            : theme.colorScheme.onSurface
+                                                .withOpacity(0.52),
+                                        fontSize: 13,
+                                        letterSpacing: 0,
                                       ),
                                     ),
                                   ),

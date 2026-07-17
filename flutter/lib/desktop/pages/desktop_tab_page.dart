@@ -137,7 +137,7 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
                         : translate('Messages');
                 return LDeskMainTitleBar(
                   title: title,
-                  showThemeToggle: !compactClient,
+                  showPin: !compactClient,
                   showMinimize: !compactClient,
                   showMaximize: !compactClient,
                   showClose: true,

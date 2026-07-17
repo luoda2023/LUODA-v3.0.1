@@ -4,11 +4,15 @@ import 'package:luoda_flutter/common.dart';
 import 'package:luoda_flutter/models/state_model.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../../common/wechat_ui_tokens.dart';
+
+final ValueNotifier<bool> _mainWindowAlwaysOnTop = ValueNotifier<bool>(false);
+
 class LDeskMainTitleBar extends StatelessWidget {
-  static const double height = 44;
+  static const double height = 40;
 
   final String title;
-  final bool showThemeToggle;
+  final bool showPin;
   final bool showMinimize;
   final bool showMaximize;
   final bool showClose;
@@ -18,7 +22,7 @@ class LDeskMainTitleBar extends StatelessWidget {
   const LDeskMainTitleBar({
     super.key,
     required this.title,
-    this.showThemeToggle = true,
+    this.showPin = true,
     this.showMinimize = true,
     this.showMaximize = true,
     this.showClose = true,
@@ -37,16 +41,19 @@ class LDeskMainTitleBar extends StatelessWidget {
     }
   }
 
+  Future<void> _toggleAlwaysOnTop() async {
+    final next = !await windowManager.isAlwaysOnTop();
+    await windowManager.setAlwaysOnTop(next);
+    _mainWindowAlwaysOnTop.value = next;
+  }
+
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final background = dark ? const Color(0xFF202225) : const Color(0xFFF7F7F7);
-    final divider = dark ? const Color(0xFF34373C) : const Color(0xFFE5E5E7);
-    final primaryText =
-        dark ? const Color(0xFFF2F2F2) : const Color(0xFF191919);
+    final background = dark ? const Color(0xFF202225) : kWeChatChromeColor;
     final secondaryText =
         dark ? const Color(0xFFA8AAAE) : const Color(0xFF666666);
-    final hover = dark ? const Color(0xFF303236) : const Color(0xFFECECED);
+    final hover = dark ? const Color(0xFF303236) : const Color(0xFFD6D6DB);
     final usesSystemTitleBar = kUseCompatibleUiMode;
 
     final dragArea = Expanded(
@@ -69,37 +76,10 @@ class LDeskMainTitleBar extends StatelessWidget {
               },
         child: Row(
           children: [
-            SizedBox(width: onBack == null ? 14 : 4),
-            loadIcon(22),
-            const SizedBox(width: 8),
-            Text(
-              'LDesk',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: primaryText,
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0,
-              ),
-            ),
-            Container(
-              width: 1,
-              height: 16,
-              margin: const EdgeInsets.symmetric(horizontal: 12),
-              color: divider,
-            ),
-            Flexible(
-              child: Text(
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: secondaryText,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                  letterSpacing: 0,
-                ),
+            Expanded(
+              child: Semantics(
+                label: 'LDesk $title',
+                child: const SizedBox.expand(),
               ),
             ),
           ],
@@ -108,10 +88,7 @@ class LDeskMainTitleBar extends StatelessWidget {
     );
 
     return DecoratedBox(
-      decoration: BoxDecoration(
-        color: background,
-        border: Border(bottom: BorderSide(color: divider, width: 1)),
-      ),
+      decoration: BoxDecoration(color: background),
       child: Row(
         children: [
           if (isMacOS) const SizedBox(width: 78),
@@ -124,22 +101,18 @@ class LDeskMainTitleBar extends StatelessWidget {
               onPressed: onBack,
             ),
           dragArea,
-          if (showThemeToggle)
-            _TitleBarButton(
-              tooltip: MyTheme.currentThemeMode() == ThemeMode.dark
-                  ? translate('Switch to Light')
-                  : translate('Switch to Dark'),
-              icon: MyTheme.currentThemeMode() == ThemeMode.dark
-                  ? Icons.light_mode_outlined
-                  : Icons.dark_mode_outlined,
-              foreground: secondaryText,
-              hover: hover,
-              onPressed: () {
-                final isDark = MyTheme.currentThemeMode() == ThemeMode.dark;
-                MyTheme.changeDarkMode(
-                  isDark ? ThemeMode.light : ThemeMode.dark,
-                );
-              },
+          if (showPin)
+            ValueListenableBuilder<bool>(
+              valueListenable: _mainWindowAlwaysOnTop,
+              builder: (context, pinned, _) => _TitleBarButton(
+                tooltip: translate(pinned ? 'Unpin' : 'Pin'),
+                icon: pinned ? Icons.push_pin_rounded : Icons.push_pin_outlined,
+                foreground: pinned
+                    ? Theme.of(context).colorScheme.primary
+                    : secondaryText,
+                hover: hover,
+                onPressed: _toggleAlwaysOnTop,
+              ),
             ),
           if (!usesSystemTitleBar && !isMacOS) ...[
             if (showMinimize)

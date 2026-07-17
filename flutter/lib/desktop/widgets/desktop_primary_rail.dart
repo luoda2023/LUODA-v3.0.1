@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../../common.dart';
+import '../../common/wechat_ui_tokens.dart';
 import '../../models/platform_model.dart';
 
 const String kDesktopRailBackgroundOption = 'desktop-rail-background-image-v1';
@@ -80,18 +81,7 @@ class DesktopPrimaryRail extends StatelessWidget {
                 ? const Color(0xFF24262B)
                 : dark
                     ? const Color(0xFF24262B)
-                    : null,
-            gradient: hasBackground || dark
-                ? null
-                : const LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: <Color>[
-                      Color(0xFFF0D1D2),
-                      Color(0xFFE7E6EA),
-                      Color(0xFFD9D9E1),
-                    ],
-                  ),
+                    : kWeChatChromeColor,
             image: hasBackground
                 ? DecorationImage(
                     image: MemoryImage(backgroundBytes!),

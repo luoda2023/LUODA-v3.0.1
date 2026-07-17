@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:luoda_flutter/common.dart';
+import 'package:luoda_flutter/common/wechat_ui_tokens.dart';
 import 'package:luoda_flutter/consts.dart';
 import 'package:luoda_flutter/models/platform_model.dart';
 import 'package:luoda_flutter/models/viewer_session_model.dart';
@@ -268,33 +269,142 @@ class _SharedChatPanelState extends State<SharedChatPanel> {
 
   Widget _bubble(SharedChatMessage m) {
     final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
     final shortId = m.fromViewerId.length <= 8
         ? m.fromViewerId
         : m.fromViewerId.substring(0, 8);
-    final align = m.isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start;
+    final displayName = m.fromName.isEmpty ? shortId : m.fromName;
     final bg = m.isMe
-        ? theme.colorScheme.primaryContainer
-        : theme.colorScheme.surfaceContainerHighest;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Column(
-        crossAxisAlignment: align,
-        children: [
-          Text(
-            m.fromName.isEmpty ? shortId : m.fromName,
-            style: theme.textTheme.labelSmall,
-          ),
-          Container(
-            constraints: const BoxConstraints(maxWidth: 280),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: bg,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: SelectableText(m.text),
-          ),
-        ],
+        ? dark
+            ? const Color(0xFF3B7F55)
+            : kWeChatOutgoingBubbleColor
+        : dark
+            ? const Color(0xFF2B2D32)
+            : kWeChatListSurfaceColor;
+    final initial =
+        displayName.trim().isEmpty ? '?' : displayName.trim().characters.first;
+    final avatar = Container(
+      width: 34,
+      height: 34,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: str2color(displayName),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        initial,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
+    final bubble = Stack(
+      clipBehavior: Clip.none,
+      children: <Widget>[
+        Container(
+          constraints: const BoxConstraints(maxWidth: 280),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(5),
+          ),
+          child: SelectableText(
+            m.text,
+            style: TextStyle(
+              color: dark ? Colors.white : const Color(0xFF181818),
+              fontSize: 14,
+              height: 1.42,
+            ),
+          ),
+        ),
+        Positioned(
+          top: 11,
+          left: m.isMe ? null : -6,
+          right: m.isMe ? -6 : null,
+          child: CustomPaint(
+            size: const Size(7, 10),
+            painter: _SharedChatBubbleTailPainter(
+              color: bg,
+              pointsRight: m.isMe,
+            ),
+          ),
+        ),
+      ],
+    );
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment:
+            m.isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
+        children: m.isMe
+            ? <Widget>[
+                Flexible(child: bubble),
+                const SizedBox(width: 10),
+                avatar,
+              ]
+            : <Widget>[
+                avatar,
+                const SizedBox(width: 10),
+                Flexible(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Padding(
+                        padding: const EdgeInsets.only(left: 2, bottom: 4),
+                        child: Text(
+                          displayName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: dark
+                                ? const Color(0xFFA8AAAE)
+                                : const Color(0xFF888888),
+                          ),
+                        ),
+                      ),
+                      bubble,
+                    ],
+                  ),
+                ),
+              ],
+      ),
+    );
+  }
+}
+
+class _SharedChatBubbleTailPainter extends CustomPainter {
+  const _SharedChatBubbleTailPainter({
+    required this.color,
+    required this.pointsRight,
+  });
+
+  final Color color;
+  final bool pointsRight;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = Path();
+    if (pointsRight) {
+      path
+        ..moveTo(0, 0)
+        ..lineTo(size.width, size.height * 0.45)
+        ..lineTo(0, size.height)
+        ..close();
+    } else {
+      path
+        ..moveTo(size.width, 0)
+        ..lineTo(0, size.height * 0.45)
+        ..lineTo(size.width, size.height)
+        ..close();
+    }
+    canvas.drawPath(path, Paint()..color = color);
+  }
+
+  @override
+  bool shouldRepaint(covariant _SharedChatBubbleTailPainter oldDelegate) {
+    return oldDelegate.color != color || oldDelegate.pointsRight != pointsRight;
   }
 }

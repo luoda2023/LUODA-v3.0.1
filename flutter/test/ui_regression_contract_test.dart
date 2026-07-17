@@ -83,6 +83,9 @@ void main() {
   final chatPageSource = File(
     'lib/common/widgets/chat_page.dart',
   ).readAsStringSync();
+  final weChatTokensSource = File(
+    'lib/common/wechat_ui_tokens.dart',
+  ).readAsStringSync();
   final directChatSource = File(
     'lib/common/direct_chat.dart',
   ).readAsStringSync();
@@ -286,6 +289,42 @@ void main() {
     expect(homePageSource, contains('ffi.ffiModel.direct != true'));
     expect(homePageSource, contains('chatFfi.ffiModel.direct == true'));
     expect(homePageSource, contains('localController.sendFiles'));
+  });
+
+  test('desktop chat matches the latest WeChat density and bubble language',
+      () {
+    for (final color in <String>[
+      '0xFFE3E3E8',
+      '0xFFEEEEF0',
+      '0xFFFAFAFA',
+      '0xFF9DF29F',
+      '0xFF00AF69',
+      '0xFFE4E4E6',
+    ]) {
+      expect(weChatTokensSource, contains(color));
+    }
+    expect(
+        desktopMainTitleBarSource, contains('static const double height = 40'));
+    expect(desktopMainTitleBarSource, contains('windowManager.setAlwaysOnTop'));
+    expect(desktopRailSource, contains('kWeChatChromeColor'));
+    expect(desktopRailSource, isNot(contains('LinearGradient(')));
+    expect(homePageSource, contains('300.0'));
+    expect(homePageSource, contains('height: 80'));
+    expect(homePageSource, contains('kWeChatSelectedConversationColor'));
+    expect(chatPageSource, contains('class _DesktopChatComposer'));
+    expect(chatPageSource, contains('height: 142'));
+    expect(chatPageSource, contains('class _ChatBubbleTailPainter'));
+    expect(chatPageSource, contains('BorderRadius.circular(5)'));
+    expect(chatPageSource,
+        contains('separatorFrequency: SeparatorFrequency.hours'));
+    expect(sharedChatSource, contains('class _SharedChatBubbleTailPainter'));
+    expect(
+      _contrastRatio(
+        const Color(0xFF181818),
+        const Color(0xFF9DF29F),
+      ),
+      greaterThanOrEqualTo(4.5),
+    );
   });
 
   test('desktop contacts reuse an authorized inbound chat session', () {
