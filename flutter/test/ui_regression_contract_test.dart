@@ -313,6 +313,34 @@ void main() {
     expect(androidPermissionSource, isNot(contains('if (all)')));
   });
 
+  test('always-on direct messages asks for notification permission once', () {
+    expect(
+      mobileSettingsSource,
+      contains('Future<void> _requestDirectChatNotificationPermissionOnce()'),
+    );
+    expect(mobileSettingsSource, contains('androidVersion < 33'));
+    expect(
+      mobileSettingsSource,
+      contains('AndroidPermissionManager.check(kAndroid13Notification)'),
+    );
+    expect(
+      mobileSettingsSource,
+      contains("'direct-chat-notification-permission-prompted-v1'"),
+    );
+    expect(
+      mobileSettingsSource,
+      contains('AndroidPermissionManager.request(kAndroid13Notification)'),
+    );
+    final alwaysOnToggle = mobileSettingsSource
+        .split("title: Text(translate('Allow always-on direct messages'))")[1]
+        .split(
+            "title: Text(translate('Only trusted contacts can message me'))")[0];
+    expect(
+      alwaysOnToggle,
+      contains('await _requestDirectChatNotificationPermissionOnce()'),
+    );
+  });
+
   test('LDesk branding preserves existing identity and URI compatibility', () {
     expect(
       commonRustSource,

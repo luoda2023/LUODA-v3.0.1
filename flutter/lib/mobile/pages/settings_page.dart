@@ -723,9 +723,14 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                   value: value ? 'Y' : 'N',
                 );
                 if (isAndroid) {
+                  if (value) {
+                    await _requestDirectChatNotificationPermissionOnce();
+                  }
                   await gFFI.invokeMethod('set_direct_chat_service', value);
                 }
-                setState(() => _directChatAlwaysOn = value);
+                if (mounted) {
+                  setState(() => _directChatAlwaysOn = value);
+                }
               },
             ),
             SettingsTile.switchTile(
@@ -1245,6 +1250,15 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
     gFFI.chatModel.refreshLocalIdentity(notify: true);
     nameController.dispose();
     if (mounted) setState(() {});
+  }
+
+  Future<void> _requestDirectChatNotificationPermissionOnce() async {
+    if (!isAndroid || androidVersion < 33) return;
+    if (await AndroidPermissionManager.check(kAndroid13Notification)) return;
+    const promptedKey = 'direct-chat-notification-permission-prompted-v1';
+    if (bind.mainGetLocalOption(key: promptedKey) == 'Y') return;
+    await bind.mainSetLocalOption(key: promptedKey, value: 'Y');
+    await AndroidPermissionManager.request(kAndroid13Notification);
   }
 
   Future<void> _showContactMessagePermissions() async {
