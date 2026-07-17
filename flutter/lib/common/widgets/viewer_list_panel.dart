@@ -1,25 +1,16 @@
-// LUODA 3.1.1 — In-session viewer list panel contract widget.
+// LUODA 3.1.1 — In-session viewer list panel.
 //
 // Contract source: docs/3.1.1-features.md §12 item 3.
 //
-// This file is a *contract stub*: it wires four frb entry points
-// (`bind.sessionKickViewer`, `bind.sessionPromoteViewer`,
-// `bind.sessionRaiseHand`) and renders
-// `ViewerInfo` records delivered by the Rust side via the
-// `VIEWER_LIST:<max>:<total_uplink_bps>:<count>:<body>` event prefix
-// (see `src/client/io_loop.rs` L1995). `flutter_rust_bridge_codegen`
-// must be re-run on the online Flutter build host to regenerate
-// `lib/generated_bridge.dart`; until then this file will not compile —
-// that is by design and matches the "Dart codegen must run online"
-// constraint recorded in docs/3.1.1-features.md L114.
-
-import 'dart:async';
+// ViewerListUpdate events arrive through ViewerSessionModel; host controls
+// use the generated Flutter/Rust bridge.
 
 import 'package:flutter/material.dart';
 
 import 'package:luoda_flutter/common.dart';
 import 'package:luoda_flutter/consts.dart';
 import 'package:luoda_flutter/models/platform_model.dart';
+import 'package:luoda_flutter/models/viewer_session_model.dart';
 
 /// One row in the session's viewer registry as surfaced by the Rust
 /// side via `Misc::ViewerListUpdate` (`src/client/io_loop.rs` L1979).
@@ -116,6 +107,7 @@ class ViewerListSnapshot {
 /// buttons that call `bind.sessionKickViewer` / `bind.sessionPromoteViewer`.
 class ViewerListPanel extends StatefulWidget {
   final UuidValue sessionId;
+  final ViewerSessionModel viewerSessionModel;
   final bool isHost;
   final String hostViewerId;
 
@@ -149,6 +141,7 @@ class ViewerListPanel extends StatefulWidget {
   const ViewerListPanel({
     super.key,
     required this.sessionId,
+    required this.viewerSessionModel,
     this.isHost = false,
     this.hostViewerId = '',
     this.selfViewerId = '',
@@ -163,38 +156,36 @@ class ViewerListPanel extends StatefulWidget {
 
 class _ViewerListPanelState extends State<ViewerListPanel> {
   ViewerListSnapshot? _snapshot;
-  StreamSubscription? _sub;
+  int _viewerListRevision = -1;
   bool _raised = false;
 
   @override
   void initState() {
     super.initState();
-    _sub = _watchViewerListStream();
+    widget.viewerSessionModel.addListener(_handleViewerSessionUpdate);
+    _handleViewerSessionUpdate();
   }
 
   @override
   void dispose() {
-    _sub?.cancel();
+    widget.viewerSessionModel.removeListener(_handleViewerSessionUpdate);
     super.dispose();
   }
 
-  /// Hook point for the event-stream listener that surfaces
-  /// `Misc::ViewerListUpdate` events back into the panel.
-  ///
-  /// Contract: the Rust side emits `VIEWER_LIST:<max>:<total_uplink_bps>:<count>:<body>`
-  /// (see `src/client/io_loop.rs` L1995); each `;`-separated `body`
-  /// segment has shape `<viewer_id>|<display_name>|<promoted>|<joined_at>`.
-  ///
-  /// TODO(codegen-online): replace the dummy subscription below with
-  /// a real listener once `lib/generated_bridge.dart` is regenerated
-  /// and surface the parsed payload via `_onViewerList(...)`.
-  StreamSubscription<ViewerListSnapshot?>? _watchViewerListStream() {
-    // Intentionally a no-op stub.
-    return null;
-  }
-
-  void _onViewerList(ViewerListSnapshot snapshot) {
-    setState(() => _snapshot = snapshot);
+  void _handleViewerSessionUpdate() {
+    final model = widget.viewerSessionModel;
+    if (_viewerListRevision == model.viewerListRevision) return;
+    _viewerListRevision = model.viewerListRevision;
+    final payload = model.viewerListPayload;
+    ViewerListSnapshot? snapshot;
+    if (payload != null) {
+      try {
+        snapshot = ViewerListSnapshot.parseEvent(payload);
+      } on FormatException {
+        snapshot = null;
+      }
+    }
+    if (mounted) setState(() => _snapshot = snapshot);
   }
 
   Future<void> _kick(ViewerInfo v) async {
@@ -261,7 +252,20 @@ class _ViewerListPanelState extends State<ViewerListPanel> {
   Widget build(BuildContext context) {
     final snap = _snapshot;
     if (snap == null) {
-      return Center(child: Text(translate('Viewer List')));
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(
+              Icons.groups_outlined,
+              size: 32,
+              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.45),
+            ),
+            const SizedBox(height: 10),
+            Text(translate('Viewer List')),
+          ],
+        ),
+      );
     }
 
     return Column(
@@ -281,9 +285,8 @@ class _ViewerListPanelState extends State<ViewerListPanel> {
                   onPressed: _raiseHand,
                   icon: Icon(
                     _raised ? Icons.pan_tool : Icons.back_hand_outlined,
-                    color: _raised
-                        ? Theme.of(context).colorScheme.primary
-                        : null,
+                    color:
+                        _raised ? Theme.of(context).colorScheme.primary : null,
                   ),
                   label: Text(_raised
                       ? translate('Lower Hand')
@@ -304,32 +307,52 @@ class _ViewerListPanelState extends State<ViewerListPanel> {
   }
 
   Widget _row(ViewerInfo v) {
-    final isSelf = widget.hostViewerId.isNotEmpty && widget.hostViewerId == v.viewerId;
+    final isSelf =
+        widget.hostViewerId.isNotEmpty && widget.hostViewerId == v.viewerId;
+    final shortId =
+        v.viewerId.length <= 8 ? v.viewerId : v.viewerId.substring(0, 8);
+    final joined = _joinedLabel(v.joinedAt);
     return ListTile(
       dense: true,
-      leading: Icon(v.promoted ? Icons.handshake_outlined : Icons.visibility_outlined),
-      title: Text(v.displayName.isEmpty ? v.viewerId.substring(0, 8) : v.displayName),
-      subtitle: Text(
-        // joinedAt is epoch seconds on the Rust side (io_loop.rs L1991);
-        // we render a short relative stamp here, expanded in a follow-up.
-        '${v.joinedAt}',
+      leading: Icon(
+        v.promoted ? Icons.handshake_outlined : Icons.visibility_outlined,
       ),
+      title: Text(v.displayName.isEmpty ? shortId : v.displayName),
+      subtitle: Text(v.displayName.isEmpty ? joined : '$shortId · $joined'),
       trailing: widget.isHost && !isSelf
           ? Row(
               mainAxisSize: MainAxisSize.min,
-              children: [
-                TextButton(
+              children: <Widget>[
+                IconButton(
+                  tooltip: translate('Kick Viewer'),
                   onPressed: () => _kick(v),
-                  child: Text(translate('Kick Viewer')),
+                  icon: const Icon(Icons.person_remove_outlined),
                 ),
-                const SizedBox(width: 4),
-                TextButton(
+                IconButton(
+                  tooltip: translate('Promote Viewer'),
                   onPressed: v.promoted ? null : () => _promote(v),
-                  child: Text(translate('Promote Viewer')),
+                  icon: const Icon(Icons.handshake_outlined),
                 ),
               ],
             )
           : null,
     );
+  }
+
+  String _joinedLabel(int timestamp) {
+    if (timestamp <= 0) return '--';
+    final value = DateTime.fromMillisecondsSinceEpoch(
+      timestamp * 1000,
+      isUtc: true,
+    ).toLocal();
+    final now = DateTime.now();
+    final time =
+        '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
+    if (value.year == now.year &&
+        value.month == now.month &&
+        value.day == now.day) {
+      return time;
+    }
+    return '${value.year}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')} $time';
   }
 }

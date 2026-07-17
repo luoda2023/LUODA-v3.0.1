@@ -23,6 +23,7 @@ import 'package:luoda_flutter/models/peer_tab_model.dart';
 import 'package:luoda_flutter/models/printer_model.dart';
 import 'package:luoda_flutter/models/server_model.dart';
 import 'package:luoda_flutter/models/user_model.dart';
+import 'package:luoda_flutter/models/viewer_session_model.dart';
 import 'package:luoda_flutter/models/state_model.dart';
 import 'package:luoda_flutter/models/desktop_render_texture.dart';
 import 'package:luoda_flutter/models/terminal_model.dart';
@@ -371,11 +372,18 @@ class FfiModel with ChangeNotifier {
       } else if (name == 'permission') {
         updatePermission(evt, peerId);
       } else if (name == 'chat_client_mode') {
-        parent.target?.chatModel
-            .receive(ChatModel.clientModeID, evt['text'] ?? '');
+        final value = (evt['text'] ?? '').toString();
+        if (parent.target?.viewerSessionModel.handleWireMessage(value) !=
+            true) {
+          parent.target?.chatModel.receive(ChatModel.clientModeID, value);
+        }
       } else if (name == 'chat_server_mode') {
-        parent.target?.chatModel
-            .receive(int.parse(evt['id'] as String), evt['text'] ?? '');
+        final value = (evt['text'] ?? '').toString();
+        if (parent.target?.viewerSessionModel.handleWireMessage(value) !=
+            true) {
+          parent.target?.chatModel
+              .receive(int.parse(evt['id'] as String), value);
+        }
       } else if (name == 'terminal_response') {
         parent.target?.routeTerminalResponse(evt);
       } else if (name == 'file_dir') {
@@ -3726,6 +3734,7 @@ class FFI {
   late final CanvasModel canvasModel; // session
   late final ServerModel serverModel; // global
   late final ChatModel chatModel; // session
+  late final ViewerSessionModel viewerSessionModel; // session
   late final FileModel fileModel; // session
   late final AbModel abModel; // global
   late final GroupModel groupModel; // global
@@ -3755,6 +3764,7 @@ class FFI {
     canvasModel = CanvasModel(WeakReference(this));
     serverModel = ServerModel(WeakReference(this));
     chatModel = ChatModel(WeakReference(this));
+    viewerSessionModel = ViewerSessionModel();
     fileModel = FileModel(WeakReference(this));
     userModel = UserModel(WeakReference(this));
     peerTabModel = PeerTabModel(WeakReference(this));
@@ -4036,6 +4046,7 @@ class FFI {
   Future<void> close({bool closeSession = true}) async {
     closed = true;
     chatModel.close();
+    viewerSessionModel.clear();
     // Close all terminal models
     for (final model in _terminalModels.values) {
       model.dispose();

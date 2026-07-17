@@ -32,6 +32,18 @@ void main() {
   final remoteToolbarSource = File(
     'lib/desktop/widgets/remote_toolbar.dart',
   ).readAsStringSync();
+  final viewerCollaborationSource = File(
+    'lib/desktop/widgets/viewer_collaboration_panel.dart',
+  ).readAsStringSync();
+  final viewerListSource = File(
+    'lib/common/widgets/viewer_list_panel.dart',
+  ).readAsStringSync();
+  final sharedChatSource = File(
+    'lib/common/widgets/shared_chat_panel.dart',
+  ).readAsStringSync();
+  final inviteViewerSource = File(
+    'lib/desktop/widgets/invite_viewer_dialog.dart',
+  ).readAsStringSync();
   final desktopRailSource = File(
     'lib/desktop/widgets/desktop_primary_rail.dart',
   ).readAsStringSync();
@@ -94,6 +106,39 @@ void main() {
   ).readAsStringSync();
   final serverSource = File('../src/server.rs').readAsStringSync();
   final flutterBridgeSource = File('../src/flutter.rs').readAsStringSync();
+
+  test('viewer control events are intercepted before ordinary chat', () {
+    final guards = RegExp(
+      r'if \(parent\.target\?\.viewerSessionModel\.handleWireMessage\(value\) !=\s*true\)',
+    ).allMatches(modelSource);
+    final clientControl = modelSource.indexOf(
+      'viewerSessionModel.handleWireMessage(value)',
+    );
+    final clientChat = modelSource.indexOf(
+      'chatModel.receive(ChatModel.clientModeID, value)',
+    );
+    expect(guards.length, 2);
+    expect(clientControl, greaterThanOrEqualTo(0));
+    expect(clientChat, greaterThan(clientControl));
+  });
+
+  test('remote collaboration panel replaces contract stubs', () {
+    for (final source in <String>[
+      viewerListSource,
+      sharedChatSource,
+      inviteViewerSource,
+    ]) {
+      expect(source, isNot(contains('contract stub')));
+      expect(source, isNot(contains('Intentionally a no-op stub')));
+    }
+    expect(
+      remoteToolbarSource,
+      contains('ViewerCollaborationPanel.show('),
+    );
+    expect(viewerCollaborationSource, contains('InviteViewerDialog.show('));
+    expect(viewerCollaborationSource, contains('ViewerListPanel('));
+    expect(viewerCollaborationSource, contains('SharedChatPanel('));
+  });
 
   test('peer card more action has a real keyboard activation callback', () {
     expect(peerCardSource, isNot(contains('onTap: () {}')));

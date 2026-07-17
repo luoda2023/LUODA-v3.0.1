@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:luoda_flutter/common/direct_chat.dart';
 import 'package:luoda_flutter/common/direct_pairing.dart';
+import 'package:luoda_flutter/models/viewer_session_model.dart';
 
 void main() {
   test('direct chat message envelope preserves identity and unicode', () {
@@ -76,5 +77,32 @@ void main() {
       pairing.connectionTarget,
       contains('fallback=203.0.113.8:21118'),
     );
+  });
+
+  test('viewer control events stay out of ordinary direct chat', () {
+    final model = ViewerSessionModel();
+
+    expect(model.handleWireMessage('ordinary chat text'), isFalse);
+    expect(
+      model.handleWireMessage('INVITE_TOKEN:ABC123:sid-1:123:true'),
+      isTrue,
+    );
+    expect(model.inviteTokenPayload, 'ABC123:sid-1:123:true');
+
+    expect(
+      model.handleWireMessage('VIEWER_LIST:8:4096:1:v1|Alice|false|123'),
+      isTrue,
+    );
+    expect(model.viewerListPayload, '8:4096:1:v1|Alice|false|123');
+
+    expect(
+      model.handleWireMessage('BROADCAST_CHAT:v1:Alice:124:hello'),
+      isTrue,
+    );
+    expect(model.broadcastChatPayloads, <String>['v1:Alice:124:hello']);
+    expect(model.handleWireMessage('KICK_VIEWER:v1:host_kick'), isTrue);
+    expect(model.lastControlPayload, 'KICK_VIEWER:v1:host_kick');
+
+    model.dispose();
   });
 }

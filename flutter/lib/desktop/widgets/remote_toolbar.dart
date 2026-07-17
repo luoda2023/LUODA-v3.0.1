@@ -25,6 +25,7 @@ import '../../models/platform_model.dart';
 import '../../common/shared_state.dart';
 import './popup_menu.dart';
 import './kb_layout_type_chooser.dart';
+import './viewer_collaboration_panel.dart';
 import 'package:luoda_flutter/utils/scale.dart';
 import 'package:luoda_flutter/common/widgets/custom_scale_base.dart';
 
@@ -2136,7 +2137,11 @@ class _ChatMenuState extends State<_ChatMenu> {
           ffi: widget.ffi,
           color: _ToolbarTheme.blueColor,
           hoverColor: _ToolbarTheme.hoverBlueColor,
-          menuChildrenGetter: (_) => [textChat(), voiceCall()]);
+          menuChildrenGetter: (_) => [
+            textChat(),
+            collaboration(),
+            voiceCall(),
+          ]);
     }
   }
 
@@ -2156,6 +2161,17 @@ class _ChatMenuState extends State<_ChatMenu> {
         child: Text(translate('Text chat')),
         ffi: widget.ffi,
         onPressed: _textChatOnPressed);
+  }
+
+  collaboration() {
+    return MenuButton(
+      child: Text(translate('Viewer List')),
+      ffi: widget.ffi,
+      onPressed: () => ViewerCollaborationPanel.show(
+        context,
+        ffi: widget.ffi,
+      ),
+    );
   }
 
   _textChatOnPressed() {

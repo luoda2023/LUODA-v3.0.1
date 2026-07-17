@@ -1,19 +1,9 @@
-// LUODA 3.1.1 — Host-side "Invite Viewer" dialog contract widget.
+// LUODA 3.1.1 — Host-side "Invite Viewer" dialog.
 //
 // Contract source: docs/3.1.1-features.md §12 item 1.
 //
-// This file is a *contract stub*: the call sites that touch the frb bridge
-// (`bind.sessionRequestInviteToken`, `bind.sessionSendChatToViewer`,
-// `bind.sessionKickViewer`, `bind.sessionPromoteViewer`,
-// `bind.sessionRaiseHand`) reference API surface that the Rust side has
-// already shipped in `src/flutter_ffi.rs` (see L725/L731/L737/L743/L750).
-// `flutter_rust_bridge_codegen` must be re-run on the online Flutter
-// build host to regenerate `lib/generated_bridge.dart`; until then this
-// file will not compile — that is by design and matches the
-// "Dart codegen must run online" constraint recorded in
-// docs/3.1.1-features.md L114.
-
-import 'dart:async';
+// InviteToken events arrive through ViewerSessionModel after the request is
+// sent through the generated Flutter/Rust bridge.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -23,6 +13,7 @@ import 'package:uuid/uuid.dart';
 import 'package:luoda_flutter/common.dart';
 import 'package:luoda_flutter/consts.dart';
 import 'package:luoda_flutter/models/platform_model.dart';
+import 'package:luoda_flutter/models/viewer_session_model.dart';
 
 /// Result returned by [InviteViewerDialog] when the host taps "Generate"
 /// or closes the dialog after a token has been minted.
@@ -61,6 +52,7 @@ class InviteViewerResult {
 class InviteViewerDialog extends StatefulWidget {
   final UuidValue sessionId;
   final String hostLabel;
+  final ViewerSessionModel viewerSessionModel;
 
   /// Optional injector for the FFI call — only used by tests; production
   /// code leaves this null and the dialog binds against [platformFFI.ffiBind].
@@ -74,6 +66,7 @@ class InviteViewerDialog extends StatefulWidget {
     super.key,
     required this.sessionId,
     required this.hostLabel,
+    required this.viewerSessionModel,
     this.requestInviteToken,
   });
 
@@ -83,6 +76,7 @@ class InviteViewerDialog extends StatefulWidget {
     BuildContext context, {
     required UuidValue sessionId,
     required String hostLabel,
+    required ViewerSessionModel viewerSessionModel,
   }) {
     return showDialog<InviteViewerResult>(
       context: context,
@@ -90,6 +84,7 @@ class InviteViewerDialog extends StatefulWidget {
       builder: (_) => InviteViewerDialog(
         sessionId: sessionId,
         hostLabel: hostLabel,
+        viewerSessionModel: viewerSessionModel,
       ),
     );
   }
@@ -110,41 +105,48 @@ class _InviteViewerDialogState extends State<InviteViewerDialog> {
   bool? _oneShotEcho;
   String? _lastError;
 
-  StreamSubscription? _tokenSub;
+  int _inviteRevision = 0;
 
   @override
   void initState() {
     super.initState();
-    _tokenSub = _watchInviteTokenStream();
+    _inviteRevision = widget.viewerSessionModel.inviteRevision;
+    widget.viewerSessionModel.addListener(_handleViewerSessionUpdate);
   }
 
   @override
   void dispose() {
-    _tokenSub?.cancel();
+    widget.viewerSessionModel.removeListener(_handleViewerSessionUpdate);
     super.dispose();
   }
 
-  /// Hook point for the event-stream listener that surfaces `InviteToken`
-  /// misc events back into the dialog state.
-  ///
-  /// Contract: the Rust side emits messages of the form
-  /// `INVITE_TOKEN:<short>:<sid>:<exp>:<one_shot>` via
-  /// `src/client/io_loop.rs::handler.new_message` (L1962). On the online
-  /// Flutter build host, after `flutter_rust_bridge_codegen` re-runs,
-  /// wire this subscription to the same `gFFI.serverModel` event channel
-  /// used by other 3.1.1 viewer widgets (`viewer_list_panel.dart`,
-  /// `shared_chat_panel.dart`) and surface the parsed payload via
-  /// `_onInviteToken(...)`.
-  ///
-  /// TODO(codegen-online): replace the dummy subscription below with a
-  /// real listener once `lib/generated_bridge.dart` is regenerated.
-  StreamSubscription<String?>? _watchInviteTokenStream() {
-    // Intentionally a no-op stub. The real subscription will be wired
-    // during online codegen — see the TODO above.
-    return null;
+  /// Reads a new token delivered through the active session event model.
+  void _handleViewerSessionUpdate() {
+    final model = widget.viewerSessionModel;
+    if (_inviteRevision == model.inviteRevision) return;
+    _inviteRevision = model.inviteRevision;
+    final payload = model.inviteTokenPayload;
+    if (payload == null) return;
+    final parts = payload.split(':');
+    if (parts.length != 4) {
+      if (mounted) {
+        setState(() {
+          _generating = false;
+          _lastError = translate('Invalid format');
+        });
+      }
+      return;
+    }
+    _onInviteToken(
+      parts[0],
+      parts[1],
+      int.tryParse(parts[2]) ?? 0,
+      parts[3] == 'true' || parts[3] == '1',
+    );
   }
 
   void _onInviteToken(String short, String sid, int exp, bool oneShot) {
+    if (!mounted) return;
     setState(() {
       _shortCode = short;
       _sessionIdEcho = sid;
@@ -177,15 +179,15 @@ class _InviteViewerDialogState extends State<InviteViewerDialog> {
           oneShot: _oneShot,
         );
       }
-      // Result is delivered asynchronously via the event stream wired
-      // in `_watchInviteTokenStream`. We just wait here; the dialog
-      // state flips when `_onInviteToken` fires.
+      // The token arrives asynchronously through ViewerSessionModel.
     } on PlatformException catch (e) {
+      if (!mounted) return;
       setState(() {
         _generating = false;
         _lastError = e.message ?? e.code;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _generating = false;
         _lastError = e.toString();
@@ -193,8 +195,7 @@ class _InviteViewerDialogState extends State<InviteViewerDialog> {
     }
   }
 
-  String get _deeplink =>
-      'luoda://join/${_shortCode ?? ''}';
+  String get _deeplink => 'luoda://join/${_shortCode ?? ''}';
 
   @override
   Widget build(BuildContext context) {
@@ -214,7 +215,10 @@ class _InviteViewerDialogState extends State<InviteViewerDialog> {
               style: theme.textTheme.bodySmall,
             ),
             const SizedBox(height: 12),
-            if (_shortCode == null) _buildGenerator(theme) else _buildToken(theme),
+            if (_shortCode == null)
+              _buildGenerator(theme)
+            else
+              _buildToken(theme),
             if (_lastError != null) ...[
               const SizedBox(height: 8),
               Text(
@@ -227,7 +231,8 @@ class _InviteViewerDialogState extends State<InviteViewerDialog> {
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.of(context).pop<InviteViewerResult>(_result()),
+          onPressed: () =>
+              Navigator.of(context).pop<InviteViewerResult>(_result()),
           child: Text(translate('Cancel')),
         ),
         if (_shortCode != null)

@@ -1,25 +1,16 @@
-// LUODA 3.1.1 — In-session shared chat panel contract widget.
+// LUODA 3.1.1 — In-session shared chat panel.
 //
 // Contract source: docs/3.1.1-features.md §12 item 4.
 //
-// This file is a *contract stub*: it wires one frb entry point
-// (`bind.sessionSendChatToViewer`) and renders messages delivered by
-// the Rust side via the `BROADCAST_CHAT:<from>:<from_name>:<ts>:<text>`
-// event prefix (`src/client/io_loop.rs` L2010). The same panel is
-// reused by host (sends broadcast + viewer whispers) and viewers
-// (sends only to host + other viewers). `flutter_rust_bridge_codegen`
-// must be re-run on the online Flutter build host to regenerate
-// `lib/generated_bridge.dart`; until then this file will not compile —
-// that is by design and matches the "Dart codegen must run online"
-// constraint recorded in docs/3.1.1-features.md L114.
-
-import 'dart:async';
+// Broadcast events arrive through ViewerSessionModel and sends use the
+// generated Flutter/Rust bridge.
 
 import 'package:flutter/material.dart';
 
 import 'package:luoda_flutter/common.dart';
 import 'package:luoda_flutter/consts.dart';
 import 'package:luoda_flutter/models/platform_model.dart';
+import 'package:luoda_flutter/models/viewer_session_model.dart';
 
 /// One row in the shared chat log. We deliberately mirror the ChatMsg
 /// shape (from RustDesk-flutter's `lib/models/chat_model.dart::ChatMsg`)
@@ -78,6 +69,7 @@ class SharedChatMessage {
 /// session host via `bind.sessionSendChatToViewer(... toViewerId: '' ...)`.
 class SharedChatPanel extends StatefulWidget {
   final UuidValue sessionId;
+  final ViewerSessionModel viewerSessionModel;
   final bool isHost;
   final String selfViewerId;
   final String selfDisplayName;
@@ -93,6 +85,7 @@ class SharedChatPanel extends StatefulWidget {
   const SharedChatPanel({
     super.key,
     required this.sessionId,
+    required this.viewerSessionModel,
     this.isHost = false,
     this.selfViewerId = '',
     this.selfDisplayName = '',
@@ -107,42 +100,45 @@ class _SharedChatPanelState extends State<SharedChatPanel> {
   final List<SharedChatMessage> _messages = <SharedChatMessage>[];
   final ScrollController _scroll = ScrollController();
   final TextEditingController _input = TextEditingController();
-  StreamSubscription<SharedChatMessage?>? _sub;
+  int _broadcastRevision = -1;
+  bool _sending = false;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
-    _sub = _watchBroadcastChatStream();
+    widget.viewerSessionModel.addListener(_handleViewerSessionUpdate);
+    _handleViewerSessionUpdate();
   }
 
   @override
   void dispose() {
-    _sub?.cancel();
+    widget.viewerSessionModel.removeListener(_handleViewerSessionUpdate);
     _scroll.dispose();
     _input.dispose();
     super.dispose();
   }
 
-  /// Hook point for the event-stream listener that surfaces
-  /// `BROADCAST_CHAT:...` events back into the panel.
-  ///
-  /// Contract: the Rust side emits `BROADCAST_CHAT:<from>:<from_name>:<ts>:<text>`
-  /// (see `src/client/io_loop.rs` L2010). On the online Flutter build
-  /// host, after `flutter_rust_bridge_codegen` re-runs, wire this
-  /// subscription to the native-event channel used by other 3.1.1
-  /// viewer widgets and surface the parsed payload via
-  /// `_onBroadcastChat(...)`.
-  ///
-  /// TODO(codegen-online): replace the dummy subscription below with
-  /// a real listener once `lib/generated_bridge.dart` is regenerated.
-  StreamSubscription<SharedChatMessage?>? _watchBroadcastChatStream() {
-    // Intentionally a no-op stub.
-    return null;
-  }
-
-  void _onBroadcastChat(SharedChatMessage msg) {
-    setState(() => _messages.add(msg));
-    // Scroll-to-bottom on next frame so the latest message is visible.
+  void _handleViewerSessionUpdate() {
+    final model = widget.viewerSessionModel;
+    if (_broadcastRevision == model.broadcastRevision) return;
+    _broadcastRevision = model.broadcastRevision;
+    final messages = <SharedChatMessage>[];
+    for (final payload in model.broadcastChatPayloads) {
+      try {
+        messages.add(
+          SharedChatMessage.parseEvent(payload, widget.selfViewerId),
+        );
+      } on FormatException {
+        // Ignore malformed session control messages.
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _messages
+        ..clear()
+        ..addAll(messages);
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scroll.hasClients) {
         _scroll.animateTo(
@@ -156,7 +152,11 @@ class _SharedChatPanelState extends State<SharedChatPanel> {
 
   Future<void> _send() async {
     final text = _input.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty || _sending) return;
+    setState(() {
+      _sending = true;
+      _error = null;
+    });
     try {
       if (widget.sendChatToViewer != null) {
         await widget.sendChatToViewer!(
@@ -171,18 +171,20 @@ class _SharedChatPanelState extends State<SharedChatPanel> {
           text: text,
         );
       }
-      // Optimistic local echo so the bubble shows up before the
-      // round-trip `BROADCAST_CHAT:self:...` event arrives.
-      _onBroadcastChat(SharedChatMessage(
-        fromViewerId: widget.selfViewerId,
-        fromName: widget.selfDisplayName,
-        timestamp: DateTime.now().millisecondsSinceEpoch ~/ 1000,
-        text: text,
-        isMe: true,
-      ));
+      final timestamp = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      final senderId =
+          widget.selfViewerId.isEmpty ? 'host' : widget.selfViewerId;
+      final senderName = widget.selfDisplayName.isEmpty
+          ? translate('Me')
+          : widget.selfDisplayName;
+      widget.viewerSessionModel.handleWireMessage(
+        'BROADCAST_CHAT:$senderId:$senderName:$timestamp:$text',
+      );
       _input.clear();
     } catch (_) {
-      // Best-effort; surface non-fatal errors in a future pass.
+      if (mounted) setState(() => _error = translate('Failed'));
+    } finally {
+      if (mounted) setState(() => _sending = false);
     }
   }
 
@@ -192,12 +194,31 @@ class _SharedChatPanelState extends State<SharedChatPanel> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Expanded(
-          child: ListView.builder(
-            controller: _scroll,
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            itemCount: _messages.length,
-            itemBuilder: (_, i) => _bubble(_messages[i]),
-          ),
+          child: _messages.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Icon(
+                        Icons.forum_outlined,
+                        size: 32,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withOpacity(0.45),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(translate('Shared Chat')),
+                    ],
+                  ),
+                )
+              : ListView.builder(
+                  controller: _scroll,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  itemCount: _messages.length,
+                  itemBuilder: (_, i) => _bubble(_messages[i]),
+                ),
         ),
         const Divider(height: 1),
         Padding(
@@ -212,26 +233,44 @@ class _SharedChatPanelState extends State<SharedChatPanel> {
                     hintText: translate('Shared Chat'),
                     border: const OutlineInputBorder(),
                   ),
-                  onSubmitted: (_) => _send(),
+                  onSubmitted: _sending ? null : (_) => _send(),
                 ),
               ),
               const SizedBox(width: 8),
               IconButton.filled(
-                onPressed: _send,
-                icon: const Icon(Icons.send),
+                tooltip: translate('Send'),
+                onPressed: _sending ? null : _send,
+                icon: _sending
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.send_rounded),
               ),
             ],
           ),
         ),
+        if (_error != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+            child: Text(
+              _error!,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.error,
+                fontSize: 12,
+              ),
+            ),
+          ),
       ],
     );
   }
 
   Widget _bubble(SharedChatMessage m) {
     final theme = Theme.of(context);
-    final align = m.isMe
-        ? CrossAxisAlignment.end
-        : CrossAxisAlignment.start;
+    final shortId = m.fromViewerId.length <= 8
+        ? m.fromViewerId
+        : m.fromViewerId.substring(0, 8);
+    final align = m.isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start;
     final bg = m.isMe
         ? theme.colorScheme.primaryContainer
         : theme.colorScheme.surfaceContainerHighest;
@@ -241,7 +280,7 @@ class _SharedChatPanelState extends State<SharedChatPanel> {
         crossAxisAlignment: align,
         children: [
           Text(
-            m.fromName.isEmpty ? m.fromViewerId.substring(0, 8) : m.fromName,
+            m.fromName.isEmpty ? shortId : m.fromName,
             style: theme.textTheme.labelSmall,
           ),
           Container(
