@@ -5,7 +5,7 @@ permissions:
   deployments: write
   packages: read
 
-name: Build LUODA Windows MSI
+name: Build LDesk Windows MSI
 
 on:
   workflow_dispatch:
@@ -137,6 +137,13 @@ jobs:
           SODIUM_LIB_DIR: C:\\\\vcpkg\\\\installed\\\\x64-windows-static\\\\lib
           CXXFLAGS: -include cstdint
 
+      - name: Validate shared chat and UI contracts
+        timeout-minutes: 25
+        run: |
+          cd flutter
+          flutter pub get
+          flutter test test/direct_chat_protocol_test.dart test/viewer_invite_link_test.dart test/ui_regression_contract_test.dart
+
       - name: Normalize Windows resource encoding
         shell: pwsh
         run: |
@@ -181,14 +188,15 @@ jobs:
       - name: Copy Flutter output for MSI
         shell: cmd
         run: |
-          if not exist luoda mkdir luoda
-          xcopy /E /I flutter\build\windows\x64\runner\Release\* luoda\
+          if not exist ldesk mkdir ldesk
+          xcopy /E /I flutter\build\windows\x64\runner\Release\* ldesk\
+          move ldesk\luoda.exe ldesk\LDesk.exe
 
       - name: Preprocess MSI
         shell: cmd
         run: |
           cd res\msi
-          python preprocess.py -m LUODA
+          python preprocess.py --dist-dir ../../ldesk --app-name LDesk -m LDesk -v 3.1.1
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
@@ -235,22 +243,19 @@ jobs:
             exit 1
           }
           foreach ($msi in $msis) {
-            Copy-Item $msi.FullName -Destination $dist -Force
+            $culture = Split-Path $msi.DirectoryName -Leaf
+            $output = Join-Path $dist "LDesk-3.1.1-Setup-$culture.msi"
+            Copy-Item $msi.FullName -Destination $output -Force
           }
           Get-ChildItem $dist -Filter "*.msi" | Format-Table Name,Length
 
       - name: Upload MSI
         uses: actions/upload-artifact@v4
         with:
-          name: LUODA-3.1.1-MSI
+          name: LDesk-3.1.1-MSI
           path: res/msi/dist/*.msi
           if-no-files-found: error
 
-      - name: Rename MSI for release
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/3.1.1'
-        shell: pwsh
-        run: |
-          Get-ChildItem 'res/msi/dist/*.msi' | ForEach-Object { Copy-Item $_.FullName ($_.DirectoryName + '/LUODA-3.1.1-Setup.msi') }
       - name: Upload to Release
         if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/3.1.1'
         uses: softprops/action-gh-release@v2
@@ -258,15 +263,13 @@ jobs:
           prerelease: false
           draft: true
           tag_name: v3.1.1
-          files: res/msi/dist/LUODA-3.1.1-Setup.msi
+          files: res/msi/dist/LDesk-3.1.1-Setup-*.msi
       - name: Upload runtime logs (always)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: runtime-logs-msi
           path: .auto_build_logs/
-
-
 
 
 

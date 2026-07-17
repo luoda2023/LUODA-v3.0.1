@@ -126,6 +126,9 @@ void main() {
   final msiWorkflowSource = File(
     '../.github/workflows/build-msi.yml',
   ).readAsStringSync();
+  final msiProjectSource = File(
+    '../res/msi/Package/Package.wixproj',
+  ).readAsStringSync();
   final cargoSource = File('../Cargo.toml').readAsStringSync();
   final peerModelSource = File(
     'lib/models/peer_model.dart',
@@ -764,6 +767,14 @@ void main() {
     final flutterBuild = msiWorkflowSource.indexOf('Build Flutter Windows');
     expect(normalization, greaterThan(0));
     expect(flutterBuild, greaterThan(normalization));
+  });
+
+  test('MSI package and release asset use LDesk branding', () {
+    expect(msiWorkflowSource, contains('--app-name LDesk'));
+    expect(msiWorkflowSource, contains('LDesk-3.1.1-MSI'));
+    expect(msiWorkflowSource, contains('LDesk-3.1.1-Setup-\$culture.msi'));
+    expect(msiWorkflowSource, contains('LDesk-3.1.1-Setup-*.msi'));
+    expect(msiProjectSource, contains('<OutputName>LDesk-Setup</OutputName>'));
   });
 
   test('desktop chat rail uses persistent conversations instead of contacts',
