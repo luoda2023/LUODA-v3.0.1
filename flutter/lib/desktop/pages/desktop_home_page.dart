@@ -142,7 +142,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     return LayoutBuilder(
       builder: (context, constraints) {
         final showRail = constraints.maxWidth >= 820;
-        final contactsWidth = constraints.maxWidth >= 1240 ? 316.0 : 300.0;
+        const contactsWidth = 300.0;
         final dark = Theme.of(context).brightness == Brightness.dark;
         return ColoredBox(
           color: dark ? const Color(0xFF191B20) : const Color(0xFFF7F7F8),
