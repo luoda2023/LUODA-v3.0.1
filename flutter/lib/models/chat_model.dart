@@ -10,6 +10,7 @@ import 'package:luoda_flutter/common/shared_state.dart';
 import 'package:luoda_flutter/desktop/widgets/tabbar_widget.dart';
 import 'package:luoda_flutter/mobile/pages/home_page.dart';
 import 'package:luoda_flutter/models/platform_model.dart';
+import 'package:luoda_flutter/models/server_model.dart';
 import 'package:luoda_flutter/models/state_model.dart';
 import 'package:get/get.dart';
 import 'package:uuid/uuid.dart';
@@ -89,6 +90,8 @@ class ChatModel with ChangeNotifier {
   late final ChatUser me;
 
   late final Map<MessageKey, MessageBody> _messages = {};
+  final Map<int, String> _activeCompanionSecrets = <int, String>{};
+  bool _activeCompanionSyncInProgress = false;
   Future<void>? _recentRestoreTask;
   bool _recentRestoreQueued = false;
 
@@ -687,6 +690,39 @@ class ChatModel with ChangeNotifier {
     }
   }
 
+  Future<void> syncActiveCompanionSessions() async {
+    if (_activeCompanionSyncInProgress) return;
+    final serverModel = parent.target?.serverModel;
+    if (serverModel == null) return;
+    _activeCompanionSyncInProgress = true;
+    try {
+      final clients = <int, Client>{
+        for (final client in serverModel.clients)
+          if (client.authorized && client.isChat && !client.disconnected)
+            client.id: client,
+      };
+      _activeCompanionSecrets.removeWhere(
+        (connId, _) => !clients.containsKey(connId),
+      );
+      if (_activeCompanionSecrets.isEmpty) return;
+      final cursor = await DirectChatRepository.instance.cursor();
+      for (final entry in _activeCompanionSecrets.entries.toList()) {
+        final client = clients[entry.key];
+        if (client == null) continue;
+        _sendWire(
+          MessageKey(client.peerId, client.id),
+          DirectChatEnvelope.replicaRequest(
+            secret: entry.value,
+            cursor: cursor,
+            requestReply: true,
+          ).encode(),
+        );
+      }
+    } finally {
+      _activeCompanionSyncInProgress = false;
+    }
+  }
+
   Future<void> markCurrentUndeliveredFailed() async {
     if (_currentKey.peerId.isEmpty) return;
     await DirectChatRepository.instance.markUndeliveredFailed(
@@ -743,6 +779,9 @@ class ChatModel with ChangeNotifier {
       case 'replica_request':
         final secret = (envelope.data['secret'] ?? '').toString();
         if (!DirectPairingStore.acceptsCompanionSecret(secret)) return;
+        if (!key.isOut) {
+          _activeCompanionSecrets[key.connId] = secret;
+        }
         final cursor = _parseCursor(envelope.data['cursor']);
         final records = await DirectChatRepository.instance.afterCursor(cursor);
         for (final record in records) {

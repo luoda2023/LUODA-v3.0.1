@@ -613,6 +613,7 @@ void main() {
   test('active companion sessions refresh incremental sync every 30 minutes',
       () {
     expect(mobileHomeSource, contains('const Duration(minutes: 30)'));
+    expect(homePageSource, contains('const Duration(minutes: 30)'));
     final activeSessionPath = mobileHomeSource
         .split('if (existing != null &&')[1]
         .split('if (existing != null)')[0];
@@ -623,6 +624,18 @@ void main() {
     expect(
       chatModelSource,
       contains('Future<void> requestCompanionSync('),
+    );
+    expect(
+      homePageSource,
+      contains('gFFI.chatModel.syncActiveCompanionSessions()'),
+    );
+    expect(
+      chatModelSource,
+      contains('Future<void> syncActiveCompanionSessions()'),
+    );
+    expect(
+      chatModelSource,
+      contains('_activeCompanionSecrets[key.connId] = secret'),
     );
     expect(
       chatModelSource,

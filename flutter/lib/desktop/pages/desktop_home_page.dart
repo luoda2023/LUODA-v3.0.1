@@ -1547,6 +1547,11 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     }
   }
 
+  Future<void> _refreshDirectSessions() async {
+    await _maintainTrustedChatSessions();
+    await gFFI.chatModel.syncActiveCompanionSessions();
+  }
+
   Future<void> _closeDirectChat(String peerId) async {
     var registryKey = peerId;
     var ffi = _directChatSessions[registryKey];
@@ -3507,11 +3512,11 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     });
     bind.mainLoadRecentPeers();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(_maintainTrustedChatSessions());
+      unawaited(_refreshDirectSessions());
     });
     _directChatKeepAliveTimer = Timer.periodic(
       const Duration(minutes: 30),
-      (_) => unawaited(_maintainTrustedChatSessions()),
+      (_) => unawaited(_refreshDirectSessions()),
     );
     _updateTimer = periodic_immediate(const Duration(seconds: 1), () async {
       await gFFI.serverModel.fetchID();
