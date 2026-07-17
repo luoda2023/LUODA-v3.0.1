@@ -288,8 +288,8 @@ jobs:
           path: flutter/build/ios/ipa/*.ipa
           if-no-files-found: error
 
-      - name: Upload signed IPA to draft release
-        if: steps.signing.outputs.enabled == 'true' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/3.1.1'
+      - name: Upload IPA to draft release
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/3.1.1'
         uses: softprops/action-gh-release@v2
         with:
           prerelease: false

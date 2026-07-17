@@ -123,6 +123,9 @@ void main() {
   final windowsWorkflowSource = File(
     '../.github/workflows/build-exe.yml',
   ).readAsStringSync();
+  final iosWorkflowSource = File(
+    '../.github/workflows/build-ios.yml',
+  ).readAsStringSync();
   final msiWorkflowSource = File(
     '../.github/workflows/build-msi.yml',
   ).readAsStringSync();
@@ -809,6 +812,12 @@ void main() {
     expect(mobileConnectionSource, contains("'Messages allowed'"));
     expect(mobileConnectionSource, contains("'Messages rejected'"));
     expect(mobileConnectionSource, contains('avatar: pairing.avatar'));
+  });
+
+  test('iOS release keeps the unsigned IPA when signing is unavailable', () {
+    expect(iosWorkflowSource, contains('Upload IPA to draft release'));
+    expect(iosWorkflowSource, contains('LDesk-3.1.1-unsigned.ipa'));
+    expect(iosWorkflowSource, contains('files: flutter/build/ios/ipa/*.ipa'));
   });
 
   test('Android always-on chat uses a dedicated messaging service', () {
