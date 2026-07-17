@@ -166,6 +166,25 @@ class _ConnectionPageState extends State<ConnectionPage> {
       HomePage.homeKey.currentState?.selectChatPage();
       return;
     }
+    final incomingIndex = gFFI.serverModel.clients.lastIndexWhere((client) =>
+        client.peerId.trim() == peerId &&
+        client.authorized &&
+        client.isChat &&
+        !client.disconnected);
+    if (incomingIndex >= 0) {
+      final incoming = gFFI.serverModel.clients[incomingIndex];
+      gFFI.chatModel.changeCurrentKey(MessageKey(peerId, incoming.id));
+      gFFI.chatModel.updatePeerIdentity(
+        peerId,
+        displayName: incoming.name.trim().isNotEmpty
+            ? incoming.name.trim()
+            : pairing?.displayName ?? peerId,
+        avatar: incoming.avatar,
+      );
+      HomePage.homeKey.currentState?.selectChatPage();
+      gFFI.chatModel.requestChatInputFocus();
+      return;
+    }
     if (gFFI.ffiModel.pi.isSet.isTrue || gFFI.connType == ConnType.chat) {
       await gFFI.close();
     }

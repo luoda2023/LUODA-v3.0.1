@@ -408,9 +408,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             },
           ),
         );
-    if (activeFfi == null) return workspace();
     return AnimatedBuilder(
-      animation: activeFfi.ffiModel,
+      animation: activeFfi == null
+          ? gFFI.serverModel
+          : Listenable.merge(<Listenable>[
+              activeFfi.ffiModel,
+              gFFI.serverModel,
+            ]),
       builder: (context, _) => workspace(),
     );
   }
@@ -782,7 +786,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     }
     final model = _contactModelFor(_selectedRailId);
     return AnimatedBuilder(
-      animation: model,
+      animation: Listenable.merge(<Listenable>[
+        model,
+        gFFI.serverModel,
+      ]),
       builder: (context, _) {
         final query = _contactSearchController.text.trim().toLowerCase();
         final peers = query.isEmpty
@@ -842,21 +849,31 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           : Colors.transparent,
       child: InkWell(
         onTap: () {
-          final active = _directChatSessionFor(peer.id);
+          final registered = _directChatSessionFor(peer.id);
+          final active = registered != null && !registered.closed
+              ? registered
+              : null;
+          final incoming =
+              active == null ? _incomingDirectChatClientFor(peer.id) : null;
           setState(() {
             _selectedContact = peer;
             _activeDirectChatPeerId = active == null ? null : peer.id;
           });
           final model = active?.chatModel ?? gFFI.chatModel;
           model.changeCurrentKey(
-            MessageKey(peer.id, ChatModel.clientModeID),
+            MessageKey(
+              peer.id,
+              incoming?.id ?? ChatModel.clientModeID,
+            ),
           );
           model.updatePeerIdentity(
             peer.id,
             displayName: _contactName(peer),
             avatar: peer.avatar,
           );
-          if (active == null) unawaited(_startDirectChat(peer.id));
+          if (active == null && incoming == null) {
+            unawaited(_startDirectChat(peer.id));
+          }
         },
         onDoubleTap: () => _startDirectChat(peer.id),
         child: SizedBox(
@@ -949,6 +966,14 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
   (String, Color) _directDeliveryStatus(String peerId, {Peer? contact}) {
     final ffi = _directChatSessionFor(peerId);
+    final incoming = _incomingDirectChatClientFor(peerId);
+    if ((ffi != null &&
+            !ffi.closed &&
+            ffi.ffiModel.pi.isSet.isTrue &&
+            ffi.ffiModel.direct == true) ||
+        incoming != null) {
+      return ('Messages allowed', const Color(0xFF238A57));
+    }
     if (ffi == null) {
       return contact?.online == true
           ? ('Online', const Color(0xFF238A57))
@@ -960,9 +985,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     }
     if (ffi.closed) {
       return ('Offline', const Color(0xFF8A8D94));
-    }
-    if (ffi.ffiModel.pi.isSet.isTrue && ffi.ffiModel.direct == true) {
-      return ('Messages allowed', const Color(0xFF238A57));
     }
     return ('Connecting', const Color(0xFF4C6EA8));
   }
@@ -1076,6 +1098,28 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       }
       return;
     }
+    final incoming = _incomingDirectChatClientFor(peerId);
+    if (incoming != null) {
+      if (activate) {
+        gFFI.chatModel.changeCurrentKey(MessageKey(peerId, incoming.id));
+        gFFI.chatModel.updatePeerIdentity(
+          peerId,
+          displayName: incoming.name.trim().isNotEmpty
+              ? incoming.name.trim()
+              : pairing?.displayName ??
+                  (contact == null ? peerId : _contactName(contact)),
+          avatar: incoming.avatar.isNotEmpty
+              ? incoming.avatar
+              : contact?.avatar ?? '',
+        );
+        setState(() {
+          _activeDirectChatPeerId = null;
+          _selectedContact = contact;
+        });
+        gFFI.chatModel.requestChatInputFocus();
+      }
+      return;
+    }
 
     final ffi = FFI(null);
     ffi.suppressConnectionDialogs = !activate;
@@ -1124,6 +1168,19 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     if (direct != null) return direct;
     for (final ffi in _directChatSessions.values) {
       if (ffi.chatModel.currentKey.peerId == peerId) return ffi;
+    }
+    return null;
+  }
+
+  Client? _incomingDirectChatClientFor(String peerId) {
+    final normalizedPeerId = peerId.trim();
+    for (final client in gFFI.serverModel.clients.reversed) {
+      if (client.peerId.trim() == normalizedPeerId &&
+          client.authorized &&
+          client.isChat &&
+          !client.disconnected) {
+        return client;
+      }
     }
     return null;
   }
@@ -1184,10 +1241,12 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
   Future<void> _sendFilesFromConversation(String peerId) async {
     final chatFfi = _directChatSessionFor(peerId);
-    if (chatFfi == null ||
-        chatFfi.closed ||
-        !chatFfi.ffiModel.pi.isSet.isTrue ||
-        chatFfi.ffiModel.direct != true) {
+    final outgoingReady = chatFfi != null &&
+        !chatFfi.closed &&
+        chatFfi.ffiModel.pi.isSet.isTrue &&
+        chatFfi.ffiModel.direct == true;
+    final incoming = _incomingDirectChatClientFor(peerId);
+    if (!outgoingReady && incoming == null) {
       _showConversationNotice(
         translate('Connect to the contact before sending files.'),
       );
@@ -1216,8 +1275,15 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       items,
       ffi.fileModel.remoteController.directoryData(),
     );
+    final chatModel = outgoingReady ? chatFfi!.chatModel : gFFI.chatModel;
+    chatModel.changeCurrentKey(
+      MessageKey(
+        peerId,
+        outgoingReady ? ChatModel.clientModeID : incoming!.id,
+      ),
+    );
     for (final file in files) {
-      await chatFfi.chatModel.sendFileRecord(
+      await chatModel.sendFileRecord(
         fileName: file.name,
         fileSize: file.size,
       );

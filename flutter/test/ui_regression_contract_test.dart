@@ -139,8 +139,17 @@ void main() {
     expect(homePageSource, contains('_maintainTrustedChatSessions'));
     expect(modelSource, contains('suppressConnectionDialogs'));
     expect(homePageSource, contains('ffi.ffiModel.direct != true'));
-    expect(homePageSource, contains('chatFfi.ffiModel.direct != true'));
+    expect(homePageSource, contains('chatFfi.ffiModel.direct == true'));
     expect(homePageSource, contains('localController.sendFiles'));
+  });
+
+  test('desktop contacts reuse an authorized inbound chat session', () {
+    expect(homePageSource, contains('_incomingDirectChatClientFor'));
+    expect(homePageSource, contains('client.authorized &&'));
+    expect(homePageSource, contains('client.isChat &&'));
+    expect(homePageSource, contains('!client.disconnected'));
+    expect(homePageSource, contains('incoming?.id ?? ChatModel.clientModeID'));
+    expect(homePageSource, contains('active == null && incoming == null'));
   });
 
   test('settings keep every category while allowing advanced grouping', () {
@@ -198,6 +207,18 @@ void main() {
     expect(chatPageSource, contains('currentKey.peerId.isEmpty'));
     expect(chatPageSource, contains('onAttachFile'));
     expect(chatPageSource, contains('onRemoteAssist'));
+  });
+
+  test('mobile contacts reuse an authorized inbound chat session', () {
+    expect(mobileConnectionSource, contains('lastIndexWhere((client) =>'));
+    expect(
+      mobileConnectionSource,
+      contains('client.peerId.trim() == peerId'),
+    );
+    expect(
+      mobileConnectionSource,
+      contains('MessageKey(peerId, incoming.id)'),
+    );
   });
 
   test('mobile shell keeps a readable chat-first WeChat-style hierarchy', () {
