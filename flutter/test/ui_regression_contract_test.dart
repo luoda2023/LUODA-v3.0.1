@@ -120,6 +120,9 @@ void main() {
   final clientWorkflowSource = File(
     '../.github/workflows/build-client-exe.yml',
   ).readAsStringSync();
+  final windowsWorkflowSource = File(
+    '../.github/workflows/build-exe.yml',
+  ).readAsStringSync();
   final msiWorkflowSource = File(
     '../.github/workflows/build-msi.yml',
   ).readAsStringSync();
@@ -758,10 +761,35 @@ void main() {
   test('MSI normalizes Windows resources before Flutter build', () {
     final normalization =
         msiWorkflowSource.indexOf('Normalize Windows resource encoding');
-    final flutterBuild =
-        msiWorkflowSource.indexOf('Build Flutter Windows');
+    final flutterBuild = msiWorkflowSource.indexOf('Build Flutter Windows');
     expect(normalization, greaterThan(0));
     expect(flutterBuild, greaterThan(normalization));
+  });
+
+  test('desktop chat rail uses persistent conversations instead of contacts',
+      () {
+    expect(
+      homePageSource,
+      contains("if (_selectedRailId == 'chat')"),
+    );
+    expect(homePageSource, contains('_buildConversationList(context)'));
+    expect(homePageSource, contains('gFFI.chatModel.messages.entries'));
+    expect(homePageSource, contains('_conversationPreview(entry)'));
+    expect(
+      homePageSource,
+      contains('onDoubleTap: () => _connectDirect(context, peerId)'),
+    );
+    expect(
+      chatModelSource,
+      contains('_scheduleRecentConversationRestore()'),
+    );
+    expect(chatModelSource, contains('identical(this, gFFI.chatModel)'));
+  });
+
+  test('Windows smoke test uploads a nonblank main-window screenshot', () {
+    expect(windowsWorkflowSource, contains('LDesk-main-window.png'));
+    expect(windowsWorkflowSource, contains('CopyFromScreen'));
+    expect(windowsWorkflowSource, contains('Screenshot appears blank'));
   });
 
   test('Android always-on chat uses a dedicated messaging service', () {

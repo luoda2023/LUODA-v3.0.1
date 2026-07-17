@@ -233,6 +233,16 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   Widget _buildContactsPane(BuildContext context) {
     final theme = Theme.of(context);
     final dark = theme.brightness == Brightness.dark;
+    final sectionTitle = switch (_selectedRailId) {
+      'chat' => 'Messages',
+      'recent' => 'Recent sessions',
+      'favorites' => 'Favorites',
+      'discovered' => 'Discovered',
+      'contacts' => 'Contacts',
+      'history' => 'Access history devices',
+      'vip' => 'VIP features',
+      _ => 'Contacts',
+    };
     return ColoredBox(
       color: dark ? const Color(0xFF25272C) : const Color(0xFFF0F0F2),
       child: Column(
@@ -272,7 +282,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               children: <Widget>[
                 Expanded(
                   child: Text(
-                    translate('Contacts'),
+                    translate(sectionTitle),
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w600,
                     ),
@@ -310,7 +320,11 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 controller: _contactSearchController,
                 onChanged: (_) => setState(() {}),
                 decoration: InputDecoration(
-                  hintText: translate('Search'),
+                  hintText: translate(
+                    _selectedRailId == 'chat'
+                        ? 'Search conversations'
+                        : 'Search',
+                  ),
                   prefixIcon: const Icon(Icons.search_rounded, size: 18),
                   filled: true,
                   fillColor:
@@ -746,6 +760,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   }
 
   Widget _buildContactSection(BuildContext context) {
+    if (_selectedRailId == 'chat') {
+      return _buildConversationList(context);
+    }
     if (_selectedRailId == 'vip') {
       return const PeerTabPage(showTabStrip: false);
     }
@@ -807,6 +824,236 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             return _buildContactItem(
               context,
               peers[index - standalonePairings.length],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  DateTime _conversationTime(MapEntry<MessageKey, MessageBody> entry) {
+    final messages = entry.value.chatMessages;
+    if (messages.isEmpty) return DateTime.fromMillisecondsSinceEpoch(0);
+    return messages
+        .map((message) => message.createdAt)
+        .reduce((latest, value) => value.isAfter(latest) ? value : latest);
+  }
+
+  String _conversationPreview(MapEntry<MessageKey, MessageBody> entry) {
+    final messages = entry.value.chatMessages;
+    if (messages.isEmpty) return translate('Start a conversation');
+    final message = messages.reduce(
+      (latest, value) =>
+          value.createdAt.isAfter(latest.createdAt) ? value : latest,
+    );
+    final properties = message.customProperties;
+    if (properties?['ldesk_kind'] == 'file') {
+      final fileName = (properties?['ldesk_file_name'] ?? '').toString();
+      return fileName.isEmpty
+          ? translate('File Transfer')
+          : '${translate('File Transfer')}: $fileName';
+    }
+    return message.text.trim().isEmpty
+        ? translate('Message')
+        : message.text.trim();
+  }
+
+  String _conversationTimeLabel(DateTime value) {
+    if (value.millisecondsSinceEpoch == 0) return '';
+    final now = DateTime.now();
+    if (value.year == now.year &&
+        value.month == now.month &&
+        value.day == now.day) {
+      return '${value.hour.toString().padLeft(2, '0')}:'
+          '${value.minute.toString().padLeft(2, '0')}';
+    }
+    if (value.year == now.year) return '${value.month}/${value.day}';
+    return '${value.year}/${value.month}/${value.day}';
+  }
+
+  void _openConversation(MapEntry<MessageKey, MessageBody> entry) {
+    final peerId = entry.key.peerId.trim();
+    if (peerId.isEmpty) return;
+    final registered = _directChatSessionFor(peerId);
+    final active = registered != null && !registered.closed ? registered : null;
+    final incoming =
+        active == null ? _incomingDirectChatClientFor(peerId) : null;
+    final model = active?.chatModel ?? gFFI.chatModel;
+    final contact = gFFI.recentPeersModel.peers.firstWhereOrNull(
+      (peer) => peer.id == peerId,
+    );
+    setState(() {
+      _selectedContact = contact;
+      _selectedConversationPeerId = peerId;
+      _activeDirectChatPeerId = active == null ? null : peerId;
+    });
+    model.changeCurrentKey(
+      MessageKey(peerId, incoming?.id ?? ChatModel.clientModeID),
+    );
+    model.updatePeerIdentity(
+      peerId,
+      displayName: entry.value.chatUser.firstName ?? peerId,
+      avatar: entry.value.chatUser.profileImage ?? '',
+    );
+    if (active == null && incoming == null) {
+      unawaited(_startDirectChat(peerId));
+    }
+  }
+
+  Widget _buildConversationList(BuildContext context) {
+    return AnimatedBuilder(
+      animation: Listenable.merge(<Listenable>[
+        gFFI.chatModel,
+        gFFI.serverModel,
+        DirectPairingStore.revision,
+      ]),
+      builder: (context, _) {
+        final theme = Theme.of(context);
+        final query = _contactSearchController.text.trim().toLowerCase();
+        final entries = gFFI.chatModel.messages.entries.where((entry) {
+          final peerId = entry.key.peerId.trim();
+          if (peerId.isEmpty) return false;
+          if (query.isEmpty) return true;
+          final name = (entry.value.chatUser.firstName ?? '').toLowerCase();
+          return peerId.toLowerCase().contains(query) ||
+              name.contains(query) ||
+              _conversationPreview(entry).toLowerCase().contains(query);
+        }).toList(growable: false)
+          ..sort(
+            (a, b) => _conversationTime(b).compareTo(_conversationTime(a)),
+          );
+        if (entries.isEmpty) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Icon(
+                    Icons.forum_outlined,
+                    size: 48,
+                    color: theme.colorScheme.onSurface.withOpacity(0.2),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    translate('No conversations yet'),
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    onPressed: _clientIdFocusNode.requestFocus,
+                    icon: const Icon(Icons.add_comment_outlined, size: 18),
+                    label: Text(translate('New conversation')),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+        return ListView.separated(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          itemCount: entries.length,
+          separatorBuilder: (_, __) => Divider(
+            height: 1,
+            indent: 67,
+            color: theme.dividerColor,
+          ),
+          itemBuilder: (context, index) {
+            final entry = entries[index];
+            final peerId = entry.key.peerId;
+            final user = entry.value.chatUser;
+            final name = (user.firstName ?? '').trim();
+            final displayName = name.isEmpty ? peerId : name;
+            final selected = _selectedConversationPeerId == peerId;
+            final client = gFFI.serverModel.clients.firstWhereOrNull(
+              (client) =>
+                  client.peerId == peerId &&
+                  client.isChat &&
+                  !client.disconnected,
+            );
+            return Material(
+              color: selected
+                  ? theme.colorScheme.onSurface.withOpacity(0.08)
+                  : Colors.transparent,
+              child: InkWell(
+                onTap: () => _openConversation(entry),
+                onDoubleTap: () => _connectDirect(context, peerId),
+                child: SizedBox(
+                  height: 68,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 9,
+                    ),
+                    child: Row(
+                      children: <Widget>[
+                        _buildConversationAvatar(
+                          avatar: user.profileImage ?? '',
+                          name: displayName,
+                          initial: displayName.characters.first,
+                          size: 42,
+                        ),
+                        const SizedBox(width: 11),
+                        Expanded(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: <Widget>[
+                              Row(
+                                children: <Widget>[
+                                  Expanded(
+                                    child: Text(
+                                      displayName,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style:
+                                          theme.textTheme.bodyLarge?.copyWith(
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    _conversationTimeLabel(
+                                      _conversationTime(entry),
+                                    ),
+                                    style: theme.textTheme.labelSmall?.copyWith(
+                                      color: theme.colorScheme.onSurface
+                                          .withOpacity(0.46),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 3),
+                              Row(
+                                children: <Widget>[
+                                  Expanded(
+                                    child: Text(
+                                      _conversationPreview(entry),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style:
+                                          theme.textTheme.bodySmall?.copyWith(
+                                        color: theme.colorScheme.onSurface
+                                            .withOpacity(0.52),
+                                      ),
+                                    ),
+                                  ),
+                                  if (client != null)
+                                    unreadMessageCountBuilder(
+                                      client.unreadChatMessageCount,
+                                    ).marginOnly(left: 8),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             );
           },
         );

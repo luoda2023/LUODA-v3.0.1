@@ -259,6 +259,22 @@ jobs:
         timeout-minutes: 2
         shell: pwsh
         run: |
+          Add-Type -AssemblyName System.Drawing
+          Add-Type @'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class LDeskCapture {
+            [StructLayout(LayoutKind.Sequential)]
+            public struct RECT {
+              public int Left;
+              public int Top;
+              public int Right;
+              public int Bottom;
+            }
+            [DllImport("user32.dll")]
+            public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+          }
+          '@
           $releaseDir = Resolve-Path 'Release'
           $exe = Join-Path $releaseDir 'luoda.exe'
           $process = Start-Process `
@@ -287,6 +303,51 @@ jobs:
                 throw 'LDesk main window stopped responding during startup'
               }
             }
+            $rect = New-Object LDeskCapture+RECT
+            if (-not [LDeskCapture]::GetWindowRect(
+              $process.MainWindowHandle,
+              [ref]$rect
+            )) {
+              throw 'Failed to inspect the LDesk main window bounds'
+            }
+            $width = $rect.Right - $rect.Left
+            $height = $rect.Bottom - $rect.Top
+            if ($width -le 0 -or $height -le 0) {
+              throw "Invalid LDesk main window size: ${width}x${height}"
+            }
+            $bitmap = [System.Drawing.Bitmap]::new($width, $height)
+            $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+            try {
+              $graphics.CopyFromScreen(
+                $rect.Left,
+                $rect.Top,
+                0,
+                0,
+                $bitmap.Size
+              )
+            } finally {
+              $graphics.Dispose()
+            }
+            $colors = [System.Collections.Generic.HashSet[int]]::new()
+            $stepX = [Math]::Max(1, [int]($width / 12))
+            $stepY = [Math]::Max(1, [int]($height / 12))
+            for ($x = 0; $x -lt $width; $x += $stepX) {
+              for ($y = 0; $y -lt $height; $y += $stepY) {
+                [void]$colors.Add($bitmap.GetPixel($x, $y).ToArgb())
+              }
+            }
+            if ($colors.Count -lt 4) {
+              $bitmap.Dispose()
+              throw "Screenshot appears blank: only $($colors.Count) colors"
+            }
+            $logDir = Join-Path (Resolve-Path '.') '.auto_build_logs'
+            [IO.Directory]::CreateDirectory($logDir) | Out-Null
+            $screenshot = Join-Path $logDir 'LDesk-main-window.png'
+            $bitmap.Save(
+              $screenshot,
+              [System.Drawing.Imaging.ImageFormat]::Png
+            )
+            $bitmap.Dispose()
           } finally {
             if (-not $process.HasExited) {
               Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue

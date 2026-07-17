@@ -89,6 +89,8 @@ class ChatModel with ChangeNotifier {
   late final ChatUser me;
 
   late final Map<MessageKey, MessageBody> _messages = {};
+  Future<void>? _recentRestoreTask;
+  bool _recentRestoreQueued = false;
 
   MessageKey _currentKey = MessageKey('', -2); // -2 is invalid value
   late bool _isShowCMSidePage = false;
@@ -127,7 +129,7 @@ class ChatModel with ChangeNotifier {
       me.id = deviceId;
       notifyListeners();
     }));
-    unawaited(_restoreRecentConversations());
+    _scheduleRecentConversationRestore();
     refreshLocalIdentity();
     sessionId = parent.target!.sessionId;
     inputNode = FocusNode(
@@ -157,15 +159,33 @@ class ChatModel with ChangeNotifier {
   }
 
   void _onStoreRevision() {
-    if (_currentKey.peerId.isEmpty) return;
-    unawaited(_restoreConversation(_currentKey));
+    if (identical(this, gFFI.chatModel)) {
+      _scheduleRecentConversationRestore();
+    } else if (_currentKey.peerId.isNotEmpty) {
+      unawaited(_restoreConversation(_currentKey));
+    }
+  }
+
+  void _scheduleRecentConversationRestore() {
+    if (_recentRestoreTask != null) {
+      _recentRestoreQueued = true;
+      return;
+    }
+    _recentRestoreTask = _restoreRecentConversations().whenComplete(() {
+      _recentRestoreTask = null;
+      if (_recentRestoreQueued) {
+        _recentRestoreQueued = false;
+        _scheduleRecentConversationRestore();
+      }
+    });
   }
 
   Future<void> _restoreRecentConversations() async {
-    for (final peerId
-        in await DirectChatRepository.instance.conversationIds()) {
+    final peerIds = await DirectChatRepository.instance.conversationIds();
+    for (final peerId in peerIds) {
       await _restoreConversation(MessageKey(peerId, clientModeID));
     }
+    if (peerIds.isNotEmpty) notifyListeners();
   }
 
   ChatUser? get currentUser => _messages[_currentKey]?.chatUser;
