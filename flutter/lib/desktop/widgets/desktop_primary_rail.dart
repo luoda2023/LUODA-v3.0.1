@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../../common.dart';
+import '../../models/platform_model.dart';
 
 const String kDesktopRailBackgroundOption = 'desktop-rail-background-image-v1';
 const Color kDesktopRailSelectedForeground = Color(0xFF057A3A);
