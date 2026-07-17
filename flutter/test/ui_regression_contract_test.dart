@@ -35,6 +35,9 @@ void main() {
   final settingsGeneralSource = File(
     'lib/desktop/pages/desktop_setting_general.part.dart',
   ).readAsStringSync();
+  final settingsHelpersSource = File(
+    'lib/desktop/pages/desktop_setting_helpers.part.dart',
+  ).readAsStringSync();
   final remoteToolbarSource = File(
     'lib/desktop/widgets/remote_toolbar.dart',
   ).readAsStringSync();
@@ -354,6 +357,17 @@ void main() {
       expect(settingsSource, contains('SettingsTabKey.$category'));
     }
     expect(settingsSource, contains('_advancedSettingsExpanded'));
+  });
+
+  test('desktop settings use a compact human-scale type and spacing system',
+      () {
+    expect(settingsSource, contains('const double _kTabHeight = 48'));
+    expect(settingsSource, contains('const double _kTitleFontSize = 18'));
+    expect(settingsSource, contains('const double _kContentFontSize = 14'));
+    expect(settingsSource, contains('fontSize: 18'));
+    expect(settingsHelpersSource, contains('top: 16'));
+    expect(settingsHelpersSource, contains('EdgeInsets.all(18)'));
+    expect(settingsHelpersSource, isNot(contains('EdgeInsets.all(24)')));
   });
 
   test('remote assistance keeps chat and all existing session tools', () {

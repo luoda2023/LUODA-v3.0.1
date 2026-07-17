@@ -18,7 +18,7 @@ Widget _Card({
           padding: const EdgeInsets.only(
             left: _kCardLeftMargin,
             right: _kCardLeftMargin,
-            top: 24,
+            top: 16,
           ),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: _kCardFixedWidth),
@@ -26,7 +26,7 @@ Widget _Card({
               width: double.infinity,
               child: Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(24),
+                  padding: const EdgeInsets.all(18),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
@@ -35,8 +35,8 @@ Widget _Card({
                         children: [
                           if (showIcon) ...[
                             Container(
-                            width: 40,
-                            height: 40,
+                            width: 36,
+                            height: 36,
                             alignment: Alignment.center,
                             decoration: BoxDecoration(
                               color: theme.colorScheme.primary.withOpacity(
@@ -48,11 +48,11 @@ Widget _Card({
                             ),
                             child: Icon(
                               _sectionIcon(title),
-                              size: 21,
+                              size: 20,
                               color: theme.colorScheme.primary,
                             ),
                           ),
-                            const SizedBox(width: 14),
+                            const SizedBox(width: 12),
                           ],
                           Expanded(
                             child: Column(
@@ -61,7 +61,7 @@ Widget _Card({
                                 Text(
                                   translate(title),
                                   style: theme.textTheme.titleLarge?.copyWith(
-                                    fontSize: 18,
+                                    fontSize: 16,
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
@@ -72,7 +72,7 @@ Widget _Card({
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                     style: theme.textTheme.bodySmall?.copyWith(
-                                      fontSize: 13,
+                                      fontSize: 12,
                                       color: theme.textTheme.bodySmall?.color,
                                     ),
                                   ),
@@ -81,7 +81,7 @@ Widget _Card({
                             ),
                           ),
                           if (title_suffix != null) ...[
-                            const SizedBox(width: 20),
+                            const SizedBox(width: 16),
                             ...title_suffix.map(
                               (suffix) => Flexible(child: suffix),
                             ),
@@ -89,12 +89,12 @@ Widget _Card({
                         ],
                       ),
                       if (children.isNotEmpty) ...[
-                        const SizedBox(height: 18),
-                        Divider(color: theme.dividerColor),
                         const SizedBox(height: 12),
+                        Divider(color: theme.dividerColor),
+                        const SizedBox(height: 8),
                         ...children.map(
                           (child) => Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 3),
+                            padding: const EdgeInsets.symmetric(vertical: 2),
                             child: child,
                           ),
                         ),

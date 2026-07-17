@@ -42,16 +42,16 @@ part 'desktop_setting_printer.part.dart';
 part 'desktop_setting_about.part.dart';
 part 'desktop_setting_helpers.part.dart';
 
-const double _kTabHeight = 52;
+const double _kTabHeight = 48;
 const double _kCardFixedWidth = 960;
-const double _kCardLeftMargin = 32;
-const double _kContentHMargin = 20;
+const double _kCardLeftMargin = 24;
+const double _kContentHMargin = 18;
 const double _kContentHSubMargin = _kContentHMargin + 33;
 const double _kCheckBoxLeftMargin = 10;
 const double _kRadioLeftMargin = 10;
-const double _kListViewBottomMargin = 15;
-const double _kTitleFontSize = 20;
-const double _kContentFontSize = 15;
+const double _kListViewBottomMargin = 12;
+const double _kTitleFontSize = 18;
+const double _kContentFontSize = 14;
 const Color _accentColor = MyTheme.accent;
 const String _kSettingPageControllerTag = 'settingPageController';
 const String _kSettingPageTabKeyTag = 'settingPageTabKey';
@@ -343,11 +343,11 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
       body: LayoutBuilder(
         builder: (context, constraints) {
           final tabWidth = constraints.maxWidth >= 1080
-              ? 300.0
+              ? 268.0
               : constraints.maxWidth >= 820
-                  ? 252.0
-                  : 72.0;
-          final iconOnly = tabWidth == 72;
+                  ? 232.0
+                  : 64.0;
+          final iconOnly = tabWidth == 64;
           return _buildBlock(
             children: <Widget>[
               _buildPrimaryRail(context),
@@ -392,14 +392,14 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
     final settingsText = Text(
       translate('Settings'),
       style: theme.textTheme.titleLarge?.copyWith(
-        fontSize: 24,
-        fontWeight: FontWeight.w700,
+        fontSize: 18,
+        fontWeight: FontWeight.w600,
       ),
     );
     return Column(
       children: <Widget>[
         SizedBox(
-          height: 68,
+          height: 60,
           child: Row(
             children: [
               if (isWeb)
@@ -467,7 +467,7 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
               () => _advancedSettingsExpanded = !_advancedSettingsExpanded,
             ),
             child: SizedBox(
-              height: 46,
+              height: 44,
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
                 child: Row(
@@ -519,7 +519,7 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
         child: Padding(
           padding: EdgeInsets.symmetric(
             horizontal: iconOnly ? 10 : 12,
-            vertical: 3,
+            vertical: 2,
           ),
           child: Material(
             color: Colors.transparent,
