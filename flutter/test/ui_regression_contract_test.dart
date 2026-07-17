@@ -140,6 +140,7 @@ void main() {
     '../libs/hbb_common/protos/message.proto',
   ).readAsStringSync();
   final clientSource = File('../src/client.rs').readAsStringSync();
+  final chineseLangSource = File('../src/lang/cn.rs').readAsStringSync();
   final clientIoLoopSource = File(
     '../src/client/io_loop.rs',
   ).readAsStringSync();
@@ -812,6 +813,8 @@ void main() {
     expect(mobileConnectionSource, contains("'Messages allowed'"));
     expect(mobileConnectionSource, contains("'Messages rejected'"));
     expect(mobileConnectionSource, contains('avatar: pairing.avatar'));
+    expect(chineseLangSource, contains('"Search conversations"'));
+    expect(chineseLangSource, contains('"Not connected"'));
   });
 
   test('iOS release keeps the unsigned IPA when signing is unavailable', () {
