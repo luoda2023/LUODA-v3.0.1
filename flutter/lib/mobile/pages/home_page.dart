@@ -195,6 +195,10 @@ class HomePageState extends State<HomePage> {
         _companionSyncPeerId == pairing.peerId &&
         existing.ffiModel.pi.isSet.isTrue &&
         existing.ffiModel.direct == true) {
+      await existing.chatModel.requestCompanionSync(
+        peerId: pairing.peerId,
+        connId: ChatModel.clientModeID,
+      );
       return;
     }
     if (existing != null) {

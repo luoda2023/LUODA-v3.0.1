@@ -59,6 +59,9 @@ void main() {
   final directChatSource = File(
     'lib/common/direct_chat.dart',
   ).readAsStringSync();
+  final chatModelSource = File(
+    'lib/models/chat_model.dart',
+  ).readAsStringSync();
   final directPairingSource = File(
     'lib/common/direct_pairing.dart',
   ).readAsStringSync();
@@ -362,6 +365,26 @@ void main() {
     expect(
       mobileHomeSource,
       contains('await gFFI.serverModel.updateClientState()'),
+    );
+  });
+
+  test('active companion sessions refresh incremental sync every 30 minutes',
+      () {
+    expect(mobileHomeSource, contains('const Duration(minutes: 30)'));
+    final activeSessionPath = mobileHomeSource
+        .split('if (existing != null &&')[1]
+        .split('if (existing != null)')[0];
+    expect(
+      activeSessionPath,
+      contains('await existing.chatModel.requestCompanionSync('),
+    );
+    expect(
+      chatModelSource,
+      contains('Future<void> requestCompanionSync('),
+    );
+    expect(
+      chatModelSource,
+      contains('DirectChatEnvelope.replicaRequest('),
     );
   });
 

@@ -641,11 +641,23 @@ class ChatModel with ChangeNotifier {
     );
     _sendWire(key, DirectChatEnvelope.syncRequest(cursor).encode());
 
+    await requestCompanionSync(
+      peerId: resolvedPeerId,
+      connId: key.connId,
+    );
+  }
+
+  Future<void> requestCompanionSync({
+    required String peerId,
+    int? connId,
+  }) async {
+    final resolvedPeerId = peerId.trim();
+    if (resolvedPeerId.isEmpty) return;
     final pairing = DirectPairingStore.find(resolvedPeerId);
     if (pairing?.companion == true && pairing!.syncSecret.isNotEmpty) {
       final replicaCursor = await DirectChatRepository.instance.cursor();
       _sendWire(
-        key,
+        MessageKey(resolvedPeerId, connId ?? clientModeID),
         DirectChatEnvelope.replicaRequest(
           secret: pairing.syncSecret,
           cursor: replicaCursor,
