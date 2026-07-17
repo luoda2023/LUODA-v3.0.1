@@ -257,7 +257,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
       gFFI.chatModel.updatePeerIdentity(
         peerId,
         displayName: pairing.displayName,
-        avatar: '',
+        avatar: pairing.avatar,
       );
     }
     gFFI.start(endpoint, isChat: true, forceRelay: false);
@@ -278,44 +278,130 @@ class _ConnectionPageState extends State<ConnectionPage> {
         final pairings = DirectPairingStore.load().values.toList()
           ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
         if (pairings.isEmpty) return const SizedBox.shrink();
-        return Container(
-          margin: const EdgeInsets.fromLTRB(2, 8, 2, 8),
-          decoration: BoxDecoration(
-            color: Theme.of(context).cardColor,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Column(
-            children: [
-              for (var index = 0; index < pairings.length; index++) ...[
-                ListTile(
-                  minVerticalPadding: 8,
-                  leading:
-                      const Icon(Icons.link_rounded, color: MyTheme.accent),
-                  title: Text(
-                    pairings[index].displayName.isEmpty
-                        ? pairings[index].peerId
-                        : pairings[index].displayName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 15),
-                  ),
-                  subtitle: Text(
-                    pairings[index].preferredEndpoint,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                  trailing: const Icon(Icons.chevron_right_rounded),
-                  onTap: () => _startDirectChat(pairings[index].peerId),
-                ),
-                if (index != pairings.length - 1)
-                  const Divider(height: 1, indent: 56),
+        return AnimatedBuilder(
+          animation: Listenable.merge(<Listenable>[
+            gFFI.ffiModel,
+            gFFI.serverModel,
+          ]),
+          builder: (context, _) => Container(
+            margin: const EdgeInsets.fromLTRB(2, 8, 2, 8),
+            decoration: BoxDecoration(
+              color: Theme.of(context).cardColor,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Column(
+              children: [
+                for (var index = 0; index < pairings.length; index++) ...[
+                  Builder(builder: (context) {
+                    final pairing = pairings[index];
+                    final status = _pairedMessageStatus(pairing);
+                    return ListTile(
+                      minVerticalPadding: 9,
+                      leading: _pairedContactAvatar(pairing),
+                      title: Text(
+                        pairing.displayName.isEmpty
+                            ? pairing.peerId
+                            : pairing.displayName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(
+                            pairing.preferredEndpoint,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            translate(status.$1),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: status.$2,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () => _startDirectChat(pairing.peerId),
+                    );
+                  }),
+                  if (index != pairings.length - 1)
+                    const Divider(height: 1, indent: 70),
+                ],
               ],
-            ],
+            ),
           ),
         );
       },
     );
+  }
+
+  Widget _pairedContactAvatar(DirectPairing pairing) {
+    final name = pairing.displayName.isEmpty
+        ? pairing.peerId
+        : pairing.displayName.trim();
+    final initial = name.isEmpty ? '?' : name.characters.first;
+    final fallback = Container(
+      width: 46,
+      height: 46,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: str2color(name),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        initial,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 17,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+    return buildAvatarWidget(
+          avatar: pairing.avatar,
+          size: 46,
+          borderRadius: 8,
+          fallback: fallback,
+        ) ??
+        fallback;
+  }
+
+  (String, Color) _pairedMessageStatus(DirectPairing pairing) {
+    final activeOutgoing = !gFFI.closed &&
+        gFFI.connType == ConnType.chat &&
+        gFFI.chatModel.currentKey.peerId == pairing.peerId &&
+        gFFI.ffiModel.pi.isSet.isTrue &&
+        gFFI.ffiModel.direct == true;
+    final activeIncoming = gFFI.serverModel.clients.any(
+      (client) =>
+          client.peerId == pairing.peerId &&
+          client.authorized &&
+          client.isChat &&
+          !client.disconnected,
+    );
+    if (activeOutgoing || activeIncoming) {
+      return ('Messages allowed', const Color(0xFF238A57));
+    }
+    final isCurrent = gFFI.chatModel.currentKey.peerId == pairing.peerId;
+    final error = isCurrent ? gFFI.ffiModel.lastConnectionError ?? '' : '';
+    if (error.contains('Direct messages rejected')) {
+      return ('Messages rejected', const Color(0xFFD84A4A));
+    }
+    if (isCurrent && !gFFI.closed && gFFI.connType == ConnType.chat) {
+      return ('Connecting', const Color(0xFF4C6EA8));
+    }
+    return ('Not connected', const Color(0xFF7B7E85));
   }
 
   void onFocusChanged() {

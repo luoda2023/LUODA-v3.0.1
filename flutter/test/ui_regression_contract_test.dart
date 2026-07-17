@@ -803,6 +803,14 @@ void main() {
     expect(windowsWorkflowSource, contains('Screenshot appears blank'));
   });
 
+  test('mobile contacts show identity and direct-message policy status', () {
+    expect(mobileConnectionSource, contains('_pairedContactAvatar(pairing)'));
+    expect(mobileConnectionSource, contains('_pairedMessageStatus(pairing)'));
+    expect(mobileConnectionSource, contains("'Messages allowed'"));
+    expect(mobileConnectionSource, contains("'Messages rejected'"));
+    expect(mobileConnectionSource, contains('avatar: pairing.avatar'));
+  });
+
   test('Android always-on chat uses a dedicated messaging service', () {
     expect(
       androidDirectChatServiceSource,
