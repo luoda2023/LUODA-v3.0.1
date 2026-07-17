@@ -213,7 +213,7 @@ async fn connect_direct_candidates(
         .map(|address| {
             async move {
                 let host = address.to_string();
-                let mut conn = connect_tcp_local(&host, None, CONNECT_TIMEOUT).await?;
+                let mut conn = connect_tcp_local(host.as_str(), None, CONNECT_TIMEOUT).await?;
                 let pk = Client::secure_direct_connection("", None, &mut conn).await?;
                 Ok::<_, hbb_common::anyhow::Error>((conn, pk, address))
             }
