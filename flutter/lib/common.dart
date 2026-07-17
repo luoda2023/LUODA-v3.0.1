@@ -2207,6 +2207,8 @@ Future _saveSessionWindowPosition(
   }
 }
 
+const kCustomClientWindowSize = Size(380, 500);
+
 Future<Size> _adjustRestoreMainWindowSize(double? width, double? height) async {
   const double minWidth = 1;
   const double minHeight = 1;
@@ -2248,9 +2250,9 @@ Future<Size> _adjustRestoreMainWindowSize(double? width, double? height) async {
     restoreHeight = defaultHeight;
   }
   // 客户端定制版：窗口固定为截图对应的紧凑信息面板尺寸。
-  if (bind.isCustomClient()) {
-    restoreWidth = 276;
-    restoreHeight = 570;
+  if (isCustomClient) {
+    restoreWidth = kCustomClientWindowSize.width;
+    restoreHeight = kCustomClientWindowSize.height;
   }
   return Size(restoreWidth, restoreHeight);
 }
@@ -2365,11 +2367,10 @@ Future<bool> restoreWindowPosition(
       case WindowType.Main:
         // Center the main window only if no position is saved (on first run).
         if (isWindows || isLinux) {
-          if (bind.isCustomClient()) {
-            // 客户端定制版：固定窗口（250 宽×500 高），
-            // IP 显示与在线状态之间预留约 2cm 间距。
+          if (isCustomClient) {
+            // 客户端定制版使用固定紧凑窗口。
             try {
-              await windowManager.setSize(const Size(250, 500));
+              await windowManager.setSize(kCustomClientWindowSize);
             } catch (e) {
               debugPrint("Failed to set client-only default size: $e");
             }
@@ -4227,6 +4228,9 @@ Widget loadIcon(double size) {
 
 var imcomingOnlyHomeSize = Size(280, 300);
 Size getIncomingOnlyHomeSize() {
+  if (isCustomClient) {
+    return kCustomClientWindowSize;
+  }
   final magicWidth = isWindows ? 11.0 : 2.0;
   final magicHeight = 10.0;
   return imcomingOnlyHomeSize +

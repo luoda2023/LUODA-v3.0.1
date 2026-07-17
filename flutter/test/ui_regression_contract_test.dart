@@ -105,6 +105,15 @@ void main() {
     'android/app/src/main/kotlin/com/luoda/remote/MainService.kt',
   ).readAsStringSync();
   final commonRustSource = File('../src/common.rs').readAsStringSync();
+  final displayServiceSource = File(
+    '../src/server/display_service.rs',
+  ).readAsStringSync();
+  final portableServiceSource = File(
+    '../src/server/portable_service.rs',
+  ).readAsStringSync();
+  final flutterCommonSource = File(
+    'lib/common.dart',
+  ).readAsStringSync();
   final cargoSource = File('../Cargo.toml').readAsStringSync();
   final peerModelSource = File(
     'lib/models/peer_model.dart',
@@ -633,6 +642,70 @@ void main() {
     expect(
       serverConnectionSource,
       contains('direct-chat-peer-keys-v1'),
+    );
+  });
+
+  test('direct IP probing authenticates the requested port and neighbors', () {
+    expect(
+        clientSource, contains('direct_probe_addresses(ip, preferred_port)'));
+    expect(
+      clientSource,
+      contains('connect_direct_candidates(endpoint.ip(), endpoint.port())'),
+    );
+    expect(
+      clientSource,
+      contains('connect_direct_candidates(ip, DEFAULT_DIRECT_PORT as u16)'),
+    );
+    expect(clientSource, contains('Client::secure_direct_connection('));
+  });
+
+  test('headless Windows capture waits for the virtual display to enumerate',
+      () {
+    expect(
+      displayServiceSource,
+      allOf(
+        contains('HEADLESS_DISPLAY_WAIT_TIMEOUT'),
+        contains('Duration::from_secs(8)'),
+      ),
+    );
+    expect(
+      displayServiceSource,
+      allOf(
+        contains('HEADLESS_DISPLAY_POLL_INTERVAL'),
+        contains('Duration::from_millis(200)'),
+      ),
+    );
+    expect(displayServiceSource, contains('wait_for_headless_display()'));
+    expect(
+      portableServiceSource,
+      contains('display_service::plug_in_headless_and_wait()'),
+    );
+    expect(
+      portableServiceSource,
+      contains('display_service::no_displays(&displays)'),
+    );
+  });
+
+  test('custom desktop client consistently uses a 380 by 500 window', () {
+    expect(
+      flutterCommonSource,
+      contains('const kCustomClientWindowSize = Size(380, 500)'),
+    );
+    expect(
+      flutterCommonSource,
+      contains('restoreWidth = kCustomClientWindowSize.width'),
+    );
+    expect(
+      flutterCommonSource,
+      contains('restoreHeight = kCustomClientWindowSize.height'),
+    );
+    expect(
+      homePageSource,
+      contains('width: kCustomClientWindowSize.width'),
+    );
+    expect(
+      desktopTabSource,
+      contains('windowManager.setSize(kCustomClientWindowSize)'),
     );
   });
 

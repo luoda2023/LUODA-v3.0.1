@@ -2241,7 +2241,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       return ChangeNotifierProvider.value(
         value: gFFI.serverModel,
         child: SizedBox(
-          width: 276.0,
+          width: kCustomClientWindowSize.width,
           child: Column(
             children: [
               Expanded(

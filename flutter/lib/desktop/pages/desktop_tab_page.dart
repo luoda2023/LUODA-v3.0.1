@@ -69,8 +69,13 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
           key: const ValueKey(kTabLabelHomePage),
           isClientOnly: isCustomClient,
         )));
-    if (bind.isIncomingOnly()) {
+    if (bind.isIncomingOnly() || isCustomClient) {
       tabController.onSelected = (key) {
+        if (isCustomClient) {
+          windowManager.setSize(kCustomClientWindowSize);
+          setResizable(false);
+          return;
+        }
         if (key == kTabLabelHomePage) {
           windowManager.setSize(getIncomingOnlyHomeSize());
           setResizable(false);

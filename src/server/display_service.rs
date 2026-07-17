@@ -9,6 +9,8 @@ use hbb_common::get_version_number;
 use hbb_common::protobuf::MessageField;
 use scrap::Display;
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(windows)]
+use std::time::{Duration, Instant};
 
 // https://github.com/luoda/luoda/discussions/6042, avoiding dbus call
 
@@ -16,6 +18,10 @@ pub const NAME: &'static str = "display";
 
 #[cfg(windows)]
 const DUMMY_DISPLAY_SIDE_MAX_SIZE: usize = 1024;
+#[cfg(windows)]
+const HEADLESS_DISPLAY_WAIT_TIMEOUT: Duration = Duration::from_secs(8);
+#[cfg(windows)]
+const HEADLESS_DISPLAY_POLL_INTERVAL: Duration = Duration::from_millis(200);
 
 struct ChangedResolution {
     original: (i32, i32),
@@ -394,7 +400,7 @@ pub fn get_primary_2(all: &Vec<Display>) -> usize {
 
 #[inline]
 #[cfg(windows)]
-fn no_displays(displays: &Vec<Display>) -> bool {
+pub(crate) fn no_displays(displays: &Vec<Display>) -> bool {
     let display_len = displays.len();
     if display_len == 0 {
         true
@@ -439,6 +445,37 @@ pub fn try_get_displays_add_amyuni_headless() -> ResultType<Vec<Display>> {
     try_get_displays_(true)
 }
 
+#[cfg(windows)]
+fn wait_for_headless_display() -> ResultType<Vec<Display>> {
+    let started = Instant::now();
+    loop {
+        match Display::all() {
+            Ok(displays) => {
+                if !no_displays(&displays)
+                    || started.elapsed() >= HEADLESS_DISPLAY_WAIT_TIMEOUT
+                {
+                    return Ok(displays);
+                }
+            }
+            Err(error) => {
+                if started.elapsed() >= HEADLESS_DISPLAY_WAIT_TIMEOUT {
+                    return Err(error.into());
+                }
+                log::debug!("waiting for headless display: {error}");
+            }
+        }
+        std::thread::sleep(HEADLESS_DISPLAY_POLL_INTERVAL);
+    }
+}
+
+#[cfg(windows)]
+pub(crate) fn plug_in_headless_and_wait() -> ResultType<Vec<Display>> {
+    if let Err(error) = virtual_display_manager::plug_in_headless() {
+        log::error!("plug in headless failed {error}");
+    }
+    wait_for_headless_display()
+}
+
 #[inline]
 #[cfg(windows)]
 pub fn try_get_displays_(add_amyuni_headless: bool) -> ResultType<Vec<Display>> {
@@ -478,11 +515,7 @@ pub fn try_get_displays_(add_amyuni_headless: bool) -> ResultType<Vec<Display>> 
     let no_displays_v = no_displays(&displays);
     if no_displays_v {
         log::debug!("no displays, create virtual display");
-        if let Err(e) = virtual_display_manager::plug_in_headless() {
-            log::error!("plug in headless failed {}", e);
-        } else {
-            displays = Display::all()?;
-        }
+        displays = plug_in_headless_and_wait()?;
     }
     Ok(displays)
 }

@@ -188,6 +188,41 @@ fn bare_direct_ip(peer: &str) -> Option<IpAddr> {
     IpAddr::from_str(peer).ok()
 }
 
+const DIRECT_PORT_PROBE_RADIUS: u16 = 5;
+
+fn direct_probe_addresses(ip: IpAddr, preferred_port: u16) -> Vec<SocketAddr> {
+    let mut addresses = Vec::with_capacity((DIRECT_PORT_PROBE_RADIUS * 2 + 1) as usize);
+    addresses.push(SocketAddr::new(ip, preferred_port));
+    for offset in 1..=DIRECT_PORT_PROBE_RADIUS {
+        if let Some(port) = preferred_port.checked_add(offset) {
+            addresses.push(SocketAddr::new(ip, port));
+        }
+        if let Some(port) = preferred_port.checked_sub(offset).filter(|port| *port > 0) {
+            addresses.push(SocketAddr::new(ip, port));
+        }
+    }
+    addresses
+}
+
+async fn connect_direct_candidates(
+    ip: IpAddr,
+    preferred_port: u16,
+) -> ResultType<(Stream, Option<Vec<u8>>, SocketAddr)> {
+    let futures: Vec<_> = direct_probe_addresses(ip, preferred_port)
+        .into_iter()
+        .map(|address| {
+            async move {
+                let host = address.to_string();
+                let mut conn = connect_tcp_local(&host, None, CONNECT_TIMEOUT).await?;
+                let pk = Client::secure_direct_connection("", None, &mut conn).await?;
+                Ok::<_, hbb_common::anyhow::Error>((conn, pk, address))
+            }
+            .boxed()
+        })
+        .collect();
+    select_ok(futures).await.map(|(connected, _)| connected)
+}
+
 fn direct_endpoint(peer: &str) -> Option<String> {
     explicit_direct_endpoint(peer).or_else(|| {
         hbb_common::is_domain_port_str(peer).then(|| peer.to_owned())
@@ -207,7 +242,10 @@ fn fingerprint_public_key(value: &str) -> Option<Vec<u8>> {
 
 #[cfg(test)]
 mod direct_endpoint_tests {
-    use super::{bare_direct_ip, explicit_direct_endpoint, fingerprint_public_key};
+    use super::{
+        bare_direct_ip, direct_probe_addresses, explicit_direct_endpoint,
+        fingerprint_public_key,
+    };
 
     #[test]
     fn parses_ipv4_with_port() {
@@ -230,6 +268,36 @@ mod direct_endpoint_tests {
         assert!(bare_direct_ip("10.0.0.8").is_some());
         assert!(bare_direct_ip("2001:db8::1").is_some());
         assert!(explicit_direct_endpoint("10.0.0.8:0").is_none());
+    }
+
+    #[test]
+    fn probes_the_requested_direct_port_and_five_neighbors_each_way() {
+        let ip = "192.168.1.20".parse().unwrap();
+        let ports: Vec<_> = direct_probe_addresses(ip, 21118)
+            .into_iter()
+            .map(|address| address.port())
+            .collect();
+        assert_eq!(
+            ports,
+            vec![
+                21118, 21119, 21117, 21120, 21116, 21121, 21115, 21122, 21114, 21123, 21113,
+            ]
+        );
+    }
+
+    #[test]
+    fn direct_port_probe_never_wraps_outside_the_valid_range() {
+        let ip = "127.0.0.1".parse().unwrap();
+        let low: Vec<_> = direct_probe_addresses(ip, 1)
+            .into_iter()
+            .map(|address| address.port())
+            .collect();
+        let high: Vec<_> = direct_probe_addresses(ip, u16::MAX)
+            .into_iter()
+            .map(|address| address.port())
+            .collect();
+        assert_eq!(low, vec![1, 2, 3, 4, 5, 6]);
+        assert_eq!(high, vec![65535, 65534, 65533, 65532, 65531, 65530]);
     }
 
     #[test]
@@ -375,8 +443,10 @@ impl Client {
             }
         }
         if let Some(endpoint) = explicit_direct_endpoint(peer) {
-            let mut conn = connect_tcp_local(endpoint.as_str(), None, CONNECT_TIMEOUT).await?;
-            let pk = Self::secure_direct_connection("", None, &mut conn).await?;
+            let endpoint = SocketAddr::from_str(&endpoint)?;
+            let (conn, pk, connected) =
+                connect_direct_candidates(endpoint.ip(), endpoint.port()).await?;
+            log::info!("Direct connection established through {connected}");
             return Ok((
                 (conn, true, pk, None, "TCP"),
                 (0, "".to_owned()),
@@ -384,39 +454,14 @@ impl Client {
             ));
         }
         if let Some(ip) = bare_direct_ip(peer) {
-            // LUODA 定制版: 裸 IP 直连时并发尝试 21118-21128 共 11 个候选端口，
-            // 解决被控端 21118 被占用导致端口回退到 21119/21120 后客户端硬编码连不上。
-            // 用 select_ok 哪个先成功就用哪个，整体超时仍受 CONNECT_TIMEOUT 控制。
-            let hosts: Vec<String> = (DEFAULT_DIRECT_PORT..DEFAULT_DIRECT_PORT + 11)
-                .map(|port| SocketAddr::new(ip, port as u16).to_string())
-                .collect();
-            let futures: Vec<_> = hosts
-                .iter()
-                .map(|h| {
-                    let h = h.clone();
-                    async move {
-                        connect_tcp_local(h.as_str(), None, CONNECT_TIMEOUT).await
-                    }
-                    .boxed()
-                })
-                .collect();
-            match select_ok(futures).await {
-                Ok((mut conn, _)) => {
-                    let pk = Self::secure_direct_connection("", None, &mut conn).await?;
-                    return Ok((
-                        (conn, true, pk, None, "TCP"),
-                        (0, "".to_owned()),
-                        false,
-                    ));
-                }
-                Err(e) => bail!(
-                    "Failed to connect to {} on ports {}-{}: {}",
-                    peer,
-                    DEFAULT_DIRECT_PORT,
-                    DEFAULT_DIRECT_PORT + 10,
-                    e
-                ),
-            }
+            let (conn, pk, connected) =
+                connect_direct_candidates(ip, DEFAULT_DIRECT_PORT as u16).await?;
+            log::info!("Direct connection established through {connected}");
+            return Ok((
+                (conn, true, pk, None, "TCP"),
+                (0, "".to_owned()),
+                false,
+            ));
         }
         // Allow connect to {domain}:{port}
         if hbb_common::is_domain_port_str(peer) {
