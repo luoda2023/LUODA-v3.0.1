@@ -240,6 +240,8 @@ class DesktopTab extends StatefulWidget {
   final bool showMinimize;
   final bool showMaximize;
   final bool showClose;
+  final Widget? topBar;
+  final double? topBarHeight;
   final Widget Function(Widget pageView)? pageViewBuilder;
   // Right click tab menu
   final TabMenuBuilder? tabMenuBuilder;
@@ -266,6 +268,8 @@ class DesktopTab extends StatefulWidget {
     this.showMinimize = true,
     this.showMaximize = true,
     this.showClose = true,
+    this.topBar,
+    this.topBarHeight,
     this.pageViewBuilder,
     this.tabMenuBuilder,
     this.tail,
@@ -300,6 +304,8 @@ class _DesktopTabState extends State<DesktopTab>
   bool get showMinimize => widget.showMinimize;
   bool get showMaximize => widget.showMaximize;
   bool get showClose => widget.showClose;
+  Widget? get topBar => widget.topBar;
+  double? get topBarHeight => widget.topBarHeight;
   Widget Function(Widget pageView)? get pageViewBuilder =>
       widget.pageViewBuilder;
   TabMenuBuilder? get tabMenuBuilder => widget.tabMenuBuilder;
@@ -510,30 +516,33 @@ class _DesktopTabState extends State<DesktopTab>
   @override
   Widget build(BuildContext context) {
     return Column(children: [
-      Obx(() {
-        if (stateGlobal.showTabBar.isTrue &&
-            !(kUseCompatibleUiMode && isHideSingleItem())) {
-          final showBottomDivider = _showTabBarBottomDivider(tabType);
-          return SizedBox(
-            height: _kTabBarHeight,
-            child: Column(
-              children: [
-                SizedBox(
-                  height:
-                      showBottomDivider ? _kTabBarHeight - 1 : _kTabBarHeight,
-                  child: _buildBar(),
-                ),
-                if (showBottomDivider)
-                  const Divider(
-                    height: 1,
+      if (topBar != null)
+        SizedBox(height: topBarHeight ?? _kTabBarHeight, child: topBar)
+      else
+        Obx(() {
+          if (stateGlobal.showTabBar.isTrue &&
+              !(kUseCompatibleUiMode && isHideSingleItem())) {
+            final showBottomDivider = _showTabBarBottomDivider(tabType);
+            return SizedBox(
+              height: _kTabBarHeight,
+              child: Column(
+                children: [
+                  SizedBox(
+                    height:
+                        showBottomDivider ? _kTabBarHeight - 1 : _kTabBarHeight,
+                    child: _buildBar(),
                   ),
-              ],
-            ),
-          );
-        } else {
-          return Offstage();
-        }
-      }),
+                  if (showBottomDivider)
+                    const Divider(
+                      height: 1,
+                    ),
+                ],
+              ),
+            );
+          } else {
+            return Offstage();
+          }
+        }),
       Expanded(
           child: pageViewBuilder != null
               ? pageViewBuilder!(_buildPageView())

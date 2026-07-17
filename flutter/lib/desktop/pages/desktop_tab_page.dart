@@ -4,6 +4,7 @@ import 'package:luoda_flutter/consts.dart';
 import 'package:luoda_flutter/desktop/pages/desktop_home_page.dart';
 import 'package:luoda_flutter/desktop/pages/desktop_setting_page.dart';
 import 'package:luoda_flutter/common/widgets/peer_tab_page.dart';
+import 'package:luoda_flutter/desktop/widgets/desktop_main_title_bar.dart';
 import 'package:luoda_flutter/desktop/widgets/tabbar_widget.dart';
 import 'package:luoda_flutter/models/platform_model.dart';
 import 'package:luoda_flutter/models/state_model.dart';
@@ -114,6 +115,32 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
             backgroundColor: Theme.of(context).colorScheme.background,
             body: DesktopTab(
               controller: tabController,
+              topBarHeight: LDeskMainTitleBar.height,
+              topBar: Obx(() {
+                final state = tabController.state.value;
+                final selected =
+                    state.selected >= 0 && state.selected < state.tabs.length
+                        ? state.selected
+                        : 0;
+                final key = state.tabs.isEmpty
+                    ? kTabLabelHomePage
+                    : state.tabs[selected].key;
+                final title = key == kTabLabelSettingPage
+                    ? translate('Settings')
+                    : translate('Messages');
+                return LDeskMainTitleBar(
+                  title: title,
+                  showThemeToggle: !compactClient,
+                  showMinimize: !compactClient,
+                  showMaximize: !compactClient,
+                  showClose: true,
+                  canMaximize:
+                      !(bind.isIncomingOnly() && key == kTabLabelHomePage),
+                  onBack: key == kTabLabelSettingPage
+                      ? () => tabController.jumpToByKey(kTabLabelHomePage)
+                      : null,
+                );
+              }),
               showMinimize: !compactClient,
               showMaximize: !compactClient,
               showClose: true,

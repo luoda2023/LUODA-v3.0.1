@@ -23,6 +23,9 @@ void main() {
   final desktopTabSource = File(
     'lib/desktop/pages/desktop_tab_page.dart',
   ).readAsStringSync();
+  final desktopMainTitleBarSource = File(
+    'lib/desktop/widgets/desktop_main_title_bar.dart',
+  ).readAsStringSync();
   final multiWindowManagerSource = File(
     'lib/utils/multi_window_manager.dart',
   ).readAsStringSync();
@@ -288,6 +291,25 @@ void main() {
     expect(homePageSource, contains('onSettings: DesktopTabPage.onAddSetting'));
     expect(desktopTabSource, isNot(contains("message: 'Settings'")));
     expect(desktopTabSource, isNot(contains('tail: Offstage(')));
+  });
+
+  test('desktop main window uses a dedicated LDesk title bar', () {
+    expect(desktopTabSource, contains('topBar: Obx('));
+    expect(desktopTabSource, contains('return LDeskMainTitleBar('));
+    expect(desktopMainTitleBarSource, contains('class LDeskMainTitleBar'));
+    expect(desktopMainTitleBarSource, contains("'LDesk'"));
+    expect(
+      desktopMainTitleBarSource,
+      contains('windowManager.startDragging()'),
+    );
+    expect(desktopMainTitleBarSource, contains('windowManager.maximize()'));
+    expect(desktopMainTitleBarSource, contains('windowManager.unmaximize()'));
+    expect(desktopMainTitleBarSource, contains('windowManager.minimize()'));
+    expect(desktopMainTitleBarSource, contains('windowManager.close()'));
+    expect(
+      desktopTabSource,
+      contains('tabController.jumpToByKey(kTabLabelHomePage)'),
+    );
   });
 
   test('selected and recent contacts can start remote desktop directly', () {
