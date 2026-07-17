@@ -6,6 +6,7 @@
 // use the generated Flutter/Rust bridge.
 
 import 'package:flutter/material.dart';
+import 'package:uuid/uuid.dart';
 
 import 'package:luoda_flutter/common.dart';
 import 'package:luoda_flutter/consts.dart';
