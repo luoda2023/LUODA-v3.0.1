@@ -6,6 +6,7 @@ import 'package:luoda_flutter/mobile/pages/server_page.dart';
 import 'package:luoda_flutter/mobile/pages/settings_page.dart';
 import 'package:luoda_flutter/web/settings_page.dart';
 import 'package:get/get.dart';
+import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 import '../../common.dart';
 import '../../common/direct_pairing.dart';
