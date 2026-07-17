@@ -298,6 +298,7 @@ jobs:
         with:
           name: runtime-logs-${{ matrix.arch }}
           path: .auto_build_logs/
+          include-hidden-files: true
       - name: Rename Client EXE for release
         if: matrix.arch == 'x64'
         shell: pwsh

@@ -407,6 +407,7 @@ jobs:
         with:
           name: runtime-logs-${{ matrix.arch }}
           path: .auto_build_logs/
+          include-hidden-files: true
       - name: Upload to v3.1.1 Release (x64 only)
         if: matrix.arch == 'x64' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/3.1.1'
         uses: softprops/action-gh-release@v2
