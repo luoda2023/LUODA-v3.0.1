@@ -413,6 +413,13 @@ class ChatPage extends StatelessWidget implements PageShape {
                 LayoutBuilder(builder: (context, constraints) {
                   final useWeChatMessages =
                       isDesktopHome || type == ChatPageType.mobileMain;
+                  final scaledBubbleWidth =
+                      constraints.maxWidth * (isDesktopHome ? 0.62 : 0.76);
+                  final bubbleWidthCap = isDesktopHome ? 560.0 : 420.0;
+                  final responsiveBubbleWidth =
+                      scaledBubbleWidth > bubbleWidthCap
+                          ? bubbleWidthCap
+                          : scaledBubbleWidth;
                   final chat = DashChat(
                     onSend: chatModel.send,
                     currentUser: chatModel.me,
@@ -539,8 +546,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                                   isBeforeDateSeparator) =>
                               weChatMessageRow(
                                 message,
-                                constraints.maxWidth *
-                                    (isDesktopHome ? 0.62 : 0.76),
+                                responsiveBubbleWidth,
                               )
                           : null,
                       textColor: Theme.of(context).brightness == Brightness.dark

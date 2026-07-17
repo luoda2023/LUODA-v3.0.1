@@ -315,6 +315,9 @@ void main() {
     expect(chatPageSource, contains('height: 142'));
     expect(chatPageSource, contains('class _ChatBubbleTailPainter'));
     expect(chatPageSource, contains('BorderRadius.circular(5)'));
+    expect(chatPageSource, contains('scaledBubbleWidth'));
+    expect(chatPageSource, contains('bubbleWidthCap'));
+    expect(chatPageSource, contains('responsiveBubbleWidth'));
     expect(chatPageSource,
         contains('separatorFrequency: SeparatorFrequency.hours'));
     expect(sharedChatSource, contains('class _SharedChatBubbleTailPainter'));
