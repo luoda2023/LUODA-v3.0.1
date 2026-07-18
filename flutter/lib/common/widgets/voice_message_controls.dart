@@ -2,7 +2,8 @@ import 'dart:async';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
-import 'package:record/record.dart';
+import 'package:record/record.dart'
+    if (dart.library.html) '../record_stub.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../common.dart';
