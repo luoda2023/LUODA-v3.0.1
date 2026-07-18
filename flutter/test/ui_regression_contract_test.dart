@@ -873,19 +873,29 @@ void main() {
       desktopTabSource,
       contains('windowManager.setSize(kCustomClientWindowSize)'),
     );
+    final clientHeader = homePageSource
+        .split('Widget _buildClientHeader(BuildContext context)')[1]
+        .split('Widget _buildClientIdentityCard(')[0];
+    expect(clientHeader, contains('width: double.infinity'));
+    expect(
+      clientHeader,
+      contains('crossAxisAlignment: CrossAxisAlignment.center'),
+    );
+    expect(clientHeader, contains('OnlineStatusWidget(compact: true)'));
+    expect(homePageSource, contains('_buildIdentityCard(context, model)'));
+    expect(desktopConnectionSource, contains('this.compact = false'));
+    expect(desktopConnectionSource, contains('if (widget.compact)'));
   });
 
   test('custom client EXE is a dedicated LDesk identity panel', () {
     final clientPanel = homePageSource
         .split('Widget buildLeftPane(BuildContext context) {')[1]
         .split('final isIncomingOnly =')[0];
-    expect(clientPanel, contains('buildIDBoard(context)'));
-    expect(clientPanel, contains('buildPasswordBoard(context)'));
-    expect(clientPanel, contains('buildDirectAccessBoard(context)'));
-    expect(
-      clientPanel,
-      contains('"LDesk \${translate(\'Remote assistance\')}"'),
-    );
+    expect(clientPanel, contains('_buildClientHeader(context)'));
+    expect(clientPanel, contains('_buildClientIdentityCard(context)'));
+    expect(clientPanel, isNot(contains('buildIDBoard(context)')));
+    expect(clientPanel, isNot(contains('buildPasswordBoard(context)')));
+    expect(clientPanel, isNot(contains('buildDirectAccessBoard(context)')));
     expect(clientPanel, isNot(contains('_buildRemoteCenter')));
     expect(clientPanel, isNot(contains('DesktopSettingPage')));
     expect(desktopTabSource, contains('final title = compactClient'));
@@ -898,6 +908,8 @@ void main() {
       clientWorkflowSource,
       contains('Smoke test LDesk client identity panel'),
     );
+    expect(clientWorkflowSource, contains('LDesk-client-window.png'));
+    expect(clientWorkflowSource, contains('CopyFromScreen'));
     expect(
       clientWorkflowSource,
       contains('Normalize Windows resource encoding'),

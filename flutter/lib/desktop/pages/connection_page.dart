@@ -22,10 +22,15 @@ import '../../models/platform_model.dart';
 import '../../desktop/widgets/material_mod_popup_menu.dart' as mod_menu;
 
 class OnlineStatusWidget extends StatefulWidget {
-  const OnlineStatusWidget({Key? key, this.onSvcStatusChanged})
+  const OnlineStatusWidget({
+    Key? key,
+    this.onSvcStatusChanged,
+    this.compact = false,
+  })
       : super(key: key);
 
   final VoidCallback? onSvcStatusChanged;
+  final bool compact;
 
   @override
   State<OnlineStatusWidget> createState() => _OnlineStatusWidgetState();
@@ -69,6 +74,56 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
   @override
   Widget build(BuildContext context) {
     final isIncomingOnly = bind.isIncomingOnly();
+    if (widget.compact) {
+      return Obx(() {
+        widget.onSvcStatusChanged?.call();
+        final stopped = _svcStopped.value;
+        final status = stateGlobal.svcStatus.value;
+        final message = stopped
+            ? translate('Service is not running')
+            : status == SvcStatus.connecting
+                ? translate('connecting_status')
+                : status == SvcStatus.notReady
+                    ? translate('not_ready_status')
+                    : translate('Direct listening');
+        final color = stopped || status == SvcStatus.notReady
+            ? const Color(0xFF8A929F)
+            : status == SvcStatus.connecting
+                ? const Color(0xFFE39128)
+                : MyTheme.accent;
+        return Wrap(
+          alignment: WrapAlignment.center,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 7,
+          runSpacing: 4,
+          children: [
+            Container(
+              width: 7,
+              height: 7,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            ),
+            Text(
+              message,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 12, color: color),
+            ),
+            if (stopped)
+              InkWell(
+                onTap: () => start_service(true),
+                child: Text(
+                  translate('Start service'),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.primary,
+                    decoration: TextDecoration.underline,
+                  ),
+                ),
+              ),
+          ],
+        );
+      });
+    }
     startServiceWidget() => Offstage(
           offstage: !_svcStopped.value,
           child: InkWell(

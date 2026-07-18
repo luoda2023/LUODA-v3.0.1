@@ -271,6 +271,37 @@ jobs:
             if ([Math]::Abs($width - 380) -gt 32 -or [Math]::Abs($height - 500) -gt 32) {
               throw "Unexpected LDesk client window size: ${width}x${height}"
             }
+            Add-Type -AssemblyName System.Drawing
+            $bitmap = New-Object System.Drawing.Bitmap($width, $height)
+            $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+            try {
+              $graphics.CopyFromScreen(
+                $rect.Left,
+                $rect.Top,
+                0,
+                0,
+                $bitmap.Size,
+                [System.Drawing.CopyPixelOperation]::SourceCopy
+              )
+              $colors = [System.Collections.Generic.HashSet[int]]::new()
+              $stepX = [Math]::Max(1, [int]($width / 12))
+              $stepY = [Math]::Max(1, [int]($height / 12))
+              for ($x = 0; $x -lt $width; $x += $stepX) {
+                for ($y = 0; $y -lt $height; $y += $stepY) {
+                  [void]$colors.Add($bitmap.GetPixel($x, $y).ToArgb())
+                }
+              }
+              if ($colors.Count -lt 4) {
+                throw "Client screenshot appears blank: only $($colors.Count) colors"
+              }
+              $bitmap.Save(
+                (Join-Path $logDir 'LDesk-client-window.png'),
+                [System.Drawing.Imaging.ImageFormat]::Png
+              )
+            } finally {
+              $graphics.Dispose()
+              $bitmap.Dispose()
+            }
           } finally {
             if ($null -ne $windowProcess -and -not $windowProcess.HasExited) {
               Stop-Process -Id $windowProcess.Id -Force -ErrorAction SilentlyContinue

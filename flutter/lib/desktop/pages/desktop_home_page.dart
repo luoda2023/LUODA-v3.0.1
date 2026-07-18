@@ -2504,93 +2504,91 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     return 'upnp_mapping_unknown_tip';
   }
 
+  Widget _buildClientHeader(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(
+              width: 58,
+              height: 58,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
+                borderRadius: BorderRadius.circular(14),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(.12),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.asset(
+                  'assets/icon.png',
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Icon(
+                    Icons.desktop_windows_rounded,
+                    size: 30,
+                    color: MyTheme.accent,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              "LDesk ${translate('Remote assistance')}",
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 16,
+                height: 1.3,
+                fontWeight: FontWeight.w600,
+                color: Theme.of(context).textTheme.titleLarge?.color,
+              ),
+            ),
+            const SizedBox(height: 6),
+            const OnlineStatusWidget(compact: true),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildClientIdentityCard(BuildContext context) {
+    return Consumer<ServerModel>(
+      builder: (context, model, _) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        child: SizedBox(
+          width: double.infinity,
+          child: _buildIdentityCard(context, model),
+        ),
+      ),
+    );
+  }
+
   Widget buildLeftPane(BuildContext context) {
     if (widget.isClientOnly) {
       return ChangeNotifierProvider.value(
         value: gFFI.serverModel,
-        child: SizedBox(
+        child: Container(
           width: kCustomClientWindowSize.width,
+          color: Theme.of(context).brightness == Brightness.dark
+              ? const Color(0xFF1B2029)
+              : kWeChatCanvasColor,
           child: Column(
             children: [
               Expanded(
                 child: Column(
                   key: _childKey,
                   children: [
-                    // 圆形头像 + LUODA 远程协助标题
-                    Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          Container(
-                            margin: const EdgeInsets.only(top: 20, bottom: 8),
-                            width: 64,
-                            height: 64,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Colors.white,
-                              border: Border.all(
-                                color: MyTheme.accent,
-                                width: 2,
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.1),
-                                  blurRadius: 6,
-                                  offset: Offset(0, 2),
-                                ),
-                              ],
-                            ),
-                            child: ClipOval(
-                              child: Image.asset(
-                                "assets/avatar.png",
-                                fit: BoxFit.cover,
-                                errorBuilder: (ctx, error, stackTrace) => Icon(
-                                  Icons.computer,
-                                  size: 32,
-                                  color: MyTheme.accent,
-                                ),
-                              ),
-                            ),
-                          ),
-                          Text(
-                            "LDesk ${translate('Remote assistance')}",
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: Theme.of(
-                                context,
-                              ).textTheme.titleLarge?.color,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    // 本机ID
-                    buildIDBoard(context),
-                    SizedBox(height: 4),
-                    // 密码
-                    buildPasswordBoard(context),
-                    SizedBox(height: 4),
-                    // IP:端口
-                    buildDirectAccessBoard(context),
-                    Spacer(flex: 3),
-                    // 底部连接状态 —— 加大间距防止紧贴 IP 栏
-                    SizedBox(
-                      height: 60,
-                      child: OnlineStatusWidget(
-                        onSvcStatusChanged: () {
-                          if (isInHomePage()) {
-                            Future.delayed(
-                              const Duration(milliseconds: 300),
-                              () {
-                                _updateWindowSize();
-                              },
-                            );
-                          }
-                        },
-                      ),
-                    ).marginOnly(left: 6, right: 6, bottom: 18),
+                    _buildClientHeader(context),
+                    _buildClientIdentityCard(context),
+                    const Spacer(),
                   ],
                 ),
               ),
