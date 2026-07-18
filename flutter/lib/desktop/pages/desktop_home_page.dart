@@ -2346,19 +2346,40 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         : obscure && !revealed
             ? List.filled(value.runes.length, '\u2022').join()
             : value;
+    final copyAction = onCopy ?? (prominent ? onTap : null);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.color?.withOpacity(.65),
+          ),
+        ),
+        const SizedBox(height: 3),
         Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Expanded(
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Theme.of(
-                    context,
-                  ).textTheme.bodyMedium?.color?.withOpacity(.65),
+              child: GestureDetector(
+                onDoubleTap: available ? copyAction : null,
+                child: Tooltip(
+                  message: displayValue,
+                  child: Text(
+                    displayValue,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: prominent ? 20 : 15,
+                      fontWeight: FontWeight.w700,
+                      color:
+                          available ? null : Theme.of(context).disabledColor,
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -2397,21 +2418,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             ),
           ],
         ),
-        const SizedBox(height: 3),
-        Tooltip(
-          message: displayValue,
-          child: Text(
-            displayValue,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontFamily: 'monospace',
-              fontSize: prominent ? 20 : 15,
-              fontWeight: FontWeight.w700,
-              color: available ? null : Theme.of(context).disabledColor,
-            ),
-          ),
-        ),
       ],
     );
   }
@@ -2436,12 +2442,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 ),
               ),
             ),
-            IconButton(
-              visualDensity: VisualDensity.compact,
-              tooltip: translate('Copy to clipboard'),
-              onPressed: available ? () => _copyValue(value) : null,
-              icon: const Icon(Icons.copy_rounded, size: 16),
-            ),
             if (available && statusColor != null)
               Tooltip(
                 message: statusTooltip ?? '',
@@ -2457,19 +2457,35 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           ],
         ),
         const SizedBox(height: 2),
-        Tooltip(
-          message: displayValue,
-          child: Text(
-            displayValue,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontFamily: 'monospace',
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: available ? null : Theme.of(context).disabledColor,
+        Row(
+          children: [
+            Expanded(
+              child: GestureDetector(
+                onDoubleTap: available ? () => _copyValue(value) : null,
+                child: Tooltip(
+                  message: displayValue,
+                  child: Text(
+                    displayValue,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color:
+                          available ? null : Theme.of(context).disabledColor,
+                    ),
+                  ),
+                ),
+              ),
             ),
-          ),
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              tooltip: translate('Copy to clipboard'),
+              onPressed: available ? () => _copyValue(value) : null,
+              icon: const Icon(Icons.copy_rounded, size: 16),
+            ),
+          ],
         ),
       ],
     );

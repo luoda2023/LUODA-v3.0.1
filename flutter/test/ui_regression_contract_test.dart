@@ -916,6 +916,31 @@ void main() {
     );
   });
 
+  test('shared identity card copies ID password and direct IP values', () {
+    expect(
+      homePageSource,
+      contains("onTap: () => _copyValue(model.serverId.text)"),
+    );
+    expect(
+      homePageSource,
+      contains("onCopy: () => _copyValue(model.serverPasswd.text)"),
+    );
+    expect(
+      homePageSource,
+      contains("onPressed: available ? () => _copyValue(value) : null"),
+    );
+    expect(
+      homePageSource,
+      contains('final copyAction = onCopy ?? (prominent ? onTap : null)'),
+    );
+    expect(homePageSource, contains('onDoubleTap: available ? copyAction : null'));
+    expect(
+      homePageSource,
+      contains('onDoubleTap: available ? () => _copyValue(value) : null'),
+    );
+    expect(homePageSource, contains('Icons.copy_rounded'));
+  });
+
   test('web session bridge accepts direct chat sessions', () {
     final sessionAdd = webBridgeSource
         .split('String sessionAddSync(')[1]
