@@ -15,6 +15,7 @@ class RuntimeLogger {
   File? _logFile;
   bool _enabled = true;
   bool _hooksInstalled = false;
+  Future<void> _pendingWrite = Future<void>.value();
 
   String? get logPath => _logFile?.path;
 
@@ -72,10 +73,17 @@ class RuntimeLogger {
   }
 
   void _write(String level, String tag, String message) {
-    if (!_enabled || _sink == null) return;
+    final sink = _sink;
+    if (!_enabled || sink == null) return;
     final timestamp = DateTime.now().toUtc().toIso8601String();
-    _sink!.writeln('[$timestamp] [$level] [$tag] $message');
-    unawaited(_sink!.flush().catchError((_) {}));
+    final line = '[$timestamp] [$level] [$tag] $message';
+    _pendingWrite = _pendingWrite.then((_) async {
+      sink.writeln(line);
+      await sink.flush();
+    }).catchError((Object error, StackTrace _) {
+      _enabled = false;
+      debugPrint('Runtime logger write failed: $error');
+    });
   }
 
   void info(String tag, String message) => _write('INFO', tag, message);

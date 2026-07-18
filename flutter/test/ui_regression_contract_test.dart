@@ -934,6 +934,12 @@ void main() {
     expect(
         runtimeLoggerSource, contains('PlatformDispatcher.instance.onError'));
     expect(runtimeLoggerSource, contains('ldesk-flutter-'));
+    expect(runtimeLoggerSource, contains('Future<void> _pendingWrite'));
+    expect(runtimeLoggerSource, contains('await sink.flush()'));
+    expect(
+      runtimeLoggerSource,
+      isNot(contains('unawaited(_sink!.flush()')),
+    );
     expect(windowsWorkflowSource, contains('-RedirectStandardOutput'));
     expect(windowsWorkflowSource, contains('-RedirectStandardError'));
     expect(windowsWorkflowSource, contains(r'Join-Path $env:ProgramData'));
