@@ -10,6 +10,7 @@ final ValueNotifier<bool> _mainWindowAlwaysOnTop = ValueNotifier<bool>(false);
 
 class LDeskMainTitleBar extends StatelessWidget {
   static const double height = 40;
+  static const String brandName = 'LDesk';
 
   final String title;
   final bool showPin;
@@ -78,7 +79,7 @@ class LDeskMainTitleBar extends StatelessWidget {
           children: [
             Expanded(
               child: Semantics(
-                label: 'LDesk $title',
+                label: '$brandName $title',
                 child: const SizedBox.expand(),
               ),
             ),
