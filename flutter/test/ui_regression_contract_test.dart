@@ -20,6 +20,9 @@ void main() {
   final homePageSource = File(
     'lib/desktop/pages/desktop_home_page.dart',
   ).readAsStringSync();
+  final desktopConnectionSource = File(
+    'lib/desktop/pages/connection_page.dart',
+  ).readAsStringSync();
   final desktopTabSource = File(
     'lib/desktop/pages/desktop_tab_page.dart',
   ).readAsStringSync();
@@ -119,6 +122,9 @@ void main() {
   final commonRustSource = File('../src/common.rs').readAsStringSync();
   final displayServiceSource = File(
     '../src/server/display_service.rs',
+  ).readAsStringSync();
+  final videoServiceSource = File(
+    '../src/server/video_service.rs',
   ).readAsStringSync();
   final portableServiceSource = File(
     '../src/server/portable_service.rs',
@@ -785,6 +791,22 @@ void main() {
     expect(clientSource, contains('Client::secure_direct_connection('));
   });
 
+  test('direct listener reports its real startup state to every desktop shell',
+      () {
+    expect(directListenerSource, contains('direct-listener-status'));
+    expect(directListenerSource, contains('"connecting"'));
+    expect(directListenerSource, contains('"ready"'));
+    expect(directListenerSource, contains('"not-ready"'));
+    expect(
+      desktopConnectionSource,
+      contains("key: kOptionDirectListenerStatus"),
+    );
+    expect(
+      desktopConnectionSource,
+      isNot(contains('directPort.isNotEmpty\n        ? SvcStatus.ready')),
+    );
+  });
+
   test('headless Windows capture waits for the virtual display to enumerate',
       () {
     expect(
@@ -810,6 +832,24 @@ void main() {
       portableServiceSource,
       contains('display_service::no_displays(&displays)'),
     );
+    expect(videoServiceSource, contains('FIRST_FRAME_CAPTURE_TIMEOUT'));
+    expect(videoServiceSource, contains('Duration::from_secs(8)'));
+    expect(videoServiceSource, contains('first frame capture timed out'));
+  });
+
+  test('Windows packages contain the signed headless display driver', () {
+    const driverUrl =
+        'https://github.com/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip';
+    const driverSha =
+        '629B51E9944762BAE73948171C65D09A79595CF4C771A82EBC003FBBA5B24F51';
+    for (final source in <String>[windowsWorkflowSource, msiWorkflowSource]) {
+      expect(source, contains(driverUrl));
+      expect(source, contains(driverSha));
+      expect(source, contains('usbmmidd_v2\\usbmmIdd.inf'));
+      expect(source, contains('usbmmidd_v2\\usbmmidd.cat'));
+      expect(source, contains('usbmmidd_v2\\x64\\usbmmIdd.dll'));
+      expect(source, contains('usbmmidd_v2\\deviceinstaller64.exe'));
+    }
   });
 
   test('custom desktop client consistently uses a 380 by 500 window', () {

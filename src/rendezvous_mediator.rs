@@ -769,6 +769,13 @@ impl RendezvousMediator {
 }
 
 static DIRECT_PORT: std::sync::OnceLock<std::sync::Mutex<i32>> = std::sync::OnceLock::new();
+const OPTION_DIRECT_LISTENER_STATUS: &str = "direct-listener-status";
+
+fn set_direct_listener_status(status: &str) {
+    if Config::get_option(OPTION_DIRECT_LISTENER_STATUS) != status {
+        Config::set_option(OPTION_DIRECT_LISTENER_STATUS.to_owned(), status.to_owned());
+    }
+}
 
 fn parse_direct_port(value: &str) -> i32 {
     value
@@ -860,6 +867,9 @@ async fn direct_server(server: ServerPtr) {
             OPTION_DIRECT_SERVER,
             &Config::get_option(OPTION_DIRECT_SERVER),
         ) || option2bool("stop-service", &Config::get_option("stop-service"));
+        if disabled && listener.is_none() {
+            set_direct_listener_status("not-ready");
+        }
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         if !disabled {
             if let (Some(current_port), Some(last_refresh)) = (mapped_port, mapped_at) {
@@ -880,6 +890,7 @@ async fn direct_server(server: ServerPtr) {
             }
         }
         if !disabled && listener.is_none() {
+            set_direct_listener_status("connecting");
             port = get_direct_port();
             match hbb_common::tcp::listen_any(port as _).await {
                 Ok(l) => {
@@ -888,6 +899,7 @@ async fn direct_server(server: ServerPtr) {
                         listener = None;
                         continue;
                     }
+                    set_direct_listener_status("ready");
                     log::info!(
                         "Direct server listening on: {:?}",
                         listener.as_ref().map(|l| l.local_addr())
@@ -956,6 +968,11 @@ async fn direct_server(server: ServerPtr) {
             if disabled || port != get_direct_port() {
                 log::info!("Exit direct access listen");
                 listener = None;
+                set_direct_listener_status(if disabled {
+                    "not-ready"
+                } else {
+                    "connecting"
+                });
                 #[cfg(not(any(target_os = "android", target_os = "ios")))]
                 if let Some(previous_port) = mapped_port.take() {
                     crate::upnp::remove_port_mapping(previous_port);

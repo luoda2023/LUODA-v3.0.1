@@ -202,6 +202,35 @@ jobs:
           if (-not (Test-Path -LiteralPath $driverInf -PathType Leaf)) {
             throw "Remote printer driver is missing: $driverInf"
           }
+      - name: Include signed virtual display driver
+        if: matrix.arch == 'x64'
+        shell: pwsh
+        run: |
+          $releaseDir = 'flutter\build\windows\x64\runner\Release'
+          $driverUrl = 'https://github.com/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip'
+          $expectedSha256 = '629B51E9944762BAE73948171C65D09A79595CF4C771A82EBC003FBBA5B24F51'
+          $driverArchive = Join-Path $env:RUNNER_TEMP 'usbmmidd_v2.zip'
+          curl.exe --fail --location --retry 3 --output $driverArchive $driverUrl
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to download the signed virtual display driver"
+          }
+          $actualSha256 = (Get-FileHash -LiteralPath $driverArchive -Algorithm SHA256).Hash
+          if ($actualSha256 -ne $expectedSha256) {
+            throw "Virtual display driver checksum mismatch: $actualSha256"
+          }
+          Expand-Archive -LiteralPath $driverArchive -DestinationPath $releaseDir -Force
+          $requiredDriverFiles = @(
+            'usbmmidd_v2\usbmmIdd.inf',
+            'usbmmidd_v2\usbmmidd.cat',
+            'usbmmidd_v2\x64\usbmmIdd.dll',
+            'usbmmidd_v2\deviceinstaller64.exe'
+          )
+          foreach ($relativePath in $requiredDriverFiles) {
+            $driverFile = Join-Path $releaseDir $relativePath
+            if (-not (Test-Path -LiteralPath $driverFile -PathType Leaf)) {
+              throw "Virtual display driver file is missing: $driverFile"
+            }
+          }
       - name: Verify Flutter font assets
         if: matrix.arch == 'x64'
         shell: powershell

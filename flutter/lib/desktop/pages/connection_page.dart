@@ -38,6 +38,7 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
       : Get.put<RxBool>(false.obs, tag: 'stop-service');
   final _svcIsUsingPublicServer = true.obs;
   Timer? _updateTimer;
+  bool _initialListenerStatusShown = false;
 
   double get em => 14.0;
   double? get height => bind.isIncomingOnly() ? null : em * 3;
@@ -158,10 +159,20 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
   updateStatus() async {
     final status =
         jsonDecode(await bind.mainGetConnectStatus()) as Map<String, dynamic>;
-    final directPort = bind.mainGetOptionSync(key: kOptionDirectAccessPort);
-    stateGlobal.svcStatus.value = !_svcStopped.value && directPort.isNotEmpty
-        ? SvcStatus.ready
-        : SvcStatus.notReady;
+    final listenerStatus =
+        bind.mainGetOptionSync(key: kOptionDirectListenerStatus);
+    var svcStatus = switch (listenerStatus) {
+      'ready' => SvcStatus.ready,
+      'connecting' => SvcStatus.connecting,
+      _ => SvcStatus.notReady,
+    };
+    if (_svcStopped.value) {
+      svcStatus = SvcStatus.notReady;
+    } else if (!_initialListenerStatusShown && svcStatus == SvcStatus.ready) {
+      svcStatus = SvcStatus.connecting;
+    }
+    _initialListenerStatusShown = true;
+    stateGlobal.svcStatus.value = svcStatus;
     _svcIsUsingPublicServer.value = false;
     try {
       stateGlobal.videoConnCount.value = status['video_conn_count'] as int;

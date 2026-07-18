@@ -61,6 +61,8 @@ use std::{
 };
 
 pub const OPTION_REFRESH: &'static str = "refresh";
+#[cfg(windows)]
+const FIRST_FRAME_CAPTURE_TIMEOUT: Duration = Duration::from_secs(8);
 
 type FrameFetchedNotifierSender = UnboundedSender<(i32, Option<Instant>)>;
 type FrameFetchedNotifierReceiver = Arc<TokioMutex<UnboundedReceiver<(i32, Option<Instant>)>>>;
@@ -648,6 +650,8 @@ fn run(vs: VideoService) -> ResultType<()> {
     let repeat_encode_max = 10;
     let mut encode_fail_counter = 0;
     let mut first_frame = true;
+    #[cfg(windows)]
+    let mut first_frame_started = Instant::now();
     let capture_width = c.width;
     let capture_height = c.height;
     let (mut second_instant, mut send_counter) = (Instant::now(), 0);
@@ -866,6 +870,21 @@ fn run(vs: VideoService) -> ResultType<()> {
 
         // 修复画面不更新问题：移除阻塞等待，直接继续下一帧
         // 原逻辑等待客户端ACK会导致3秒超时，严重降低帧率
+        #[cfg(windows)]
+        if first_frame
+            && vs.source.is_monitor()
+            && first_frame_started.elapsed() >= FIRST_FRAME_CAPTURE_TIMEOUT
+        {
+            if !c.is_gdi() && c.set_gdi() {
+                try_gdi = 0;
+                first_frame_started = Instant::now();
+                log::warn!("first frame capture timed out, fall back to gdi");
+            } else {
+                log::error!("first frame capture timed out after gdi fallback");
+                bail!("first frame capture timed out");
+            }
+        }
+
         let mut fetched_conn_ids = HashSet::new();
         frame_controller.try_wait_next(&mut fetched_conn_ids, 10);
         DISPLAY_CONN_IDS.lock().unwrap().remove(&display_idx);
@@ -1140,9 +1159,9 @@ fn handle_one_frame(
 
     let mut send_conn_ids: HashSet<i32> = Default::default();
     let first = *first_frame;
-    *first_frame = false;
     match encoder.encode_to_message(frame, ms) {
         Ok(mut vf) => {
+            *first_frame = false;
             *encode_fail_counter = 0;
             vf.display = display as _;
             let mut msg = Message::new();
