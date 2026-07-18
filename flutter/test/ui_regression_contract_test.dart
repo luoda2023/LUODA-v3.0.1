@@ -123,6 +123,9 @@ void main() {
   final portableServiceSource = File(
     '../src/server/portable_service.rs',
   ).readAsStringSync();
+  final remotePrinterSource = File(
+    '../libs/remote_printer/src/lib.rs',
+  ).readAsStringSync();
   final flutterCommonSource = File(
     'lib/common.dart',
   ).readAsStringSync();
@@ -889,8 +892,17 @@ void main() {
     for (final source in <String>[windowsWorkflowSource, msiWorkflowSource]) {
       expect(source, contains('printer_driver_adapter.zip'));
       expect(source, contains('printer_driver_adapter.dll'));
+      expect(source, contains('luoda_printer_driver_v4-1.4.zip'));
+      expect(source, contains('RustDeskPrinterDriver.inf'));
       expect(source, contains('Expand-Archive'));
     }
+    expect(
+      remotePrinterSource,
+      contains(
+        'drivers/rustdesk_printer_driver_v4-1.4/RustDeskPrinterDriver.inf',
+      ),
+    );
+    expect(remotePrinterSource, contains('RustDesk v4 Printer Driver'));
   });
 
   test('desktop chat rail uses persistent conversations instead of contacts',
