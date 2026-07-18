@@ -9,7 +9,7 @@ import '../../common/wechat_ui_tokens.dart';
 final ValueNotifier<bool> _mainWindowAlwaysOnTop = ValueNotifier<bool>(false);
 
 class LDeskMainTitleBar extends StatelessWidget {
-  static const double height = 40;
+  static const double height = 32;
   static const String brandName = 'LDesk';
 
   final String title;
@@ -18,6 +18,7 @@ class LDeskMainTitleBar extends StatelessWidget {
   final bool showMaximize;
   final bool showClose;
   final bool canMaximize;
+  final bool workspaceChrome;
   final VoidCallback? onBack;
 
   const LDeskMainTitleBar({
@@ -28,6 +29,7 @@ class LDeskMainTitleBar extends StatelessWidget {
     this.showMaximize = true,
     this.showClose = true,
     this.canMaximize = true,
+    this.workspaceChrome = false,
     this.onBack,
   });
 
@@ -88,68 +90,112 @@ class LDeskMainTitleBar extends StatelessWidget {
       ),
     );
 
-    return DecoratedBox(
-      decoration: BoxDecoration(color: background),
-      child: Row(
-        children: [
-          if (isMacOS) const SizedBox(width: 78),
-          if (onBack != null)
-            _TitleBarButton(
-              tooltip: translate('Back'),
-              icon: Icons.arrow_back_rounded,
-              foreground: secondaryText,
-              hover: hover,
-              onPressed: onBack,
-            ),
-          dragArea,
-          if (showPin)
-            ValueListenableBuilder<bool>(
-              valueListenable: _mainWindowAlwaysOnTop,
-              builder: (context, pinned, _) => _TitleBarButton(
-                tooltip: translate(pinned ? 'Unpin' : 'Pin'),
-                icon: pinned ? Icons.push_pin_rounded : Icons.push_pin_outlined,
-                foreground: pinned
-                    ? Theme.of(context).colorScheme.primary
-                    : secondaryText,
-                hover: hover,
-                onPressed: _toggleAlwaysOnTop,
-              ),
-            ),
-          if (!usesSystemTitleBar && !isMacOS) ...[
-            if (showMinimize)
-              _TitleBarButton(
-                tooltip: translate('Minimize'),
-                icon: Icons.remove_rounded,
-                foreground: secondaryText,
-                hover: hover,
-                onPressed: () => windowManager.minimize(),
-              ),
-            if (showMaximize)
-              Obx(
-                () => _TitleBarButton(
-                  tooltip: stateGlobal.isMaximized.isTrue
-                      ? translate('Restore')
-                      : translate('Maximize'),
-                  icon: stateGlobal.isMaximized.isTrue
-                      ? Icons.filter_none_rounded
-                      : Icons.crop_square_rounded,
-                  foreground: canMaximize
-                      ? secondaryText
-                      : secondaryText.withOpacity(0.38),
+    final chrome = workspaceChrome
+        ? LayoutBuilder(
+            builder: (context, constraints) {
+              final showRail = weChatShowDesktopRail(constraints.maxWidth);
+              final listWidth =
+                  weChatConversationListWidth(constraints.maxWidth);
+              return Row(
+                children: <Widget>[
+                  if (showRail)
+                    SizedBox(
+                      width: kWeChatDesktopRailWidth,
+                      child: ColoredBox(
+                        color:
+                            dark ? const Color(0xFF202225) : kWeChatChromeColor,
+                      ),
+                    ),
+                  SizedBox(
+                    width: listWidth,
+                    child: ColoredBox(
+                      color: dark
+                          ? const Color(0xFF25272C)
+                          : kWeChatListSurfaceColor,
+                    ),
+                  ),
+                  Expanded(
+                    child: ColoredBox(
+                      color:
+                          dark ? const Color(0xFF1C1E23) : kWeChatCanvasColor,
+                    ),
+                  ),
+                ],
+              );
+            },
+          )
+        : ColoredBox(color: background);
+
+    return SizedBox(
+      height: height,
+      child: Stack(
+        fit: StackFit.expand,
+        children: <Widget>[
+          chrome,
+          Row(
+            children: [
+              if (isMacOS) const SizedBox(width: 78),
+              if (onBack != null)
+                _TitleBarButton(
+                  tooltip: translate('Back'),
+                  icon: Icons.arrow_back_rounded,
+                  foreground: secondaryText,
                   hover: hover,
-                  onPressed: canMaximize ? _toggleMaximized : null,
+                  onPressed: onBack,
                 ),
-              ),
-            if (showClose)
-              _TitleBarButton(
-                tooltip: translate('Close'),
-                icon: Icons.close_rounded,
-                foreground: secondaryText,
-                hover: const Color(0xFFE81123),
-                hoverForeground: Colors.white,
-                onPressed: () => windowManager.close(),
-              ),
-          ],
+              dragArea,
+              if (showPin)
+                ValueListenableBuilder<bool>(
+                  valueListenable: _mainWindowAlwaysOnTop,
+                  builder: (context, pinned, _) => _TitleBarButton(
+                    tooltip: translate(pinned ? 'Unpin' : 'Pin'),
+                    icon: pinned
+                        ? Icons.push_pin_rounded
+                        : Icons.push_pin_outlined,
+                    foreground: pinned
+                        ? Theme.of(context).colorScheme.primary
+                        : secondaryText,
+                    hover: hover,
+                    onPressed: _toggleAlwaysOnTop,
+                  ),
+                ),
+              if (!usesSystemTitleBar && !isMacOS) ...[
+                if (showMinimize)
+                  _TitleBarButton(
+                    tooltip: translate('Minimize'),
+                    icon: Icons.remove_rounded,
+                    foreground: secondaryText,
+                    hover: hover,
+                    onPressed: () => windowManager.minimize(),
+                  ),
+                if (showMaximize)
+                  Obx(
+                    () => _TitleBarButton(
+                      tooltip: stateGlobal.isMaximized.isTrue
+                          ? translate('Restore')
+                          : translate('Maximize'),
+                      icon: stateGlobal.isMaximized.isTrue
+                          ? Icons.filter_none_rounded
+                          : Icons.crop_square_rounded,
+                      foreground: canMaximize
+                          ? secondaryText
+                          : secondaryText.withOpacity(0.38),
+                      hover: hover,
+                      onPressed: canMaximize ? _toggleMaximized : null,
+                    ),
+                  ),
+                if (showClose)
+                  _TitleBarButton(
+                    tooltip: translate('Close'),
+                    icon: Icons.close_rounded,
+                    foreground: secondaryText,
+                    hover: const Color(0xFFE81123),
+                    hoverForeground: Colors.white,
+                    onPressed: () => windowManager.close(),
+                  ),
+              ],
+            ],
+          ),
         ],
       ),
     );

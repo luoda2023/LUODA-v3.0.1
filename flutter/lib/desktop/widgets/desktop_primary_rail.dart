@@ -52,7 +52,7 @@ class DesktopPrimaryRail extends StatelessWidget {
     this.onMore,
   });
 
-  static const double width = 76;
+  static const double width = kWeChatDesktopRailWidth;
 
   final List<DesktopRailDestination> destinations;
   final String selectedId;
@@ -96,15 +96,15 @@ class DesktopPrimaryRail extends StatelessWidget {
           ),
           child: Column(
             children: <Widget>[
-              const SizedBox(height: 14),
+              const SizedBox(height: 10),
               Tooltip(
                 message: translate('Account'),
                 child: InkWell(
                   borderRadius: BorderRadius.circular(8),
                   onTap: onAvatarPressed,
                   child: SizedBox(
-                    width: 44,
-                    height: 44,
+                    width: 40,
+                    height: 40,
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(8),
                       child: avatar ??
@@ -123,7 +123,7 @@ class DesktopPrimaryRail extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 10),
               Expanded(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.symmetric(vertical: 2),
@@ -216,8 +216,8 @@ class _RailButton extends StatelessWidget {
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 180),
             curve: Curves.easeOutQuart,
-            width: 48,
-            height: 44,
+            width: kWeChatDesktopRailButtonSize,
+            height: 42,
             decoration: BoxDecoration(
               color: imageBackground && selected
                   ? Colors.white.withOpacity(0.94)
@@ -232,7 +232,7 @@ class _RailButton extends StatelessWidget {
                   selected
                       ? destination.selectedIcon ?? destination.icon
                       : destination.icon,
-                  size: 24,
+                  size: 22,
                   color: foreground,
                 ),
                 if ((destination.badge ?? 0) > 0)

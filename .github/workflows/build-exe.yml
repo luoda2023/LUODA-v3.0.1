@@ -277,9 +277,13 @@ jobs:
           '@
           $releaseDir = Resolve-Path 'Release'
           $exe = Join-Path $releaseDir 'luoda.exe'
+          $logDir = Join-Path (Resolve-Path '.') '.auto_build_logs'
+          [IO.Directory]::CreateDirectory($logDir) | Out-Null
           $process = Start-Process `
             -FilePath $exe `
             -WorkingDirectory $releaseDir `
+            -RedirectStandardOutput (Join-Path $logDir 'LDesk-stdout.log') `
+            -RedirectStandardError (Join-Path $logDir 'LDesk-stderr.log') `
             -PassThru
           try {
             $deadline = [DateTime]::UtcNow.AddSeconds(30)
@@ -340,8 +344,6 @@ jobs:
               $bitmap.Dispose()
               throw "Screenshot appears blank: only $($colors.Count) colors"
             }
-            $logDir = Join-Path (Resolve-Path '.') '.auto_build_logs'
-            [IO.Directory]::CreateDirectory($logDir) | Out-Null
             $screenshot = Join-Path $logDir 'LDesk-main-window.png'
             $bitmap.Save(
               $screenshot,
@@ -351,6 +353,18 @@ jobs:
           } finally {
             if (-not $process.HasExited) {
               Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            }
+            $runtimeLogDirs = @(
+              (Join-Path $env:ProgramData 'LUODA\logs'),
+              (Join-Path $env:APPDATA 'LDesk\logs'),
+              (Join-Path $env:APPDATA 'LUODA\logs')
+            )
+            foreach ($runtimeLogDir in $runtimeLogDirs) {
+              if (Test-Path -LiteralPath $runtimeLogDir) {
+                Get-ChildItem -LiteralPath $runtimeLogDir -File | ForEach-Object {
+                  Copy-Item -LiteralPath $_.FullName -Destination $logDir -Force
+                }
+              }
             }
           }
       - name: Verify Windows version metadata

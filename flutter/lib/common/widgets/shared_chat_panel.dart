@@ -280,7 +280,7 @@ class _SharedChatPanelState extends State<SharedChatPanel> {
             : kWeChatOutgoingBubbleColor
         : dark
             ? const Color(0xFF2B2D32)
-            : kWeChatListSurfaceColor;
+            : kWeChatIncomingBubbleColor;
     final initial =
         displayName.trim().isEmpty ? '?' : displayName.trim().characters.first;
     final avatar = Container(

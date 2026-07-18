@@ -236,9 +236,13 @@ jobs:
           }
           '@
           $startedAt = Get-Date
+          $logDir = Join-Path (Resolve-Path '.') '.auto_build_logs'
+          [IO.Directory]::CreateDirectory($logDir) | Out-Null
           $launcher = Start-Process `
             -FilePath (Resolve-Path 'SignOutput\LDesk-Client-x64.exe') `
             -WorkingDirectory (Resolve-Path 'SignOutput') `
+            -RedirectStandardOutput (Join-Path $logDir 'LDesk-client-stdout.log') `
+            -RedirectStandardError (Join-Path $logDir 'LDesk-client-stderr.log') `
             -PassThru
           $windowProcess = $null
           try {
@@ -273,6 +277,18 @@ jobs:
             }
             if (-not $launcher.HasExited) {
               Stop-Process -Id $launcher.Id -Force -ErrorAction SilentlyContinue
+            }
+            $runtimeLogDirs = @(
+              (Join-Path $env:ProgramData 'LUODA\logs'),
+              (Join-Path $env:APPDATA 'LDesk\logs'),
+              (Join-Path $env:APPDATA 'LUODA\logs')
+            )
+            foreach ($runtimeLogDir in $runtimeLogDirs) {
+              if (Test-Path -LiteralPath $runtimeLogDir) {
+                Get-ChildItem -LiteralPath $runtimeLogDir -File | ForEach-Object {
+                  Copy-Item -LiteralPath $_.FullName -Destination $logDir -Force
+                }
+              }
             }
           }
       - name: Verify Windows version metadata

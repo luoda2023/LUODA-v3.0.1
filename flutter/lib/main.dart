@@ -41,6 +41,9 @@ late List<String> kBootArgs;
 Future<void> main(List<String> args) async {
   earlyAssert();
   WidgetsFlutterBinding.ensureInitialized();
+  await RuntimeLogger.instance.init();
+  RuntimeLogger.instance.installErrorHooks();
+  RuntimeLogger.instance.info('BOOT', 'Launch arguments: $args');
 
   debugPrint("launch args: $args");
   kBootArgs = List.from(args);
@@ -596,4 +599,3 @@ Widget keyListenerBuilder(BuildContext context, Widget? child) {
     },
   );
 }
-

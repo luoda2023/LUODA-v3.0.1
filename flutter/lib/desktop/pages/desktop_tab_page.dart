@@ -143,6 +143,9 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
                   showClose: true,
                   canMaximize:
                       !(bind.isIncomingOnly() && key == kTabLabelHomePage),
+                  workspaceChrome: !compactClient &&
+                      !bind.isIncomingOnly() &&
+                      key == kTabLabelHomePage,
                   onBack: key == kTabLabelSettingPage
                       ? () => tabController.jumpToByKey(kTabLabelHomePage)
                       : null,

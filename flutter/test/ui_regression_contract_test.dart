@@ -123,6 +123,12 @@ void main() {
   final flutterCommonSource = File(
     'lib/common.dart',
   ).readAsStringSync();
+  final flutterMainSource = File(
+    'lib/main.dart',
+  ).readAsStringSync();
+  final runtimeLoggerSource = File(
+    'lib/runtime_logger.dart',
+  ).readAsStringSync();
   final webBridgeSource = File(
     'lib/web/bridge.dart',
   ).readAsStringSync();
@@ -307,25 +313,29 @@ void main() {
   test('desktop chat matches the latest WeChat density and bubble language',
       () {
     for (final color in <String>[
-      '0xFFE3E3E8',
-      '0xFFEEEEF0',
-      '0xFFFAFAFA',
-      '0xFF9DF29F',
-      '0xFF00AF69',
-      '0xFFE4E4E6',
+      '0xFFE3E8E5',
+      '0xFFF0F1F2',
+      '0xFFF7F7F7',
+      '0xFF95EC69',
+      '0xFF07C160',
+      '0xFFE5E5E5',
+      '0xFFFFFFFF',
     ]) {
       expect(weChatTokensSource, contains(color));
     }
     expect(
-        desktopMainTitleBarSource, contains('static const double height = 40'));
+        desktopMainTitleBarSource, contains('static const double height = 32'));
     expect(desktopMainTitleBarSource, contains('windowManager.setAlwaysOnTop'));
+    expect(desktopMainTitleBarSource, contains('workspaceChrome'));
+    expect(desktopMainTitleBarSource, contains('weChatConversationListWidth'));
     expect(desktopRailSource, contains('kWeChatChromeColor'));
+    expect(desktopRailSource, contains('kWeChatDesktopRailWidth'));
     expect(desktopRailSource, isNot(contains('LinearGradient(')));
-    expect(homePageSource, contains('300.0'));
-    expect(homePageSource, contains('height: 80'));
+    expect(homePageSource, contains('weChatConversationListWidth'));
+    expect(homePageSource, contains('height: 68'));
     expect(homePageSource, contains('kWeChatSelectedConversationColor'));
     expect(chatPageSource, contains('class _DesktopChatComposer'));
-    expect(chatPageSource, contains('height: 142'));
+    expect(chatPageSource, contains('height: 118'));
     expect(chatPageSource, contains('class _ChatBubbleTailPainter'));
     expect(chatPageSource, contains('BorderRadius.circular(5)'));
     expect(chatPageSource, contains('scaledBubbleWidth'));
@@ -912,6 +922,19 @@ void main() {
     expect(iosWorkflowSource, contains('Upload IPA to draft release'));
     expect(iosWorkflowSource, contains('LDesk-3.1.1-unsigned.ipa'));
     expect(iosWorkflowSource, contains('files: flutter/build/ios/ipa/*.ipa'));
+  });
+
+  test('runtime diagnostics capture startup, crashes and CI smoke output', () {
+    expect(flutterMainSource, contains('RuntimeLogger.instance.init()'));
+    expect(flutterMainSource, contains('installErrorHooks()'));
+    expect(runtimeLoggerSource, contains('FlutterError.onError'));
+    expect(
+        runtimeLoggerSource, contains('PlatformDispatcher.instance.onError'));
+    expect(runtimeLoggerSource, contains('ldesk-flutter-'));
+    expect(windowsWorkflowSource, contains('-RedirectStandardOutput'));
+    expect(windowsWorkflowSource, contains('-RedirectStandardError'));
+    expect(windowsWorkflowSource, contains(r'Join-Path $env:ProgramData'));
+    expect(windowsWorkflowSource, contains(r'Join-Path $env:APPDATA'));
   });
 
   test('macOS deployment target supports the direct voice recorder', () {

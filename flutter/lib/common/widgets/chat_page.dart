@@ -313,7 +313,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                       : kWeChatOutgoingBubbleColor
                   : dark
                       ? const Color(0xFF2B2D32)
-                      : kWeChatListSurfaceColor;
+                      : kWeChatIncomingBubbleColor;
               final name = (message.user.firstName ?? '').trim();
               final bubble = Stack(
                 clipBehavior: Clip.none,
@@ -657,8 +657,8 @@ class _DesktopChatComposer extends StatelessWidget {
     final foreground = dark ? const Color(0xFFF2F2F2) : const Color(0xFF222222);
     final muted = dark ? const Color(0xFF999CA2) : const Color(0xFF777777);
     return Container(
-      height: 142,
-      margin: const EdgeInsets.fromLTRB(10, 4, 10, 10),
+      height: 118,
+      margin: const EdgeInsets.fromLTRB(8, 2, 8, 8),
       decoration: BoxDecoration(
         color: dark ? const Color(0xFF25272C) : kWeChatCanvasColor,
         border: Border.all(color: border),
@@ -694,9 +694,9 @@ class _DesktopChatComposer extends StatelessWidget {
             ),
           ),
           SizedBox(
-            height: 46,
+            height: 42,
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(8, 2, 12, 7),
+              padding: const EdgeInsets.fromLTRB(8, 2, 10, 5),
               child: Row(
                 children: <Widget>[
                   if (onAttachFile != null)

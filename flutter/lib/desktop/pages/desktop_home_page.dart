@@ -141,8 +141,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   Widget _buildRemoteCenter(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final showRail = constraints.maxWidth >= 820;
-        const contactsWidth = 300.0;
+        final showRail = weChatShowDesktopRail(constraints.maxWidth);
+        final contactsWidth = weChatConversationListWidth(constraints.maxWidth);
         final dark = Theme.of(context).brightness == Brightness.dark;
         return ColoredBox(
           color: dark ? const Color(0xFF191B20) : const Color(0xFFF7F7F8),
@@ -497,9 +497,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final theme = Theme.of(context);
     final status = _directDeliveryStatus(peerId, contact: _selectedContact);
     return SizedBox(
-      height: 60,
+      height: 52,
       child: Padding(
-        padding: const EdgeInsets.only(left: 20, right: 10),
+        padding: const EdgeInsets.only(left: 16, right: 8),
         child: Row(
           children: <Widget>[
             Expanded(
@@ -959,8 +959,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           itemCount: entries.length,
           separatorBuilder: (_, __) => Divider(
             height: 1,
-            indent: 78,
-            endIndent: 14,
+            indent: 65,
+            endIndent: 12,
             color: Theme.of(context).brightness == Brightness.dark
                 ? const Color(0xFF3A3D43)
                 : kWeChatDividerColor,
@@ -988,11 +988,11 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 onTap: () => _openConversation(entry),
                 onDoubleTap: () => _connectDirect(context, peerId),
                 child: SizedBox(
-                  height: 80,
+                  height: 68,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 15,
-                      vertical: 11,
+                      horizontal: 14,
+                      vertical: 8,
                     ),
                     child: Row(
                       children: <Widget>[
@@ -1000,9 +1000,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                           avatar: user.profileImage ?? '',
                           name: displayName,
                           initial: displayName.characters.first,
-                          size: 46,
+                          size: 40,
                         ),
-                        const SizedBox(width: 13),
+                        const SizedBox(width: 11),
                         Expanded(
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
@@ -1018,7 +1018,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                           theme.textTheme.bodyLarge?.copyWith(
                                         color: selected ? Colors.white : null,
                                         fontWeight: FontWeight.w500,
-                                        fontSize: 16,
+                                        fontSize: 15,
                                         letterSpacing: 0,
                                       ),
                                     ),
@@ -1051,7 +1051,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                             ? Colors.white.withOpacity(0.88)
                                             : theme.colorScheme.onSurface
                                                 .withOpacity(0.52),
-                                        fontSize: 13,
+                                        fontSize: 12,
                                         letterSpacing: 0,
                                       ),
                                     ),
