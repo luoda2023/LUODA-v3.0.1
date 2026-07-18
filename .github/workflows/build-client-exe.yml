@@ -42,7 +42,7 @@ jobs:
             @{ Source = 'Images\icon.ico'; Target = 'flutter\windows\runner\resources\app_icon.ico' },
             @{ Source = 'Images\icon-512.png'; Target = 'flutter\assets\icon.png' },
             @{ Source = 'Images\icon-512.png'; Target = 'flutter\assets\avatar.png' },
-            @{ Source = 'Images\icon-32.ico'; Target = 'res\tray-icon.ico' }
+            @{ Source = 'Images\icon-32.png'; Target = 'res\tray-icon.png' }
           )
           foreach ($check in $checks) {
             $sourceHash = (Get-FileHash -LiteralPath $check.Source -Algorithm SHA256).Hash

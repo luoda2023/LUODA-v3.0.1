@@ -36,15 +36,17 @@ fn make_tray() -> hbb_common::ResultType<()> {
     {
         icon = include_bytes!("../res/mac-tray-dark-x2.png"); // use as template, so color is not important
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        icon = include_bytes!("../res/tray-icon.png");
+    }
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
     {
         icon = include_bytes!("../res/tray-icon.ico");
     }
 
     let (icon_rgba, icon_width, icon_height) = {
-        // Windows 下：不要加载 600×600 的 flutter_assets/assets/icon.png 作为托盘图标，
-        // 否则 tray_icon 缩放渲染会模糊（大图缩到 16×16 丢失细节）。
-        // 直接使用多尺寸 tray-icon.ico（含 16/24/32/48/64/128/256）。
+        // Windows 直接加载品牌 32×32 PNG，避免 ICO 解码选中旧尺寸图层。
         #[cfg(windows)]
         let image = None;
         #[cfg(not(windows))]

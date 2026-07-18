@@ -105,12 +105,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     // 客户端专用版：只显示左侧内容，不包含右侧输入框和历史列表
     if (widget.isClientOnly) {
       return _buildBlock(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            buildLeftPane(context),
-            if (!isIncomingOnly) const VerticalDivider(width: 1),
-          ],
+        child: SizedBox.expand(
+          child: buildLeftPane(context),
         ),
       );
     }
@@ -165,41 +161,41 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     const destinations = <DesktopRailDestination>[
       DesktopRailDestination(
         id: 'chat',
-        label: 'Chat',
+        label: '消息',
         icon: Icons.chat_bubble_outline_rounded,
         selectedIcon: Icons.chat_bubble_rounded,
       ),
       DesktopRailDestination(
         id: 'recent',
-        label: 'Recent sessions',
+        label: '最近访问',
         icon: Icons.history_rounded,
       ),
       DesktopRailDestination(
         id: 'favorites',
-        label: 'Favorites',
+        label: '收藏',
         icon: Icons.star_outline_rounded,
         selectedIcon: Icons.star_rounded,
       ),
       DesktopRailDestination(
         id: 'discovered',
-        label: 'Discovered',
+        label: '局域网发现',
         icon: Icons.radar_rounded,
       ),
       DesktopRailDestination(
         id: 'contacts',
-        label: 'Address book',
+        label: '联系人',
         icon: Icons.contacts_outlined,
         selectedIcon: Icons.contacts_rounded,
       ),
       DesktopRailDestination(
         id: 'history',
-        label: 'Access history devices',
+        label: '访问历史',
         icon: Icons.devices_outlined,
         selectedIcon: Icons.devices_rounded,
       ),
       DesktopRailDestination(
         id: 'vip',
-        label: 'VIP features',
+        label: '高级功能',
         icon: Icons.workspace_premium_outlined,
         selectedIcon: Icons.workspace_premium_rounded,
       ),
@@ -235,14 +231,14 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final theme = Theme.of(context);
     final dark = theme.brightness == Brightness.dark;
     final sectionTitle = switch (_selectedRailId) {
-      'chat' => 'Messages',
-      'recent' => 'Recent sessions',
-      'favorites' => 'Favorites',
-      'discovered' => 'Discovered',
-      'contacts' => 'Contacts',
-      'history' => 'Access history devices',
-      'vip' => 'VIP features',
-      _ => 'Contacts',
+      'chat' => '消息',
+      'recent' => '最近访问',
+      'favorites' => '收藏',
+      'discovered' => '局域网发现',
+      'contacts' => '联系人',
+      'history' => '访问历史',
+      'vip' => '高级功能',
+      _ => '联系人',
     };
     return ColoredBox(
       color: dark ? const Color(0xFF25272C) : kWeChatListSurfaceColor,
@@ -265,11 +261,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                         }
                       },
                       decoration: InputDecoration(
-                        hintText: translate(
-                          _selectedRailId == 'chat'
-                              ? 'Search conversations'
-                              : 'Search',
-                        ),
+                        hintText: _selectedRailId == 'chat' ? '搜索会话' : '搜索',
                         prefixIcon: const Icon(Icons.search_rounded, size: 18),
                         filled: true,
                         fillColor:
@@ -285,7 +277,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 ),
                 const SizedBox(width: 8),
                 PopupMenuButton<String>(
-                  tooltip: translate('Add'),
+                  tooltip: '添加',
                   icon: const Icon(Icons.add_circle_outline_rounded, size: 24),
                   onSelected: (value) {
                     switch (value) {
@@ -306,19 +298,19 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                   itemBuilder: (context) => <PopupMenuEntry<String>>[
                     PopupMenuItem<String>(
                       value: 'connect',
-                      child: Text(translate('Connect by ID / IP')),
+                      child: Text('通过 ID / IP 连接'),
                     ),
                     PopupMenuItem<String>(
                       value: 'viewer',
-                      child: Text(translate('Join as Viewer')),
+                      child: Text('加入观看'),
                     ),
                     PopupMenuItem<String>(
                       value: 'pair-phone',
-                      child: Text(translate('Pair phone')),
+                      child: Text('绑定手机'),
                     ),
                     PopupMenuItem<String>(
                       value: 'identity',
-                      child: Text(translate('My Identity')),
+                      child: Text('我的设备信息'),
                     ),
                   ],
                 ),
@@ -340,7 +332,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 const SizedBox(width: 14),
                 Expanded(
                   child: Text(
-                    translate(sectionTitle),
+                    sectionTitle,
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: theme.colorScheme.onSurface.withOpacity(0.64),
                       fontWeight: FontWeight.w500,
@@ -370,15 +362,22 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     showDialog<void>(
       context: context,
       builder: (dialogContext) {
-        void connect() {
+        void startChat() {
           final target = _clientIdController.text.trim();
           if (target.isEmpty) return;
           Navigator.of(dialogContext).pop();
           _startDirectChat(target);
         }
 
+        void startRemote() {
+          final target = _clientIdController.text.trim();
+          if (target.isEmpty) return;
+          Navigator.of(dialogContext).pop();
+          _connectDirect(context, target);
+        }
+
         return AlertDialog(
-          title: Text(translate('Connect by ID / IP')),
+          title: Text('连接对方'),
           content: SizedBox(
             width: 360,
             child: TextField(
@@ -387,9 +386,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               focusNode: _clientIdFocusNode,
               autofocus: true,
               textInputAction: TextInputAction.go,
-              onSubmitted: (_) => connect(),
+              onSubmitted: (_) => startRemote(),
               decoration: InputDecoration(
-                labelText: translate('Paired ID / IP:port'),
+                labelText: '对方 ID 或 IP:端口',
+                helperText: '首次连接陌生设备，请输入 IP:端口',
                 prefixIcon: const Icon(Icons.link_rounded, size: 20),
               ),
             ),
@@ -397,11 +397,17 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           actions: <Widget>[
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
-              child: Text(translate('Cancel')),
+              child: Text('取消'),
             ),
-            FilledButton(
-              onPressed: connect,
-              child: Text(translate('Connect')),
+            OutlinedButton.icon(
+              onPressed: startChat,
+              icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18),
+              label: Text('开始聊天'),
+            ),
+            FilledButton.icon(
+              onPressed: startRemote,
+              icon: const Icon(Icons.desktop_windows_outlined, size: 18),
+              label: Text('远程协助'),
             ),
           ],
         );
@@ -677,8 +683,11 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   }
 
   Widget _buildEmptyConversation(BuildContext context, {Peer? contact}) {
+    if (contact == null) {
+      return _buildLocalIdentityWorkspace(context);
+    }
     final theme = Theme.of(context);
-    final contactName = contact == null ? '' : _contactName(contact);
+    final contactName = _contactName(contact);
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 420),
@@ -688,17 +697,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
               Icon(
-                contact == null ? Icons.forum_outlined : Icons.person_rounded,
+                Icons.person_rounded,
                 size: 70,
-                color: contact == null
-                    ? theme.colorScheme.onSurface.withOpacity(0.13)
-                    : str2color(contactName),
+                color: str2color(contactName),
               ),
               const SizedBox(height: 20),
               Text(
-                contact == null
-                    ? translate('Start a direct conversation')
-                    : contactName,
+                contactName,
                 textAlign: TextAlign.center,
                 style: theme.textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.w600,
@@ -706,11 +711,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               ),
               const SizedBox(height: 8),
               Text(
-                contact == null
-                    ? translate(
-                        'Scan the PC QR code or enter an IP:port. No rendezvous or relay server is used.',
-                      )
-                    : '${contact.id}\n${contact.online ? translate('Online') : translate('Offline')}',
+                '${contact.id}\n${contact.online ? '在线' : '离线'}',
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: theme.colorScheme.onSurface.withOpacity(0.56),
@@ -718,43 +719,99 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               ),
               const SizedBox(height: 18),
               FilledButton.icon(
-                onPressed: contact == null
-                    ? () => _clientIdFocusNode.requestFocus()
-                    : () => _startDirectChat(contact.id),
-                icon: Icon(
-                  contact == null
-                      ? Icons.add_link_rounded
-                      : Icons.chat_bubble_outline_rounded,
-                  size: 19,
-                ),
-                label: Text(
-                  translate(
-                    contact == null ? 'Connect by ID / IP' : 'Connect and chat',
-                  ),
-                ),
+                onPressed: () => _startDirectChat(contact.id),
+                icon: const Icon(Icons.chat_bubble_outline_rounded, size: 19),
+                label: Text('连接并聊天'),
               ),
-              if (contact != null) ...<Widget>[
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  children: <Widget>[
-                    OutlinedButton.icon(
-                      onPressed: () => _sendFilesFromConversation(contact.id),
-                      icon: const Icon(Icons.attach_file_rounded, size: 18),
-                      label: Text(translate('File Transfer')),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                children: <Widget>[
+                  OutlinedButton.icon(
+                    onPressed: () => _sendFilesFromConversation(contact.id),
+                    icon: const Icon(Icons.attach_file_rounded, size: 18),
+                    label: Text('文件传输'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () => _connectDirect(context, contact.id),
+                    icon: const Icon(
+                      Icons.desktop_windows_outlined,
+                      size: 18,
                     ),
-                    OutlinedButton.icon(
-                      onPressed: () => _connectDirect(context, contact.id),
-                      icon: const Icon(
-                        Icons.desktop_windows_outlined,
-                        size: 18,
-                      ),
-                      label: Text(translate('Remote Desktop')),
-                    ),
-                  ],
-                ),
-              ],
+                    label: Text('远程协助'),
+                  ),
+                ],
+              ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLocalIdentityWorkspace(BuildContext context) {
+    final theme = Theme.of(context);
+    return ChangeNotifierProvider.value(
+      value: gFFI.serverModel,
+      child: Consumer<ServerModel>(
+        builder: (context, model, _) => Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(28),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 480),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    '我的设备信息',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontSize: kWeChatHeadingFontSize,
+                      height: kWeChatTextHeight,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    '将设备 ID 或 IP 告诉对方，对方即可连接此电脑。',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontSize: kWeChatBodyFontSize,
+                      height: kWeChatTextHeight,
+                      color: theme.colorScheme.onSurface.withOpacity(0.62),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _buildIdentityCard(
+                    context,
+                    model,
+                    chinese: true,
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: () => _showDirectConnectDialog(context),
+                          icon: const Icon(Icons.add_link_rounded, size: 19),
+                          label: Text('连接对方'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      OutlinedButton.icon(
+                        onPressed: model.serverId.text.isEmpty
+                            ? null
+                            : () => _copyValue(
+                                  model.serverId.text,
+                                  chinese: true,
+                                ),
+                        icon: const Icon(Icons.copy_rounded, size: 18),
+                        label: Text('复制设备 ID'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),
@@ -2202,18 +2259,22 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                       children: [
                         if (!outgoingOnly) ...[
                           Text(
-                            translate('My Identity'),
+                            '我的设备信息',
                             style: Theme.of(context)
                                 .textTheme
                                 .titleMedium
-                                ?.copyWith(fontWeight: FontWeight.w700),
+                                ?.copyWith(
+                                  fontSize: kWeChatHeadingFontSize,
+                                  height: kWeChatTextHeight,
+                                  fontWeight: FontWeight.w600,
+                                ),
                           ),
                           const SizedBox(height: 12),
-                          _buildIdentityCard(context, model),
+                          _buildIdentityCard(context, model, chinese: true),
                           const SizedBox(height: 22),
                         ],
                         Text(
-                          translate('Quick Actions'),
+                          '快捷操作',
                           style: Theme.of(context)
                               .textTheme
                               .titleSmall
@@ -2229,7 +2290,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                               Icons.add_rounded,
                               size: 20,
                             ),
-                            label: Text(translate('Join Session')),
+                            label: Text('连接对方'),
                           ),
                         ),
                         const SizedBox(height: 10),
@@ -2241,7 +2302,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                               initialPage: SettingsTabKey.safety,
                             ),
                             icon: const Icon(Icons.security_outlined, size: 19),
-                            label: Text(translate('Security')),
+                            label: Text('安全设置'),
                           ),
                         ),
                         const SizedBox(height: 14),
@@ -2271,6 +2332,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     BuildContext context,
     ServerModel model, {
     bool compact = false,
+    bool chinese = false,
   }) {
     final publicIP = bind.mainGetOptionSync(key: 'public-ip');
     final lanIP = bind.mainGetOptionSync(key: 'lan-ip');
@@ -2295,38 +2357,48 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         children: [
           _identityValue(
             context,
-            translate('ID'),
+            chinese ? '设备 ID' : translate('ID'),
             model.serverId.text,
             prominent: true,
             icon: Icons.copy_rounded,
-            onTap: () => _copyValue(model.serverId.text),
+            onTap: () => _copyValue(model.serverId.text, chinese: chinese),
+            chinese: chinese,
           ),
           SizedBox(height: compact ? 8 : 12),
           _identityValue(
             context,
-            translate('One-time Password'),
+            chinese ? '密码' : translate('One-time Password'),
             model.serverPasswd.text,
             icon:
                 temporary ? Icons.refresh_rounded : Icons.lock_outline_rounded,
             onTap: temporary ? () => bind.mainUpdateTemporaryPassword() : null,
-            onCopy: () => _copyValue(model.serverPasswd.text),
+            onCopy: () => _copyValue(model.serverPasswd.text, chinese: chinese),
             obscure: true,
             revealed: _passwordVisible,
             onToggleVisibility: () {
               setState(() => _passwordVisible = !_passwordVisible);
             },
+            chinese: chinese,
           ),
           Divider(height: compact ? 16 : 22),
           _addressValue(
             context,
-            translate('Public IP:port'),
+            chinese ? '公网 IP：端口' : translate('Public IP:port'),
             address(publicIP),
             status: upnpStatus,
             statusColor: _directStatusColor(upnpStatus),
-            statusTooltip: translate(_directStatusTip(upnpStatus)),
+            statusTooltip: chinese
+                ? _directStatusTipChinese(upnpStatus)
+                : translate(_directStatusTip(upnpStatus)),
+            chinese: chinese,
           ),
           SizedBox(height: compact ? 6 : 10),
-          _addressValue(context, translate('LAN IP:port'), address(lanIP)),
+          _addressValue(
+            context,
+            chinese ? '局域网 IP：端口' : translate('LAN IP:port'),
+            address(lanIP),
+            chinese: chinese,
+          ),
         ],
       ),
     );
@@ -2343,10 +2415,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     bool obscure = false,
     bool revealed = true,
     bool prominent = false,
+    bool chinese = false,
   }) {
     final available = value.isNotEmpty;
     final displayValue = !available
-        ? translate('Not available')
+        ? chinese
+            ? '暂不可用'
+            : translate('Not available')
         : obscure && !revealed
             ? List.filled(value.runes.length, '\u2022').join()
             : value;
@@ -2359,7 +2434,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         Text(
           label,
           style: TextStyle(
-            fontSize: 12,
+            fontSize: kWeChatMetaFontSize,
+            height: kWeChatTextHeight,
             color: Theme.of(
               context,
             ).textTheme.bodyMedium?.color?.withOpacity(.65),
@@ -2380,7 +2456,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontFamily: 'monospace',
-                      fontSize: prominent ? 20 : 15,
+                      fontSize: prominent ? 18 : kWeChatBodyFontSize,
+                      height: kWeChatTextHeight,
                       fontWeight: FontWeight.w700,
                       color: available ? null : unavailableColor,
                     ),
@@ -2391,9 +2468,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             if (onToggleVisibility != null)
               IconButton(
                 visualDensity: VisualDensity.compact,
-                tooltip: translate(
-                  revealed ? 'Hide Password' : 'Show Password',
-                ),
+                tooltip: chinese
+                    ? revealed
+                        ? '隐藏密码'
+                        : '显示密码'
+                    : translate(
+                        revealed ? 'Hide Password' : 'Show Password',
+                      ),
                 onPressed: onToggleVisibility,
                 icon: Icon(
                   revealed
@@ -2405,19 +2486,25 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             if (onCopy != null)
               IconButton(
                 visualDensity: VisualDensity.compact,
-                tooltip: translate('Copy to clipboard'),
+                tooltip: chinese ? '复制' : translate('Copy to clipboard'),
                 onPressed: available ? onCopy : null,
                 icon: const Icon(Icons.copy_rounded, size: 17),
               ),
             IconButton(
               visualDensity: VisualDensity.compact,
-              tooltip: translate(
-                prominent
-                    ? 'Copy to clipboard'
-                    : onTap == null
-                        ? 'Use permanent password'
-                        : 'Refresh Password',
-              ),
+              tooltip: chinese
+                  ? prominent
+                      ? '复制'
+                      : onTap == null
+                          ? '当前使用固定密码'
+                          : '刷新密码'
+                  : translate(
+                      prominent
+                          ? 'Copy to clipboard'
+                          : onTap == null
+                              ? 'Use permanent password'
+                              : 'Refresh Password',
+                    ),
               onPressed: onTap,
               icon: Icon(icon, size: 18),
             ),
@@ -2427,10 +2514,21 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     );
   }
 
-  Widget _addressValue(BuildContext context, String label, String value,
-      {String? status, Color? statusColor, String? statusTooltip}) {
+  Widget _addressValue(
+    BuildContext context,
+    String label,
+    String value, {
+    String? status,
+    Color? statusColor,
+    String? statusTooltip,
+    bool chinese = false,
+  }) {
     final available = value.isNotEmpty;
-    final displayValue = available ? value : translate('Not available');
+    final displayValue = available
+        ? value
+        : chinese
+            ? '暂不可用'
+            : translate('Not available');
     final unavailableColor =
         Theme.of(context).textTheme.bodyMedium?.color?.withOpacity(.68);
     return Column(
@@ -2442,7 +2540,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               child: Text(
                 label,
                 style: TextStyle(
-                  fontSize: 11,
+                  fontSize: kWeChatMetaFontSize,
+                  height: kWeChatTextHeight,
                   color: Theme.of(
                     context,
                   ).textTheme.bodyMedium?.color?.withOpacity(.65),
@@ -2468,7 +2567,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           children: [
             Expanded(
               child: GestureDetector(
-                onDoubleTap: available ? () => _copyValue(value) : null,
+                onDoubleTap: available
+                    ? () => _copyValue(value, chinese: chinese)
+                    : null,
                 child: Tooltip(
                   message: displayValue,
                   child: Text(
@@ -2477,7 +2578,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontFamily: 'monospace',
-                      fontSize: 12,
+                      fontSize: kWeChatBodyFontSize,
+                      height: kWeChatTextHeight,
                       fontWeight: FontWeight.w600,
                       color: available ? null : unavailableColor,
                     ),
@@ -2487,8 +2589,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             ),
             IconButton(
               visualDensity: VisualDensity.compact,
-              tooltip: translate('Copy to clipboard'),
-              onPressed: available ? () => _copyValue(value) : null,
+              tooltip: chinese ? '复制' : translate('Copy to clipboard'),
+              onPressed:
+                  available ? () => _copyValue(value, chinese: chinese) : null,
               icon: const Icon(Icons.copy_rounded, size: 16),
             ),
           ],
@@ -2497,10 +2600,19 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     );
   }
 
-  void _copyValue(String value) {
+  void _copyValue(String value, {bool chinese = false}) {
     if (value.isEmpty) return;
     Clipboard.setData(ClipboardData(text: value));
-    showToast(translate('Copied'));
+    showToast(chinese ? '已复制' : translate('Copied'));
+  }
+
+  String _directStatusTipChinese(String status) {
+    if (status == 'ok') return '公网端口映射可用';
+    if (status == 'pending') return '正在检测公网端口映射';
+    if (status == 'fail') return '公网端口映射失败';
+    if (status == 'disabled') return '已关闭公网端口映射';
+    if (status == 'unsupported') return '当前网络不支持自动端口映射';
+    return '公网端口映射状态未知';
   }
 
   Color _directStatusColor(String status) {
@@ -2564,17 +2676,17 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             ),
             const SizedBox(height: 8),
             Text(
-              "LDesk ${translate('Remote assistance')}",
+              'LDesk远程协助',
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontSize: 16,
-                height: 1.3,
+                fontSize: kWeChatHeadingFontSize,
+                height: kWeChatTextHeight,
                 fontWeight: FontWeight.w600,
                 color: Theme.of(context).textTheme.titleLarge?.color,
               ),
             ),
             const SizedBox(height: 4),
-            const OnlineStatusWidget(compact: true),
+            const OnlineStatusWidget(compact: true, forceChinese: true),
           ],
         ),
       ),
@@ -2587,7 +2699,12 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         padding: const EdgeInsets.symmetric(horizontal: 20),
         child: SizedBox(
           width: double.infinity,
-          child: _buildIdentityCard(context, model, compact: true),
+          child: _buildIdentityCard(
+            context,
+            model,
+            compact: true,
+            chinese: true,
+          ),
         ),
       ),
     );
@@ -2597,24 +2714,25 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     if (widget.isClientOnly) {
       return ChangeNotifierProvider.value(
         value: gFFI.serverModel,
-        child: Container(
-          width: kCustomClientWindowSize.width,
-          color: Theme.of(context).brightness == Brightness.dark
-              ? const Color(0xFF1B2029)
-              : kWeChatCanvasColor,
-          child: Column(
-            children: [
-              Expanded(
-                child: Column(
-                  key: _childKey,
-                  children: [
-                    _buildClientHeader(context),
-                    _buildClientIdentityCard(context),
-                    const Spacer(),
-                  ],
+        child: SizedBox.expand(
+          child: ColoredBox(
+            color: Theme.of(context).brightness == Brightness.dark
+                ? const Color(0xFF1B2029)
+                : kWeChatCanvasColor,
+            child: Column(
+              children: [
+                Expanded(
+                  child: Column(
+                    key: _childKey,
+                    children: [
+                      _buildClientHeader(context),
+                      _buildClientIdentityCard(context),
+                      const Spacer(),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       );

@@ -52,6 +52,13 @@ pub fn core_main() -> Option<Vec<String>> {
         // Set platform-specific default security options
         {
             use hbb_common::config::keys;
+            if config::LocalConfig::get_option(keys::OPTION_LANGUAGE).is_empty() {
+                log::info!("core_main: setting default language=zh-cn");
+                config::LocalConfig::set_option(
+                    keys::OPTION_LANGUAGE.to_string(),
+                    "zh-cn".to_string(),
+                );
+            }
             if config::Config::get_option(keys::OPTION_ACCESS_MODE).is_empty() {
                 log::info!("core_main: setting default access-mode=full");
                 config::Config::set_option(keys::OPTION_ACCESS_MODE.to_string(), "full".to_string());

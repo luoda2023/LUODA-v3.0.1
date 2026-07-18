@@ -131,10 +131,10 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
                     ? kTabLabelHomePage
                     : state.tabs[selected].key;
                 final title = compactClient
-                    ? translate('Remote assistance')
+                    ? 'LDesk远程协助'
                     : key == kTabLabelSettingPage
-                        ? translate('Settings')
-                        : translate('Messages');
+                        ? '设置'
+                        : '消息';
                 return LDeskMainTitleBar(
                   title: title,
                   showPin: !compactClient,

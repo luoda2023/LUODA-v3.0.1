@@ -22,6 +22,33 @@ Uint8List? decodeDesktopRailBackground(String value) {
   }
 }
 
+Uint8List? desktopRailBackgroundBytes() => decodeDesktopRailBackground(
+      bind.mainGetLocalOption(key: kDesktopRailBackgroundOption),
+    );
+
+BoxDecoration desktopRailBackgroundDecoration(BuildContext context) {
+  final dark = Theme.of(context).brightness == Brightness.dark;
+  final backgroundBytes = desktopRailBackgroundBytes();
+  return BoxDecoration(
+    color: backgroundBytes != null
+        ? const Color(0xFF24262B)
+        : dark
+            ? const Color(0xFF24262B)
+            : kWeChatChromeColor,
+    image: backgroundBytes == null
+        ? null
+        : DecorationImage(
+            image: MemoryImage(backgroundBytes),
+            fit: BoxFit.cover,
+            filterQuality: FilterQuality.medium,
+            colorFilter: const ColorFilter.mode(
+              Color(0x80000000),
+              BlendMode.darken,
+            ),
+          ),
+  );
+}
+
 class DesktopRailDestination {
   const DesktopRailDestination({
     required this.id,
@@ -66,34 +93,13 @@ class DesktopPrimaryRail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
     return ValueListenableBuilder<int>(
       valueListenable: desktopRailBackgroundRevision,
       builder: (context, _, __) {
-        final value =
-            bind.mainGetLocalOption(key: kDesktopRailBackgroundOption);
-        final backgroundBytes = decodeDesktopRailBackground(value);
-        final hasBackground = backgroundBytes != null;
+        final hasBackground = desktopRailBackgroundBytes() != null;
         return Container(
           width: width,
-          decoration: BoxDecoration(
-            color: hasBackground
-                ? const Color(0xFF24262B)
-                : dark
-                    ? const Color(0xFF24262B)
-                    : kWeChatChromeColor,
-            image: hasBackground
-                ? DecorationImage(
-                    image: MemoryImage(backgroundBytes!),
-                    fit: BoxFit.cover,
-                    filterQuality: FilterQuality.medium,
-                    colorFilter: const ColorFilter.mode(
-                      Color(0x80000000),
-                      BlendMode.darken,
-                    ),
-                  )
-                : null,
-          ),
+          decoration: desktopRailBackgroundDecoration(context),
           child: Column(
             children: <Widget>[
               const SizedBox(height: 10),
@@ -145,7 +151,7 @@ class DesktopPrimaryRail extends StatelessWidget {
                 _RailButton(
                   destination: const DesktopRailDestination(
                     id: 'pair-phone',
-                    label: 'Pair phone',
+                    label: '绑定手机',
                     icon: Icons.phone_android_rounded,
                   ),
                   selected: false,
@@ -155,7 +161,7 @@ class DesktopPrimaryRail extends StatelessWidget {
               _RailButton(
                 destination: const DesktopRailDestination(
                   id: 'settings',
-                  label: 'Settings',
+                  label: '设置',
                   icon: Icons.settings_outlined,
                   selectedIcon: Icons.settings_rounded,
                 ),
@@ -166,7 +172,7 @@ class DesktopPrimaryRail extends StatelessWidget {
               _RailButton(
                 destination: const DesktopRailDestination(
                   id: 'more',
-                  label: 'More',
+                  label: '更多',
                   icon: Icons.menu_rounded,
                 ),
                 selected: false,

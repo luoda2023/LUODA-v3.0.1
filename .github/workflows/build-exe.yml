@@ -40,7 +40,7 @@ jobs:
             @{ Source = 'Images\icon.ico'; Target = 'res\icon.ico' },
             @{ Source = 'Images\icon.ico'; Target = 'flutter\assets\icon.ico' },
             @{ Source = 'Images\icon.ico'; Target = 'flutter\windows\runner\resources\app_icon.ico' },
-            @{ Source = 'Images\icon-32.ico'; Target = 'res\tray-icon.ico' },
+            @{ Source = 'Images\icon-32.png'; Target = 'res\tray-icon.png' },
             @{ Source = 'Images\icon-512.png'; Target = 'res\icon.png' },
             @{ Source = 'Images\icon-512.png'; Target = 'flutter\assets\icon.png' },
             @{ Source = 'Images\icon-512.png'; Target = 'flutter\assets\avatar.png' },
@@ -307,6 +307,64 @@ jobs:
             echo "=== Final portable EXE ==="
             ls -la SignOutput/LDesk-portable-x64.exe
           fi
+      - name: Verify portable relaunch keeps the running instance intact
+        if: matrix.arch == 'x64'
+        timeout-minutes: 2
+        shell: pwsh
+        run: |
+          $portable = Resolve-Path 'SignOutput\LDesk-portable-x64.exe'
+          $runtimeExe = Join-Path $env:LOCALAPPDATA 'LUODA\luoda.exe'
+          $firstLauncher = Start-Process -FilePath $portable -PassThru
+          $firstLauncher.WaitForExit(30000) | Out-Null
+          $deadline = [DateTime]::UtcNow.AddSeconds(30)
+          do {
+            Start-Sleep -Milliseconds 500
+            $runtime = Get-Process -Name luoda -ErrorAction SilentlyContinue |
+              Where-Object { $_.Path -eq $runtimeExe } |
+              Select-Object -First 1
+            if ($null -ne $runtime) {
+              $runtime.Refresh()
+            }
+          } while (
+            ($null -eq $runtime -or $runtime.MainWindowHandle -eq 0) -and
+            [DateTime]::UtcNow -lt $deadline
+          )
+          if ($null -eq $runtime -or $runtime.MainWindowHandle -eq 0) {
+            throw 'Portable LDesk did not create a main window'
+          }
+          try {
+            if (-not $runtime.Responding) {
+              throw 'Portable LDesk stopped responding after first launch'
+            }
+            $runtimeDll = Join-Path (Split-Path $runtimeExe) 'luoda.dll'
+            $beforeHash = (Get-FileHash -LiteralPath $runtimeDll -Algorithm SHA256).Hash
+            $beforeWrite = (Get-Item -LiteralPath $runtimeDll).LastWriteTimeUtc
+            $firstPid = $runtime.Id
+
+            $secondLauncher = Start-Process -FilePath $portable -PassThru
+            $secondLauncher.WaitForExit(30000) | Out-Null
+            Start-Sleep -Seconds 2
+            $runtime.Refresh()
+            if ($runtime.HasExited -or -not $runtime.Responding) {
+              throw 'Portable LDesk stopped responding after relaunch'
+            }
+            $matching = @(
+              Get-Process -Name luoda -ErrorAction SilentlyContinue |
+                Where-Object { $_.Path -eq $runtimeExe }
+            )
+            if (@($matching).Count -ne 1 -or $matching[0].Id -ne $firstPid) {
+              throw 'Portable relaunch created a duplicate LDesk process'
+            }
+            $afterHash = (Get-FileHash -LiteralPath $runtimeDll -Algorithm SHA256).Hash
+            $afterWrite = (Get-Item -LiteralPath $runtimeDll).LastWriteTimeUtc
+            if ($afterHash -ne $beforeHash -or $afterWrite -ne $beforeWrite) {
+              throw 'Portable relaunch overwrote files used by the running instance'
+            }
+          } finally {
+            if ($null -ne $runtime -and -not $runtime.HasExited) {
+              Stop-Process -Id $runtime.Id -Force -ErrorAction SilentlyContinue
+            }
+          }
       - name: Smoke test Windows main window responsiveness
         if: matrix.arch == 'x64'
         timeout-minutes: 2

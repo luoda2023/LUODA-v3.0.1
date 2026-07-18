@@ -161,7 +161,11 @@ void runMainApp(bool startService) async {
   WindowOptions windowOptions = getHiddenTitleBarWindowOptions(
       isMainWindow: true, alwaysOnTop: alwaysOnTop);
   windowManager.waitUntilReadyToShow(windowOptions, () async {
-    if (!bind.isIncomingOnly() && !bind.isCustomClient()) {
+    if (bind.isCustomClient()) {
+      await windowManager.setMinimumSize(kCustomClientWindowSize);
+      await windowManager.setMaximumSize(kCustomClientWindowSize);
+      await windowManager.setSize(kCustomClientWindowSize);
+    } else if (!bind.isIncomingOnly()) {
       await windowManager.setMinimumSize(const Size(900, 600));
     }
     // Restore the location of the main window before window hide or show.

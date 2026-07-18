@@ -15,6 +15,10 @@ const double kWeChatDesktopListWidthCompact = 264;
 const double kWeChatDesktopListWidthWide = 284;
 const double kWeChatDesktopRailBreakpoint = 820;
 const double kWeChatDesktopWideBreakpoint = 1180;
+const double kWeChatHeadingFontSize = 16;
+const double kWeChatBodyFontSize = 14;
+const double kWeChatMetaFontSize = 12;
+const double kWeChatTextHeight = 1.3;
 
 bool weChatShowDesktopRail(double availableWidth) =>
     availableWidth >= kWeChatDesktopRailBreakpoint;

@@ -44,6 +44,9 @@ void main() {
   final settingsHelpersSource = File(
     'lib/desktop/pages/desktop_setting_helpers.part.dart',
   ).readAsStringSync();
+  final settingsAboutSource = File(
+    'lib/desktop/pages/desktop_setting_about.part.dart',
+  ).readAsStringSync();
   final remoteToolbarSource = File(
     'lib/desktop/widgets/remote_toolbar.dart',
   ).readAsStringSync();
@@ -120,6 +123,10 @@ void main() {
     'android/app/build.gradle.kts',
   ).readAsStringSync();
   final commonRustSource = File('../src/common.rs').readAsStringSync();
+  final coreMainSource = File('../src/core_main.rs').readAsStringSync();
+  final portablePackerSource = File(
+    '../libs/portable/src/main.rs',
+  ).readAsStringSync();
   final displayServiceSource = File(
     '../src/server/display_service.rs',
   ).readAsStringSync();
@@ -178,6 +185,7 @@ void main() {
   final clientIoLoopSource = File(
     '../src/client/io_loop.rs',
   ).readAsStringSync();
+  final traySource = File('../src/tray.rs').readAsStringSync();
   final serverConnectionSource = File(
     '../src/server/connection.rs',
   ).readAsStringSync();
@@ -865,13 +873,18 @@ void main() {
       flutterCommonSource,
       contains('restoreHeight = kCustomClientWindowSize.height'),
     );
-    expect(
-      homePageSource,
-      contains('width: kCustomClientWindowSize.width'),
-    );
+    expect(homePageSource, contains('child: SizedBox.expand('));
     expect(
       desktopTabSource,
       contains('windowManager.setSize(kCustomClientWindowSize)'),
+    );
+    expect(
+      flutterMainSource,
+      contains('windowManager.setMinimumSize(kCustomClientWindowSize)'),
+    );
+    expect(
+      flutterMainSource,
+      contains('windowManager.setMaximumSize(kCustomClientWindowSize)'),
     );
     final clientHeader = homePageSource
         .split('Widget _buildClientHeader(BuildContext context)')[1]
@@ -881,13 +894,141 @@ void main() {
       clientHeader,
       contains('crossAxisAlignment: CrossAxisAlignment.center'),
     );
-    expect(clientHeader, contains('OnlineStatusWidget(compact: true)'));
+    expect(
+      clientHeader,
+      contains('OnlineStatusWidget(compact: true, forceChinese: true)'),
+    );
     expect(
       homePageSource,
-      contains('_buildIdentityCard(context, model, compact: true)'),
+      matches(
+        RegExp(
+          r'_buildIdentityCard\(\s*context,\s*model,\s*compact: true,\s*chinese: true,?\s*\)',
+        ),
+      ),
     );
     expect(desktopConnectionSource, contains('this.compact = false'));
+    expect(desktopConnectionSource, contains('this.forceChinese = false'));
     expect(desktopConnectionSource, contains('if (widget.compact)'));
+  });
+
+  test('desktop defaults to Chinese without overriding a user choice', () {
+    expect(
+      coreMainSource,
+      contains('LocalConfig::get_option(keys::OPTION_LANGUAGE).is_empty()'),
+    );
+    expect(
+      coreMainSource,
+      contains('config::LocalConfig::set_option('),
+    );
+    expect(coreMainSource, contains('keys::OPTION_LANGUAGE.to_string()'));
+    expect(coreMainSource, contains('"zh-cn".to_string()'));
+  });
+
+  test('ordinary desktop exposes identity and both first-contact actions', () {
+    final emptyConversation = homePageSource
+        .split(
+            'Widget _buildEmptyConversation(BuildContext context, {Peer? contact})')[1]
+        .split('Widget _buildContactSection(BuildContext context)')[0];
+    expect(emptyConversation, contains("'我的设备信息'"));
+    expect(emptyConversation, contains("'将设备 ID 或 IP 告诉对方，对方即可连接此电脑。'"));
+    expect(emptyConversation, contains('_buildIdentityCard('));
+    expect(emptyConversation, contains("'连接对方'"));
+    expect(emptyConversation, contains("'复制设备 ID'"));
+
+    final directDialog = homePageSource
+        .split('void _showDirectConnectDialog(BuildContext context)')[1]
+        .split('Widget _buildConversationWorkspace(BuildContext context)')[0];
+    expect(directDialog, contains("'开始聊天'"));
+    expect(directDialog, contains("'远程协助'"));
+    expect(directDialog, contains('_startDirectChat(target)'));
+    expect(directDialog, contains('_connectDirect(context, target)'));
+  });
+
+  test('every successful direct session is saved for later ID connections', () {
+    final peerInfoHandler = modelSource
+        .split(
+            'handlePeerInfo(Map<String, dynamic> evt, String peerId, bool isCache) async')[1]
+        .split('_pi.sasEnabled =')[0];
+    final saveIndex =
+        peerInfoHandler.indexOf('DirectPairingStore.saveDiscovered(');
+    final chatOnlyIndex = peerInfoHandler.indexOf(
+      'ffi.connType == ConnType.chat',
+    );
+    expect(saveIndex, greaterThanOrEqualTo(0));
+    expect(chatOnlyIndex, greaterThan(saveIndex));
+  });
+
+  test('desktop shell uses a restrained WeChat typography scale', () {
+    expect(weChatTokensSource, contains('kWeChatHeadingFontSize = 16'));
+    expect(weChatTokensSource, contains('kWeChatBodyFontSize = 14'));
+    expect(weChatTokensSource, contains('kWeChatMetaFontSize = 12'));
+    expect(weChatTokensSource, contains('kWeChatTextHeight = 1.3'));
+  });
+
+  test('about page contains readable Chinese branding copy', () {
+    expect(settingsAboutSource, contains("'AI赋能工程设计'"));
+    expect(settingsAboutSource, contains("'让想象成为现实'"));
+    expect(settingsAboutSource, isNot(contains('AI璧嬭兘')));
+    expect(settingsAboutSource, isNot(contains('LET IMAGINATION')));
+  });
+
+  test('title bar and primary rail share the configured background', () {
+    expect(
+      desktopMainTitleBarSource,
+      contains('desktopRailBackgroundRevision'),
+    );
+    expect(
+      desktopMainTitleBarSource,
+      contains('desktopRailBackgroundDecoration(context)'),
+    );
+    expect(
+      desktopRailSource,
+      contains('BoxDecoration desktopRailBackgroundDecoration('),
+    );
+  });
+
+  test('portable launcher never overwrites a running LDesk instance', () {
+    expect(portablePackerSource, contains('activate_existing_instance'));
+    expect(portablePackerSource, contains('FindWindowW'));
+    expect(portablePackerSource, contains('ShowWindow'));
+    expect(portablePackerSource, contains('SetForegroundWindow'));
+    expect(portablePackerSource, isNot(contains('remove_dir_all')));
+  });
+
+  test('custom client identity and connection state are always Chinese', () {
+    expect(homePageSource, contains("'LDesk远程协助'"));
+    for (final label in <String>[
+      '设备 ID',
+      '密码',
+      '公网 IP：端口',
+      '局域网 IP：端口',
+      '暂不可用',
+      '已复制',
+    ]) {
+      expect(homePageSource, contains("'$label'"));
+    }
+    for (final status in <String>[
+      '服务未运行',
+      '正在启动直连服务',
+      '直连服务未就绪',
+      '直连服务已开启',
+      '启动服务',
+    ]) {
+      expect(desktopConnectionSource, contains("'$status'"));
+    }
+    expect(desktopTabSource, contains("? 'LDesk远程协助'"));
+  });
+
+  test('Windows tray embeds the latest compact LDesk icon', () {
+    expect(traySource, contains('include_bytes!("../res/tray-icon.png")'));
+    expect(
+      File('../res/tray-icon.png').readAsBytesSync(),
+      orderedEquals(File('../Images/icon-32.png').readAsBytesSync()),
+    );
+    const trayMapping =
+        "@{ Source = 'Images\\icon-32.png'; Target = 'res\\tray-icon.png' }";
+    expect(windowsWorkflowSource, contains(trayMapping));
+    expect(clientWorkflowSource, contains(trayMapping));
   });
 
   test('custom client EXE is a dedicated LDesk identity panel', () {
@@ -902,7 +1043,7 @@ void main() {
     expect(clientPanel, isNot(contains('_buildRemoteCenter')));
     expect(clientPanel, isNot(contains('DesktopSettingPage')));
     expect(desktopTabSource, contains('final title = compactClient'));
-    expect(desktopTabSource, contains("translate('Remote assistance')"));
+    expect(desktopTabSource, contains("? 'LDesk远程协助'"));
     expect(clientWorkflowSource, contains('name: Build LDesk Client EXE'));
     expect(clientWorkflowSource, contains('SignOutput/LDesk-Client-x64.exe'));
     expect(clientWorkflowSource, contains('LDesk-3.1.1-Client-x64.exe'));
@@ -936,7 +1077,8 @@ void main() {
       homePageSource,
       contains('final copyAction = onCopy ?? (prominent ? onTap : null)'),
     );
-    expect(homePageSource, contains('onDoubleTap: available ? copyAction : null'));
+    expect(
+        homePageSource, contains('onDoubleTap: available ? copyAction : null'));
     expect(
       homePageSource,
       contains('onDoubleTap: available ? () => _copyValue(value) : null'),

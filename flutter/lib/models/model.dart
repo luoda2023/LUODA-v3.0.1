@@ -1398,9 +1398,23 @@ class FfiModel with ChangeNotifier {
     _pi.platform = evt['platform'];
     _pi.displayName = evt['display_name'] ?? '';
     _pi.avatar = evt['avatar'] ?? '';
-    if (parent.target?.connType == ConnType.chat) {
-      final ffi = parent.target!;
-      final actualPeerId = (evt['peer_id'] ?? '').toString().trim();
+    final ffi = parent.target;
+    final actualPeerId = (evt['peer_id'] ?? '').toString().trim();
+    final displayName = _pi.displayName.trim().isNotEmpty
+        ? _pi.displayName.trim()
+        : _pi.username;
+    if (ffi != null &&
+        actualPeerId.isNotEmpty &&
+        DirectPairingStore.isDirectEndpoint(ffi.id.trim())) {
+      await DirectPairingStore.saveDiscovered(
+        peerId: actualPeerId,
+        endpoint: ffi.id.trim(),
+        fingerprint: FingerprintState.find(peerId).value,
+        displayName: displayName,
+        avatar: _pi.avatar,
+      );
+    }
+    if (ffi != null && ffi.connType == ConnType.chat) {
       final currentPeerId = ffi.chatModel.currentKey.peerId;
       final chatPeerId = actualPeerId.isNotEmpty
           ? actualPeerId
@@ -1408,26 +1422,11 @@ class FfiModel with ChangeNotifier {
               ? peerId
               : currentPeerId;
       if (actualPeerId.isNotEmpty && actualPeerId != currentPeerId) {
-        final endpoint = ffi.id.trim();
-        final fingerprint = FingerprintState.find(peerId).value;
-        if (DirectPairingStore.isDirectEndpoint(endpoint)) {
-          await DirectPairingStore.saveDiscovered(
-            peerId: actualPeerId,
-            endpoint: endpoint,
-            fingerprint: fingerprint,
-            displayName: _pi.displayName.trim().isNotEmpty
-                ? _pi.displayName.trim()
-                : _pi.username,
-            avatar: _pi.avatar,
-          );
-        }
         await ffi.chatModel.remapCurrentPeer(actualPeerId);
       }
       ffi.chatModel.updatePeerIdentity(
         chatPeerId,
-        displayName: _pi.displayName.trim().isNotEmpty
-            ? _pi.displayName.trim()
-            : _pi.username,
+        displayName: displayName,
         avatar: _pi.avatar,
       );
     }

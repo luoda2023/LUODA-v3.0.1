@@ -1,4 +1,4 @@
-﻿part of 'desktop_setting_page.dart';
+part of 'desktop_setting_page.dart';
 
 class _About extends StatefulWidget {
   const _About({Key? key}) : super(key: key);
@@ -79,11 +79,11 @@ class _AboutState extends State<_About> {
                             style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
                           ),
                           Text(
-                            'AI璧嬭兘宸ョ▼璁捐',
+                            'AI赋能工程设计',
                             style: const TextStyle(color: Colors.white, fontSize: 14),
                           ),
                           Text(
-                            'LET IMAGINATION BECOME REALITY',
+                            '让想象成为现实',
                             style: const TextStyle(color: Colors.white, fontSize: 12, letterSpacing: 0),
                           )
                       ]),

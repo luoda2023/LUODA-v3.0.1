@@ -5,6 +5,7 @@ import 'package:luoda_flutter/models/state_model.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../../common/wechat_ui_tokens.dart';
+import 'desktop_primary_rail.dart';
 
 final ValueNotifier<bool> _mainWindowAlwaysOnTop = ValueNotifier<bool>(false);
 
@@ -53,7 +54,6 @@ class LDeskMainTitleBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final background = dark ? const Color(0xFF202225) : kWeChatChromeColor;
     final secondaryText =
         dark ? const Color(0xFFA8AAAE) : const Color(0xFF666666);
     final hover = dark ? const Color(0xFF303236) : const Color(0xFFD6D6DB);
@@ -90,41 +90,42 @@ class LDeskMainTitleBar extends StatelessWidget {
       ),
     );
 
-    final chrome = workspaceChrome
-        ? LayoutBuilder(
-            builder: (context, constraints) {
-              final showRail = weChatShowDesktopRail(constraints.maxWidth);
-              final listWidth =
-                  weChatConversationListWidth(constraints.maxWidth);
-              return Row(
-                children: <Widget>[
-                  if (showRail)
+    final chrome = ValueListenableBuilder<int>(
+      valueListenable: desktopRailBackgroundRevision,
+      builder: (context, _, __) => workspaceChrome
+          ? LayoutBuilder(
+              builder: (context, constraints) {
+                final showRail = weChatShowDesktopRail(constraints.maxWidth);
+                final listWidth =
+                    weChatConversationListWidth(constraints.maxWidth);
+                return Row(
+                  children: <Widget>[
+                    if (showRail)
+                      SizedBox(
+                        width: kWeChatDesktopRailWidth,
+                        child: DecoratedBox(
+                          decoration: desktopRailBackgroundDecoration(context),
+                        ),
+                      ),
                     SizedBox(
-                      width: kWeChatDesktopRailWidth,
-                      child: ColoredBox(
-                        color:
-                            dark ? const Color(0xFF202225) : kWeChatChromeColor,
+                      width: listWidth,
+                      child: DecoratedBox(
+                        decoration: desktopRailBackgroundDecoration(context),
                       ),
                     ),
-                  SizedBox(
-                    width: listWidth,
-                    child: ColoredBox(
-                      color: dark
-                          ? const Color(0xFF25272C)
-                          : kWeChatListSurfaceColor,
+                    Expanded(
+                      child: DecoratedBox(
+                        decoration: desktopRailBackgroundDecoration(context),
+                      ),
                     ),
-                  ),
-                  Expanded(
-                    child: ColoredBox(
-                      color:
-                          dark ? const Color(0xFF1C1E23) : kWeChatCanvasColor,
-                    ),
-                  ),
-                ],
-              );
-            },
-          )
-        : ColoredBox(color: background);
+                  ],
+                );
+              },
+            )
+          : DecoratedBox(
+              decoration: desktopRailBackgroundDecoration(context),
+            ),
+    );
 
     return SizedBox(
       height: height,

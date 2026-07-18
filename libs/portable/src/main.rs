@@ -85,14 +85,19 @@ fn setup(
         *_ui = true;
         ui::setup();
     }
-    std::fs::remove_dir_all(&dir).ok();
+    if let Err(err) = std::fs::create_dir_all(&dir) {
+        eprintln!("failed to create runtime directory: {err}");
+        return None;
+    }
     for file in reader.files.iter() {
         file.write_to_file(&dir);
     }
     Some(dir.join(&reader.exe))
 }
 
-fn use_null_stdio() -> bool { false }
+fn use_null_stdio() -> bool {
+    false
+}
 
 #[cfg(windows)]
 fn is_windows_7() -> bool {
@@ -127,7 +132,9 @@ fn execute(path: PathBuf, args: Vec<String>, _ui: bool) {
     {
         use std::os::windows::process::CommandExt;
         // DETACHED_PROCESS | CREATE_NO_WINDOW = no console window at all
-        cmd.creation_flags(winapi::um::winbase::DETACHED_PROCESS | winapi::um::winbase::CREATE_NO_WINDOW);
+        cmd.creation_flags(
+            winapi::um::winbase::DETACHED_PROCESS | winapi::um::winbase::CREATE_NO_WINDOW,
+        );
         cmd.stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
@@ -144,7 +151,10 @@ fn execute(path: PathBuf, args: Vec<String>, _ui: bool) {
             #[cfg(windows)]
             {
                 use std::os::windows::ffi::OsStrExt;
-                let wide: Vec<u16> = std::ffi::OsStr::new(&msg).encode_wide().chain(std::iter::once(0)).collect();
+                let wide: Vec<u16> = std::ffi::OsStr::new(&msg)
+                    .encode_wide()
+                    .chain(std::iter::once(0))
+                    .collect();
                 unsafe {
                     winapi::um::winuser::MessageBoxW(
                         std::ptr::null_mut(),
@@ -178,7 +188,10 @@ fn main() {
         {
             use std::os::windows::ffi::OsStrExt;
             let msg = format!("LUODA encountered an error:\n\n{}", info);
-            let wide: Vec<u16> = std::ffi::OsStr::new(&msg).encode_wide().chain(std::iter::once(0)).collect();
+            let wide: Vec<u16> = std::ffi::OsStr::new(&msg)
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect();
             unsafe {
                 winapi::um::winuser::MessageBoxW(
                     std::ptr::null_mut(),
@@ -211,6 +224,15 @@ fn main() {
 
     let mut ui = false;
     let reader = BinaryReader::default();
+    #[cfg(windows)]
+    if win::activate_existing_instance() {
+        if !args.is_empty() {
+            if let Some(dir) = dirs::data_local_dir() {
+                execute(dir.join(APP_PREFIX).join(&reader.exe), args, false);
+            }
+        }
+        return;
+    }
     if let Some(exe) = setup(
         reader,
         None,
@@ -229,11 +251,109 @@ fn main() {
 
 #[cfg(windows)]
 mod win {
-    use std::{fs, os::windows::process::CommandExt, path::Path, process::Command};
+    use std::{
+        fs,
+        os::windows::{ffi::OsStrExt, process::CommandExt},
+        path::Path,
+        process::Command,
+    };
+    use winapi::{
+        shared::minwindef::FALSE,
+        um::{
+            handleapi::CloseHandle,
+            processthreadsapi::OpenProcess,
+            winbase::QueryFullProcessImageNameW,
+            winnt::PROCESS_QUERY_LIMITED_INFORMATION,
+            winuser::{
+                FindWindowExW, FindWindowW, GetWindowThreadProcessId, IsHungAppWindow, MessageBoxW,
+                SetForegroundWindow, ShowWindow, MB_ICONWARNING, MB_OK, SW_RESTORE,
+            },
+        },
+    };
 
     // Used for privacy mode(magnifier impl).
     pub const RUNTIME_BROKER_EXE: &'static str = "C:\\Windows\\System32\\RuntimeBroker.exe";
     pub const WIN_TOPMOST_INJECTED_PROCESS_EXE: &'static str = "RuntimeBroker_LUODA.exe";
+
+    fn wide(value: &str) -> Vec<u16> {
+        std::ffi::OsStr::new(value)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
+    }
+
+    fn belongs_to_ldesk(window: winapi::shared::windef::HWND) -> bool {
+        let mut process_id = 0;
+        unsafe { GetWindowThreadProcessId(window, &mut process_id) };
+        if process_id == 0 {
+            return false;
+        }
+        let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, process_id) };
+        if process.is_null() {
+            return false;
+        }
+        let mut path = vec![0_u16; 32768];
+        let mut length = path.len() as u32;
+        let ok = unsafe { QueryFullProcessImageNameW(process, 0, path.as_mut_ptr(), &mut length) }
+            != FALSE;
+        unsafe { CloseHandle(process) };
+        if !ok {
+            return false;
+        }
+        String::from_utf16_lossy(&path[..length as usize])
+            .to_ascii_lowercase()
+            .ends_with("\\luoda.exe")
+    }
+
+    fn find_existing_window() -> winapi::shared::windef::HWND {
+        let class_name = wide("FLUTTER_RUNNER_WIN32_WINDOW");
+        let window_name = wide("LDesk");
+        let named = unsafe { FindWindowW(class_name.as_ptr(), window_name.as_ptr()) };
+        if !named.is_null() && belongs_to_ldesk(named) {
+            return named;
+        }
+        let mut current = std::ptr::null_mut();
+        loop {
+            current = unsafe {
+                FindWindowExW(
+                    std::ptr::null_mut(),
+                    current,
+                    class_name.as_ptr(),
+                    std::ptr::null(),
+                )
+            };
+            if current.is_null() || belongs_to_ldesk(current) {
+                return current;
+            }
+        }
+    }
+
+    pub(super) fn activate_existing_instance() -> bool {
+        let window = find_existing_window();
+        if window.is_null() {
+            return false;
+        }
+        if unsafe { IsHungAppWindow(window) } != FALSE {
+            let message = wide(
+                "LDesk 已在运行但暂时没有响应。请稍候再试；启动器不会覆盖正在使用的程序文件。",
+            );
+            let title = wide("LDesk");
+            unsafe {
+                MessageBoxW(
+                    std::ptr::null_mut(),
+                    message.as_ptr(),
+                    title.as_ptr(),
+                    MB_OK | MB_ICONWARNING,
+                );
+            }
+            return true;
+        }
+        unsafe {
+            ShowWindow(window, SW_RESTORE);
+            SetForegroundWindow(window);
+        }
+        true
+    }
 
     pub(super) fn copy_runtime_broker(dir: &Path) {
         let src = RUNTIME_BROKER_EXE;
@@ -263,4 +383,3 @@ mod win {
         exe.contains("-qs-") || exe.contains("-qs.exe") || exe.contains("_qs.exe")
     }
 }
-
