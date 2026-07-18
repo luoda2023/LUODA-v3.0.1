@@ -882,7 +882,10 @@ void main() {
       contains('crossAxisAlignment: CrossAxisAlignment.center'),
     );
     expect(clientHeader, contains('OnlineStatusWidget(compact: true)'));
-    expect(homePageSource, contains('_buildIdentityCard(context, model)'));
+    expect(
+      homePageSource,
+      contains('_buildIdentityCard(context, model, compact: true)'),
+    );
     expect(desktopConnectionSource, contains('this.compact = false'));
     expect(desktopConnectionSource, contains('if (widget.compact)'));
   });

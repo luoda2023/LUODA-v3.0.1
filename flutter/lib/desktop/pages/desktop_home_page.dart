@@ -2267,7 +2267,11 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     );
   }
 
-  Widget _buildIdentityCard(BuildContext context, ServerModel model) {
+  Widget _buildIdentityCard(
+    BuildContext context,
+    ServerModel model, {
+    bool compact = false,
+  }) {
     final publicIP = bind.mainGetOptionSync(key: 'public-ip');
     final lanIP = bind.mainGetOptionSync(key: 'lan-ip');
     final port = bind.mainGetOptionSync(key: kOptionDirectAccessPort);
@@ -2282,7 +2286,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         model.verificationMethod != kUsePermanentPassword;
     final dark = Theme.of(context).brightness == Brightness.dark;
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: EdgeInsets.all(compact ? 12 : 14),
       decoration: BoxDecoration(
         color: dark ? const Color(0xFF181C23) : const Color(0xFFF5F8FC),
         borderRadius: BorderRadius.circular(8),
@@ -2297,7 +2301,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             icon: Icons.copy_rounded,
             onTap: () => _copyValue(model.serverId.text),
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: compact ? 8 : 12),
           _identityValue(
             context,
             translate('One-time Password'),
@@ -2312,7 +2316,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               setState(() => _passwordVisible = !_passwordVisible);
             },
           ),
-          const Divider(height: 22),
+          Divider(height: compact ? 16 : 22),
           _addressValue(
             context,
             translate('Public IP:port'),
@@ -2321,7 +2325,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             statusColor: _directStatusColor(upnpStatus),
             statusTooltip: translate(_directStatusTip(upnpStatus)),
           ),
-          const SizedBox(height: 10),
+          SizedBox(height: compact ? 6 : 10),
           _addressValue(context, translate('LAN IP:port'), address(lanIP)),
         ],
       ),
@@ -2347,6 +2351,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             ? List.filled(value.runes.length, '\u2022').join()
             : value;
     final copyAction = onCopy ?? (prominent ? onTap : null);
+    final unavailableColor =
+        Theme.of(context).textTheme.bodyMedium?.color?.withOpacity(.68);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -2376,8 +2382,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                       fontFamily: 'monospace',
                       fontSize: prominent ? 20 : 15,
                       fontWeight: FontWeight.w700,
-                      color:
-                          available ? null : Theme.of(context).disabledColor,
+                      color: available ? null : unavailableColor,
                     ),
                   ),
                 ),
@@ -2426,6 +2431,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       {String? status, Color? statusColor, String? statusTooltip}) {
     final available = value.isNotEmpty;
     final displayValue = available ? value : translate('Not available');
+    final unavailableColor =
+        Theme.of(context).textTheme.bodyMedium?.color?.withOpacity(.68);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -2472,8 +2479,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                       fontFamily: 'monospace',
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color:
-                          available ? null : Theme.of(context).disabledColor,
+                      color: available ? null : unavailableColor,
                     ),
                   ),
                 ),
@@ -2524,14 +2530,14 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     return SizedBox(
       width: double.infinity,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Container(
-              width: 58,
-              height: 58,
+              width: 54,
+              height: 54,
               decoration: BoxDecoration(
                 color: Theme.of(context).colorScheme.surface,
                 borderRadius: BorderRadius.circular(14),
@@ -2556,7 +2562,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 ),
               ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
             Text(
               "LDesk ${translate('Remote assistance')}",
               textAlign: TextAlign.center,
@@ -2567,7 +2573,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 color: Theme.of(context).textTheme.titleLarge?.color,
               ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
             const OnlineStatusWidget(compact: true),
           ],
         ),
@@ -2581,7 +2587,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         padding: const EdgeInsets.symmetric(horizontal: 20),
         child: SizedBox(
           width: double.infinity,
-          child: _buildIdentityCard(context, model),
+          child: _buildIdentityCard(context, model, compact: true),
         ),
       ),
     );

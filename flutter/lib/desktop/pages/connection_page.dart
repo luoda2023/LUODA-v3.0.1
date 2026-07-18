@@ -87,7 +87,7 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
                     ? translate('not_ready_status')
                     : translate('Direct listening');
         final color = stopped || status == SvcStatus.notReady
-            ? const Color(0xFF8A929F)
+            ? const Color(0xFF667085)
             : status == SvcStatus.connecting
                 ? const Color(0xFFE39128)
                 : MyTheme.accent;
