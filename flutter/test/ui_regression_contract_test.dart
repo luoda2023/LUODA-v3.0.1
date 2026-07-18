@@ -113,6 +113,9 @@ void main() {
   final androidMainServiceSource = File(
     'android/app/src/main/kotlin/com/luoda/remote/MainService.kt',
   ).readAsStringSync();
+  final androidAppGradleSource = File(
+    'android/app/build.gradle.kts',
+  ).readAsStringSync();
   final commonRustSource = File('../src/common.rs').readAsStringSync();
   final displayServiceSource = File(
     '../src/server/display_service.rs',
@@ -974,6 +977,11 @@ void main() {
       androidMainServiceSource,
       contains('!isFileTransfer && !isChat && !isStart'),
     );
+  });
+
+  test('Android SDK levels support the direct voice recorder', () {
+    expect(androidAppGradleSource, contains('compileSdkVersion(35)'));
+    expect(androidAppGradleSource, contains('minSdkVersion(23)'));
   });
 
   test('local identity and always-on messaging settings remain available', () {

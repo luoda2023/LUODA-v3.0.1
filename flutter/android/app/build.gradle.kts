@@ -91,7 +91,7 @@ protobuf {
 
 android {
     namespace = "com.luoda.remote"
-    compileSdkVersion(34)
+    compileSdkVersion(35)
 
     sourceSets {
         getByName("main") {
@@ -110,7 +110,7 @@ android {
 
     defaultConfig {
         applicationId = "com.luoda.remote"
-        minSdkVersion(22)
+        minSdkVersion(23)
         targetSdkVersion(33)
         versionCode = flutterVersionCode.toInt()
         versionName = flutterVersionName
