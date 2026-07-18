@@ -170,8 +170,10 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
       svcStatus = SvcStatus.notReady;
     } else if (!_initialListenerStatusShown && svcStatus == SvcStatus.ready) {
       svcStatus = SvcStatus.connecting;
+      _initialListenerStatusShown = true;
+    } else if (svcStatus == SvcStatus.connecting) {
+      _initialListenerStatusShown = true;
     }
-    _initialListenerStatusShown = true;
     stateGlobal.svcStatus.value = svcStatus;
     _svcIsUsingPublicServer.value = false;
     try {
