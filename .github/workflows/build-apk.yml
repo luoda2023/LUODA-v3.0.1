@@ -279,6 +279,10 @@ jobs:
         run: python3 flutter/android/fix_jvm.py
         shell: bash
 
+      - name: Validate AGP 8.x plugin compatibility fixer
+        run: python3 -m unittest test_fix_plugin_agp8_compat.py
+        working-directory: flutter/android
+
       - name: Fix AGP 8.x compatibility issues in plugin build.gradle files
         run: python3 flutter/android/fix_plugin_agp8_compat.py
         shell: bash

@@ -16,6 +16,9 @@ import re
 import sys
 
 
+SUPPORTED_COMPILE_SDK = 35
+
+
 def has_property_condition(text, match_str):
     """Check if file has a hasProperty check for the given property."""
     return bool(re.search(r'hasProperty\s*\(\s*["\']' + re.escape(match_str) + r'["\']', text))
@@ -65,15 +68,25 @@ def remove_conditional_namespace(content):
 
 
 def fix_compile_sdk(content):
-    """Replace 'compileSdk NNN' with 'compileSdkVersion NNN'."""
+    """Normalize compileSdk declarations for AGP 8.x."""
     lines = content.split('\n')
     result = []
     modified = False
     
     for line in lines:
         stripped = line.strip()
-        # Match compileSdk (without Version) followed by a number
-        if re.match(r'^\s*compileSdk\s+\d+\s*$', stripped):
+        if re.match(
+            r'^compileSdk(?:Version)?\s*(?:=\s*)?flutter\.compileSdkVersion$',
+            stripped,
+        ):
+            new_line = re.sub(
+                r'compileSdk(?:Version)?\s*(?:=\s*)?flutter\.compileSdkVersion',
+                f'compileSdkVersion {SUPPORTED_COMPILE_SDK}',
+                line,
+            )
+            result.append(new_line)
+            modified = True
+        elif re.match(r'^\s*compileSdk\s+\d+\s*$', stripped):
             new_line = re.sub(r'compileSdk\s+(\d+)', r'compileSdkVersion \1', line)
             result.append(new_line)
             modified = True
@@ -224,7 +237,7 @@ def fix_missing_compile_sdk(content):
             android_depth = 1
             result.append(line)
             # Add compileSdkVersion as the first line inside android
-            result.append(f'{indent}    compileSdkVersion 34')
+            result.append(f'{indent}    compileSdkVersion {SUPPORTED_COMPILE_SDK}')
             compile_added = True
             continue
         

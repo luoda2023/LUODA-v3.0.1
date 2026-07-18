@@ -135,6 +135,12 @@ void main() {
   final iosWorkflowSource = File(
     '../.github/workflows/build-ios.yml',
   ).readAsStringSync();
+  final macosPodfileSource = File(
+    'macos/Podfile',
+  ).readAsStringSync();
+  final macosProjectSource = File(
+    'macos/Runner.xcodeproj/project.pbxproj',
+  ).readAsStringSync();
   final msiWorkflowSource = File(
     '../.github/workflows/build-msi.yml',
   ).readAsStringSync();
@@ -906,6 +912,15 @@ void main() {
     expect(iosWorkflowSource, contains('Upload IPA to draft release'));
     expect(iosWorkflowSource, contains('LDesk-3.1.1-unsigned.ipa'));
     expect(iosWorkflowSource, contains('files: flutter/build/ios/ipa/*.ipa'));
+  });
+
+  test('macOS deployment target supports the direct voice recorder', () {
+    expect(macosPodfileSource, contains("platform :osx, '10.15'"));
+    expect(macosProjectSource, contains('MACOSX_DEPLOYMENT_TARGET = 10.15;'));
+    expect(
+      macosProjectSource,
+      isNot(contains('MACOSX_DEPLOYMENT_TARGET = 10.14;')),
+    );
   });
 
   test('Android always-on chat uses a dedicated messaging service', () {
