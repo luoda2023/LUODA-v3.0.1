@@ -318,7 +318,7 @@ void main() {
     expect(homePageSource, contains('_buildPrimaryRail'));
     expect(homePageSource, contains('_buildContactsPane'));
     expect(homePageSource, contains('_buildConversationWorkspace'));
-    expect(homePageSource, contains("'Paired ID / IP:port'"));
+    expect(homePageSource, contains("'对方 ID 或 IP:端口'"));
     expect(homePageSource, contains('ChatPage('));
     expect(homePageSource, contains('_sendFilesFromConversation'));
     expect(homePageSource, contains('_buildActiveTransferStrip'));
@@ -1063,15 +1063,23 @@ void main() {
   test('shared identity card copies ID password and direct IP values', () {
     expect(
       homePageSource,
-      contains("onTap: () => _copyValue(model.serverId.text)"),
+      contains(
+        'onTap: () => _copyValue(model.serverId.text, chinese: chinese)',
+      ),
     );
     expect(
       homePageSource,
-      contains("onCopy: () => _copyValue(model.serverPasswd.text)"),
+      contains(
+        'onCopy: () => _copyValue(model.serverPasswd.text, chinese: chinese)',
+      ),
     );
     expect(
       homePageSource,
-      contains("onPressed: available ? () => _copyValue(value) : null"),
+      matches(
+        RegExp(
+          r'onPressed: available\s*\? \(\) => _copyValue\(value, chinese: chinese\)\s*: null',
+        ),
+      ),
     );
     expect(
       homePageSource,
