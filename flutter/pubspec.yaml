@@ -124,7 +124,7 @@ dev_dependencies:
 dependency_overrides:
   intl: ^0.19.0
   flutter_plugin_android_lifecycle: 2.0.17
-  record_platform_interface: 1.4.0
+  record_platform_interface: 1.2.0
 
 # rerun: flutter pub run flutter_launcher_icons
 flutter_icons:
