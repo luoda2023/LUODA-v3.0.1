@@ -1077,7 +1077,7 @@ void main() {
       homePageSource,
       matches(
         RegExp(
-          r'onPressed: available\s*\? \(\) => _copyValue\(value, chinese: chinese\)\s*: null',
+          r'onPressed:\s*available\s*\? \(\) => _copyValue\(value, chinese: chinese\)\s*: null',
         ),
       ),
     );
@@ -1089,7 +1089,11 @@ void main() {
         homePageSource, contains('onDoubleTap: available ? copyAction : null'));
     expect(
       homePageSource,
-      contains('onDoubleTap: available ? () => _copyValue(value) : null'),
+      matches(
+        RegExp(
+          r'onDoubleTap:\s*available\s*\? \(\) => _copyValue\(value, chinese: chinese\)\s*: null',
+        ),
+      ),
     );
     expect(homePageSource, contains('Icons.copy_rounded'));
   });
