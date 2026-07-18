@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:dash_chat_2/dash_chat_2.dart';
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:draggable_float_widget/draggable_float_widget.dart';
@@ -21,6 +23,7 @@ import '../consts.dart';
 import '../common.dart';
 import '../common/direct_chat.dart';
 import '../common/direct_pairing.dart';
+import '../common/direct_voice_storage.dart';
 import '../common/widgets/overlay.dart';
 import '../main.dart';
 import 'model.dart';
@@ -91,6 +94,8 @@ class ChatModel with ChangeNotifier {
 
   late final Map<MessageKey, MessageBody> _messages = {};
   final Map<int, String> _activeCompanionSecrets = <int, String>{};
+  final Map<String, _IncomingVoiceTransfer> _incomingVoiceTransfers =
+      <String, _IncomingVoiceTransfer>{};
   bool _activeCompanionSyncInProgress = false;
   Future<void>? _recentRestoreTask;
   bool _recentRestoreQueued = false;
@@ -658,6 +663,9 @@ class ChatModel with ChangeNotifier {
     for (final record
         in await DirectChatRepository.instance.pendingFor(resolvedPeerId)) {
       await _transmitRecord(key, record);
+      if (record.kind == DirectChatKind.voice) {
+        await _sendStoredVoiceClip(key, record);
+      }
     }
     final cursor = await DirectChatRepository.instance.cursor(
       conversationId: resolvedPeerId,
@@ -688,6 +696,42 @@ class ChatModel with ChangeNotifier {
         ).encode(),
       );
     }
+  }
+
+  Future<void> sendVoiceClip({
+    required String messageId,
+    required int durationMs,
+  }) async {
+    final key = _currentKey;
+    if (key.peerId.isEmpty || durationMs <= 0) return;
+    final bytes = await DirectVoiceStorage.instance.read(messageId);
+    if (bytes == null) return;
+    final digest = sha256.convert(bytes).toString();
+    final record = await DirectChatRepository.instance.createOutgoing(
+      id: messageId,
+      conversationId: key.peerId,
+      kind: DirectChatKind.voice,
+      text: translate('Voice message'),
+      senderId: me.id,
+      senderName: me.firstName ?? '',
+      senderAvatar: '',
+      fileName: '$messageId.wav',
+      fileSize: bytes.length,
+      fileSha256: digest,
+      voiceDurationMs: durationMs,
+    );
+    insertMessage(key, _toChatMessage(record, me));
+    await _transmitRecord(key, record);
+    await _sendVoiceChunks(key, record, bytes);
+    notifyListeners();
+  }
+
+  Future<void> requestVoiceClip(String messageId) async {
+    if (messageId.isEmpty || _currentKey.peerId.isEmpty) return;
+    _sendWire(
+      _currentKey,
+      DirectChatEnvelope.voiceRequest(messageId).encode(),
+    );
   }
 
   Future<void> syncActiveCompanionSessions() async {
@@ -774,6 +818,9 @@ class ChatModel with ChangeNotifier {
         );
         for (final record in records) {
           await _transmitRecord(key, record);
+          if (record.kind == DirectChatKind.voice) {
+            await _sendStoredVoiceClip(key, record);
+          }
         }
         return;
       case 'replica_request':
@@ -817,6 +864,13 @@ class ChatModel with ChangeNotifier {
             Map<String, dynamic>.from(envelope.data['record'] as Map),
           );
           await DirectChatRepository.instance.upsert(record);
+          if (record.kind == DirectChatKind.voice &&
+              !await DirectVoiceStorage.instance.exists(record.id)) {
+            _sendWire(
+              key,
+              DirectChatEnvelope.voiceRequest(record.id).encode(),
+            );
+          }
         } catch (_) {}
         return;
       case 'replica_contacts':
@@ -825,6 +879,18 @@ class ChatModel with ChangeNotifier {
         await DirectPairingStore.mergeContacts(
           envelope.data['contacts'] as List<dynamic>? ?? const [],
         );
+        return;
+      case 'voice_request':
+        final id = (envelope.data['id'] ?? '').toString();
+        final record = await DirectChatRepository.instance.find(id);
+        if (record?.kind == DirectChatKind.voice &&
+            (record!.conversationId == key.peerId ||
+                _isCompanionSession(key))) {
+          await _sendStoredVoiceClip(key, record!);
+        }
+        return;
+      case 'voice_chunk':
+        await _receiveVoiceChunk(key, envelope);
         return;
       default:
         return;
@@ -855,6 +921,111 @@ class ChatModel with ChangeNotifier {
         DirectChatDelivery.sent,
       );
     }
+  }
+
+  Future<void> _sendStoredVoiceClip(
+    MessageKey key,
+    DirectChatRecord record,
+  ) async {
+    final bytes = await DirectVoiceStorage.instance.read(record.id);
+    if (bytes != null) await _sendVoiceChunks(key, record, bytes);
+  }
+
+  Future<void> _sendVoiceChunks(
+    MessageKey key,
+    DirectChatRecord record,
+    Uint8List bytes,
+  ) async {
+    const chunkSize = 24 * 1024;
+    if (bytes.isEmpty || bytes.length > DirectVoiceStorage.maxClipBytes) return;
+    final digest = sha256.convert(bytes).toString();
+    if (record.fileSha256.isNotEmpty && record.fileSha256 != digest) return;
+    final total = (bytes.length + chunkSize - 1) ~/ chunkSize;
+    for (var index = 0; index < total; index++) {
+      final start = index * chunkSize;
+      final end =
+          start + chunkSize > bytes.length ? bytes.length : start + chunkSize;
+      if (!_sendWire(
+        key,
+        DirectChatEnvelope.voiceChunk(
+          messageId: record.id,
+          index: index,
+          total: total,
+          sha256: digest,
+          payload: base64Encode(bytes.sublist(start, end)),
+        ).encode(),
+      )) {
+        return;
+      }
+    }
+  }
+
+  bool _isCompanionSession(MessageKey key) {
+    if (key.isOut)
+      return DirectPairingStore.find(key.peerId)?.companion == true;
+    return _activeCompanionSecrets.containsKey(key.connId);
+  }
+
+  Future<void> _receiveVoiceChunk(
+    MessageKey key,
+    DirectChatEnvelope envelope,
+  ) async {
+    final id = (envelope.data['id'] ?? '').toString();
+    final digest = (envelope.data['sha256'] ?? '').toString().toLowerCase();
+    final index = int.tryParse('${envelope.data['index'] ?? -1}') ?? -1;
+    final total = int.tryParse('${envelope.data['total'] ?? 0}') ?? 0;
+    if (id.isEmpty ||
+        !RegExp(r'^[0-9a-f]{64}$').hasMatch(digest) ||
+        total <= 0 ||
+        total > 342 ||
+        index < 0 ||
+        index >= total) {
+      return;
+    }
+    final record = await DirectChatRepository.instance.find(id);
+    if (record?.kind != DirectChatKind.voice ||
+        record!.fileSha256.toLowerCase() != digest ||
+        (record.conversationId != key.peerId && !_isCompanionSession(key))) {
+      return;
+    }
+    Uint8List chunk;
+    try {
+      chunk = base64Decode((envelope.data['payload'] ?? '').toString());
+    } catch (_) {
+      return;
+    }
+    if (chunk.isEmpty || chunk.length > 24 * 1024) return;
+    var transfer = _incomingVoiceTransfers[id];
+    if (transfer == null ||
+        transfer.total != total ||
+        transfer.sha256 != digest) {
+      if (_incomingVoiceTransfers.length >= 8) {
+        _incomingVoiceTransfers.remove(_incomingVoiceTransfers.keys.first);
+      }
+      transfer = _IncomingVoiceTransfer(total: total, sha256: digest);
+      _incomingVoiceTransfers[id] = transfer;
+    }
+    transfer.chunks[index] = chunk;
+    if (transfer.chunks.length != total) return;
+
+    final output = BytesBuilder(copy: false);
+    for (var part = 0; part < total; part++) {
+      final bytes = transfer.chunks[part];
+      if (bytes == null) return;
+      output.add(bytes);
+      if (output.length > DirectVoiceStorage.maxClipBytes) {
+        _incomingVoiceTransfers.remove(id);
+        return;
+      }
+    }
+    final clip = output.takeBytes();
+    if (clip.length != record.fileSize ||
+        sha256.convert(clip).toString() != digest) {
+      _incomingVoiceTransfers.remove(id);
+      return;
+    }
+    await DirectVoiceStorage.instance.write(id, clip);
+    _incomingVoiceTransfers.remove(id);
   }
 
   bool _sendWire(MessageKey key, String value) {
@@ -948,6 +1119,8 @@ class ChatModel with ChangeNotifier {
         if (record.fileSize > 0) 'ldesk_file_size': record.fileSize,
         if (record.fileSha256.isNotEmpty)
           'ldesk_file_sha256': record.fileSha256,
+        if (record.voiceDurationMs > 0)
+          'ldesk_voice_duration_ms': record.voiceDurationMs,
       },
     );
   }
@@ -1058,6 +1231,17 @@ class ChatModel with ChangeNotifier {
   void closeVoiceCall() {
     bind.sessionCloseVoiceCall(sessionId: sessionId);
   }
+}
+
+class _IncomingVoiceTransfer {
+  _IncomingVoiceTransfer({
+    required this.total,
+    required this.sha256,
+  });
+
+  final int total;
+  final String sha256;
+  final Map<int, Uint8List> chunks = <int, Uint8List>{};
 }
 
 enum VoiceCallStatus {

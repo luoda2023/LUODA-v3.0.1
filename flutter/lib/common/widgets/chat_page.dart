@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../../mobile/pages/home_page.dart';
 import '../wechat_ui_tokens.dart';
+import 'voice_message_controls.dart';
 
 enum ChatPageType {
   mobileMain,
@@ -108,8 +109,6 @@ class ChatPage extends StatelessWidget implements PageShape {
           builder: (context, chatModel, child) {
             final currentKey = chatModel.currentKey;
             final isDesktopHome = type == ChatPageType.desktopHome;
-            final showComposerTools =
-                onAttachFile != null || onRemoteAssist != null;
             final dark = Theme.of(context).brightness == Brightness.dark;
             final readOnly = currentKey.peerId.isEmpty ||
                 type == ChatPageType.desktopCM &&
@@ -203,6 +202,12 @@ class ChatPage extends StatelessWidget implements PageShape {
               final foreground = dark ? Colors.white : const Color(0xFF181818);
               final properties = message.customProperties;
               final isFile = properties?['ldesk_kind'] == 'file';
+              final isVoice = properties?['ldesk_kind'] == 'voice';
+              final messageId = (properties?['ldesk_id'] ?? '').toString();
+              final voiceDurationMs = int.tryParse(
+                    '${properties?['ldesk_voice_duration_ms'] ?? 0}',
+                  ) ??
+                  0;
               final fileName =
                   (properties?['ldesk_file_name'] ?? '').toString();
               final fileSize = int.tryParse(
@@ -214,7 +219,13 @@ class ChatPage extends StatelessWidget implements PageShape {
                     ? CrossAxisAlignment.end
                     : CrossAxisAlignment.start,
                 children: <Widget>[
-                  if (isFile && fileName.isNotEmpty)
+                  if (isVoice && messageId.isNotEmpty)
+                    VoiceMessageBubble(
+                      chatModel: chatModel,
+                      messageId: messageId,
+                      durationMs: voiceDurationMs,
+                    )
+                  else if (isFile && fileName.isNotEmpty)
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: <Widget>[
@@ -431,8 +442,12 @@ class ChatPage extends StatelessWidget implements PageShape {
                       focusNode: chatModel.inputNode,
                       textController: chatModel.textController,
                       alwaysShowSend: isDesktopHome,
-                      leading: showComposerTools
+                      leading: type == ChatPageType.mobileMain
                           ? <Widget>[
+                              VoiceMessageRecorderButton(
+                                chatModel: chatModel,
+                                enabled: !readOnly,
+                              ),
                               if (onAttachFile != null)
                                 composerTool(
                                   Icons.attach_file_rounded,
@@ -698,6 +713,10 @@ class _DesktopChatComposer extends StatelessWidget {
                       enabled: enabled,
                       onPressed: onRemoteAssist,
                     ),
+                  VoiceMessageRecorderButton(
+                    chatModel: chatModel,
+                    enabled: enabled,
+                  ),
                   const Spacer(),
                   ValueListenableBuilder<TextEditingValue>(
                     valueListenable: chatModel.textController,

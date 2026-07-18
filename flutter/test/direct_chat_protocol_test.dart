@@ -62,6 +62,55 @@ void main() {
     expect(record.delivery, DirectChatDelivery.delivered);
   });
 
+  test('voice record and chunk envelopes preserve playback metadata', () {
+    final record = DirectChatRecord(
+      id: 'voice-1',
+      conversationId: 'peer-voice',
+      originDeviceId: 'device-voice',
+      originSequence: 10,
+      direction: DirectChatDirection.outgoing,
+      kind: DirectChatKind.voice,
+      text: 'Voice message',
+      senderId: 'sender-voice',
+      senderName: 'Phone',
+      senderAvatar: '',
+      sentAt: DateTime.utc(2026, 7, 17, 9),
+      delivery: DirectChatDelivery.sent,
+      fileName: 'voice-1.wav',
+      fileSize: 32000,
+      fileSha256: List<String>.filled(64, 'a').join(),
+      voiceDurationMs: 1800,
+    );
+
+    final restored = DirectChatRecord.fromJson(
+      DirectChatEnvelope.decode(DirectChatEnvelope.message(record).encode())!
+          .data,
+    );
+    expect(restored.kind, DirectChatKind.voice);
+    expect(restored.voiceDurationMs, 1800);
+    expect(restored.fileSize, 32000);
+
+    final chunk = DirectChatEnvelope.decode(
+      DirectChatEnvelope.voiceChunk(
+        messageId: record.id,
+        index: 1,
+        total: 3,
+        sha256: record.fileSha256,
+        payload: 'YWJj',
+      ).encode(),
+    );
+    expect(chunk?.type, 'voice_chunk');
+    expect(chunk?.data['id'], record.id);
+    expect(chunk?.data['index'], 1);
+    expect(chunk?.data['total'], 3);
+
+    final request = DirectChatEnvelope.decode(
+      DirectChatEnvelope.voiceRequest(record.id).encode(),
+    );
+    expect(request?.type, 'voice_request');
+    expect(request?.data['id'], record.id);
+  });
+
   test('paired target carries a WAN fallback for off-LAN connections', () {
     final pairing = DirectPairing(
       peerId: 'peer-3',

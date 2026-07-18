@@ -86,6 +86,12 @@ void main() {
   final weChatTokensSource = File(
     'lib/common/wechat_ui_tokens.dart',
   ).readAsStringSync();
+  final voiceMessageControlsSource = File(
+    'lib/common/widgets/voice_message_controls.dart',
+  ).readAsStringSync();
+  final directVoiceStorageSource = File(
+    'lib/common/direct_voice_storage_io.dart',
+  ).readAsStringSync();
   final directChatSource = File(
     'lib/common/direct_chat.dart',
   ).readAsStringSync();
@@ -136,6 +142,7 @@ void main() {
     '../res/msi/Package/Package.wixproj',
   ).readAsStringSync();
   final cargoSource = File('../Cargo.toml').readAsStringSync();
+  final pubspecSource = File('pubspec.yaml').readAsStringSync();
   final peerModelSource = File(
     'lib/models/peer_model.dart',
   ).readAsStringSync();
@@ -636,6 +643,29 @@ void main() {
     expect(directChatSource, contains('record.originSequence >'));
     expect(chatPageSource, contains("translate('Waiting to send')"));
     expect(chatPageSource, contains("translate('Delivered')"));
+  });
+
+  test('voice messages record, validate, transfer and play over direct chat',
+      () {
+    expect(pubspecSource, contains('record: 5.2.1'));
+    expect(pubspecSource, contains('audioplayers: 6.1.0'));
+    expect(directChatSource,
+        contains('enum DirectChatKind { text, file, voice }'));
+    expect(directChatSource, contains("DirectChatEnvelope('voice_chunk'"));
+    expect(directChatSource, contains("DirectChatEnvelope('voice_request'"));
+    expect(
+        directVoiceStorageSource, contains('maxClipBytes = 8 * 1024 * 1024'));
+    expect(voiceMessageControlsSource, contains('AudioEncoder.wav'));
+    expect(voiceMessageControlsSource, contains('Duration(seconds: 60)'));
+    expect(voiceMessageControlsSource, contains('class VoiceMessageBubble'));
+    expect(voiceMessageControlsSource, contains('BytesSource('));
+    expect(chatModelSource, contains('const chunkSize = 24 * 1024'));
+    expect(chatModelSource, contains('sha256.convert(clip)'));
+    expect(chatModelSource, contains('total > 342'));
+    expect(chatModelSource, contains('_incomingVoiceTransfers.length >= 8'));
+    expect(chatModelSource, contains('_isCompanionSession(key)'));
+    expect(chatPageSource, contains('VoiceMessageRecorderButton('));
+    expect(chatPageSource, contains('VoiceMessageBubble('));
   });
 
   test('restored inbound chat sessions request missed messages', () {

@@ -10,7 +10,7 @@ enum DirectChatDelivery { queued, sent, delivered, failed }
 
 enum DirectChatDirection { incoming, outgoing }
 
-enum DirectChatKind { text, file }
+enum DirectChatKind { text, file, voice }
 
 class DirectChatRecord {
   const DirectChatRecord({
@@ -29,6 +29,7 @@ class DirectChatRecord {
     this.fileName = '',
     this.fileSize = 0,
     this.fileSha256 = '',
+    this.voiceDurationMs = 0,
   });
 
   final String id;
@@ -46,6 +47,7 @@ class DirectChatRecord {
   final String fileName;
   final int fileSize;
   final String fileSha256;
+  final int voiceDurationMs;
 
   bool get isOutgoing => direction == DirectChatDirection.outgoing;
 
@@ -70,6 +72,7 @@ class DirectChatRecord {
       fileName: fileName,
       fileSize: fileSize,
       fileSha256: fileSha256,
+      voiceDurationMs: voiceDurationMs,
     );
   }
 
@@ -89,6 +92,7 @@ class DirectChatRecord {
         if (fileName.isNotEmpty) 'file_name': fileName,
         if (fileSize > 0) 'file_size': fileSize,
         if (fileSha256.isNotEmpty) 'file_sha256': fileSha256,
+        if (voiceDurationMs > 0) 'voice_duration_ms': voiceDurationMs,
       };
 
   factory DirectChatRecord.fromJson(Map<String, dynamic> json) {
@@ -125,6 +129,7 @@ class DirectChatRecord {
       fileName: (json['file_name'] ?? '').toString(),
       fileSize: int.tryParse('${json['file_size'] ?? 0}') ?? 0,
       fileSha256: (json['file_sha256'] ?? '').toString(),
+      voiceDurationMs: int.tryParse('${json['voice_duration_ms'] ?? 0}') ?? 0,
     );
   }
 }
@@ -189,6 +194,24 @@ class DirectChatEnvelope {
         'secret': secret,
         'record': record.toJson(),
       });
+
+  static DirectChatEnvelope voiceChunk({
+    required String messageId,
+    required int index,
+    required int total,
+    required String sha256,
+    required String payload,
+  }) =>
+      DirectChatEnvelope('voice_chunk', <String, dynamic>{
+        'id': messageId,
+        'index': index,
+        'total': total,
+        'sha256': sha256,
+        'payload': payload,
+      });
+
+  static DirectChatEnvelope voiceRequest(String messageId) =>
+      DirectChatEnvelope('voice_request', <String, dynamic>{'id': messageId});
 }
 
 class DirectChatRepository {
@@ -257,6 +280,7 @@ class DirectChatRepository {
   Future<String> get deviceId async => (await _state()).deviceId;
 
   Future<DirectChatRecord> createOutgoing({
+    String? id,
     required String conversationId,
     required DirectChatKind kind,
     required String text,
@@ -266,10 +290,11 @@ class DirectChatRepository {
     String fileName = '',
     int fileSize = 0,
     String fileSha256 = '',
+    int voiceDurationMs = 0,
   }) {
     return _write((state) async {
       final record = DirectChatRecord(
-        id: const Uuid().v4(),
+        id: id ?? const Uuid().v4(),
         conversationId: conversationId,
         originDeviceId: state.deviceId,
         originSequence: state.nextSequence++,
@@ -284,6 +309,7 @@ class DirectChatRepository {
         fileName: fileName,
         fileSize: fileSize,
         fileSha256: fileSha256,
+        voiceDurationMs: voiceDurationMs,
       );
       state.records[record.id] = record;
       return record;
@@ -436,6 +462,11 @@ class DirectChatRepository {
             record.delivery != DirectChatDelivery.delivered)
         .toList()
       ..sort((a, b) => a.sentAt.compareTo(b.sentAt));
+  }
+
+  Future<DirectChatRecord?> find(String id) async {
+    await _pendingWrite;
+    return (await _freshState()).records[id];
   }
 
   static int _deliveryRank(DirectChatDelivery delivery) {
