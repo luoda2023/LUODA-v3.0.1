@@ -178,6 +178,19 @@ jobs:
           cd flutter
           flutter clean
           flutter build windows --release
+      - name: Include remote printer adapter
+        if: matrix.arch == 'x64'
+        shell: pwsh
+        run: |
+          $releaseDir = 'flutter\build\windows\x64\runner\Release'
+          Expand-Archive `
+            -LiteralPath 'res\drivers\printer_driver_adapter.zip' `
+            -DestinationPath $releaseDir `
+            -Force
+          $adapter = Join-Path $releaseDir 'printer_driver_adapter.dll'
+          if (-not (Test-Path -LiteralPath $adapter -PathType Leaf)) {
+            throw "Remote printer adapter is missing: $adapter"
+          }
       - name: Verify Flutter font assets
         if: matrix.arch == 'x64'
         shell: powershell

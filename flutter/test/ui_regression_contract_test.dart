@@ -885,6 +885,14 @@ void main() {
     expect(msiProjectSource, contains('<OutputName>LDesk-Setup</OutputName>'));
   });
 
+  test('Windows packages retain the remote printer adapter', () {
+    for (final source in <String>[windowsWorkflowSource, msiWorkflowSource]) {
+      expect(source, contains('printer_driver_adapter.zip'));
+      expect(source, contains('printer_driver_adapter.dll'));
+      expect(source, contains('Expand-Archive'));
+    }
+  });
+
   test('desktop chat rail uses persistent conversations instead of contacts',
       () {
     expect(
