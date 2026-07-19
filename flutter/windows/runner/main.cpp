@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
+#include <string>
 
 #include "win32_desktop.h"
 #include "flutter_window.h"
@@ -135,6 +136,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
       GetEnvironmentVariableA("SET_FOREGROUND_WINDOW", foreground_value,
                               sizeof(foreground_value)) > 0 &&
       foreground_value[0] == '1';
+  char launcher_name[260] = {0};
+  const DWORD launcher_name_length = GetEnvironmentVariableA(
+      "LUODA_APPNAME", launcher_name, sizeof(launcher_name));
+  const bool is_client_launcher =
+      launcher_name_length > 0 &&
+      std::string(launcher_name).find("Client") != std::string::npos;
 
   // Get primary monitor's work area.
   Win32Window::Point workarea_origin(0, 0);
@@ -146,7 +153,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   Win32Window::Point relative_origin(10, 10);
 
   Win32Window::Point origin(workarea_origin.x + relative_origin.x, workarea_origin.y + relative_origin.y);
-  Win32Window::Size size(800u, 600u);
+  const bool use_client_startup_size = is_client_launcher && show_on_startup;
+  Win32Window::Size size = use_client_startup_size
+      ? Win32Window::Size(380u, 500u)
+      : Win32Window::Size(800u, 600u);
 
   // Fit the window to the monitor's work area.
   Win32Desktop::FitToWorkArea(origin, size);

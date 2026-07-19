@@ -1306,6 +1306,8 @@ void main() {
     );
     expect(windowsRunnerMainSource, contains('SET_FOREGROUND_WINDOW'));
     expect(windowsRunnerMainSource, contains('ShowWindow(window.GetHandle()'));
+    expect(windowsRunnerMainSource, contains('LUODA_APPNAME'));
+    expect(windowsRunnerMainSource, contains('380u, 500u'));
   });
 
   test('macOS deployment target supports the direct voice recorder', () {
