@@ -86,6 +86,12 @@ void main() {
   final mobileServerSource = File(
     'lib/mobile/pages/server_page.dart',
   ).readAsStringSync();
+  final mobileScanSource = File(
+    'lib/mobile/pages/scan_page.dart',
+  ).readAsStringSync();
+  final androidManifestSource = File(
+    'android/app/src/main/AndroidManifest.xml',
+  ).readAsStringSync();
   final chatPageSource = File(
     'lib/common/widgets/chat_page.dart',
   ).readAsStringSync();
@@ -592,6 +598,37 @@ void main() {
     expect(chatPageSource, contains('fontSize: isDesktopHome ? 14 : 15'));
     expect(chatPageSource, contains('fontSize: 11'));
     expect(chatPageSource, contains('const Color(0xFF95EC69)'));
+  });
+
+  test('mobile QR scanner exposes camera and gallery controls', () {
+    expect(mobileHomeSource, contains('builder: (_) => ScanPage()'));
+    expect(mobileSettingsSource, contains('=> ScanPage()'));
+    expect(mobileScanSource, contains('class ScanPage'));
+    expect(mobileScanSource, contains('QRView('));
+    expect(mobileScanSource, contains('onQRViewCreated: _onQRViewCreated'));
+    expect(mobileScanSource, contains('_buildImagePickerButton()'));
+    expect(mobileScanSource, contains('toggleFlash()'));
+    expect(mobileScanSource, contains('flipCamera()'));
+    expect(
+      mobileScanSource,
+      contains('Camera permission is required to scan pairing QR codes.'),
+    );
+    expect(androidManifestSource, contains('android.permission.CAMERA'));
+  });
+
+  test('mobile QR scanner routes pairing, app links and invalid payloads', () {
+    expect(mobileScanSource, contains('DirectPairingStore.parsePayload(data)'));
+    expect(
+        mobileScanSource, contains('await DirectPairingStore.save(pairing)'));
+    expect(mobileScanSource, contains("key: 'direct-chat-always-on'"));
+    expect(mobileScanSource, contains("set_direct_chat_service"));
+    expect(mobileScanSource, contains('Navigator.pop(context, pairing)'));
+    expect(mobileScanSource,
+        contains('data.startsWith(bind.mainUriPrefixSync())'));
+    expect(mobileScanSource, contains('_showServerSettingFromQr(data)'));
+    expect(
+        mobileScanSource, contains('ServerConfig.decode(data.substring(7))'));
+    expect(mobileScanSource, contains("translate('Invalid QR code')"));
   });
 
   test('mobile permission center only requests missing permissions', () {

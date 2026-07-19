@@ -128,6 +128,51 @@ void main() {
     );
   });
 
+  test('pairing QR payload accepts a signed direct target', () {
+    final payload = Uri(
+      scheme: 'luoda',
+      host: 'pair',
+      queryParameters: <String, String>{
+        'v': '2',
+        'id': 'peer-qr',
+        'name': 'Office PC',
+        'lan': '192.168.1.8:21118',
+        'wan': '203.0.113.8:21118',
+        'fp': List<String>.filled(64, 'a').join(),
+        'role': 'companion',
+        'sync': 'companion-secret',
+        'ts': '2026-07-17T08:30:00Z',
+      },
+    ).toString();
+
+    final pairing = DirectPairingStore.parsePayload(payload);
+    expect(pairing, isNotNull);
+    expect(pairing!.peerId, 'peer-qr');
+    expect(pairing.displayName, 'Office PC');
+    expect(pairing.connectionTarget, contains('192.168.1.8:21118'));
+    expect(pairing.connectionTarget, contains('fallback=203.0.113.8:21118'));
+    expect(pairing.companion, isTrue);
+  });
+
+  test('pairing QR payload rejects unsigned or malformed targets', () {
+    final unsigned = Uri(
+      scheme: 'luoda',
+      host: 'pair',
+      queryParameters: <String, String>{
+        'v': '2',
+        'id': 'peer-qr',
+        'lan': '192.168.1.8:21118',
+      },
+    ).toString();
+    final fingerprint = List<String>.filled(64, 'a').join();
+    final malformed =
+        'luoda://pair?v=2&id=peer-qr&fp=$fingerprint&lan=not-an-endpoint';
+
+    expect(DirectPairingStore.parsePayload(unsigned), isNull);
+    expect(DirectPairingStore.parsePayload(malformed), isNull);
+    expect(DirectPairingStore.parsePayload('not-a-qr-code'), isNull);
+  });
+
   test('viewer control events stay out of ordinary direct chat', () {
     final model = ViewerSessionModel();
 
