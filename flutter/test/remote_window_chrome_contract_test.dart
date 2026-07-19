@@ -12,6 +12,8 @@ void main() {
   final homePageSource =
       File('lib/desktop/pages/desktop_home_page.dart').readAsStringSync();
   final constantsSource = File('lib/consts.dart').readAsStringSync();
+  final commonSource = File('lib/common.dart').readAsStringSync();
+  final chineseSource = File('../src/lang/cn.rs').readAsStringSync();
 
   test('remote window uses the dedicated two-level chrome and status bar', () {
     expect(remoteTabSource, contains('_RemoteWindowTitleBar('));
@@ -19,6 +21,26 @@ void main() {
     expect(remotePageSource, contains('RemoteToolbar.expandedHeight'));
     expect(remotePageSource, contains('_RemoteSessionStatusBar('));
     expect(remoteToolbarSource, contains('expandedHeight = 58'));
+  });
+
+  test('remote window shows the actual direct or relay transport', () {
+    expect(
+      remotePageSource,
+      contains('ConnectionTypeState.find(widget.id)'),
+    );
+    expect(remotePageSource, contains('getConnectionText('));
+    expect(remotePageSource, contains('connection.stream_type.value'));
+    expect(remotePageSource, contains("translate('Connecting...')"));
+    expect(
+        remoteTabSource, contains("message: '\$msgConn\\n\$msgFingerprint'"));
+    expect(commonSource, contains("if (streamType == 'Relay')"));
+    expect(commonSource, contains("streamType = 'TCP'"));
+    expect(
+        chineseSource, contains('("Direct and encrypted connection", "加密直连")'));
+    expect(
+      chineseSource,
+      contains('("Relayed and encrypted connection", "加密中继连接")'),
+    );
   });
 
   test('high-frequency remote actions remain connected to real callbacks', () {
