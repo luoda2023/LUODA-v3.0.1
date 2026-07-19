@@ -86,6 +86,9 @@ void main() {
   final mobileServerSource = File(
     'lib/mobile/pages/server_page.dart',
   ).readAsStringSync();
+  final mobileRemoteSource = File(
+    'lib/mobile/pages/remote_page.dart',
+  ).readAsStringSync();
   final mobileScanSource = File(
     'lib/mobile/pages/scan_page.dart',
   ).readAsStringSync();
@@ -629,6 +632,17 @@ void main() {
     expect(
         mobileScanSource, contains('ServerConfig.decode(data.substring(7))'));
     expect(mobileScanSource, contains("translate('Invalid QR code')"));
+  });
+
+  test('mobile remote canvas keeps the actual connection route visible', () {
+    expect(mobileRemoteSource, contains('_MobileConnectionRouteBadge'));
+    expect(
+      mobileRemoteSource,
+      contains('ConnectionTypeState.find(id)'),
+    );
+    expect(mobileRemoteSource, contains('getConnectionText('));
+    expect(mobileRemoteSource, contains("translate('Connecting...')"));
+    expect(mobileRemoteSource, contains('connection.stream_type.value'));
   });
 
   test('mobile permission center only requests missing permissions', () {

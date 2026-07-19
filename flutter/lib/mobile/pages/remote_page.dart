@@ -581,6 +581,11 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
             ImagePaint(ffiModel: gFFI.ffiModel),
             Positioned(
               top: 10,
+              left: 10,
+              child: _MobileConnectionRouteBadge(id: widget.id),
+            ),
+            Positioned(
+              top: 10,
               right: 10,
               child: QualityMonitor(gFFI.qualityMonitorModel),
             ),
@@ -1053,6 +1058,73 @@ class _KeyHelpToolsState extends State<KeyHelpTools> {
               (_fn ? fn : []) +
               (_more ? more : []),
         ));
+  }
+}
+
+class _MobileConnectionRouteBadge extends StatelessWidget {
+  const _MobileConnectionRouteBadge({required this.id});
+
+  final String id;
+
+  @override
+  Widget build(BuildContext context) {
+    return Obx(() {
+      final connection = ConnectionTypeState.find(id);
+      final connected = connection.isValid();
+      final direct = connection.direct.value == ConnectionType.strDirect;
+      final label = connected
+          ? getConnectionText(
+              connection.secure.value == ConnectionType.strSecure,
+              direct,
+              connection.stream_type.value,
+            )
+          : translate('Connecting...');
+      final maxWidth = (MediaQuery.sizeOf(context).width - 140)
+          .clamp(96.0, 220.0)
+          .toDouble();
+      return Semantics(
+        label: label,
+        child: Container(
+          height: 28,
+          constraints: BoxConstraints(maxWidth: maxWidth),
+          padding: const EdgeInsets.symmetric(horizontal: 9),
+          decoration: BoxDecoration(
+            color: const Color(0xC722252B),
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 7,
+                height: 7,
+                decoration: BoxDecoration(
+                  color: connected
+                      ? direct
+                          ? const Color(0xFF07C160)
+                          : const Color(0xFFF0A020)
+                      : const Color(0xFFB3BAC5),
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    });
   }
 }
 
