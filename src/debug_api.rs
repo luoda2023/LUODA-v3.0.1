@@ -1,8 +1,7 @@
 //! Local-only diagnostics for repeatable remote-session tests.
 //!
-//! The server is intentionally read-only and is enabled only for debug builds
-//! with `LDESK_DEBUG_API=1`. It must never become a remotely reachable control
-//! surface in a release package.
+//! The server is intentionally read-only and disabled by default. It starts
+//! only when `LDESK_DEBUG_API=1` and must never become remotely reachable.
 
 use hbb_common::log;
 use once_cell::sync::Lazy;
@@ -13,7 +12,7 @@ use std::{
     collections::HashMap,
     io::{Read, Write},
     net::{TcpListener, TcpStream},
-    sync::RwLock,
+    sync::{Once, RwLock},
     thread,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -45,6 +44,7 @@ struct Snapshot {
 
 static SESSIONS: Lazy<RwLock<HashMap<String, Snapshot>>> =
     Lazy::new(|| RwLock::new(HashMap::new()));
+static START: Once = Once::new();
 
 fn now_ms() -> u128 {
     SystemTime::now()
@@ -53,12 +53,16 @@ fn now_ms() -> u128 {
         .as_millis()
 }
 
-/// Start the diagnostics listener when explicitly requested by a debug build.
+/// Start the diagnostics listener when explicitly requested.
 pub fn maybe_start() {
-    if !cfg!(debug_assertions) || std::env::var("LDESK_DEBUG_API").as_deref() != Ok("1") {
+    if std::env::var("LDESK_DEBUG_API").as_deref() != Ok("1") {
         return;
     }
 
+    START.call_once(start);
+}
+
+fn start() {
     let token = std::env::var("LDESK_DEBUG_API_TOKEN").unwrap_or_else(|_| {
         let mut bytes = [0u8; 24];
         rand::thread_rng().fill_bytes(&mut bytes);
@@ -141,7 +145,7 @@ pub fn mark_first_frame(peer_id: &str) {
     // Direct IP sessions may report the peer's stable ID after the connection
     // was keyed by its IP:port. If there is only one active session, it is
     // unambiguous and can still be credited with the first frame.
-    let active = sessions
+    let mut active = sessions
         .values_mut()
         .filter(|snapshot| snapshot.state == "connected")
         .collect::<Vec<_>>();
