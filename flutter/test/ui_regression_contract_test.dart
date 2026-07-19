@@ -1280,6 +1280,29 @@ void main() {
     expect(windowsWorkflowSource, contains(r'Join-Path $env:APPDATA'));
   });
 
+  test('desktop startup does not wait for connection status refresh', () {
+    final runMainAppStart = flutterMainSource.indexOf(
+      'void runMainApp(bool startService) async',
+    );
+    final runMobileAppStart = flutterMainSource.indexOf(
+      'void runMobileApp() async',
+      runMainAppStart,
+    );
+    final runMainAppSource = flutterMainSource.substring(
+      runMainAppStart,
+      runMobileAppStart,
+    );
+
+    expect(
+      runMainAppSource,
+      contains('unawaited(bind.mainCheckConnectStatus());'),
+    );
+    expect(
+      runMainAppSource,
+      isNot(contains('await bind.mainCheckConnectStatus();')),
+    );
+  });
+
   test('macOS deployment target supports the direct voice recorder', () {
     expect(macosPodfileSource, contains("platform :osx, '10.15'"));
     expect(macosProjectSource, contains('MACOSX_DEPLOYMENT_TARGET = 10.15;'));

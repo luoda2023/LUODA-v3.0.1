@@ -141,7 +141,7 @@ void runMainApp(bool startService) async {
   await initEnv(kAppTypeMain);
   // checkUpdate(); // disabled: no auto update
   // trigger connection status updater
-  await bind.mainCheckConnectStatus();
+  unawaited(bind.mainCheckConnectStatus());
   if (startService) {
     gFFI.serverModel.startService();
     bind.pluginSyncUi(syncTo: kAppTypeMain);
