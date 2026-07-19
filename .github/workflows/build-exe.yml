@@ -314,54 +314,9 @@ jobs:
         timeout-minutes: 2
         shell: pwsh
         run: |
-          Add-Type @'
-          using System;
-          using System.Collections.Generic;
-          using System.Runtime.InteropServices;
-          using System.Text;
-          public sealed class LDeskWindowInfo {
-            public IntPtr Handle { get; set; }
-            public uint ProcessId { get; set; }
-            public bool Visible { get; set; }
-            public string ClassName { get; set; }
-            public string Title { get; set; }
-          }
-          public static class LDeskWindowDiagnostics {
-            private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
-            [DllImport("user32.dll")]
-            private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
-            [DllImport("user32.dll")]
-            private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
-            [DllImport("user32.dll")]
-            private static extern bool IsWindowVisible(IntPtr hWnd);
-            [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-            private static extern int GetClassName(IntPtr hWnd, StringBuilder text, int maxCount);
-            [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-            private static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int maxCount);
-            public static LDeskWindowInfo[] GetWindows() {
-              var result = new List<LDeskWindowInfo>();
-              EnumWindows((hWnd, lParam) => {
-                uint processId;
-                GetWindowThreadProcessId(hWnd, out processId);
-                var className = new StringBuilder(256);
-                var title = new StringBuilder(512);
-                GetClassName(hWnd, className, className.Capacity);
-                GetWindowText(hWnd, title, title.Capacity);
-                result.Add(new LDeskWindowInfo {
-                  Handle = hWnd,
-                  ProcessId = processId,
-                  Visible = IsWindowVisible(hWnd),
-                  ClassName = className.ToString(),
-                  Title = title.ToString()
-                });
-                return true;
-              }, IntPtr.Zero);
-              return result.ToArray();
-            }
-          }
-          '@
           $portable = Resolve-Path 'SignOutput\LDesk-portable-x64.exe'
           $runtimeExe = Join-Path $env:LOCALAPPDATA 'LUODA\luoda.exe'
+          $runtimePath = [IO.Path]::GetFullPath($runtimeExe)
           $logDir = Join-Path (Resolve-Path '.') '.auto_build_logs'
           [IO.Directory]::CreateDirectory($logDir) | Out-Null
           $runtime = $null
@@ -372,7 +327,7 @@ jobs:
             do {
               Start-Sleep -Milliseconds 500
               $runtime = Get-Process -Name luoda -ErrorAction SilentlyContinue |
-                Where-Object { $_.Path -eq $runtimeExe } |
+                Where-Object { $_.Path -and [IO.Path]::GetFullPath($_.Path) -ieq $runtimePath } |
                 Select-Object -First 1
               if ($null -ne $runtime) {
                 $runtime.Refresh()
@@ -382,23 +337,6 @@ jobs:
               [DateTime]::UtcNow -lt $deadline
             )
             if ($null -eq $runtime -or $runtime.MainWindowHandle -eq 0) {
-              $diagnostic = Join-Path $logDir 'portable-window-diagnostics.txt'
-              $lines = [System.Collections.Generic.List[string]]::new()
-              $lines.Add("portable=$portable")
-              $lines.Add("runtimeExe=$runtimeExe")
-              $lines.Add("SET_FOREGROUND_WINDOW=$env:SET_FOREGROUND_WINDOW")
-              $lines.Add("LUODA_APPNAME=$env:LUODA_APPNAME")
-              $lines.Add('=== luoda processes ===')
-              Get-Process -Name luoda -ErrorAction SilentlyContinue |
-                Select-Object Id,Path,MainWindowHandle,MainWindowTitle,SessionId,Responding,HasExited |
-                Out-String | ForEach-Object { $lines.Add($_) }
-              $lines.Add('=== top-level windows ===')
-              foreach ($window in [LDeskWindowDiagnostics]::GetWindows()) {
-                $lines.Add(("Handle={0} Pid={1} Visible={2} Class={3} Title={4}" -f
-                  $window.Handle, $window.ProcessId, $window.Visible,
-                  $window.ClassName, $window.Title))
-              }
-              [IO.File]::WriteAllLines($diagnostic, $lines)
               throw 'Portable LDesk did not create a main window'
             }
             if (-not $runtime.Responding) {
@@ -418,7 +356,7 @@ jobs:
             }
             $matching = @(
               Get-Process -Name luoda -ErrorAction SilentlyContinue |
-                Where-Object { $_.Path -eq $runtimeExe }
+                Where-Object { $_.Path -and [IO.Path]::GetFullPath($_.Path) -ieq $runtimePath }
             )
             if (@($matching).Count -ne 1 -or $matching[0].Id -ne $firstPid) {
               throw 'Portable relaunch created a duplicate LDesk process'
