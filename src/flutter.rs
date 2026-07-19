@@ -862,6 +862,8 @@ impl InvokeUiSession for FlutterHandler {
     #[inline]
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     fn on_rgba(&self, display: usize, rgba: &mut scrap::ImageRgb) {
+        #[cfg(all(feature = "flutter", not(any(target_os = "android", target_os = "ios"))))]
+        crate::debug_api::mark_first_frame(&self.peer_info.read().unwrap().peer_id);
         let use_texture_render = self.use_texture_render.load(Ordering::Relaxed);
         self.on_rgba_flutter_texture_render(use_texture_render, display, rgba);
         if !use_texture_render {

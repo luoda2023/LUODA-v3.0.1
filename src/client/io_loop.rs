@@ -180,6 +180,13 @@ impl<T: InvokeUiSession> Remote<T> {
                     .lock()
                     .unwrap()
                     .set_connected();
+                #[cfg(all(feature = "flutter", not(any(target_os = "android", target_os = "ios"))))]
+                crate::debug_api::record_connection(
+                    &self.handler.get_id(),
+                    peer.is_secured(),
+                    direct,
+                    stream_type,
+                );
                 self.handler
                     .set_connection_type(peer.is_secured(), direct, stream_type); // flutter -> connection_ready
                 self.handler.update_direct(Some(direct));
@@ -343,6 +350,8 @@ impl<T: InvokeUiSession> Remote<T> {
                 }
             }
             Err(err) => {
+                #[cfg(all(feature = "flutter", not(any(target_os = "android", target_os = "ios"))))]
+                crate::debug_api::mark_error(&self.handler.get_id(), &err.to_string());
                 self.handler.on_establish_connection_error(err.to_string());
             }
         }
@@ -353,6 +362,8 @@ impl<T: InvokeUiSession> Remote<T> {
             .lock()
             .unwrap()
             .set_disconnected(round);
+        #[cfg(all(feature = "flutter", not(any(target_os = "android", target_os = "ios"))))]
+        crate::debug_api::mark_disconnected(&self.handler.get_id());
 
         #[cfg(not(target_os = "ios"))]
         if self.handler.is_default() && _set_disconnected_ok {

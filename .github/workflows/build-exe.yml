@@ -147,6 +147,7 @@ jobs:
           cargo test --release --features flutter --lib direct_access::tests -- --nocapture
           cargo test --release --features flutter --lib direct_endpoint_tests -- --nocapture
           cargo test --release --features flutter --lib direct_port_tests -- --nocapture
+          cargo test --release --features flutter --lib debug_api::tests -- --nocapture
           cargo test --release --features flutter --test viewer_invite_policy -- --nocapture
         env:
           VCPKG_ROOT: C:\vcpkg
@@ -314,25 +315,28 @@ jobs:
         run: |
           $portable = Resolve-Path 'SignOutput\LDesk-portable-x64.exe'
           $runtimeExe = Join-Path $env:LOCALAPPDATA 'LUODA\luoda.exe'
-          $firstLauncher = Start-Process -FilePath $portable -PassThru
-          $firstLauncher.WaitForExit(30000) | Out-Null
-          $deadline = [DateTime]::UtcNow.AddSeconds(30)
-          do {
-            Start-Sleep -Milliseconds 500
-            $runtime = Get-Process -Name luoda -ErrorAction SilentlyContinue |
-              Where-Object { $_.Path -eq $runtimeExe } |
-              Select-Object -First 1
-            if ($null -ne $runtime) {
-              $runtime.Refresh()
-            }
-          } while (
-            ($null -eq $runtime -or $runtime.MainWindowHandle -eq 0) -and
-            [DateTime]::UtcNow -lt $deadline
-          )
-          if ($null -eq $runtime -or $runtime.MainWindowHandle -eq 0) {
-            throw 'Portable LDesk did not create a main window'
-          }
+          $logDir = Join-Path (Resolve-Path '.') '.auto_build_logs'
+          [IO.Directory]::CreateDirectory($logDir) | Out-Null
+          $runtime = $null
           try {
+            $firstLauncher = Start-Process -FilePath $portable -PassThru
+            $firstLauncher.WaitForExit(30000) | Out-Null
+            $deadline = [DateTime]::UtcNow.AddSeconds(30)
+            do {
+              Start-Sleep -Milliseconds 500
+              $runtime = Get-Process -Name luoda -ErrorAction SilentlyContinue |
+                Where-Object { $_.Path -eq $runtimeExe } |
+                Select-Object -First 1
+              if ($null -ne $runtime) {
+                $runtime.Refresh()
+              }
+            } while (
+              ($null -eq $runtime -or $runtime.MainWindowHandle -eq 0) -and
+              [DateTime]::UtcNow -lt $deadline
+            )
+            if ($null -eq $runtime -or $runtime.MainWindowHandle -eq 0) {
+              throw 'Portable LDesk did not create a main window'
+            }
             if (-not $runtime.Responding) {
               throw 'Portable LDesk stopped responding after first launch'
             }
@@ -363,6 +367,18 @@ jobs:
           } finally {
             if ($null -ne $runtime -and -not $runtime.HasExited) {
               Stop-Process -Id $runtime.Id -Force -ErrorAction SilentlyContinue
+            }
+            $runtimeLogDirs = @(
+              (Join-Path $env:ProgramData 'LUODA\logs'),
+              (Join-Path $env:APPDATA 'LDesk\logs'),
+              (Join-Path $env:APPDATA 'LUODA\logs')
+            )
+            foreach ($runtimeLogDir in $runtimeLogDirs) {
+              if (Test-Path -LiteralPath $runtimeLogDir) {
+                Get-ChildItem -LiteralPath $runtimeLogDir -File | ForEach-Object {
+                  Copy-Item -LiteralPath $_.FullName -Destination $logDir -Force
+                }
+              }
             }
           }
       - name: Smoke test Windows main window responsiveness
