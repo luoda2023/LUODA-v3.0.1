@@ -157,6 +157,12 @@ class FfiModel with ChangeNotifier {
 
   String? get lastConnectionError => _lastConnectionError;
 
+  void clearConnectionError() {
+    if (_lastConnectionError == null) return;
+    _lastConnectionError = null;
+    notifyListeners();
+  }
+
   void markConnectionClosed() {
     notifyListeners();
   }
@@ -449,7 +455,7 @@ class FfiModel with ChangeNotifier {
         parent.target?.serverModel.updateVoiceCallState(evt);
       } else if (name == 'fingerprint') {
         final actual = (evt['fingerprint'] ?? '').toString();
-        FingerprintState.find(peerId).value = actual;
+        FingerprintState.ensure(peerId).value = actual;
         final ffi = parent.target;
         if (ffi?.connType == ConnType.chat) {
           final pairing = DirectPairingStore.find(
@@ -953,7 +959,11 @@ class FfiModel with ChangeNotifier {
       if (parent.target?.connType == ConnType.chat) {
         final chatModel = parent.target?.chatModel;
         if (chatModel != null) {
-          unawaited(chatModel.markCurrentUndeliveredFailed());
+          final rejected =
+              text?.toString().contains('Direct messages rejected') == true;
+          unawaited(rejected
+              ? chatModel.markCurrentUndeliveredFailed()
+              : chatModel.markCurrentUndeliveredQueued());
         }
       }
       notifyListeners();
@@ -1409,7 +1419,7 @@ class FfiModel with ChangeNotifier {
       await DirectPairingStore.saveDiscovered(
         peerId: actualPeerId,
         endpoint: ffi.id.trim(),
-        fingerprint: FingerprintState.find(peerId).value,
+        fingerprint: FingerprintState.ensure(peerId).value,
         displayName: displayName,
         avatar: _pi.avatar,
       );

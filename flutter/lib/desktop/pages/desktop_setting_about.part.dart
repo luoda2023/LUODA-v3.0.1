@@ -63,34 +63,23 @@ class _AboutState extends State<_About> {
                     translate('Website'),
                     style: linkStyle,
                   ).marginSymmetric(vertical: 4.0)),
-              Container(
-                decoration: const BoxDecoration(color: Color(0xFF2A84BA)),
-                padding:
-                    const EdgeInsets.symmetric(vertical: 24, horizontal: 8),
-                child: SelectionArea(
-                    child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Dicad.cn',
-                            style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                          ),
-                          Text(
-                            'AI赋能工程设计',
-                            style: const TextStyle(color: Colors.white, fontSize: 14),
-                          ),
-                          Text(
-                            '让想象成为现实',
-                            style: const TextStyle(color: Colors.white, fontSize: 12, letterSpacing: 0),
-                          )
-                      ]),
-                    ),
-                  ],
-                )),
-              ).marginSymmetric(vertical: 4.0)
+              const Divider(height: 28),
+              Row(
+                children: <Widget>[
+                  Icon(
+                    Icons.desktop_windows_rounded,
+                    size: 28,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    translate('LUODA Remote Assistance'),
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                ],
+              ),
             ],
           ).marginOnly(left: _kContentHMargin)
         ]),

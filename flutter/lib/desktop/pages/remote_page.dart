@@ -470,32 +470,94 @@ class _RemotePageState extends State<RemotePage>
 
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.background,
-      body: Obx(() {
-        final imageReady = _ffi.ffiModel.pi.isSet.isTrue &&
-            _ffi.ffiModel.waitForFirstImage.isFalse;
-        if (imageReady) {
-          // If the privacy mode(disable physical displays) is switched,
-          // we should not dismiss the dialog immediately.
-          if (DateTime.now().difference(togglePrivacyModeTime) >
-              const Duration(milliseconds: 3000)) {
-            // `dismissAll()` is to ensure that the state is clean.
-            // It's ok to call dismissAll() here.
-            _ffi.dialogManager.dismissAll();
-            // Recreate the block state to refresh the state.
-            _blockableOverlayState = BlockableOverlayState();
-            _blockableOverlayState.applyFfi(_ffi);
+      body: AnimatedBuilder(
+        animation: _ffi.ffiModel,
+        builder: (context, _) => Obx(() {
+          final error = _ffi.ffiModel.lastConnectionError;
+          if (!_ffi.ffiModel.pi.isSet.isTrue &&
+              error?.trim().isNotEmpty == true) {
+            return _buildConnectionFailure(context, error!);
           }
-          // Block the whole `bodyWidget()` when dialog shows.
-          return BlockableOverlay(
-            underlying: bodyWidget(),
-            state: _blockableOverlayState,
-          );
-        } else {
-          // `_blockableOverlayState` is not recreated here.
-          // The toolbar's block state won't work properly when reconnecting, but that's okay.
-          return bodyWidget();
-        }
-      }),
+          final imageReady = _ffi.ffiModel.pi.isSet.isTrue &&
+              _ffi.ffiModel.waitForFirstImage.isFalse;
+          if (imageReady) {
+            // If the privacy mode(disable physical displays) is switched,
+            // we should not dismiss the dialog immediately.
+            if (DateTime.now().difference(togglePrivacyModeTime) >
+                const Duration(milliseconds: 3000)) {
+              // `dismissAll()` is to ensure that the state is clean.
+              // It's ok to call dismissAll() here.
+              _ffi.dialogManager.dismissAll();
+              // Recreate the block state to refresh the state.
+              _blockableOverlayState = BlockableOverlayState();
+              _blockableOverlayState.applyFfi(_ffi);
+            }
+            // Block the whole `bodyWidget()` when dialog shows.
+            return BlockableOverlay(
+              underlying: bodyWidget(),
+              state: _blockableOverlayState,
+            );
+          } else {
+            // `_blockableOverlayState` is not recreated here.
+            // The toolbar's block state won't work properly when reconnecting, but that's okay.
+            return bodyWidget();
+          }
+        }),
+      ),
+    );
+  }
+
+  Widget _buildConnectionFailure(BuildContext context, String error) {
+    final message = translate(error.trim());
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520),
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(
+                Icons.cloud_off_rounded,
+                size: 52,
+                color: Theme.of(context).colorScheme.error,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                translate('Connection failed'),
+                style: Theme.of(context).textTheme.titleLarge,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              SelectableText(message, textAlign: TextAlign.center),
+              const SizedBox(height: 20),
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 10,
+                children: <Widget>[
+                  OutlinedButton.icon(
+                    onPressed: closeConnection,
+                    icon: const Icon(Icons.close_rounded),
+                    label: Text(translate('Close')),
+                  ),
+                  FilledButton.icon(
+                    onPressed: () {
+                      _ffi.ffiModel.clearConnectionError();
+                      _ffi.ffiModel.reconnect(
+                        _ffi.dialogManager,
+                        sessionId,
+                        false,
+                      );
+                    },
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: Text(translate('Retry')),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 

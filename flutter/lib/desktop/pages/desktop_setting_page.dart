@@ -348,36 +348,43 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
                   ? 232.0
                   : 64.0;
           final iconOnly = tabWidth == 64;
-          return _buildBlock(
+          return Row(
             children: <Widget>[
               _buildPrimaryRail(context),
-              Container(
-                width: tabWidth,
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surface,
-                  border: Border(right: BorderSide(color: theme.dividerColor)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _header(context, iconOnly: iconOnly),
-                    Flexible(
-                      child: _listView(
-                        tabs: _settingTabs(),
-                        iconOnly: iconOnly,
+              Expanded(
+                child: _buildBlock(
+                  children: <Widget>[
+                    Container(
+                      width: tabWidth,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surface,
+                        border: Border(
+                            right: BorderSide(color: theme.dividerColor)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _header(context, iconOnly: iconOnly),
+                          Flexible(
+                            child: _listView(
+                              tabs: _settingTabs(),
+                              iconOnly: iconOnly,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: ColoredBox(
+                        color: theme.scaffoldBackgroundColor,
+                        child: PageView(
+                          controller: controller,
+                          physics: const NeverScrollableScrollPhysics(),
+                          children: _children(),
+                        ),
                       ),
                     ),
                   ],
-                ),
-              ),
-              Expanded(
-                child: ColoredBox(
-                  color: theme.scaffoldBackgroundColor,
-                  child: PageView(
-                    controller: controller,
-                    physics: const NeverScrollableScrollPhysics(),
-                    children: _children(),
-                  ),
                 ),
               ),
             ],

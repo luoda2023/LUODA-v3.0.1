@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
-import '../common.dart';
 import '../models/platform_model.dart';
 
 class DirectPairing {
@@ -257,7 +256,15 @@ class DirectPairingStore {
   static String? resolveConnectionTarget(String value) {
     final input = value.trim().replaceAll(' ', '');
     if (isDirectEndpoint(input)) return input;
-    return find(input)?.connectionTarget;
+    return find(input)?.connectionTarget ?? (isDeviceId(input) ? input : null);
+  }
+
+  /// Device IDs are resolved by the rendezvous/direct-punching core when no
+  /// local pairing record is available. Keep that path open for first contact.
+  static bool isDeviceId(String value) {
+    final input = value.trim().replaceAll(' ', '');
+    return RegExp(r'^[A-Za-z0-9_-]{3,64}(?:/r)?$').hasMatch(input) &&
+        !isDirectEndpoint(input);
   }
 
   static bool isDirectEndpoint(String value) {

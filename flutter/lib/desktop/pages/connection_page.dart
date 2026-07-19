@@ -27,12 +27,10 @@ class OnlineStatusWidget extends StatefulWidget {
     Key? key,
     this.onSvcStatusChanged,
     this.compact = false,
-    this.forceChinese = false,
   }) : super(key: key);
 
   final VoidCallback? onSvcStatusChanged;
   final bool compact;
-  final bool forceChinese;
 
   @override
   State<OnlineStatusWidget> createState() => _OnlineStatusWidgetState();
@@ -81,21 +79,13 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
         widget.onSvcStatusChanged?.call();
         final stopped = _svcStopped.value;
         final status = stateGlobal.svcStatus.value;
-        final message = widget.forceChinese
-            ? stopped
-                ? '服务未运行'
-                : status == SvcStatus.connecting
-                    ? '正在启动直连服务'
-                    : status == SvcStatus.notReady
-                        ? '直连服务未就绪'
-                        : '直连服务已开启'
-            : stopped
-                ? translate('Service is not running')
-                : status == SvcStatus.connecting
-                    ? translate('connecting_status')
-                    : status == SvcStatus.notReady
-                        ? translate('not_ready_status')
-                        : translate('Direct listening');
+        final message = stopped
+            ? translate('Service is not running')
+            : status == SvcStatus.connecting
+                ? translate('connecting_status')
+                : status == SvcStatus.notReady
+                    ? translate('not_ready_status')
+                    : translate('Direct listening');
         final color = stopped || status == SvcStatus.notReady
             ? const Color(0xFF667085)
             : status == SvcStatus.connecting
@@ -126,7 +116,7 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
               InkWell(
                 onTap: () => start_service(true),
                 child: Text(
-                  widget.forceChinese ? '启动服务' : translate('Start service'),
+                  translate('Start service'),
                   style: TextStyle(
                     fontSize: kWeChatMetaFontSize,
                     height: kWeChatTextHeight,

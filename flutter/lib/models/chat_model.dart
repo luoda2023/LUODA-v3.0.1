@@ -772,6 +772,15 @@ class ChatModel with ChangeNotifier {
     await DirectChatRepository.instance.markUndeliveredFailed(
       _currentKey.peerId,
     );
+    await _restoreConversation(_currentKey);
+  }
+
+  Future<void> markCurrentUndeliveredQueued() async {
+    if (_currentKey.peerId.isEmpty) return;
+    await DirectChatRepository.instance.markUndeliveredQueued(
+      _currentKey.peerId,
+    );
+    await _restoreConversation(_currentKey);
   }
 
   Future<void> remapCurrentPeer(String peerId) async {
@@ -807,6 +816,11 @@ class ChatModel with ChangeNotifier {
             id,
             DirectChatDelivery.delivered,
           );
+          final record = await DirectChatRepository.instance.find(id);
+          if (record != null) {
+            insertMessage(key, _toChatMessage(record, me));
+            notifyListeners();
+          }
         }
         return;
       case 'sync_request':
@@ -916,10 +930,11 @@ class ChatModel with ChangeNotifier {
       DirectChatEnvelope.message(record).encode(),
     );
     if (sent && record.delivery != DirectChatDelivery.delivered) {
-      await DirectChatRepository.instance.markDelivery(
-        record.id,
-        DirectChatDelivery.sent,
-      );
+      final updated = record.copyWith(delivery: DirectChatDelivery.sent);
+      await DirectChatRepository.instance
+          .markDelivery(record.id, updated.delivery);
+      insertMessage(key, _toChatMessage(updated, me));
+      notifyListeners();
     }
   }
 

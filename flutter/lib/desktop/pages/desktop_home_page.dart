@@ -35,6 +35,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:window_size/window_size.dart' as window_size;
 import '../widgets/button.dart';
+import '../../common/direct_chat.dart';
 import '../../common/direct_pairing.dart';
 import '../../common/direct_viewer_invite.dart';
 import '../../common/wechat_ui_tokens.dart';
@@ -79,6 +80,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   bool _openingViewerInvite = false;
   final Map<String, FFI> _directChatSessions = <String, FFI>{};
   final Map<String, FFI> _directFileSessions = <String, FFI>{};
+  final Map<String, bool> _knownPeerOnline = <String, bool>{};
+  final Set<String> _notifiedChatConnections = <String>{};
+  int? _lastNetworkStatus;
   String? _activeDirectChatPeerId;
   final RxBool _settingsHover = false.obs;
   final RxBool _relayHover = false.obs;
@@ -161,41 +165,41 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     const destinations = <DesktopRailDestination>[
       DesktopRailDestination(
         id: 'chat',
-        label: '消息',
+        label: 'Messages',
         icon: Icons.chat_bubble_outline_rounded,
         selectedIcon: Icons.chat_bubble_rounded,
       ),
       DesktopRailDestination(
         id: 'recent',
-        label: '最近访问',
+        label: 'Recent sessions',
         icon: Icons.history_rounded,
       ),
       DesktopRailDestination(
         id: 'favorites',
-        label: '收藏',
+        label: 'Favorites',
         icon: Icons.star_outline_rounded,
         selectedIcon: Icons.star_rounded,
       ),
       DesktopRailDestination(
         id: 'discovered',
-        label: '局域网发现',
+        label: 'LAN discovery',
         icon: Icons.radar_rounded,
       ),
       DesktopRailDestination(
         id: 'contacts',
-        label: '联系人',
+        label: 'Contacts',
         icon: Icons.contacts_outlined,
         selectedIcon: Icons.contacts_rounded,
       ),
       DesktopRailDestination(
         id: 'history',
-        label: '访问历史',
+        label: 'Access history',
         icon: Icons.devices_outlined,
         selectedIcon: Icons.devices_rounded,
       ),
       DesktopRailDestination(
         id: 'vip',
-        label: '高级功能',
+        label: 'VIP features',
         icon: Icons.workspace_premium_outlined,
         selectedIcon: Icons.workspace_premium_rounded,
       ),
@@ -231,14 +235,14 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final theme = Theme.of(context);
     final dark = theme.brightness == Brightness.dark;
     final sectionTitle = switch (_selectedRailId) {
-      'chat' => '消息',
-      'recent' => '最近访问',
-      'favorites' => '收藏',
-      'discovered' => '局域网发现',
-      'contacts' => '联系人',
-      'history' => '访问历史',
-      'vip' => '高级功能',
-      _ => '联系人',
+      'chat' => translate('Messages'),
+      'recent' => translate('Recent sessions'),
+      'favorites' => translate('Favorites'),
+      'discovered' => translate('LAN discovery'),
+      'contacts' => translate('Contacts'),
+      'history' => translate('Access history'),
+      'vip' => translate('VIP features'),
+      _ => translate('Contacts'),
     };
     return ColoredBox(
       color: dark ? const Color(0xFF25272C) : kWeChatListSurfaceColor,
@@ -261,7 +265,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                         }
                       },
                       decoration: InputDecoration(
-                        hintText: _selectedRailId == 'chat' ? '搜索会话' : '搜索',
+                        hintText: _selectedRailId == 'chat'
+                            ? translate('Search conversations')
+                            : translate('Search'),
                         prefixIcon: const Icon(Icons.search_rounded, size: 18),
                         filled: true,
                         fillColor:
@@ -277,7 +283,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 ),
                 const SizedBox(width: 8),
                 PopupMenuButton<String>(
-                  tooltip: '添加',
+                  tooltip: translate('Add'),
                   icon: const Icon(Icons.add_circle_outline_rounded, size: 24),
                   onSelected: (value) {
                     switch (value) {
@@ -298,19 +304,19 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                   itemBuilder: (context) => <PopupMenuEntry<String>>[
                     PopupMenuItem<String>(
                       value: 'connect',
-                      child: Text('通过 ID / IP 连接'),
+                      child: Text(translate('Connect by ID / IP')),
                     ),
                     PopupMenuItem<String>(
                       value: 'viewer',
-                      child: Text('加入观看'),
+                      child: Text(translate('Join as Viewer')),
                     ),
                     PopupMenuItem<String>(
                       value: 'pair-phone',
-                      child: Text('绑定手机'),
+                      child: Text(translate('Pair phone')),
                     ),
                     PopupMenuItem<String>(
                       value: 'identity',
-                      child: Text('我的设备信息'),
+                      child: Text(translate('My Identity')),
                     ),
                   ],
                 ),
@@ -377,7 +383,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         }
 
         return AlertDialog(
-          title: Text('连接对方'),
+          title: Text(translate('Connect by ID / IP')),
           content: SizedBox(
             width: 360,
             child: TextField(
@@ -388,8 +394,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               textInputAction: TextInputAction.go,
               onSubmitted: (_) => startRemote(),
               decoration: InputDecoration(
-                labelText: '对方 ID 或 IP:端口',
-                helperText: '首次连接陌生设备，请输入 IP:端口',
+                labelText: translate('ID or IP:port'),
+                helperText: translate('Enter Remote ID'),
                 prefixIcon: const Icon(Icons.link_rounded, size: 20),
               ),
             ),
@@ -397,17 +403,17 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           actions: <Widget>[
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
-              child: Text('取消'),
+              child: Text(translate('Cancel')),
             ),
             OutlinedButton.icon(
               onPressed: startChat,
               icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18),
-              label: Text('开始聊天'),
+              label: Text(translate('Start a direct conversation')),
             ),
             FilledButton.icon(
               onPressed: startRemote,
               icon: const Icon(Icons.desktop_windows_outlined, size: 18),
-              label: Text('远程协助'),
+              label: Text(translate('Remote assistance')),
             ),
           ],
         );
@@ -545,6 +551,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 ],
               ),
             ),
+            _buildNetworkStatusBadge(context),
+            const SizedBox(width: 8),
             _conversationActionButton(
               context,
               tooltip: translate('File Transfer'),
@@ -599,6 +607,41 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       child: IconButton(
         onPressed: onPressed,
         icon: Icon(icon, size: 21),
+      ),
+    );
+  }
+
+  Widget _buildNetworkStatusBadge(BuildContext context) {
+    final status = gFFI.serverModel.connectStatus;
+    final label = status > 0
+        ? translate('Online')
+        : status == 0
+            ? translate('Connecting')
+            : translate('Offline');
+    final color = status > 0
+        ? const Color(0xFF238A57)
+        : status == 0
+            ? const Color(0xFFE39128)
+            : const Color(0xFF667085);
+    return Tooltip(
+      message: translate('Network') + ': $label',
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: color,
+                  fontSize: 11,
+                ),
+          ),
+        ],
       ),
     );
   }
@@ -711,7 +754,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               ),
               const SizedBox(height: 8),
               Text(
-                '${contact.id}\n${contact.online ? '在线' : '离线'}',
+                '${contact.id}\n${translate(contact.online ? 'Online' : 'Offline')}',
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: theme.colorScheme.onSurface.withOpacity(0.56),
@@ -721,7 +764,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               FilledButton.icon(
                 onPressed: () => _startDirectChat(contact.id),
                 icon: const Icon(Icons.chat_bubble_outline_rounded, size: 19),
-                label: Text('连接并聊天'),
+                label: Text(translate('Connect and chat')),
               ),
               const SizedBox(height: 10),
               Wrap(
@@ -730,7 +773,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                   OutlinedButton.icon(
                     onPressed: () => _sendFilesFromConversation(contact.id),
                     icon: const Icon(Icons.attach_file_rounded, size: 18),
-                    label: Text('文件传输'),
+                    label: Text(translate('File Transfer')),
                   ),
                   OutlinedButton.icon(
                     onPressed: () => _connectDirect(context, contact.id),
@@ -738,7 +781,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                       Icons.desktop_windows_outlined,
                       size: 18,
                     ),
-                    label: Text('远程协助'),
+                    label: Text(translate('Remote assistance')),
                   ),
                 ],
               ),
@@ -764,7 +807,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   Text(
-                    '我的设备信息',
+                    translate('My Identity'),
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontSize: kWeChatHeadingFontSize,
                       height: kWeChatTextHeight,
@@ -773,7 +816,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    '将设备 ID 或 IP 告诉对方，对方即可连接此电脑。',
+                    translate(
+                        'Tell the other device your ID or IP to connect.'),
                     style: theme.textTheme.bodyMedium?.copyWith(
                       fontSize: kWeChatBodyFontSize,
                       height: kWeChatTextHeight,
@@ -781,11 +825,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                     ),
                   ),
                   const SizedBox(height: 16),
-                  _buildIdentityCard(
-                    context,
-                    model,
-                    chinese: true,
-                  ),
+                  _buildIdentityCard(context, model),
                   const SizedBox(height: 16),
                   Row(
                     children: <Widget>[
@@ -793,19 +833,16 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                         child: FilledButton.icon(
                           onPressed: () => _showDirectConnectDialog(context),
                           icon: const Icon(Icons.add_link_rounded, size: 19),
-                          label: Text('连接对方'),
+                          label: Text(translate('Connect by ID / IP')),
                         ),
                       ),
                       const SizedBox(width: 10),
                       OutlinedButton.icon(
                         onPressed: model.serverId.text.isEmpty
                             ? null
-                            : () => _copyValue(
-                                  model.serverId.text,
-                                  chinese: true,
-                                ),
+                            : () => _copyValue(model.serverId.text),
                         icon: const Icon(Icons.copy_rounded, size: 18),
-                        label: Text('复制设备 ID'),
+                        label: Text(translate('Copy device ID')),
                       ),
                     ],
                   ),
@@ -1474,6 +1511,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   }) async {
     final requestedId = rawPeerId.trim().replaceAll(' ', '');
     if (requestedId.isEmpty) return;
+    if (await _isSelfTarget(requestedId)) {
+      _showConversationNotice(translate('Cannot connect to this device.'));
+      return;
+    }
     final pairing = DirectPairingStore.find(requestedId);
     final endpoint = DirectPairingStore.resolveConnectionTarget(requestedId);
     if (endpoint == null) {
@@ -1622,7 +1663,25 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
   Future<void> _refreshDirectSessions() async {
     await _maintainTrustedChatSessions();
+    await _maintainPendingChatSessions();
     await gFFI.chatModel.syncActiveCompanionSessions();
+  }
+
+  Future<void> _maintainPendingChatSessions() async {
+    for (final peerId
+        in await DirectChatRepository.instance.conversationIds()) {
+      if (!mounted) return;
+      final pending = await DirectChatRepository.instance.pendingFor(peerId);
+      if (pending.isEmpty) {
+        continue;
+      }
+      final existing = _directChatSessionFor(peerId);
+      final hasError =
+          existing?.ffiModel.lastConnectionError?.isNotEmpty == true;
+      if (existing != null && !existing.closed && !hasError) continue;
+      if (existing != null && !existing.closed) await existing.close();
+      await _startDirectChat(peerId, activate: false);
+    }
   }
 
   Future<void> _closeDirectChat(String peerId) async {
@@ -1946,6 +2005,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     bool isTerminal = false,
     bool isTcpTunneling = false,
   }) async {
+    if (await _isSelfTarget(peerIdOrEndpoint)) {
+      _showConversationNotice(translate('Cannot connect to this device.'));
+      return;
+    }
     final endpoint =
         DirectPairingStore.resolveConnectionTarget(peerIdOrEndpoint);
     if (endpoint == null) {
@@ -1976,6 +2039,24 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         translate('Unable to open the connection window.'),
       );
     }
+  }
+
+  Future<bool> _isSelfTarget(String value) async {
+    final input = value.trim().replaceAll(' ', '');
+    if (input.isEmpty) return false;
+    if (DirectPairingStore.isDeviceId(input)) {
+      final ownId = (await bind.mainGetMyId()).trim().replaceAll(' ', '');
+      return ownId.isNotEmpty && ownId == input;
+    }
+    if (!DirectPairingStore.isDirectEndpoint(input)) return false;
+    final host = input.startsWith('[')
+        ? input.substring(1, input.indexOf(']'))
+        : input.substring(0, input.lastIndexOf(':'));
+    if (host == 'localhost' || host == '::1' || host.startsWith('127.')) {
+      return true;
+    }
+    final lanIp = bind.mainGetOptionSync(key: 'lan-ip').trim();
+    return lanIp.isNotEmpty && host == lanIp;
   }
 
   Future<void> _showToolsMenu(BuildContext context) async {
@@ -2259,7 +2340,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                       children: [
                         if (!outgoingOnly) ...[
                           Text(
-                            '我的设备信息',
+                            translate('My Identity'),
                             style: Theme.of(context)
                                 .textTheme
                                 .titleMedium
@@ -2270,11 +2351,11 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                 ),
                           ),
                           const SizedBox(height: 12),
-                          _buildIdentityCard(context, model, chinese: true),
+                          _buildIdentityCard(context, model),
                           const SizedBox(height: 22),
                         ],
                         Text(
-                          '快捷操作',
+                          translate('Quick Actions'),
                           style: Theme.of(context)
                               .textTheme
                               .titleSmall
@@ -2290,7 +2371,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                               Icons.add_rounded,
                               size: 20,
                             ),
-                            label: Text('连接对方'),
+                            label: Text(translate('Connect by ID / IP')),
                           ),
                         ),
                         const SizedBox(height: 10),
@@ -2302,7 +2383,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                               initialPage: SettingsTabKey.safety,
                             ),
                             icon: const Icon(Icons.security_outlined, size: 19),
-                            label: Text('安全设置'),
+                            label: Text(translate('Security settings')),
                           ),
                         ),
                         const SizedBox(height: 14),
@@ -2332,7 +2413,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     BuildContext context,
     ServerModel model, {
     bool compact = false,
-    bool chinese = false,
   }) {
     final publicIP = bind.mainGetOptionSync(key: 'public-ip');
     final lanIP = bind.mainGetOptionSync(key: 'lan-ip');
@@ -2357,47 +2437,41 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         children: [
           _identityValue(
             context,
-            chinese ? '设备 ID' : translate('ID'),
+            translate('ID'),
             model.serverId.text,
             prominent: true,
             icon: Icons.copy_rounded,
-            onTap: () => _copyValue(model.serverId.text, chinese: chinese),
-            chinese: chinese,
+            onTap: () => _copyValue(model.serverId.text),
           ),
           SizedBox(height: compact ? 8 : 12),
           _identityValue(
             context,
-            chinese ? '密码' : translate('One-time Password'),
+            translate('One-time Password'),
             model.serverPasswd.text,
             icon:
                 temporary ? Icons.refresh_rounded : Icons.lock_outline_rounded,
             onTap: temporary ? () => bind.mainUpdateTemporaryPassword() : null,
-            onCopy: () => _copyValue(model.serverPasswd.text, chinese: chinese),
+            onCopy: () => _copyValue(model.serverPasswd.text),
             obscure: true,
             revealed: _passwordVisible,
             onToggleVisibility: () {
               setState(() => _passwordVisible = !_passwordVisible);
             },
-            chinese: chinese,
           ),
           Divider(height: compact ? 16 : 22),
           _addressValue(
             context,
-            chinese ? '公网 IP：端口' : translate('Public IP:port'),
+            translate('Public IP:port'),
             address(publicIP),
             status: upnpStatus,
             statusColor: _directStatusColor(upnpStatus),
-            statusTooltip: chinese
-                ? _directStatusTipChinese(upnpStatus)
-                : translate(_directStatusTip(upnpStatus)),
-            chinese: chinese,
+            statusTooltip: translate(_directStatusTip(upnpStatus)),
           ),
           SizedBox(height: compact ? 6 : 10),
           _addressValue(
             context,
-            chinese ? '局域网 IP：端口' : translate('LAN IP:port'),
+            translate('LAN IP:port'),
             address(lanIP),
-            chinese: chinese,
           ),
         ],
       ),
@@ -2415,13 +2489,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     bool obscure = false,
     bool revealed = true,
     bool prominent = false,
-    bool chinese = false,
   }) {
     final available = value.isNotEmpty;
     final displayValue = !available
-        ? chinese
-            ? '暂不可用'
-            : translate('Not available')
+        ? translate('Not available')
         : obscure && !revealed
             ? List.filled(value.runes.length, '\u2022').join()
             : value;
@@ -2468,13 +2539,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             if (onToggleVisibility != null)
               IconButton(
                 visualDensity: VisualDensity.compact,
-                tooltip: chinese
-                    ? revealed
-                        ? '隐藏密码'
-                        : '显示密码'
-                    : translate(
-                        revealed ? 'Hide Password' : 'Show Password',
-                      ),
+                tooltip:
+                    translate(revealed ? 'Hide Password' : 'Show Password'),
                 onPressed: onToggleVisibility,
                 icon: Icon(
                   revealed
@@ -2486,25 +2552,19 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             if (onCopy != null)
               IconButton(
                 visualDensity: VisualDensity.compact,
-                tooltip: chinese ? '复制' : translate('Copy to clipboard'),
+                tooltip: translate('Copy to clipboard'),
                 onPressed: available ? onCopy : null,
                 icon: const Icon(Icons.copy_rounded, size: 17),
               ),
             IconButton(
               visualDensity: VisualDensity.compact,
-              tooltip: chinese
-                  ? prominent
-                      ? '复制'
-                      : onTap == null
-                          ? '当前使用固定密码'
-                          : '刷新密码'
-                  : translate(
-                      prominent
-                          ? 'Copy to clipboard'
-                          : onTap == null
-                              ? 'Use permanent password'
-                              : 'Refresh Password',
-                    ),
+              tooltip: translate(
+                prominent
+                    ? 'Copy to clipboard'
+                    : onTap == null
+                        ? 'Use permanent password'
+                        : 'Refresh Password',
+              ),
               onPressed: onTap,
               icon: Icon(icon, size: 18),
             ),
@@ -2521,14 +2581,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     String? status,
     Color? statusColor,
     String? statusTooltip,
-    bool chinese = false,
   }) {
     final available = value.isNotEmpty;
-    final displayValue = available
-        ? value
-        : chinese
-            ? '暂不可用'
-            : translate('Not available');
+    final displayValue = available ? value : translate('Not available');
     final unavailableColor =
         Theme.of(context).textTheme.bodyMedium?.color?.withOpacity(.68);
     return Column(
@@ -2567,9 +2622,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           children: [
             Expanded(
               child: GestureDetector(
-                onDoubleTap: available
-                    ? () => _copyValue(value, chinese: chinese)
-                    : null,
+                onDoubleTap: available ? () => _copyValue(value) : null,
                 child: Tooltip(
                   message: displayValue,
                   child: Text(
@@ -2589,9 +2642,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             ),
             IconButton(
               visualDensity: VisualDensity.compact,
-              tooltip: chinese ? '复制' : translate('Copy to clipboard'),
-              onPressed:
-                  available ? () => _copyValue(value, chinese: chinese) : null,
+              tooltip: translate('Copy to clipboard'),
+              onPressed: available ? () => _copyValue(value) : null,
               icon: const Icon(Icons.copy_rounded, size: 16),
             ),
           ],
@@ -2600,19 +2652,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     );
   }
 
-  void _copyValue(String value, {bool chinese = false}) {
+  void _copyValue(String value) {
     if (value.isEmpty) return;
     Clipboard.setData(ClipboardData(text: value));
-    showToast(chinese ? '已复制' : translate('Copied'));
-  }
-
-  String _directStatusTipChinese(String status) {
-    if (status == 'ok') return '公网端口映射可用';
-    if (status == 'pending') return '正在检测公网端口映射';
-    if (status == 'fail') return '公网端口映射失败';
-    if (status == 'disabled') return '已关闭公网端口映射';
-    if (status == 'unsupported') return '当前网络不支持自动端口映射';
-    return '公网端口映射状态未知';
+    showToast(translate('Copied'));
   }
 
   Color _directStatusColor(String status) {
@@ -2676,7 +2719,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             ),
             const SizedBox(height: 8),
             Text(
-              'LDesk远程协助',
+              translate('LUODA Remote Assistance'),
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: kWeChatHeadingFontSize,
@@ -2686,7 +2729,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               ),
             ),
             const SizedBox(height: 4),
-            const OnlineStatusWidget(compact: true, forceChinese: true),
+            const OnlineStatusWidget(compact: true),
           ],
         ),
       ),
@@ -2699,12 +2742,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         padding: const EdgeInsets.symmetric(horizontal: 20),
         child: SizedBox(
           width: double.infinity,
-          child: _buildIdentityCard(
-            context,
-            model,
-            compact: true,
-            chinese: true,
-          ),
+          child: _buildIdentityCard(context, model, compact: true),
         ),
       ),
     );
@@ -3669,7 +3707,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       unawaited(_refreshDirectSessions());
     });
     _directChatKeepAliveTimer = Timer.periodic(
-      const Duration(minutes: 30),
+      const Duration(seconds: 5),
       (_) => unawaited(_refreshDirectSessions()),
     );
     _updateTimer = periodic_immediate(const Duration(seconds: 1), () async {
@@ -3688,6 +3726,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         }
         setState(() {});
       }
+      _checkConnectionTransitions();
       if (watchIsCanScreenRecording) {
         if (bind.mainIsCanScreenRecording(prompt: false)) {
           watchIsCanScreenRecording = false;
@@ -3863,6 +3902,43 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       });
     }
     WidgetsBinding.instance.addObserver(this);
+  }
+
+  void _checkConnectionTransitions() {
+    final peers = <Peer>{
+      ...gFFI.recentPeersModel.peers,
+      ...gFFI.favoritePeersModel.peers,
+      ...gFFI.lanPeersModel.peers,
+    };
+    for (final peer in peers) {
+      final previous = _knownPeerOnline[peer.id];
+      _knownPeerOnline[peer.id] = peer.online;
+      if (previous != null && previous != peer.online) {
+        _showConversationNotice(
+          '${_contactName(peer)}: ${translate(peer.online ? 'Online' : 'Offline')}',
+        );
+      }
+    }
+
+    final networkStatus = gFFI.serverModel.connectStatus;
+    if (_lastNetworkStatus != null && _lastNetworkStatus != networkStatus) {
+      _showConversationNotice(
+        '${translate('Network')}: ${networkStatus > 0 ? translate('Online') : networkStatus == 0 ? translate('Connecting') : translate('Offline')}',
+      );
+    }
+    _lastNetworkStatus = networkStatus;
+
+    for (final entry in _directChatSessions.entries) {
+      if (entry.value.ffiModel.pi.isSet.isTrue &&
+          _notifiedChatConnections.add(entry.key)) {
+        _showConversationNotice(
+          '${entry.key}: ${translate('Connected')}',
+        );
+      }
+    }
+    _notifiedChatConnections.removeWhere(
+      (peerId) => _directChatSessions[peerId]?.closed != false,
+    );
   }
 
   _updateWindowSize() {

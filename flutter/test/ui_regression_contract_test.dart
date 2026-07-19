@@ -23,6 +23,9 @@ void main() {
   final desktopConnectionSource = File(
     'lib/desktop/pages/connection_page.dart',
   ).readAsStringSync();
+  final remotePageSource = File(
+    'lib/desktop/pages/remote_page.dart',
+  ).readAsStringSync();
   final desktopTabSource = File(
     'lib/desktop/pages/desktop_tab_page.dart',
   ).readAsStringSync();
@@ -112,6 +115,9 @@ void main() {
   ).readAsStringSync();
   final directChatSource = File(
     'lib/common/direct_chat.dart',
+  ).readAsStringSync();
+  final directChatStorageSource = File(
+    'lib/common/direct_chat_storage_io.dart',
   ).readAsStringSync();
   final chatModelSource = File(
     'lib/models/chat_model.dart',
@@ -336,7 +342,7 @@ void main() {
     expect(homePageSource, contains('_buildPrimaryRail'));
     expect(homePageSource, contains('_buildContactsPane'));
     expect(homePageSource, contains('_buildConversationWorkspace'));
-    expect(homePageSource, contains("'对方 ID 或 IP:端口'"));
+    expect(homePageSource, contains("translate('Connect by ID / IP')"));
     expect(homePageSource, contains('ChatPage('));
     expect(homePageSource, contains('_sendFilesFromConversation'));
     expect(homePageSource, contains('_buildActiveTransferStrip'));
@@ -346,6 +352,52 @@ void main() {
     expect(homePageSource, contains('ffi.ffiModel.direct != true'));
     expect(homePageSource, contains('chatFfi.ffiModel.direct == true'));
     expect(homePageSource, contains('localController.sendFiles'));
+  });
+
+  test('desktop shell localizes visible copy and exposes network state', () {
+    for (final key in <String>[
+      'Messages',
+      'Recent sessions',
+      'Favorites',
+      'Contacts',
+      'Search conversations',
+      'Connect by ID / IP',
+      'Remote assistance',
+      'Join as Viewer',
+      'Pair phone',
+      'My Identity',
+    ]) {
+      expect(homePageSource, contains("translate('$key')"));
+    }
+    expect(homePageSource, contains('_buildNetworkStatusBadge(context)'));
+    expect(homePageSource, contains('serverModel.connectStatus'));
+    expect(homePageSource, isNot(contains("label: '消息'")));
+    expect(homePageSource, isNot(contains("Text('连接对方')")));
+    expect(desktopRailSource, isNot(contains("label: '设置'")));
+  });
+
+  test('connection failures stay actionable and settings navigation stays live',
+      () {
+    expect(remotePageSource, contains('_buildConnectionFailure'));
+    expect(remotePageSource, contains('clearConnectionError'));
+    expect(remotePageSource, contains("translate('Retry')"));
+    final settingsLayout = settingsSource
+        .split('final iconOnly = tabWidth == 64;')[1]
+        .split('Widget _header(')[0];
+    expect(settingsLayout, contains('return Row('));
+    expect(
+      settingsLayout.indexOf('_buildPrimaryRail(context)'),
+      lessThan(settingsLayout.indexOf('child: _buildBlock')),
+    );
+  });
+
+  test('language changes notify other windows before rebuilding the shell', () {
+    final changeIndex = settingsGeneralSource.indexOf(
+      'bind.mainChangeLanguage(lang: key)',
+    );
+    final reloadIndex = settingsGeneralSource.indexOf('reloadAllWindows()');
+    expect(changeIndex, greaterThanOrEqualTo(0));
+    expect(reloadIndex, greaterThan(changeIndex));
   });
 
   test('desktop chat matches the latest WeChat density and bubble language',
@@ -751,6 +803,16 @@ void main() {
     );
   });
 
+  test('desktop ID and IP entry delegates unpaired IDs to the core', () {
+    expect(directPairingSource, contains('isDeviceId(input)'));
+    expect(
+      directPairingSource,
+      contains("(isDeviceId(input) ? input : null)"),
+    );
+    expect(homePageSource, contains('_isSelfTarget(peerIdOrEndpoint)'));
+    expect(homePageSource, contains("host.startsWith('127.')"));
+  });
+
   test('direct chat persists, acknowledges and incrementally synchronizes', () {
     expect(directChatSource, contains('DirectChatDelivery.queued'));
     expect(directChatSource, contains('DirectChatDelivery.sent'));
@@ -762,6 +824,22 @@ void main() {
     expect(directChatSource, contains('record.originSequence >'));
     expect(chatPageSource, contains("translate('Waiting to send')"));
     expect(chatPageSource, contains("translate('Delivered')"));
+  });
+
+  test('offline direct chat retries storage locks and resumes queued messages',
+      () {
+    expect(directChatStorageSource,
+        contains('for (var attempt = 0; attempt < 8; attempt++)'));
+    expect(directChatStorageSource, contains('FileLock.exclusive'));
+    expect(homePageSource, contains('_maintainPendingChatSessions'));
+    expect(homePageSource, contains('Duration(seconds: 5)'));
+    expect(homePageSource, contains('_checkConnectionTransitions'));
+    expect(homePageSource, contains('_notifiedChatConnections.add'));
+    expect(chatPageSource, contains("translate('Waiting to send')"));
+    expect(chatModelSource, contains('DirectChatDelivery.delivered'));
+    expect(directChatSource, contains('markUndeliveredQueued'));
+    expect(chatModelSource, contains('markCurrentUndeliveredQueued'));
+    expect(modelSource, contains('markCurrentUndeliveredQueued'));
   });
 
   test('voice messages record, validate, transfer and play over direct chat',
@@ -977,20 +1055,12 @@ void main() {
       clientHeader,
       contains('crossAxisAlignment: CrossAxisAlignment.center'),
     );
-    expect(
-      clientHeader,
-      contains('OnlineStatusWidget(compact: true, forceChinese: true)'),
-    );
+    expect(clientHeader, contains('OnlineStatusWidget(compact: true)'));
     expect(
       homePageSource,
-      matches(
-        RegExp(
-          r'_buildIdentityCard\(\s*context,\s*model,\s*compact: true,\s*chinese: true,?\s*\)',
-        ),
-      ),
+      contains('_buildIdentityCard(context, model, compact: true)'),
     );
     expect(desktopConnectionSource, contains('this.compact = false'));
-    expect(desktopConnectionSource, contains('this.forceChinese = false'));
     expect(desktopConnectionSource, contains('if (widget.compact)'));
   });
 
@@ -1012,17 +1082,20 @@ void main() {
         .split(
             'Widget _buildEmptyConversation(BuildContext context, {Peer? contact})')[1]
         .split('Widget _buildContactSection(BuildContext context)')[0];
-    expect(emptyConversation, contains("'我的设备信息'"));
-    expect(emptyConversation, contains("'将设备 ID 或 IP 告诉对方，对方即可连接此电脑。'"));
+    expect(emptyConversation, contains("translate('My Identity')"));
+    expect(
+      emptyConversation,
+      contains("translate('Tell the other device your ID or IP to connect.')"),
+    );
     expect(emptyConversation, contains('_buildIdentityCard('));
-    expect(emptyConversation, contains("'连接对方'"));
-    expect(emptyConversation, contains("'复制设备 ID'"));
+    expect(emptyConversation, contains("translate('Connect by ID / IP')"));
+    expect(emptyConversation, contains("translate('Copy device ID')"));
 
     final directDialog = homePageSource
         .split('void _showDirectConnectDialog(BuildContext context)')[1]
         .split('Widget _buildConversationWorkspace(BuildContext context)')[0];
-    expect(directDialog, contains("'开始聊天'"));
-    expect(directDialog, contains("'远程协助'"));
+    expect(directDialog, contains("translate('Start a direct conversation')"));
+    expect(directDialog, contains("translate('Remote assistance')"));
     expect(directDialog, contains('_startDirectChat(target)'));
     expect(directDialog, contains('_connectDirect(context, target)'));
   });
@@ -1049,10 +1122,10 @@ void main() {
   });
 
   test('about page contains readable Chinese branding copy', () {
-    expect(settingsAboutSource, contains("'AI赋能工程设计'"));
-    expect(settingsAboutSource, contains("'让想象成为现实'"));
-    expect(settingsAboutSource, isNot(contains('AI璧嬭兘')));
-    expect(settingsAboutSource, isNot(contains('LET IMAGINATION')));
+    expect(
+        settingsAboutSource, contains("translate('LUODA Remote Assistance')"));
+    expect(settingsAboutSource, isNot(contains('Color(0xFF2A84BA)')));
+    expect(settingsAboutSource, isNot(contains('AI赋能工程设计')));
   });
 
   test('title bar and primary rail share the configured background', () {
@@ -1078,28 +1151,18 @@ void main() {
     expect(portablePackerSource, isNot(contains('remove_dir_all')));
   });
 
-  test('custom client identity and connection state are always Chinese', () {
-    expect(homePageSource, contains("'LDesk远程协助'"));
-    for (final label in <String>[
-      '设备 ID',
-      '密码',
-      '公网 IP：端口',
-      '局域网 IP：端口',
-      '暂不可用',
-      '已复制',
-    ]) {
-      expect(homePageSource, contains("'$label'"));
-    }
-    for (final status in <String>[
-      '服务未运行',
-      '正在启动直连服务',
-      '直连服务未就绪',
-      '直连服务已开启',
-      '启动服务',
-    ]) {
-      expect(desktopConnectionSource, contains("'$status'"));
-    }
-    expect(desktopTabSource, contains("? 'LDesk远程协助'"));
+  test(
+      'custom client identity and connection state follow the selected language',
+      () {
+    expect(homePageSource, contains("translate('Remote assistance')"));
+    expect(homePageSource, isNot(contains('chinese: true')));
+    expect(homePageSource, isNot(contains('forceChinese: true')));
+    expect(desktopConnectionSource, contains("translate('Direct listening')"));
+    expect(desktopConnectionSource, isNot(contains('forceChinese ?')));
+    expect(
+      desktopTabSource,
+      contains("translate('LUODA Remote Assistance')"),
+    );
   });
 
   test('Windows tray embeds the latest compact LDesk icon', () {
@@ -1126,7 +1189,10 @@ void main() {
     expect(clientPanel, isNot(contains('_buildRemoteCenter')));
     expect(clientPanel, isNot(contains('DesktopSettingPage')));
     expect(desktopTabSource, contains('final title = compactClient'));
-    expect(desktopTabSource, contains("? 'LDesk远程协助'"));
+    expect(
+      desktopTabSource,
+      contains("translate('LUODA Remote Assistance')"),
+    );
     expect(clientWorkflowSource, contains('name: Build LDesk Client EXE'));
     expect(clientWorkflowSource, contains('SignOutput/LDesk-Client-x64.exe'));
     expect(clientWorkflowSource, contains('LDesk-3.1.1-Client-x64.exe'));
@@ -1144,23 +1210,15 @@ void main() {
   });
 
   test('shared identity card copies ID password and direct IP values', () {
-    expect(
-      homePageSource,
-      contains(
-        'onTap: () => _copyValue(model.serverId.text, chinese: chinese)',
-      ),
-    );
-    expect(
-      homePageSource,
-      contains(
-        'onCopy: () => _copyValue(model.serverPasswd.text, chinese: chinese)',
-      ),
-    );
+    expect(homePageSource,
+        contains('onTap: () => _copyValue(model.serverId.text)'));
+    expect(homePageSource,
+        contains('onCopy: () => _copyValue(model.serverPasswd.text)'));
     expect(
       homePageSource,
       matches(
         RegExp(
-          r'onPressed:\s*available\s*\? \(\) => _copyValue\(value, chinese: chinese\)\s*: null',
+          r'onPressed:\s*available\s*\? \(\) => _copyValue\(value\)\s*: null',
         ),
       ),
     );
@@ -1174,7 +1232,7 @@ void main() {
       homePageSource,
       matches(
         RegExp(
-          r'onDoubleTap:\s*available\s*\? \(\) => _copyValue\(value, chinese: chinese\)\s*: null',
+          r'onDoubleTap:\s*available\s*\? \(\) => _copyValue\(value\)\s*: null',
         ),
       ),
     );

@@ -26,16 +26,30 @@ class DirectChatStorage {
   ) async {
     final file = await _file();
     final lockFile = File('${file.path}.lock');
-    final lock = await lockFile.open(mode: FileMode.append);
-    await lock.lock(FileLock.exclusive);
-    try {
-      final current = await file.exists() ? await file.readAsString() : null;
-      final next = await transform(current);
-      await file.writeAsString(next, flush: true);
-      return next;
-    } finally {
-      await lock.unlock();
-      await lock.close();
+    Object? lastError;
+    for (var attempt = 0; attempt < 8; attempt++) {
+      RandomAccessFile? lock;
+      try {
+        lock = await lockFile.open(mode: FileMode.append);
+        await lock.lock(FileLock.exclusive);
+        final current = await file.exists() ? await file.readAsString() : null;
+        final next = await transform(current);
+        await file.writeAsString(next, flush: true);
+        await lock.unlock();
+        await lock.close();
+        return next;
+      } catch (error) {
+        lastError = error;
+        try {
+          await lock?.unlock();
+        } catch (_) {}
+        try {
+          await lock?.close();
+        } catch (_) {}
+        if (attempt == 7) rethrow;
+        await Future<void>.delayed(Duration(milliseconds: 25 * (attempt + 1)));
+      }
     }
+    throw lastError ?? StateError('Unable to update direct chat storage');
   }
 }

@@ -131,10 +131,10 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
                     ? kTabLabelHomePage
                     : state.tabs[selected].key;
                 final title = compactClient
-                    ? 'LDesk远程协助'
+                    ? translate('LUODA Remote Assistance')
                     : key == kTabLabelSettingPage
-                        ? '设置'
-                        : '消息';
+                        ? translate('Settings')
+                        : translate('Messages');
                 return LDeskMainTitleBar(
                   title: title,
                   showPin: !compactClient,

@@ -128,6 +128,13 @@ void main() {
     );
   });
 
+  test('unpaired device IDs remain valid core connection targets', () {
+    expect(DirectPairingStore.isDeviceId('980966'), isTrue);
+    expect(DirectPairingStore.isDeviceId('peer-office-01'), isTrue);
+    expect(DirectPairingStore.isDeviceId('192.168.1.8:21118'), isFalse);
+    expect(DirectPairingStore.isDeviceId(''), isFalse);
+  });
+
   test('pairing QR payload accepts a signed direct target', () {
     final payload = Uri(
       scheme: 'luoda',

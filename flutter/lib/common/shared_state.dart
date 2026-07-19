@@ -132,6 +132,14 @@ class ConnectionTypeState {
 class FingerprintState {
   static String tag(String id) => 'fingerprint_$id';
 
+  static RxString ensure(String id) {
+    final key = tag(id);
+    if (!Get.isRegistered<RxString>(tag: key)) {
+      return Get.put<RxString>(''.obs, tag: key);
+    }
+    return Get.find<RxString>(tag: key);
+  }
+
   static void init(String id) {
     final key = tag(id);
     if (!Get.isRegistered<RxString>(tag: key)) {

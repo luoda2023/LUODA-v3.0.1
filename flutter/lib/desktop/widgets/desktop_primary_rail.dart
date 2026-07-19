@@ -151,7 +151,7 @@ class DesktopPrimaryRail extends StatelessWidget {
                 _RailButton(
                   destination: const DesktopRailDestination(
                     id: 'pair-phone',
-                    label: '绑定手机',
+                    label: 'Pair phone',
                     icon: Icons.phone_android_rounded,
                   ),
                   selected: false,
@@ -161,7 +161,7 @@ class DesktopPrimaryRail extends StatelessWidget {
               _RailButton(
                 destination: const DesktopRailDestination(
                   id: 'settings',
-                  label: '设置',
+                  label: 'Settings',
                   icon: Icons.settings_outlined,
                   selectedIcon: Icons.settings_rounded,
                 ),
@@ -172,7 +172,7 @@ class DesktopPrimaryRail extends StatelessWidget {
               _RailButton(
                 destination: const DesktopRailDestination(
                   id: 'more',
-                  label: '更多',
+                  label: 'More',
                   icon: Icons.menu_rounded,
                 ),
                 selected: false,

@@ -769,6 +769,14 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("password_card_tip", ""),
         ("two_factor_card_tip", ""),
         ("device_id_card_tip", ""),
+        ("LAN discovery", ""),
+        ("Access history", ""),
+        ("ID or IP:port", ""),
+        ("Tell the other device your ID or IP to connect.", ""),
+        ("Copy device ID", ""),
+        ("Security settings", ""),
+        ("Cannot connect to this device.", ""),
+        ("Connection failed", ""),
         ("Unlock", ""),
     ].iter().cloned().collect();
 }

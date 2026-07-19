@@ -381,6 +381,20 @@ class DirectChatRepository {
     });
   }
 
+  Future<void> markUndeliveredQueued(String conversationId) {
+    return _write((state) async {
+      for (final entry in state.records.entries.toList(growable: false)) {
+        final record = entry.value;
+        if (record.conversationId == conversationId &&
+            record.isOutgoing &&
+            record.delivery != DirectChatDelivery.delivered) {
+          state.records[entry.key] =
+              record.copyWith(delivery: DirectChatDelivery.queued);
+        }
+      }
+    });
+  }
+
   Future<void> remapConversation(String from, String to) {
     if (from.isEmpty || to.isEmpty || from == to) return Future<void>.value();
     return _write((state) async {
