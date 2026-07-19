@@ -1305,7 +1305,7 @@ void main() {
       isNot(contains('await bind.mainCheckConnectStatus();')),
     );
     expect(windowsRunnerMainSource, contains('SET_FOREGROUND_WINDOW'));
-    expect(windowsRunnerMainSource, contains('ShowWindow(window.GetHandle()'));
+    expect(windowsRunnerMainSource, contains('ShowWindow(startup_window'));
     expect(windowsRunnerMainSource, contains('LUODA_APPNAME'));
     expect(windowsRunnerMainSource, contains('380u, 500u'));
     expect(windowsRunnerMainSource, contains('std::this_thread::sleep_for'));
