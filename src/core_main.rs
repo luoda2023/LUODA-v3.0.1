@@ -192,11 +192,12 @@ pub fn core_main() -> Option<Vec<String>> {
     }
     #[cfg(windows)]
     {
-        _is_quick_support |= !crate::platform::is_installed()
-            && args.is_empty()
-            && (is_quick_support_exe(&arg_exe)
-                || config::LocalConfig::get_option("pre-elevate-service") == "Y"
-                || (!click_setup && crate::platform::is_elevated(None).unwrap_or(false)));
+        _is_quick_support |= should_auto_start_portable_service(
+            crate::platform::is_installed(),
+            args.is_empty(),
+            &arg_exe,
+            config::LocalConfig::get_option("pre-elevate-service") == "Y",
+        );
         crate::portable_service::client::set_quick_support(_is_quick_support);
     }
     let mut log_name = "".to_owned();
@@ -918,4 +919,45 @@ fn is_quick_support_exe(exe: &str) -> bool {
     // The in-process start_server(true, false) fallback handles
     // connectivity (ID generation, rendezvous server) correctly.
     exe.contains("-qs-") || exe.contains("-qs.exe") || exe.contains("_qs.exe")
+}
+
+#[cfg(windows)]
+fn should_auto_start_portable_service(
+    is_installed: bool,
+    args_empty: bool,
+    exe: &str,
+    pre_elevate_service: bool,
+) -> bool {
+    !is_installed && args_empty && (is_quick_support_exe(exe) || pre_elevate_service)
+}
+
+#[cfg(all(test, windows))]
+mod portable_mode_tests {
+    use super::should_auto_start_portable_service;
+
+    #[test]
+    fn ordinary_portable_exe_keeps_the_ui_in_the_current_session() {
+        assert!(!should_auto_start_portable_service(
+            false,
+            true,
+            "LDesk-portable-x64.exe",
+            false,
+        ));
+    }
+
+    #[test]
+    fn quick_support_name_or_pre_elevation_starts_the_portable_service() {
+        assert!(should_auto_start_portable_service(
+            false,
+            true,
+            "LDesk-qs-x64.exe",
+            false,
+        ));
+        assert!(should_auto_start_portable_service(
+            false,
+            true,
+            "LDesk-portable-x64.exe",
+            true,
+        ));
+    }
 }

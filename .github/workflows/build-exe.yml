@@ -148,6 +148,7 @@ jobs:
           cargo test --release --features flutter --lib direct_endpoint_tests -- --nocapture
           cargo test --release --features flutter --lib direct_port_tests -- --nocapture
           cargo test --release --features flutter --lib debug_api::tests -- --nocapture
+          cargo test --release --features flutter --lib portable_mode_tests -- --nocapture
           cargo test --release --features flutter --test viewer_invite_policy -- --nocapture
         env:
           VCPKG_ROOT: C:\vcpkg
