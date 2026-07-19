@@ -1124,6 +1124,7 @@ pub fn main_set_option(key: String, value: String) {
         || key.eq("custom-rendezvous-server")
         || key.eq(config::keys::OPTION_ALLOW_WEBSOCKET)
         || key.eq(config::keys::OPTION_DISABLE_UDP)
+        || key.eq(config::keys::OPTION_SERVERLESS_DIRECT_ONLY)
         || key.eq("api-server")
     {
         if is_allow_tls_fallback {

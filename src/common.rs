@@ -1016,6 +1016,12 @@ pub fn is_luoda() -> bool {
 }
 
 #[inline]
+pub fn is_serverless_direct_only() -> bool {
+    is_luoda()
+        && Config::get_option(config::keys::OPTION_SERVERLESS_DIRECT_ONLY).as_str() == "Y"
+}
+
+#[inline]
 pub fn get_uri_prefix() -> String {
     if is_luoda() {
         "luoda://".to_owned()

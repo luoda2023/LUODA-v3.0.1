@@ -106,6 +106,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
   var _directChatAlwaysOn = false;
   var _directChatTrustedOnly = true;
   var _directChatAutoReconnect = true;
+  var _serverlessDirectOnly = false;
   var _showAdvancedSettings = false;
 
   _SettingsState() {
@@ -157,6 +158,8 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
         bind.mainGetLocalOption(key: 'direct-chat-trusted-only') != 'N';
     _directChatAutoReconnect =
         bind.mainGetLocalOption(key: 'direct-chat-auto-reconnect') != 'N';
+    _serverlessDirectOnly =
+        bind.mainGetOptionSync(key: kOptionServerlessDirectOnly) == 'Y';
   }
 
   @override
@@ -776,7 +779,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
             ),
           ],
         ),
-        if (!kServerlessDirectOnly && !bind.isDisableAccount())
+        if (!kLocalProfileOnly && !bind.isDisableAccount())
           SettingsSection(
             title: Text(translate('Account')),
             tiles: [
@@ -806,14 +809,27 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
             ],
           ),
         SettingsSection(title: Text(translate("Settings")), tiles: [
-          SettingsTile(
+          SettingsTile.switchTile(
             title: Text(translate('Serverless direct mode')),
             description: Text(translate(
-              'Rendezvous, relay, proxy, and cloud sync are disabled.',
+              'When enabled, device ID connections are disabled; IP, QR, and LAN connections stay direct. When disabled, device IDs try direct first and use encrypted TCP relay only if needed.',
             )),
             leading: const Icon(Icons.shield_outlined),
+            initialValue: _serverlessDirectOnly,
+            onToggle:
+                disabledSettings || isOptionFixed(kOptionServerlessDirectOnly)
+                    ? null
+                    : (value) async {
+                        await bind.mainSetOption(
+                          key: kOptionServerlessDirectOnly,
+                          value: value ? 'Y' : 'N',
+                        );
+                        if (mounted) {
+                          setState(() => _serverlessDirectOnly = value);
+                        }
+                      },
           ),
-          if (!kServerlessDirectOnly &&
+          if (!_serverlessDirectOnly &&
               !disabledSettings &&
               !_hideNetwork &&
               !_hideServer)
@@ -826,14 +842,14 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                     setState(callback);
                   });
                 }),
-          if (!kServerlessDirectOnly && !_hideNetwork && !_hideProxy)
+          if (!_serverlessDirectOnly && !_hideNetwork && !_hideProxy)
             SettingsTile(
                 title: Text(translate('Socks5/Http(s) Proxy')),
                 leading: Icon(Icons.network_ping),
                 onPressed: (context) {
                   changeSocks5Proxy();
                 }),
-          if (!kServerlessDirectOnly &&
+          if (!_serverlessDirectOnly &&
               !disabledSettings &&
               !_hideNetwork &&
               !_hideWebSocket)
@@ -851,7 +867,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                       });
                     },
             ),
-          if (!kServerlessDirectOnly && !_isUsingPublicServer)
+          if (!_serverlessDirectOnly && !_isUsingPublicServer)
             SettingsTile.switchTile(
               title: Text(translate('Allow insecure TLS fallback')),
               initialValue: _allowInsecureTlsFallback,
@@ -867,7 +883,10 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                       });
                     },
             ),
-          if (isAndroid && !outgoingOnly && !_isUsingPublicServer)
+          if (!_serverlessDirectOnly &&
+              isAndroid &&
+              !outgoingOnly &&
+              !_isUsingPublicServer)
             SettingsTile.switchTile(
               title: Text(translate('Disable UDP')),
               initialValue: _disableUdp,
@@ -883,7 +902,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                       });
                     },
             ),
-          if (!incomingOnly)
+          if (!_serverlessDirectOnly && !incomingOnly)
             SettingsTile.switchTile(
               title: Text(translate('Enable UDP hole punching')),
               initialValue: _enableUdpPunch,
@@ -896,7 +915,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                 });
               },
             ),
-          if (!incomingOnly)
+          if (!_serverlessDirectOnly && !incomingOnly)
             SettingsTile.switchTile(
               title: Text(translate('Enable IPv6 P2P connection')),
               initialValue: _enableIpv6Punch,

@@ -234,28 +234,10 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
   }
 
   Widget network(BuildContext context) {
-    if (kServerlessDirectOnly) {
-      return _Card(
-        title: 'Network',
-        children: [
-          ListTile(
-            leading: const Icon(
-              Icons.shield_outlined,
-              color: _accentColor,
-            ),
-            title: Text(
-              translate('Serverless direct mode'),
-              style: const TextStyle(fontSize: _kContentFontSize),
-            ),
-            subtitle: Text(
-              translate(
-                'Only paired IP endpoints and LAN discovery are used. Rendezvous, relay, proxy, and cloud sync are disabled.',
-              ),
-            ),
-          ),
-        ],
-      );
-    }
+    final serverlessDirectOnly = bind.mainGetOptionSync(
+          key: kOptionServerlessDirectOnly,
+        ) ==
+        'Y';
     final hideServer =
         bind.mainGetBuildinOption(key: kOptionHideServerSetting) == 'Y';
     final hideProxy =
@@ -263,14 +245,11 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
     final hideWebSocket = isWeb ||
         bind.mainGetBuildinOption(key: kOptionHideWebSocketSetting) == 'Y';
 
-    if (hideServer && hideProxy && hideWebSocket) {
-      return Offstage();
-    }
-
     // Helper function to create network setting ListTiles
     Widget listTile({
       required IconData icon,
       required String title,
+      String? subtitle,
       VoidCallback? onTap,
       Widget? trailing,
       bool showTooltip = false,
@@ -311,6 +290,7 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
       return ListTile(
         leading: Icon(icon, color: _accentColor),
         title: titleWidget,
+        subtitle: subtitle == null ? null : Text(translate(subtitle)),
         enabled: !locked,
         onTap: onTap,
         trailing: trailing,
@@ -351,27 +331,52 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (!hideServer)
+              listTile(
+                icon: Icons.shield_outlined,
+                title: 'Serverless direct mode',
+                subtitle:
+                    'When enabled, device ID connections are disabled; IP, QR, and LAN connections stay direct. When disabled, device IDs try direct first and use encrypted TCP relay only if needed.',
+                trailing: Switch(
+                  value: serverlessDirectOnly,
+                  onChanged:
+                      locked || isOptionFixed(kOptionServerlessDirectOnly)
+                          ? null
+                          : (value) async {
+                              await bind.mainSetOption(
+                                key: kOptionServerlessDirectOnly,
+                                value: value ? 'Y' : 'N',
+                              );
+                              if (mounted) setState(() {});
+                            },
+                ),
+              ),
+              if (!serverlessDirectOnly &&
+                  (!hideServer || !hideProxy || !hideWebSocket))
+                divider,
+              if (!serverlessDirectOnly && !hideServer)
                 listTile(
                   icon: Icons.dns_outlined,
                   title: 'ID/Relay Server',
                   onTap: () => showServerSettings(gFFI.dialogManager, setState),
                 ),
-              if (!hideProxy && !hideServer) divider,
-              if (!hideProxy)
+              if (!serverlessDirectOnly && !hideProxy && !hideServer) divider,
+              if (!serverlessDirectOnly && !hideProxy)
                 listTile(
                   icon: Icons.network_ping_outlined,
                   title: 'Socks5/Http(s) Proxy',
                   onTap: changeSocks5Proxy,
                 ),
-              if (!hideWebSocket && (!hideServer || !hideProxy)) divider,
-              if (!hideWebSocket)
+              if (!serverlessDirectOnly &&
+                  !hideWebSocket &&
+                  (!hideServer || !hideProxy))
+                divider,
+              if (!serverlessDirectOnly && !hideWebSocket)
                 switchWidget(
                     Icons.web_asset_outlined,
                     'Use WebSocket',
                     '${translate('websocket_tip')}\n\n${translate('server-oss-not-support-tip')}',
                     kOptionAllowWebSocket),
-              if (!isWeb)
+              if (!serverlessDirectOnly && !isWeb)
                 futureBuilder(
                   future: bind.mainIsUsingPublicServer(),
                   hasData: (isUsingPublicServer) {

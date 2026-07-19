@@ -229,6 +229,35 @@ fn direct_endpoint(peer: &str) -> Option<String> {
     })
 }
 
+enum ConnectionRoute<'a> {
+    Socket(SocketAddr),
+    BareIp(IpAddr),
+    Domain(&'a str),
+    Rendezvous,
+}
+
+fn connection_route(peer: &str) -> ConnectionRoute<'_> {
+    if let Some(endpoint) = explicit_direct_endpoint(peer) {
+        if let Ok(endpoint) = SocketAddr::from_str(&endpoint) {
+            return ConnectionRoute::Socket(endpoint);
+        }
+    }
+    if let Some(ip) = bare_direct_ip(peer) {
+        return ConnectionRoute::BareIp(ip);
+    }
+    if hbb_common::is_domain_port_str(peer) {
+        return ConnectionRoute::Domain(peer);
+    }
+    ConnectionRoute::Rendezvous
+}
+
+fn enforce_rendezvous_policy(serverless_direct_only: bool) -> ResultType<()> {
+    if serverless_direct_only {
+        bail!("Device ID connections are disabled in serverless direct-only mode");
+    }
+    Ok(())
+}
+
 fn fingerprint_public_key(value: &str) -> Option<Vec<u8>> {
     let hex: String = value.chars().filter(|c| !c.is_whitespace() && *c != ':').collect();
     if hex.len() != sign::PUBLICKEYBYTES * 2 {
@@ -243,8 +272,9 @@ fn fingerprint_public_key(value: &str) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod direct_endpoint_tests {
     use super::{
-        bare_direct_ip, direct_probe_addresses, explicit_direct_endpoint,
-        fingerprint_public_key,
+        bare_direct_ip, connection_route, direct_endpoint, direct_probe_addresses,
+        enforce_rendezvous_policy, explicit_direct_endpoint, fingerprint_public_key,
+        ConnectionRoute,
     };
 
     #[test]
@@ -268,6 +298,33 @@ mod direct_endpoint_tests {
         assert!(bare_direct_ip("10.0.0.8").is_some());
         assert!(bare_direct_ip("2001:db8::1").is_some());
         assert!(explicit_direct_endpoint("10.0.0.8:0").is_none());
+    }
+
+    #[test]
+    fn direct_targets_never_require_rendezvous() {
+        assert!(matches!(
+            connection_route("192.168.1.20:21118"),
+            ConnectionRoute::Socket(_)
+        ));
+        assert!(matches!(
+            connection_route("192.168.1.20"),
+            ConnectionRoute::BareIp(_)
+        ));
+        assert!(matches!(
+            connection_route("support.example.com:21118"),
+            ConnectionRoute::Domain(_)
+        ));
+        assert!(direct_endpoint("support.example.com:21118").is_some());
+    }
+
+    #[test]
+    fn device_ids_use_rendezvous_unless_serverless_only_is_enabled() {
+        assert!(matches!(
+            connection_route("123456789"),
+            ConnectionRoute::Rendezvous
+        ));
+        assert!(enforce_rendezvous_policy(false).is_ok());
+        assert!(enforce_rendezvous_policy(true).is_err());
     }
 
     #[test]
@@ -442,43 +499,27 @@ impl Client {
                 bail!("Failed to connect to direct endpoints: {}", errors.join("; "));
             }
         }
-        if let Some(endpoint) = explicit_direct_endpoint(peer) {
-            let endpoint = SocketAddr::from_str(&endpoint)?;
-            let (conn, pk, connected) =
-                connect_direct_candidates(endpoint.ip(), endpoint.port()).await?;
-            log::info!("Direct connection established through {connected}");
-            return Ok((
-                (conn, true, pk, None, "TCP"),
-                (0, "".to_owned()),
-                false,
-            ));
+        match connection_route(peer) {
+            ConnectionRoute::Socket(endpoint) => {
+                let (conn, pk, connected) =
+                    connect_direct_candidates(endpoint.ip(), endpoint.port()).await?;
+                log::info!("Direct connection established through {connected}");
+                return Ok(((conn, true, pk, None, "TCP"), (0, String::new()), false));
+            }
+            ConnectionRoute::BareIp(ip) => {
+                let (conn, pk, connected) =
+                    connect_direct_candidates(ip, DEFAULT_DIRECT_PORT as u16).await?;
+                log::info!("Direct connection established through {connected}");
+                return Ok(((conn, true, pk, None, "TCP"), (0, String::new()), false));
+            }
+            ConnectionRoute::Domain(endpoint) => {
+                let mut conn = connect_tcp_local(endpoint, None, CONNECT_TIMEOUT).await?;
+                let pk = Self::secure_direct_connection("", None, &mut conn).await?;
+                return Ok(((conn, true, pk, None, "TCP"), (0, String::new()), false));
+            }
+            ConnectionRoute::Rendezvous => {}
         }
-        if let Some(ip) = bare_direct_ip(peer) {
-            let (conn, pk, connected) =
-                connect_direct_candidates(ip, DEFAULT_DIRECT_PORT as u16).await?;
-            log::info!("Direct connection established through {connected}");
-            return Ok((
-                (conn, true, pk, None, "TCP"),
-                (0, "".to_owned()),
-                false,
-            ));
-        }
-        // Allow connect to {domain}:{port}
-        if hbb_common::is_domain_port_str(peer) {
-            let mut conn = connect_tcp_local(peer, None, CONNECT_TIMEOUT).await?;
-            let pk = Self::secure_direct_connection("", None, &mut conn).await?;
-            return Ok((
-                (conn, true, pk, None, "TCP"),
-                (0, "".to_owned()),
-                false,
-            ));
-        }
-
-        if crate::is_luoda() {
-            bail!(
-                "Direct endpoint required: LDesk does not use rendezvous or relay servers"
-            );
-        }
+        enforce_rendezvous_policy(crate::is_serverless_direct_only())?;
 
         let (peer, other_server, key, token) = if let Some((a, b, c)) = other_server.as_ref() {
             (a.as_ref(), b.as_ref(), c.as_ref(), "")

@@ -96,6 +96,7 @@ const String kOptionEnableRecordSession = "enable-record-session";
 const String kOptionDirectServer = "direct-server";
 const String kOptionDirectAccessPort = "direct-access-port";
 const String kOptionDirectListenerStatus = "direct-listener-status";
+const String kOptionServerlessDirectOnly = "serverless-direct-only";
 const String kOptionAllowAutoDisconnect = "allow-auto-disconnect";
 const String kOptionAutoDisconnectTimeout = "auto-disconnect-timeout";
 const String kOptionEnableHwcodec = "enable-hwcodec";
@@ -419,9 +420,8 @@ const Duration kDebounceCustomScaleDuration = Duration(milliseconds: 300);
 const kMobileDelaySoftKeyboard = Duration(milliseconds: 30);
 const kMobileDelaySoftKeyboardFocus = Duration(milliseconds: 30);
 
-/// LDesk connects only to explicit peer endpoints and never uses rendezvous,
-/// relay, proxy, or cloud synchronization services.
-const kServerlessDirectOnly = true;
+/// LDesk profiles remain local even when device-ID rendezvous is available.
+const kLocalProfileOnly = true;
 
 /// Android constants
 const kActionApplicationDetailsSettings =

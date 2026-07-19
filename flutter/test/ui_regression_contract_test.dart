@@ -47,6 +47,9 @@ void main() {
   final settingsAboutSource = File(
     'lib/desktop/pages/desktop_setting_about.part.dart',
   ).readAsStringSync();
+  final desktopNetworkSettingsSource = File(
+    'lib/desktop/pages/desktop_setting_network.part.dart',
+  ).readAsStringSync();
   final remoteToolbarSource = File(
     'lib/desktop/widgets/remote_toolbar.dart',
   ).readAsStringSync();
@@ -132,6 +135,9 @@ void main() {
     'android/app/build.gradle.kts',
   ).readAsStringSync();
   final commonRustSource = File('../src/common.rs').readAsStringSync();
+  final clientRustSource = File('../src/client.rs').readAsStringSync();
+  final rendezvousRustSource =
+      File('../src/rendezvous_mediator.rs').readAsStringSync();
   final coreMainSource = File('../src/core_main.rs').readAsStringSync();
   final portablePackerSource = File(
     '../libs/portable/src/main.rs',
@@ -643,6 +649,29 @@ void main() {
     expect(mobileRemoteSource, contains('getConnectionText('));
     expect(mobileRemoteSource, contains("translate('Connecting...')"));
     expect(mobileRemoteSource, contains('connection.stream_type.value'));
+  });
+
+  test(
+      'serverless direct-only mode is runtime selectable on desktop and mobile',
+      () {
+    for (final source in [
+      desktopNetworkSettingsSource,
+      mobileSettingsSource,
+    ]) {
+      expect(source, contains('kOptionServerlessDirectOnly'));
+      expect(source, contains("value ? 'Y' : 'N'"));
+      expect(source, contains('ID/Relay Server'));
+      expect(source, contains('encrypted TCP relay'));
+    }
+    expect(clientRustSource, contains('ConnectionRoute::Rendezvous'));
+    expect(
+      clientRustSource,
+      contains('enforce_rendezvous_policy(crate::is_serverless_direct_only())'),
+    );
+    expect(
+      rendezvousRustSource,
+      contains('while crate::is_serverless_direct_only()'),
+    );
   });
 
   test('mobile permission center only requests missing permissions', () {

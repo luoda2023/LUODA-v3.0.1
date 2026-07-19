@@ -60,7 +60,7 @@ impl RendezvousMediator {
     }
 
     pub async fn start_all() {
-        if !crate::is_luoda() {
+        if !crate::is_serverless_direct_only() {
             crate::test_nat_type();
         }
         if config::is_outgoing_only() {
@@ -104,13 +104,14 @@ impl RendezvousMediator {
             crate::platform::linux_desktop_manager::start_xdesktop();
         }
         scrap::codec::test_av1();
-        if crate::is_luoda() {
-            log::info!("LDesk serverless mode: direct listener and LAN discovery only");
-            loop {
-                sleep(3600.).await;
-            }
-        }
         loop {
+            if crate::is_serverless_direct_only() {
+                log::info!("LDesk serverless mode: direct listener and LAN discovery only");
+                while crate::is_serverless_direct_only() {
+                    sleep(1.).await;
+                }
+                crate::test_nat_type();
+            }
             let timeout = Arc::new(RwLock::new(CONNECT_TIMEOUT));
             let conn_start_time = Instant::now();
             *SOLVING_PK_MISMATCH.lock().await = "".to_owned();

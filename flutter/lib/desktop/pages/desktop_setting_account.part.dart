@@ -16,7 +16,7 @@ class _AccountState extends State<_Account> {
       children: [
         _Card(
           title: 'Account',
-          children: kServerlessDirectOnly
+          children: kLocalProfileOnly
               ? [
                   ListTile(
                     leading: const Icon(
