@@ -5,6 +5,7 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <iostream>
 
 #include "win32_desktop.h"
@@ -127,6 +128,13 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
   FlutterWindow window(project);
+  // Portable launchers request foreground UI before the Dart startup work
+  // finishes. Keep the window visible while native initialization continues.
+  char foreground_value[2] = {0};
+  const bool show_on_startup =
+      GetEnvironmentVariableA("SET_FOREGROUND_WINDOW", foreground_value,
+                              sizeof(foreground_value)) > 0 &&
+      foreground_value[0] == '1';
 
   // Get primary monitor's work area.
   Win32Window::Point workarea_origin(0, 0);
@@ -153,6 +161,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   }
   if (!window.CreateAndShow(window_title, origin, size, !is_cm_page)) {
       return EXIT_FAILURE;
+  }
+  if (show_on_startup) {
+    ::ShowWindow(window.GetHandle(), SW_SHOWNORMAL);
+    ::UpdateWindow(window.GetHandle());
   }
   window.SetQuitOnClose(true);
 

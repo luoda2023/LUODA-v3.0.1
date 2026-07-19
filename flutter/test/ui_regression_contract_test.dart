@@ -160,6 +160,9 @@ void main() {
   final flutterMainSource = File(
     'lib/main.dart',
   ).readAsStringSync();
+  final windowsRunnerMainSource = File(
+    'windows/runner/main.cpp',
+  ).readAsStringSync();
   final runtimeLoggerSource = File(
     'lib/runtime_logger.dart',
   ).readAsStringSync();
@@ -1301,6 +1304,8 @@ void main() {
       runMainAppSource,
       isNot(contains('await bind.mainCheckConnectStatus();')),
     );
+    expect(windowsRunnerMainSource, contains('SET_FOREGROUND_WINDOW'));
+    expect(windowsRunnerMainSource, contains('ShowWindow(window.GetHandle()'));
   });
 
   test('macOS deployment target supports the direct voice recorder', () {
