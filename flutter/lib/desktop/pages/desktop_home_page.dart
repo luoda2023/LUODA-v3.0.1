@@ -3921,7 +3921,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     }
 
     final networkStatus = gFFI.serverModel.connectStatus;
-    if (_lastNetworkStatus != null && _lastNetworkStatus != networkStatus) {
+    if (_lastNetworkStatus == null || _lastNetworkStatus != networkStatus) {
       _showConversationNotice(
         '${translate('Network')}: ${networkStatus > 0 ? translate('Online') : networkStatus == 0 ? translate('Connecting') : translate('Offline')}',
       );

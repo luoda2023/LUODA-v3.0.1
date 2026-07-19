@@ -891,7 +891,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("LAN discovery", "\u{5c40}\u{57df}\u{7f51}\u{53d1}\u{73b0}"),
         ("Access history", "\u{8bbf}\u{95ee}\u{5386}\u{53f2}"),
         ("ID or IP:port", "ID \u{6216} IP:\u{7aef}\u{53e3}"),
-        ("Tell the other device your ID or IP to connect.", "\u{5c06}\u{8bbe}\u{5907} ID \u{6216} IP \u{544a}\u{8bc9}\u{5bf9}\u{65b9}\uff0c\u{5bf9}\u{65b9}\u{5373}\u{53ef}\u{8fde}\u{63a5}\u{6b64}\u{7535}\u{8111}\u{3002}"),
+        ("Tell the other device your ID or IP to connect.", "\u{5c06}\u{8bbe}\u{5907} ID \u{6216} IP \u{544a}\u{8bc9}\u{5bf9}\u{65b9}\u{ff0c}\u{5bf9}\u{65b9}\u{5373}\u{53ef}\u{8fde}\u{63a5}\u{6b64}\u{7535}\u{8111}\u{3002}"),
         ("Copy device ID", "\u{590d}\u{5236}\u{8bbe}\u{5907} ID"),
         ("Security settings", "\u{5b89}\u{5168}\u{8bbe}\u{7f6e}"),
         ("Cannot connect to this device.", "\u{4e0d}\u{80fd}\u{8fde}\u{63a5}\u{5f53}\u{524d}\u{8bbe}\u{5907}\u{3002}"),

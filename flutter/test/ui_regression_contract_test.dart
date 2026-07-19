@@ -834,6 +834,7 @@ void main() {
     expect(homePageSource, contains('_maintainPendingChatSessions'));
     expect(homePageSource, contains('Duration(seconds: 5)'));
     expect(homePageSource, contains('_checkConnectionTransitions'));
+    expect(homePageSource, contains('if (_lastNetworkStatus == null ||'));
     expect(homePageSource, contains('_notifiedChatConnections.add'));
     expect(chatPageSource, contains("translate('Waiting to send')"));
     expect(chatModelSource, contains('DirectChatDelivery.delivered'));
