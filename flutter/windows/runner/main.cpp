@@ -5,9 +5,11 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
 #include <iostream>
 #include <string>
+#include <thread>
 
 #include "win32_desktop.h"
 #include "flutter_window.h"
@@ -173,8 +175,21 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
       return EXIT_FAILURE;
   }
   if (show_on_startup) {
-    ::ShowWindow(window.GetHandle(), SW_SHOWNORMAL);
-    ::UpdateWindow(window.GetHandle());
+    const HWND startup_window = window.GetHandle();
+    ::ShowWindow(startup_window, SW_SHOWNORMAL);
+    ::UpdateWindow(startup_window);
+    // window_manager may apply its hidden startup state after the native
+    // window is created. Re-assert visibility during the portable boot window.
+    std::thread([startup_window]() {
+      for (const auto delay_seconds : {1, 3, 8}) {
+        std::this_thread::sleep_for(std::chrono::seconds(delay_seconds));
+        if (!::IsWindow(startup_window)) {
+          return;
+        }
+        ::ShowWindow(startup_window, SW_SHOWNORMAL);
+        ::UpdateWindow(startup_window);
+      }
+    }).detach();
   }
   window.SetQuitOnClose(true);
 

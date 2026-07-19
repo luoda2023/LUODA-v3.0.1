@@ -1308,6 +1308,7 @@ void main() {
     expect(windowsRunnerMainSource, contains('ShowWindow(window.GetHandle()'));
     expect(windowsRunnerMainSource, contains('LUODA_APPNAME'));
     expect(windowsRunnerMainSource, contains('380u, 500u'));
+    expect(windowsRunnerMainSource, contains('std::this_thread::sleep_for'));
   });
 
   test('macOS deployment target supports the direct voice recorder', () {
