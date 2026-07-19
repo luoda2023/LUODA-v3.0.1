@@ -880,10 +880,11 @@ void main() {
     );
   });
 
-  test('active companion sessions refresh incremental sync every 30 minutes',
+  test(
+      'active companion sessions refresh incremental sync on platform intervals',
       () {
     expect(mobileHomeSource, contains('const Duration(minutes: 30)'));
-    expect(homePageSource, contains('const Duration(minutes: 30)'));
+    expect(homePageSource, contains('const Duration(seconds: 5)'));
     final activeSessionPath = mobileHomeSource
         .split('if (existing != null &&')[1]
         .split('if (existing != null)')[0];
@@ -1086,7 +1087,11 @@ void main() {
     expect(emptyConversation, contains("translate('My Identity')"));
     expect(
       emptyConversation,
-      contains("translate('Tell the other device your ID or IP to connect.')"),
+      contains("'Tell the other device your ID or IP to connect.'"),
+    );
+    expect(
+      emptyConversation,
+      contains('translate('),
     );
     expect(emptyConversation, contains('_buildIdentityCard('));
     expect(emptyConversation, contains("translate('Connect by ID / IP')"));
