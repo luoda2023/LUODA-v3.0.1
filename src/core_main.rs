@@ -197,6 +197,7 @@ pub fn core_main() -> Option<Vec<String>> {
             args.is_empty(),
             &arg_exe,
             config::LocalConfig::get_option("pre-elevate-service") == "Y",
+            std::env::var(crate::common::PORTABLE_APPNAME_RUNTIME_ENV_KEY).is_ok(),
         );
         crate::portable_service::client::set_quick_support(_is_quick_support);
     }
@@ -927,8 +928,12 @@ fn should_auto_start_portable_service(
     args_empty: bool,
     exe: &str,
     pre_elevate_service: bool,
+    is_portable_runtime: bool,
 ) -> bool {
-    !is_installed && args_empty && (is_quick_support_exe(exe) || pre_elevate_service)
+    !is_portable_runtime
+        && !is_installed
+        && args_empty
+        && (is_quick_support_exe(exe) || pre_elevate_service)
 }
 
 #[cfg(all(test, windows))]
@@ -942,6 +947,7 @@ mod portable_mode_tests {
             true,
             "LDesk-portable-x64.exe",
             false,
+            true,
         ));
     }
 
@@ -952,11 +958,24 @@ mod portable_mode_tests {
             true,
             "LDesk-qs-x64.exe",
             false,
+            false,
         ));
         assert!(should_auto_start_portable_service(
             false,
             true,
             "LDesk-portable-x64.exe",
+            true,
+            false,
+        ));
+    }
+
+    #[test]
+    fn portable_launcher_never_reuses_pre_elevation_from_legacy_config() {
+        assert!(!should_auto_start_portable_service(
+            false,
+            true,
+            "LDesk-portable-x64.exe",
+            true,
             true,
         ));
     }

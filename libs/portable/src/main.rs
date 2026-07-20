@@ -265,8 +265,9 @@ mod win {
             winbase::QueryFullProcessImageNameW,
             winnt::PROCESS_QUERY_LIMITED_INFORMATION,
             winuser::{
-                FindWindowExW, FindWindowW, GetWindowThreadProcessId, IsHungAppWindow, MessageBoxW,
-                SetForegroundWindow, ShowWindow, MB_ICONWARNING, MB_OK, SW_RESTORE,
+                FindWindowExW, FindWindowW, GetWindowTextW, GetWindowThreadProcessId,
+                IsHungAppWindow, MessageBoxW, SetForegroundWindow, ShowWindow, MB_ICONWARNING,
+                MB_OK, SW_RESTORE,
             },
         },
     };
@@ -305,6 +306,19 @@ mod win {
             .ends_with("\\luoda.exe")
     }
 
+    fn has_ldesk_title(window: winapi::shared::windef::HWND) -> bool {
+        let mut title = [0u16; 256];
+        let length = unsafe { GetWindowTextW(window, title.as_mut_ptr(), title.len() as i32) };
+        if length <= 0 {
+            return false;
+        }
+        is_ldesk_title(&String::from_utf16_lossy(&title[..length as usize]))
+    }
+
+    fn is_ldesk_title(title: &str) -> bool {
+        title.to_ascii_lowercase().starts_with("ldesk")
+    }
+
     fn find_existing_window() -> winapi::shared::windef::HWND {
         let class_name = wide("FLUTTER_RUNNER_WIN32_WINDOW");
         let window_name = wide("LDesk");
@@ -322,7 +336,7 @@ mod win {
                     std::ptr::null(),
                 )
             };
-            if current.is_null() || belongs_to_ldesk(current) {
+            if current.is_null() || (belongs_to_ldesk(current) && has_ldesk_title(current)) {
                 return current;
             }
         }
@@ -381,5 +395,18 @@ mod win {
     pub(super) fn is_quick_support_exe(exe: &str) -> bool {
         let exe = exe.to_lowercase();
         exe.contains("-qs-") || exe.contains("-qs.exe") || exe.contains("_qs.exe")
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::is_ldesk_title;
+
+        #[test]
+        fn legacy_luoda_windows_are_not_reused() {
+            assert!(is_ldesk_title("LDesk"));
+            assert!(is_ldesk_title("LDesk - Connection Manager"));
+            assert!(!is_ldesk_title("LUODA"));
+            assert!(!is_ldesk_title(""));
+        }
     }
 }
