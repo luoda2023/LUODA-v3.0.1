@@ -1614,6 +1614,16 @@ void main() {
     expect(waitingSource, isNot(contains('dialogManager.show(')));
   });
 
+  test('remote frames resync geometry when the peer resolution changes', () {
+    expect(flutterBridgeSource, contains('push_frame_size_event'));
+    expect(flutterBridgeSource, contains('"name": "frame_size"'));
+    expect(flutterBridgeSource, contains('info.size = (rgba.w, rgba.h)'));
+    expect(modelSource, contains("name == 'frame_size'"));
+    expect(modelSource, contains('handleFrameSize(evt, sessionId)'));
+    expect(modelSource, contains('hoty = hotyOrigin * scale'));
+    expect(modelSource, contains('final tgtHeight = (height * scale).toInt()'));
+  });
+
   test('desktop chat renders one editor and exposes message controls', () {
     expect(chatPageSource, contains('readOnly: isDesktopHome || readOnly'));
     expect(chatPageSource, contains('_DesktopChatComposer'));

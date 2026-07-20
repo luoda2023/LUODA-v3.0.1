@@ -218,6 +218,7 @@ pub struct FlutterHandler {
     // ui session id -> display handler data
     session_handlers: Arc<RwLock<HashMap<SessionID, SessionHandler>>>,
     display_rgbas: Arc<RwLock<HashMap<usize, RgbaData>>>,
+    frame_sizes: Arc<RwLock<HashMap<usize, (usize, usize)>>>,
     peer_info: Arc<RwLock<PeerInfo>>,
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     hooks: Arc<RwLock<HashMap<String, SessionHook>>>,
@@ -229,6 +230,7 @@ impl Default for FlutterHandler {
         Self {
             session_handlers: Default::default(),
             display_rgbas: Default::default(),
+            frame_sizes: Default::default(),
             peer_info: Default::default(),
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             hooks: Default::default(),
@@ -459,18 +461,18 @@ impl VideoRenderer {
         }
 
         if info.size.0 != rgba.w || info.size.1 != rgba.h {
-            log::error!(
-                "width/height mismatch: ({},{}) != ({},{})",
+            log::info!(
+                "remote frame size changed: ({},{}) -> ({},{})",
                 info.size.0,
                 info.size.1,
                 rgba.w,
                 rgba.h
             );
-            // Peer info's handling is async and may be late than video frame's handling
-            // Allow peer info not set, but not allow wrong width/height for correct local cursor position
-            if info.size != (0, 0) {
-                return false;
-            }
+            // Peer info can arrive after the first frame, or a remote display can
+            // change resolution while a session is active. Keep the frame and
+            // let Flutter update its geometry from the frame_size event.
+            info.size = (rgba.w, rgba.h);
+            info.notify_render_type = None;
         }
         if let Some(func) = &self.on_rgba_func {
             unsafe {
@@ -877,6 +879,40 @@ impl InvokeUiSession for FlutterHandler {
         self.on_rgba_soft_render(display, rgba);
     }
 
+    fn push_frame_size_event(&self, display: usize, width: usize, height: usize) {
+        if width == 0 || height == 0 {
+            return;
+        }
+        let changed = {
+            let mut frames = self.frame_sizes.write().unwrap();
+            let frame = frames.entry(display).or_default();
+            if *frame == (width, height) {
+                false
+            } else {
+                *frame = (width, height);
+                true
+            }
+        };
+        if !changed {
+            return;
+        }
+        let event = serde_json::json!({
+            "name": "frame_size",
+            "display": display,
+            "width": width,
+            "height": height,
+        })
+        .to_string();
+        for session in self.session_handlers.read().unwrap().values() {
+            if !session.displays.is_empty() && !session.displays.contains(&display) {
+                continue;
+            }
+            if let Some(stream) = &session.event_stream {
+                stream.add(EventToUI::Event(event.clone()));
+            }
+        }
+    }
+
     #[inline]
     #[cfg(feature = "vram")]
     fn on_texture(&self, display: usize, texture: *mut c_void) {
@@ -893,6 +929,9 @@ impl InvokeUiSession for FlutterHandler {
     }
 
     fn set_peer_info(&self, pi: &PeerInfo) {
+        // A peer-info refresh may arrive after the first video frame. Allow
+        // the next frame to replay its actual dimensions to Flutter.
+        self.frame_sizes.write().unwrap().clear();
         let displays = Self::make_displays_msg(&pi.displays);
         let mut features: HashMap<&str, bool> = Default::default();
         for ref f in pi.features.iter() {
@@ -1215,6 +1254,7 @@ impl FlutterHandler {
             rgba_write_lock.insert(display, rgba_data);
         }
         drop(rgba_write_lock);
+        self.push_frame_size_event(display, rgba.w, rgba.h);
 
         let mut is_sent = false;
         let is_multi_sessions = self.is_multi_ui_session();
@@ -1249,6 +1289,15 @@ impl FlutterHandler {
         display: usize,
         rgba: &mut scrap::ImageRgb,
     ) {
+        let multi_display_session = self
+            .session_handlers
+            .read()
+            .unwrap()
+            .values()
+            .any(|session| session.displays.len() > 1);
+        if use_texture_render || multi_display_session {
+            self.push_frame_size_event(display, rgba.w, rgba.h);
+        }
         for (_, session) in self.session_handlers.read().unwrap().iter() {
             if use_texture_render || session.displays.len() > 1 {
                 if session.renderer.on_rgba(display, rgba) {

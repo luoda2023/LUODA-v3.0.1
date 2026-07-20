@@ -397,6 +397,8 @@ class FfiModel with ChangeNotifier {
       } else if (name == 'switch_display') {
         // switch display is kept for backward compatibility
         handleSwitchDisplay(evt, sessionId, peerId);
+      } else if (name == 'frame_size') {
+        handleFrameSize(evt, sessionId);
       } else if (name == 'cursor_data') {
         updateLastCursorId(evt);
         await handleCursorData(evt);
@@ -946,6 +948,31 @@ class FfiModel with ChangeNotifier {
 
     if (!_pi.isSupportMultiUiSession || _pi.currentDisplay == display) {
       handleResolutions(peerId, evt['resolutions']);
+    }
+    notifyListeners();
+  }
+
+  void handleFrameSize(Map<String, dynamic> evt, SessionID sessionId) {
+    final display = int.tryParse(evt['display']?.toString() ?? '');
+    final width = int.tryParse(evt['width']?.toString() ?? '');
+    final height = int.tryParse(evt['height']?.toString() ?? '');
+    if (display == null ||
+        width == null ||
+        height == null ||
+        display < 0 ||
+        width <= 0 ||
+        height <= 0 ||
+        display >= _pi.displays.length) {
+      return;
+    }
+    final current = _pi.displays[display];
+    if (current.width == width && current.height == height) return;
+    current.width = width;
+    current.height = height;
+    _pi.displays[display] = current;
+    if (_pi.currentDisplay == display ||
+        _pi.currentDisplay == kAllDisplayValue) {
+      unawaited(updateCurDisplay(sessionId, updateCursorPos: true));
     }
     notifyListeners();
   }
@@ -2915,7 +2942,7 @@ class CursorData {
     required this.width,
     required this.height,
   })  : hotx = hotxOrigin * scale,
-        hoty = hotxOrigin * scale;
+        hoty = hotyOrigin * scale;
 
   int _doubleToInt(double v) => (v * 10e6).round().toInt();
 
@@ -2924,7 +2951,7 @@ class CursorData {
     if (scale != 1.0) {
       // Update data if scale changed.
       final tgtWidth = (width * scale).toInt();
-      final tgtHeight = (width * scale).toInt();
+      final tgtHeight = (height * scale).toInt();
       if (tgtWidth < kMinCursorSize || tgtHeight < kMinCursorSize) {
         double sw = kMinCursorSize.toDouble() / width;
         double sh = kMinCursorSize.toDouble() / height;
