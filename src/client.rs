@@ -4449,7 +4449,7 @@ pub mod peer_online {
                 errors.push(format!("Invalid server address: {server}"));
                 continue;
             };
-            match connect_tcp(&online_server, CONNECT_TIMEOUT).await {
+            match connect_tcp(online_server.as_str(), CONNECT_TIMEOUT).await {
                 Ok(stream) => return Ok(stream),
                 Err(error) => errors.push(format!("{online_server}: {error}")),
             }
