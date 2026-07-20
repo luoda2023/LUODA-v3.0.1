@@ -1289,15 +1289,11 @@ impl FlutterHandler {
         display: usize,
         rgba: &mut scrap::ImageRgb,
     ) {
-        let multi_display_session = self
-            .session_handlers
-            .read()
-            .unwrap()
-            .values()
-            .any(|session| session.displays.len() > 1);
-        if use_texture_render || multi_display_session {
-            self.push_frame_size_event(display, rgba.w, rgba.h);
-        }
+        // The texture path also needs to publish the actual decoded frame size.
+        // Single-display sessions otherwise keep the peer-info dimensions until
+        // the user manually changes resolution, leaving the canvas and cursor
+        // geometry out of sync with the texture.
+        self.push_frame_size_event(display, rgba.w, rgba.h);
         for (_, session) in self.session_handlers.read().unwrap().iter() {
             if use_texture_render || session.displays.len() > 1 {
                 if session.renderer.on_rgba(display, rgba) {

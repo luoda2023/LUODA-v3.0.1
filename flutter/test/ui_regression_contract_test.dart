@@ -1617,6 +1617,13 @@ void main() {
   test('remote frames resync geometry when the peer resolution changes', () {
     expect(flutterBridgeSource, contains('push_frame_size_event'));
     expect(flutterBridgeSource, contains('"name": "frame_size"'));
+    final textureRenderSource = flutterBridgeSource
+        .split('fn on_rgba_flutter_texture_render')[1]
+        .split('// This function is only used')[0];
+    expect(
+      textureRenderSource.indexOf('self.push_frame_size_event'),
+      lessThan(textureRenderSource.indexOf('for (_, session)')),
+    );
     expect(flutterBridgeSource, contains('info.size = (rgba.w, rgba.h)'));
     expect(modelSource, contains("name == 'frame_size'"));
     expect(modelSource, contains('handleFrameSize(evt, sessionId)'));
