@@ -279,6 +279,10 @@ fn online_rendezvous_endpoint(server: &str) -> Option<String> {
     if hbb_common::websocket::is_ws_endpoint(server) {
         return Some(server.to_owned());
     }
+    if let Ok(address) = SocketAddr::from_str(server) {
+        return (address.port() > 1)
+            .then(|| SocketAddr::new(address.ip(), address.port() - 1).to_string());
+    }
     let (host, port) = hbb_common::socket_client::split_host_port(server)?;
     (port > 1).then(|| format!("{host}:{}", port - 1))
 }
