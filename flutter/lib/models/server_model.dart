@@ -7,6 +7,7 @@ import 'package:luoda_flutter/main.dart';
 import 'package:luoda_flutter/mobile/pages/settings_page.dart';
 import 'package:luoda_flutter/models/chat_model.dart';
 import 'package:luoda_flutter/models/platform_model.dart';
+import 'package:luoda_flutter/models/state_model.dart';
 import 'package:get/get.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -152,6 +153,9 @@ class ServerModel with ChangeNotifier {
       final connectionStatus =
           jsonDecode(await bind.mainGetConnectStatus()) as Map<String, dynamic>;
       final statusNum = connectionStatus['status_num'] as int;
+      final videoConnCount = connectionStatus['video_conn_count'];
+      stateGlobal.videoConnCount.value =
+          videoConnCount is int ? videoConnCount : 0;
       if (statusNum != _connectStatus) {
         _connectStatus = statusNum;
         notifyListeners();

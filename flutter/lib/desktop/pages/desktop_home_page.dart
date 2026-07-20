@@ -1696,7 +1696,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final existing = _directChatSessionFor(peerId);
     if (existing != null && !existing.closed) {
       if (activate) {
-        existing.suppressConnectionDialogs = false;
+        existing.suppressConnectionDialogs = true;
         setState(() {
           _activeDirectChatPeerId = peerId;
           _selectedContact = contact;
@@ -1731,7 +1731,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     }
 
     final ffi = FFI(null);
-    ffi.suppressConnectionDialogs = !activate;
+    ffi.suppressConnectionDialogs = true;
     ffi.chatModel.changeCurrentKey(MessageKey(peerId, ChatModel.clientModeID));
     ffi.chatModel.updatePeerIdentity(
       peerId,
@@ -1748,14 +1748,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         _selectedConversationPeerId = peerId;
       });
     }
-    if (!activate) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || ffi.closed) return;
-      ffi.dialogManager.showLoading(
-        translate('Connecting...'),
-        onCancel: () => _closeDirectChat(peerId),
-      );
-    });
   }
 
   Peer? _findContact(String peerId) {
@@ -1933,6 +1925,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     }
 
     final ffi = FFI(null);
+    ffi.suppressConnectionDialogs = true;
     _directFileSessions[peerId] = ffi;
     final endpoint = DirectPairingStore.resolveConnectionTarget(peerId);
     if (endpoint == null) {
@@ -1944,14 +1937,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       return null;
     }
     ffi.start(endpoint, isFileTransfer: true, forceRelay: false);
-    ffi.dialogManager.showLoading(
-      translate('Preparing direct file transfer...'),
-      onCancel: () async {
-        _directFileSessions.remove(peerId);
-        await _disposeFileSession(ffi);
-      },
-    );
-
     final deadline = DateTime.now().add(const Duration(seconds: 30));
     while (mounted && DateTime.now().isBefore(deadline)) {
       if (ffi.ffiModel.pi.isSet.isTrue) {

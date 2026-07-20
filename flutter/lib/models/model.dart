@@ -3416,7 +3416,7 @@ class CursorModel with ChangeNotifier {
 
   bool _isInCurrentWindow(double x, double y) {
     final w = _windowRect!.width / devicePixelRatio;
-    final h = _windowRect!.width / devicePixelRatio;
+    final h = _windowRect!.height / devicePixelRatio;
     return x >= 0 && y >= 0 && x <= w && y <= h;
   }
 

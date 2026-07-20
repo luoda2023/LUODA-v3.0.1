@@ -155,30 +155,35 @@ class _ScanPageState extends State<ScanPage> {
   Future<void> _handleScannedValue(String data) async {
     if (_handlingScan) return;
     _handlingScan = true;
-    final pairing = DirectPairingStore.parsePayload(data);
-    if (pairing != null) {
-      await controller?.pauseCamera();
-      await DirectPairingStore.save(pairing);
-      await bind.mainSetLocalOption(
-        key: 'direct-chat-always-on',
-        value: 'Y',
-      );
-      if (isAndroid) {
-        await gFFI.invokeMethod('set_direct_chat_service', true);
+    try {
+      final pairing = DirectPairingStore.parsePayload(data);
+      if (pairing != null) {
+        await controller?.pauseCamera();
+        await DirectPairingStore.save(pairing);
+        await bind.mainSetLocalOption(
+          key: 'direct-chat-always-on',
+          value: 'Y',
+        );
+        if (isAndroid) {
+          await gFFI.invokeMethod('set_direct_chat_service', true);
+        }
+        if (!mounted) return;
+        showToast(translate('PC paired for direct connection'));
+        Navigator.pop(context, pairing);
+        return;
       }
-      if (!mounted) return;
-      showToast(translate('PC paired for direct connection'));
-      Navigator.pop(context, pairing);
-      return;
-    }
-    if (data.startsWith(bind.mainUriPrefixSync())) {
-      await controller?.pauseCamera();
-      handleUriLink(uriString: data);
+      if (data.startsWith(bind.mainUriPrefixSync())) {
+        await controller?.pauseCamera();
+        handleUriLink(uriString: data);
+        return;
+      }
+      await _showServerSettingFromQr(data);
+    } catch (error) {
+      debugPrint('Failed to handle scanned QR code: $error');
+      if (mounted) showToast(translate('Invalid QR code'));
+    } finally {
       _handlingScan = false;
-      return;
     }
-    await _showServerSettingFromQr(data);
-    _handlingScan = false;
   }
 
   Future<void> _showServerSettingFromQr(String data) async {

@@ -313,11 +313,9 @@ class _RemotePageState extends State<RemotePage>
   }
 
   @override
-  Future<void> dispose() async {
+  void dispose() {
     final closeSession = closeSessionOnDispose.remove(widget.id) ?? true;
 
-    // https://github.com/flutter/flutter/issues/64935
-    super.dispose();
     debugPrint("REMOTE PAGE dispose session $sessionId ${widget.id}");
 
     // Defensive cleanup: ensure host system-key propagation is reset even if
@@ -339,16 +337,31 @@ class _RemotePageState extends State<RemotePage>
     _ffi.imageModel.disposeImage();
     _ffi.cursorModel.disposeImages();
     _rawKeyFocusNode.dispose();
-    await _ffi.close(closeSession: closeSession);
-    _timer?.cancel();
-    _ffi.dialogManager.dismissAll();
-    if (closeSession) {
-      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
-          overlays: SystemUiOverlay.values);
+    unawaited(_finishDispose(closeSession));
+    // https://github.com/flutter/flutter/issues/64935
+    super.dispose();
+  }
+
+  Future<void> _finishDispose(bool closeSession) async {
+    try {
+      await _ffi
+          .close(closeSession: closeSession)
+          .timeout(const Duration(seconds: 5));
+    } catch (error) {
+      debugPrint('REMOTE PAGE close timed out or failed: $error');
+    } finally {
+      _timer?.cancel();
+      _ffi.dialogManager.dismissAll();
+      if (closeSession) {
+        await SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
+            overlays: SystemUiOverlay.values);
+      }
+      WakelockManager.disable(_uniqueKey);
+      if (Get.isRegistered<FFI>(tag: widget.id)) {
+        await Get.delete<FFI>(tag: widget.id);
+      }
+      removeSharedStates(widget.id);
     }
-    WakelockManager.disable(_uniqueKey);
-    await Get.delete<FFI>(tag: widget.id);
-    removeSharedStates(widget.id);
   }
 
   Widget buildBody(BuildContext context) {

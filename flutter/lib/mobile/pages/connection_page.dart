@@ -260,15 +260,9 @@ class _ConnectionPageState extends State<ConnectionPage> {
         avatar: pairing.avatar,
       );
     }
+    gFFI.suppressConnectionDialogs = true;
     gFFI.start(endpoint, isChat: true, forceRelay: false);
     HomePage.homeKey.currentState?.selectChatPage();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (gFFI.closed) return;
-      gFFI.dialogManager.showLoading(
-        translate('Connecting...'),
-        onCancel: () => gFFI.close(),
-      );
-    });
   }
 
   Widget _buildPairedContacts() {

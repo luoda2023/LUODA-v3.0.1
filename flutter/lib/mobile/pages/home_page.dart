@@ -205,6 +205,7 @@ class HomePageState extends State<HomePage> {
       await existing.close();
     }
     final ffi = FFI(const Uuid().v4obj());
+    ffi.suppressConnectionDialogs = true;
     _companionSyncSession = ffi;
     _companionSyncPeerId = pairing.peerId;
     ffi.chatModel.changeCurrentKey(
@@ -294,20 +295,10 @@ class HomePageState extends State<HomePage> {
       return null;
     }
     final ffi = FFI(const Uuid().v4obj());
+    ffi.suppressConnectionDialogs = true;
     _directFileSession = ffi;
     _directFilePeerId = peerId;
     ffi.start(endpoint, isFileTransfer: true, forceRelay: false);
-    ffi.dialogManager.showLoading(
-      translate('Preparing direct file transfer...'),
-      onCancel: () async {
-        if (_directFileSession == ffi) {
-          _directFileSession = null;
-          _directFilePeerId = '';
-        }
-        await _disposeDirectFileSession(ffi);
-      },
-    );
-
     final deadline = DateTime.now().add(const Duration(seconds: 30));
     while (mounted && DateTime.now().isBefore(deadline)) {
       if (ffi.ffiModel.pi.isSet.isTrue) {
