@@ -262,14 +262,27 @@ class DirectChatRepository {
       );
 
   Future<_DirectChatState> _freshState() async {
+    String? raw;
+    try {
+      raw = await _storage.read();
+    } catch (error) {
+      debugPrint('Failed to refresh direct chat history: $error');
+      return _state();
+    }
+    if (raw != null && raw.isNotEmpty) {
+      final state = _decodeState(raw);
+      _loading = Future<_DirectChatState>.value(state);
+      return state;
+    }
+
     late _DirectChatState state;
-    await _storage.update((raw) async {
-      if (raw == null || raw.isEmpty) {
+    await _storage.update((current) async {
+      if (current == null || current.isEmpty) {
         state = await _state();
         return jsonEncode(state.toJson());
       }
-      state = _decodeState(raw);
-      return raw;
+      state = _decodeState(current);
+      return current;
     });
     _loading = Future<_DirectChatState>.value(state);
     return state;

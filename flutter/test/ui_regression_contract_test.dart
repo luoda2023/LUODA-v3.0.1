@@ -918,8 +918,16 @@ void main() {
   test('offline direct chat retries storage locks and resumes queued messages',
       () {
     expect(directChatStorageSource,
-        contains('for (var attempt = 0; attempt < 8; attempt++)'));
+        contains('static const _maxLockAttempts = 12;'));
+    expect(
+        directChatStorageSource,
+        contains(
+            'for (var attempt = 0; attempt < _maxLockAttempts; attempt++)'));
     expect(directChatStorageSource, contains('FileLock.exclusive'));
+    expect(directChatStorageSource, contains('FileLock.shared'));
+    expect(directChatSource, contains('Failed to refresh direct chat history'));
+    expect(chatModelSource,
+        contains('Failed to restore direct chat conversation'));
     expect(homePageSource, contains('_maintainPendingChatSessions'));
     expect(homePageSource, contains('Duration(seconds: 5)'));
     expect(homePageSource, contains('_checkConnectionTransitions'));

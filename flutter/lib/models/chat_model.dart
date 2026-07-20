@@ -1195,10 +1195,15 @@ class ChatModel with ChangeNotifier {
 
   Future<void> _restoreConversation(MessageKey key) async {
     if (key.peerId.isEmpty) return;
-    final deviceId = await DirectChatRepository.instance.deviceId;
-    me.id = deviceId;
-    final records =
-        await DirectChatRepository.instance.forConversation(key.peerId);
+    late List<DirectChatRecord> records;
+    try {
+      final deviceId = await DirectChatRepository.instance.deviceId;
+      me.id = deviceId;
+      records = await DirectChatRepository.instance.forConversation(key.peerId);
+    } catch (error) {
+      debugPrint('Failed to restore direct chat conversation: $error');
+      return;
+    }
     updateConnIdOfKey(key);
     final pairing = DirectPairingStore.find(key.peerId);
     final body = _messages.putIfAbsent(
