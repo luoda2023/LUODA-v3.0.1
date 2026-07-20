@@ -1,9 +1,10 @@
 use crate::{
     config::{
         keys::OPTION_RELAY_SERVER, use_ws, Config, Socks5Server, RELAY_PORT, RENDEZVOUS_PORT,
+        RENDEZVOUS_SERVERS, WS_RENDEZVOUS_PORT,
     },
     protobuf::Message,
-    socket_client::split_host_port,
+    socket_client::{check_port, split_host_port},
     sodiumoxide::crypto::secretbox::Key,
     tcp::Encrypt,
     tls::{get_cached_tls_accept_invalid_cert, get_cached_tls_type, upsert_tls_cache, TlsType},
@@ -307,6 +308,17 @@ pub fn check_ws(endpoint: &str) -> String {
         return endpoint.to_string();
     };
 
+    let is_builtin_rendezvous = RENDEZVOUS_SERVERS.iter().any(|server| {
+        split_host_port(check_port(*server, RENDEZVOUS_PORT))
+            .map(|(host, _)| host.eq_ignore_ascii_case(&endpoint_host))
+            .unwrap_or(false)
+    });
+    if is_builtin_rendezvous
+        && (endpoint_port == RENDEZVOUS_PORT || endpoint_port == RENDEZVOUS_PORT - 1)
+    {
+        return format!("ws://{endpoint_host}:{WS_RENDEZVOUS_PORT}");
+    }
+
     let custom_rendezvous_server = Config::get_rendezvous_server();
     let relay_server = Config::get_option(OPTION_RELAY_SERVER);
     let rendezvous_port = split_host_port(&custom_rendezvous_server)
@@ -316,13 +328,17 @@ pub fn check_ws(endpoint: &str) -> String {
         .map(|(_, p)| p)
         .unwrap_or(RELAY_PORT);
 
-    let (relay, dst_port) = if endpoint_port == rendezvous_port {
+    let (relay, dst_port) = if endpoint_port == rendezvous_port || endpoint_port == RENDEZVOUS_PORT
+    {
         // rendezvous
         (false, endpoint_port + 2)
-    } else if endpoint_port == rendezvous_port - 1 {
+    } else if endpoint_port == rendezvous_port - 1 || endpoint_port == RENDEZVOUS_PORT - 1 {
         // online
         (false, endpoint_port + 3)
-    } else if endpoint_port == relay_port || endpoint_port == rendezvous_port + 1 {
+    } else if endpoint_port == relay_port
+        || endpoint_port == rendezvous_port + 1
+        || endpoint_port == RELAY_PORT
+    {
         // relay
         // https://github.com/luoda/luoda/blob/6ffbcd1375771f2482ec4810680623a269be70f1/src/rendezvous_mediator.rs#L615
         // https://github.com/luoda/luoda-server/blob/235a3c326ceb665e941edb50ab79faa1208f7507/src/relay_server.rs#L83, based on relay port.
@@ -472,6 +488,8 @@ mod tests {
         assert_eq!(check_ws("127.0.0.1:23455"), "ws://127.0.0.1:23458");
         assert_eq!(check_ws("127.0.0.1:23456"), "ws://127.0.0.1:23458");
         assert_eq!(check_ws("127.0.0.1:23457"), "ws://127.0.0.1:23459");
+        assert_eq!(check_ws("rev.dicad.cn:21116"), "ws://rev.dicad.cn:21118");
+        assert_eq!(check_ws("rev.dicad.cn:21115"), "ws://rev.dicad.cn:21118");
         // set relay-server without port
         Config::set_option("relay-server".to_string(), "127.0.0.1".to_string());
         assert_eq!(check_ws("127.0.0.1:23455"), "ws://127.0.0.1:23458");

@@ -229,6 +229,60 @@ fn direct_endpoint(peer: &str) -> Option<String> {
     })
 }
 
+fn is_loopback_rendezvous_server(server: &str) -> bool {
+    let endpoint = server
+        .split_once("://")
+        .map(|(_, value)| value)
+        .unwrap_or(server);
+    let authority = endpoint.split('/').next().unwrap_or(endpoint);
+    let host = if let Ok(address) = SocketAddr::from_str(authority) {
+        return address.ip().is_loopback();
+    } else if let Ok(ip) = IpAddr::from_str(authority) {
+        return ip.is_loopback();
+    } else if let Some((host, port)) = authority.rsplit_once(':') {
+        if port.parse::<u16>().is_err() {
+            return false;
+        }
+        host.trim_start_matches('[').trim_end_matches(']')
+    } else {
+        authority
+    };
+    host.eq_ignore_ascii_case("localhost")
+        || IpAddr::from_str(host)
+            .map(|ip| ip.is_loopback())
+            .unwrap_or(false)
+}
+
+fn rendezvous_fallback_servers(primary: &str, servers: Vec<String>) -> Vec<String> {
+    let normalized_primary = check_port(primary, RENDEZVOUS_PORT);
+    let mut fallbacks = Vec::new();
+    let mut candidates: Vec<String> = servers
+        .into_iter()
+        .map(|server| check_port(server, RENDEZVOUS_PORT))
+        .collect();
+    if is_loopback_rendezvous_server(primary) {
+        candidates.extend(
+            RENDEZVOUS_SERVERS
+                .iter()
+                .map(|server| check_port(*server, RENDEZVOUS_PORT)),
+        );
+    }
+    for server in candidates {
+        if server != normalized_primary && !fallbacks.contains(&server) {
+            fallbacks.push(server);
+        }
+    }
+    fallbacks
+}
+
+fn online_rendezvous_endpoint(server: &str) -> Option<String> {
+    if hbb_common::websocket::is_ws_endpoint(server) {
+        return Some(server.to_owned());
+    }
+    let (host, port) = hbb_common::socket_client::split_host_port(server)?;
+    (port > 1).then(|| format!("{host}:{}", port - 1))
+}
+
 enum ConnectionRoute<'a> {
     Socket(SocketAddr),
     BareIp(IpAddr),
@@ -274,7 +328,7 @@ mod direct_endpoint_tests {
     use super::{
         bare_direct_ip, connection_route, direct_endpoint, direct_probe_addresses,
         enforce_rendezvous_policy, explicit_direct_endpoint, fingerprint_public_key,
-        ConnectionRoute,
+        online_rendezvous_endpoint, rendezvous_fallback_servers, ConnectionRoute,
     };
 
     #[test]
@@ -325,6 +379,48 @@ mod direct_endpoint_tests {
         ));
         assert!(enforce_rendezvous_policy(false).is_ok());
         assert!(enforce_rendezvous_policy(true).is_err());
+    }
+
+    #[test]
+    fn loopback_rendezvous_adds_normalized_public_fallbacks() {
+        assert_eq!(
+            rendezvous_fallback_servers("127.0.0.1:23458", Vec::new()),
+            vec!["rev.dicad.cn:21116"]
+        );
+        assert_eq!(
+            rendezvous_fallback_servers(
+                "ws://127.0.0.1:23458",
+                vec!["rev.dicad.cn".to_owned(), "rev.dicad.cn:21116".to_owned()],
+            ),
+            vec!["rev.dicad.cn:21116"]
+        );
+        assert_eq!(
+            rendezvous_fallback_servers("[::1]:23458", Vec::new()),
+            vec!["rev.dicad.cn:21116"]
+        );
+    }
+
+    #[test]
+    fn remote_custom_rendezvous_does_not_add_public_fallbacks() {
+        assert!(
+            rendezvous_fallback_servers("customer.example:23458", Vec::new()).is_empty()
+        );
+    }
+
+    #[test]
+    fn derives_tcp_ipv6_and_websocket_online_endpoints() {
+        assert_eq!(
+            online_rendezvous_endpoint("rev.dicad.cn:21116").as_deref(),
+            Some("rev.dicad.cn:21115")
+        );
+        assert_eq!(
+            online_rendezvous_endpoint("[::1]:21116").as_deref(),
+            Some("[::1]:21115")
+        );
+        assert_eq!(
+            online_rendezvous_endpoint("ws://127.0.0.1:23458").as_deref(),
+            Some("ws://127.0.0.1:23458")
+        );
     }
 
     #[test]
@@ -527,7 +623,13 @@ impl Client {
             (peer, "", key, token)
         };
         let (rendezvous_server, servers, contained) = if other_server.is_empty() {
-            crate::get_rendezvous_server(1_000).await
+            let (rendezvous_server, servers, contained) =
+                crate::get_rendezvous_server(1_000).await;
+            (
+                rendezvous_server.clone(),
+                rendezvous_fallback_servers(&rendezvous_server, servers),
+                contained,
+            )
         } else {
             if other_server == PUBLIC_SERVER {
                 (
@@ -4306,6 +4408,7 @@ async fn hc_connection_(
 }
 
 pub mod peer_online {
+    use super::{online_rendezvous_endpoint, rendezvous_fallback_servers};
     use hbb_common::{
         anyhow::bail,
         config::{Config, CONNECT_TIMEOUT, READ_TIMEOUT},
@@ -4337,18 +4440,21 @@ pub mod peer_online {
     }
 
     async fn create_online_stream() -> ResultType<Stream> {
-        let (rendezvous_server, _servers, _contained) =
+        let (rendezvous_server, servers, _contained) =
             crate::get_rendezvous_server(READ_TIMEOUT).await;
-        let tmp: Vec<&str> = rendezvous_server.split(":").collect();
-        if tmp.len() != 2 {
-            bail!("Invalid server address: {}", rendezvous_server);
+        let servers = rendezvous_fallback_servers(&rendezvous_server, servers);
+        let mut errors = Vec::new();
+        for server in std::iter::once(rendezvous_server).chain(servers) {
+            let Some(online_server) = online_rendezvous_endpoint(&server) else {
+                errors.push(format!("Invalid server address: {server}"));
+                continue;
+            };
+            match connect_tcp(&online_server, CONNECT_TIMEOUT).await {
+                Ok(stream) => return Ok(stream),
+                Err(error) => errors.push(format!("{online_server}: {error}")),
+            }
         }
-        let port: u16 = tmp[1].parse()?;
-        if port == 0 {
-            bail!("Invalid server address: {}", rendezvous_server);
-        }
-        let online_server = format!("{}:{}", tmp[0], port - 1);
-        connect_tcp(online_server, CONNECT_TIMEOUT).await
+        bail!("Failed to connect to online server: {}", errors.join("; "))
     }
 
     async fn query_online_states_(
