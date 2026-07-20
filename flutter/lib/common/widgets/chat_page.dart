@@ -99,6 +99,7 @@ class ChatPage extends StatelessWidget implements PageShape {
     final id = (properties?['ldesk_id'] ?? '').toString();
     final disposition =
         (properties?['ldesk_disposition'] ?? 'active').toString();
+    final delivery = (properties?['ldesk_delivery'] ?? '').toString();
     if (id.isEmpty ||
         message.user.id != chatModel.me.id ||
         disposition != 'active') {
@@ -111,10 +112,31 @@ class ChatPage extends StatelessWidget implements PageShape {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
+            if (delivery == 'failed')
+              ListTile(
+                leading: const Icon(Icons.refresh_rounded),
+                title: Text(translate('Retry send')),
+                onTap: () => Navigator.pop(sheetContext, 'retry'),
+              ),
             ListTile(
               leading: const Icon(Icons.undo_rounded),
               title: Text(translate('Recall')),
               onTap: () => Navigator.pop(sheetContext, 'recall'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.timer_outlined),
+              title: Text(translate('Self-destruct in 1 minute')),
+              onTap: () => Navigator.pop(sheetContext, 'expire-60'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.timer_outlined),
+              title: Text(translate('Self-destruct in 5 minutes')),
+              onTap: () => Navigator.pop(sheetContext, 'expire-300'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.timer_outlined),
+              title: Text(translate('Self-destruct in 1 hour')),
+              onTap: () => Navigator.pop(sheetContext, 'expire-3600'),
             ),
             ListTile(
               leading: Icon(
@@ -154,14 +176,28 @@ class ChatPage extends StatelessWidget implements PageShape {
       );
       if (confirmed != true) return;
     }
-    final changed = action == 'recall'
-        ? await chatModel.recallMessage(message)
-        : await chatModel.destroyMessage(message);
+    late final bool changed;
+    late final String successText;
+    if (action == 'retry') {
+      changed = await chatModel.retryMessage(message);
+      successText = 'Message queued for retry';
+    } else if (action.startsWith('expire-')) {
+      final seconds = int.tryParse(action.substring('expire-'.length)) ?? 0;
+      changed = await chatModel.setSelfDestructMessage(
+        message,
+        Duration(seconds: seconds),
+      );
+      successText = 'Self-destruct timer set';
+    } else if (action == 'recall') {
+      changed = await chatModel.recallMessage(message);
+      successText = 'Message recalled';
+    } else {
+      changed = await chatModel.destroyMessage(message);
+      successText = 'Message destroyed';
+    }
     if (!context.mounted || !changed) return;
     ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      SnackBar(
-          content: Text(translate(
-              action == 'recall' ? 'Message recalled' : 'Message destroyed'))),
+      SnackBar(content: Text(translate(successText))),
     );
   }
 
@@ -258,6 +294,23 @@ class ChatPage extends StatelessWidget implements PageShape {
                 default:
                   return '';
               }
+            }
+
+            String selfDestructLabel(ChatMessage message) {
+              final expiresAt = DateTime.tryParse(
+                (message.customProperties?['ldesk_expires_at'] ?? '')
+                    .toString(),
+              );
+              if (expiresAt == null) return '';
+              final remaining = expiresAt.difference(DateTime.now().toUtc());
+              if (remaining <= Duration.zero) return translate('Expiring');
+              if (remaining.inMinutes < 1) {
+                return '${translate('Self-destruct')} ${remaining.inSeconds}s';
+              }
+              if (remaining.inHours < 1) {
+                return '${translate('Self-destruct')} ${remaining.inMinutes}m';
+              }
+              return '${translate('Self-destruct')} ${remaining.inHours}h';
             }
 
             String fileSizeLabel(int fileSize) {
@@ -447,11 +500,18 @@ class ChatPage extends StatelessWidget implements PageShape {
                       ),
                     ],
                     bubble,
-                    if (isOwnMessage && deliveryLabel(message).isNotEmpty)
+                    if (isOwnMessage &&
+                        (deliveryLabel(message).isNotEmpty ||
+                            selfDestructLabel(message).isNotEmpty))
                       Padding(
                         padding: const EdgeInsets.only(top: 4, right: 2),
                         child: Text(
-                          deliveryLabel(message),
+                          <String>[
+                            if (deliveryLabel(message).isNotEmpty)
+                              deliveryLabel(message),
+                            if (selfDestructLabel(message).isNotEmpty)
+                              selfDestructLabel(message),
+                          ].join('  ·  '),
                           style: TextStyle(
                             color: deliveryLabel(message) == translate('Failed')
                                 ? Theme.of(context).colorScheme.error
@@ -467,6 +527,25 @@ class ChatPage extends StatelessWidget implements PageShape {
                 ),
               );
               final avatar = messageAvatar(message.user, null, null);
+              final canManage = isOwnMessage &&
+                  message.customProperties?['ldesk_disposition'] == 'active';
+              final actionButton = canManage
+                  ? IconButton(
+                      onPressed: () => _showMessageActions(context, message),
+                      tooltip: translate('Message actions'),
+                      visualDensity: VisualDensity.compact,
+                      constraints:
+                          const BoxConstraints.tightFor(width: 30, height: 30),
+                      padding: EdgeInsets.zero,
+                      icon: Icon(
+                        Icons.more_horiz_rounded,
+                        size: 18,
+                        color: dark
+                            ? const Color(0xFF999CA2)
+                            : const Color(0xFF7B7B7B),
+                      ),
+                    )
+                  : const SizedBox(width: 30, height: 30);
               return Padding(
                 padding: EdgeInsets.fromLTRB(
                   isDesktopHome ? 24 : 12,
@@ -482,6 +561,9 @@ class ChatPage extends StatelessWidget implements PageShape {
                   children: isOwnMessage
                       ? <Widget>[
                           messageColumn,
+                          const SizedBox(width: 4),
+                          actionButton,
+                          const SizedBox(width: 4),
                           const SizedBox(width: 11),
                           avatar,
                         ]
@@ -512,7 +594,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                     messages: chatModel
                             .messages[chatModel.currentKey]?.chatMessages ??
                         [],
-                    readOnly: readOnly,
+                    readOnly: isDesktopHome || readOnly,
                     inputOptions: InputOptions(
                       focusNode: chatModel.inputNode,
                       textController: chatModel.textController,

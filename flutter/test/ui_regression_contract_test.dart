@@ -870,7 +870,7 @@ void main() {
 
   test('desktop chat exposes text voice file and remote assistance workflows',
       () {
-    expect(chatPageSource, contains('readOnly: readOnly'));
+    expect(chatPageSource, contains('readOnly: isDesktopHome || readOnly'));
     expect(
       chatPageSource,
       isNot(contains('readOnly: isDesktopHome ? true : readOnly')),
@@ -1597,5 +1597,54 @@ void main() {
         serverIdentity.indexOf('get_builtin_option(keys::OPTION_AVATAR)'),
       ),
     );
+  });
+
+  test('remote connection startup stays non-blocking until the first frame',
+      () {
+    final waitingSource = modelSource
+        .split('void showConnectedWaitingForImage')[1]
+        .split('void showPrivacyFailedDialog')[0];
+    expect(remotePageSource, contains('firstFrameTimedOut'));
+    expect(remotePageSource, contains('RemoteConnectionProgress'));
+    expect(remotePageSource,
+        isNot(contains("showLoading(translate('Connecting...')")));
+    expect(remotePageSource, isNot(contains('? emptyOverlay()')));
+    expect(modelSource, contains('firstFrameTimeoutTimer'));
+    expect(remotePageSource, contains('Remote frame timeout'));
+    expect(waitingSource, isNot(contains('dialogManager.show(')));
+  });
+
+  test('desktop chat renders one editor and exposes message controls', () {
+    expect(chatPageSource, contains('readOnly: isDesktopHome || readOnly'));
+    expect(chatPageSource, contains('_DesktopChatComposer'));
+    expect(chatPageSource, contains('retryMessage('));
+    expect(chatPageSource, contains('setSelfDestructMessage('));
+    expect(chatPageSource, contains('onPressed: () => _showMessageActions'));
+    expect(chatModelSource, contains('Future<bool> retryMessage('));
+    expect(chatModelSource, contains('Future<bool> setSelfDestructMessage('));
+    expect(directChatSource, contains("'expires_at'"));
+    expect(directChatSource, contains('setSelfDestruct('));
+  });
+
+  test('direct pairing only advertises a ready listener in a compact dialog',
+      () {
+    expect(homePageSource, contains("kOptionDirectListenerStatus"));
+    expect(homePageSource, contains("listenerStatus != 'ready'"));
+    expect(homePageSource, contains('ConstrainedBox('));
+    expect(homePageSource, contains('size: 184'));
+    expect(homePageSource, contains('barrierDismissible: true'));
+  });
+
+  test('new desktop rail does not route into the legacy VIP card page', () {
+    expect(homePageSource,
+        isNot(contains("return const PeerTabPage(showTabStrip: false);")));
+    expect(homePageSource, isNot(contains("id: 'vip'")));
+  });
+
+  test('new history lists hide loopback duplicates and collapse device aliases',
+      () {
+    expect(homePageSource, contains('_isLoopbackPeer(peer)'));
+    expect(homePageSource, contains('_historyIdentity(peer)'));
+    expect(homePageSource, contains('seenPeerKeys.add(identity)'));
   });
 }

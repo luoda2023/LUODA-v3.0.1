@@ -205,12 +205,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         icon: Icons.devices_outlined,
         selectedIcon: Icons.devices_rounded,
       ),
-      DesktopRailDestination(
-        id: 'vip',
-        label: 'VIP features',
-        icon: Icons.workspace_premium_outlined,
-        selectedIcon: Icons.workspace_premium_rounded,
-      ),
     ];
     return DesktopPrimaryRail(
       destinations: destinations,
@@ -234,7 +228,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       'discovered',
       'contacts',
       'history',
-      'vip',
     };
     if (!sections.contains(section)) return;
     if (mounted) setState(() => _selectedRailId = section);
@@ -251,7 +244,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       'discovered' => translate('LAN discovery'),
       'contacts' => translate('Contacts'),
       'history' => translate('Access history'),
-      'vip' => translate('VIP features'),
       _ => translate('Contacts'),
     };
     return ColoredBox(
@@ -387,12 +379,16 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final theme = Theme.of(context);
     final dark = theme.brightness == Brightness.dark;
     final networkStatus = gFFI.serverModel.connectStatus;
+    final directListenerReady =
+        bind.mainGetOptionSync(key: kOptionDirectListenerStatus) == 'ready';
     final localLabel = networkStatus > 0
         ? translate('Online')
-        : networkStatus == 0
-            ? translate('Connecting')
-            : translate('Offline');
-    final localColor = networkStatus > 0
+        : directListenerReady
+            ? translate('Direct listening')
+            : networkStatus == 0
+                ? translate('Connecting')
+                : translate('Offline');
+    final localColor = networkStatus > 0 || directListenerReady
         ? const Color(0xFF238A57)
         : networkStatus == 0
             ? const Color(0xFFE39128)
@@ -1000,9 +996,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     if (_selectedRailId == 'chat') {
       return _buildConversationList(context);
     }
-    if (_selectedRailId == 'vip') {
-      return const PeerTabPage(showTabStrip: false);
-    }
     final model = _contactModelFor(_selectedRailId);
     return AnimatedBuilder(
       animation: Listenable.merge(<Listenable>[
@@ -1012,12 +1005,25 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       ]),
       builder: (context, _) {
         final query = _contactSearchController.text.trim().toLowerCase();
-        final peers = query.isEmpty
-            ? model.peers
-            : model.peers.where((peer) {
-                return _contactName(peer).toLowerCase().contains(query) ||
-                    peer.id.toLowerCase().contains(query);
-              }).toList();
+        final peers = <Peer>[];
+        final seenPeerKeys = <String>{};
+        for (final peer in model.peers) {
+          if ((_selectedRailId == 'recent' || _selectedRailId == 'history') &&
+              _isLoopbackPeer(peer)) {
+            continue;
+          }
+          if (query.isNotEmpty &&
+              !_contactName(peer).toLowerCase().contains(query) &&
+              !peer.id.toLowerCase().contains(query)) {
+            continue;
+          }
+          final identity = _historyIdentity(peer);
+          if ((_selectedRailId == 'recent' || _selectedRailId == 'history') &&
+              !seenPeerKeys.add(identity)) {
+            continue;
+          }
+          peers.add(peer);
+        }
         final peerIds = peers.map((peer) => peer.id).toSet();
         final standalonePairings =
             DirectPairingStore.load().values.where((pairing) {
@@ -1066,6 +1072,26 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         );
       },
     );
+  }
+
+  String _historyIdentity(Peer peer) {
+    final identity = peer.displayName.trim().isNotEmpty
+        ? peer.displayName
+        : peer.hostname.trim().isNotEmpty
+            ? peer.hostname
+            : peer.id;
+    return identity.trim().toLowerCase();
+  }
+
+  bool _isLoopbackPeer(Peer peer) {
+    final value = peer.id.trim().replaceAll(' ', '');
+    if (value.isEmpty) return false;
+    final host = value.startsWith('[')
+        ? value.substring(1, value.indexOf(']'))
+        : value.contains(':')
+            ? value.substring(0, value.lastIndexOf(':'))
+            : value;
+    return host == 'localhost' || host == '::1' || host.startsWith('127.');
   }
 
   DateTime _conversationTime(MapEntry<MessageKey, MessageBody> entry) {
@@ -2063,7 +2089,14 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   }
 
   Future<void> _showPairingQrDialog(BuildContext context) async {
-    bind.mainCheckConnectStatus();
+    await bind.mainCheckConnectStatus();
+    final listenerStatus =
+        bind.mainGetOptionSync(key: kOptionDirectListenerStatus).trim();
+    if (listenerStatus != 'ready') {
+      _showConversationNotice(translate(
+          'Direct listener is not ready. Check the LAN address and port.'));
+      return;
+    }
     final payload = await DirectPairingStore.buildLocalPayload();
     final pairing = DirectPairingStore.parsePayload(payload);
     if (!mounted || pairing == null) {
@@ -2075,52 +2108,67 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     }
     await showDialog<void>(
       context: context,
+      barrierDismissible: true,
+      barrierColor: Colors.black.withOpacity(0.24),
       builder: (dialogContext) => AlertDialog(
         title: Text(translate('Pair phone directly')),
-        content: SizedBox(
-          width: 360,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                translate(
-                  'Scan with LDesk on the phone. Pairing data stays on both devices.',
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 320),
+          child: SizedBox(
+            width: double.infinity,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  translate(
+                    'Scan with LDesk on the phone. Pairing data stays on both devices.',
+                  ),
+                  textAlign: TextAlign.center,
+                  style: Theme.of(dialogContext).textTheme.bodyMedium,
                 ),
-                textAlign: TextAlign.center,
-                style: Theme.of(dialogContext).textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 18),
-              ColoredBox(
-                color: Colors.white,
-                child: Padding(
-                  padding: const EdgeInsets.all(10),
-                  child: QrImageView(
-                    data: payload,
-                    version: QrVersions.auto,
-                    size: 240,
-                    gapless: true,
+                const SizedBox(height: 12),
+                ColoredBox(
+                  color: Colors.white,
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: QrImageView(
+                      data: payload,
+                      version: QrVersions.auto,
+                      size: 184,
+                      gapless: true,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 14),
-              Text(
-                pairing.preferredEndpoint,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 13,
+                const SizedBox(height: 14),
+                Text(
+                  pairing.endpoints.join('\n'),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 13,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 5),
-              Text(
-                translate('No rendezvous or relay server'),
-                style: Theme.of(dialogContext).textTheme.bodySmall?.copyWith(
-                      color: MyTheme.accent,
-                      fontWeight: FontWeight.w600,
-                    ),
-              ),
-            ],
+                const SizedBox(height: 5),
+                Text(
+                  translate(
+                      'Direct endpoint only. Same LAN or forwarded port required.'),
+                  style: Theme.of(dialogContext).textTheme.bodySmall?.copyWith(
+                        color: MyTheme.mutedLight,
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  translate('Direct listener ready'),
+                  style: Theme.of(dialogContext).textTheme.bodySmall?.copyWith(
+                        color: MyTheme.accent,
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ],
+            ),
           ),
         ),
         actions: [
@@ -2273,7 +2321,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       2: (Icons.radar_rounded, 'Discovered'),
       3: (Icons.contact_page_outlined, 'Address book'),
       4: (Icons.devices_rounded, 'Access history devices'),
-      5: (Icons.workspace_premium_outlined, 'VIP features'),
     };
     final model = gFFI.peerTabModel;
     final tabsFixed = isOptionFixed(kOptionPeerTabVisible);

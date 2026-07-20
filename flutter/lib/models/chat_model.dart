@@ -86,6 +86,10 @@ class ChatModel with ChangeNotifier {
   @override
   void dispose() {
     DirectChatRepository.instance.revision.removeListener(_onStoreRevision);
+    for (final timer in _selfDestructTimers.values) {
+      timer.cancel();
+    }
+    _selfDestructTimers.clear();
     textController.dispose();
     super.dispose();
   }
@@ -96,6 +100,7 @@ class ChatModel with ChangeNotifier {
   final Map<int, String> _activeCompanionSecrets = <int, String>{};
   final Map<String, _IncomingVoiceTransfer> _incomingVoiceTransfers =
       <String, _IncomingVoiceTransfer>{};
+  final Map<String, Timer> _selfDestructTimers = <String, Timer>{};
   bool _activeCompanionSyncInProgress = false;
   Future<void>? _recentRestoreTask;
   bool _recentRestoreQueued = false;
@@ -583,6 +588,7 @@ class ChatModel with ChangeNotifier {
       }
     }
     insertMessage(messagekey, _toChatMessage(record, chatUser));
+    _scheduleSelfDestruct(messagekey, record, chatUser);
     if (id == clientModeID || _currentKey.peerId.isEmpty) {
       // client or invalid
       _currentKey = messagekey;
@@ -612,6 +618,7 @@ class ChatModel with ChangeNotifier {
       senderAvatar: '',
     );
     insertMessage(key, _toChatMessage(record, me));
+    _scheduleSelfDestruct(key, record, me);
     await _transmitRecord(key, record);
 
     notifyListeners();
@@ -653,6 +660,93 @@ class ChatModel with ChangeNotifier {
 
   Future<bool> destroyMessage(ChatMessage message) {
     return _mutateMessage(message, DirectChatDisposition.destroyed);
+  }
+
+  Future<bool> retryMessage(ChatMessage message) async {
+    final id = (message.customProperties?['ldesk_id'] ?? '').toString();
+    final key = _currentKey;
+    if (id.isEmpty || key.peerId.isEmpty) return false;
+    final record = await DirectChatRepository.instance.find(id);
+    if (record == null ||
+        !record.isOutgoing ||
+        record.disposition != DirectChatDisposition.active ||
+        record.isExpired) {
+      return false;
+    }
+    await DirectChatRepository.instance
+        .markDelivery(id, DirectChatDelivery.queued);
+    final queued = record.copyWith(delivery: DirectChatDelivery.queued);
+    insertMessage(key, _toChatMessage(queued, me));
+    await _transmitRecord(key, queued);
+    if (queued.kind == DirectChatKind.voice) {
+      await _sendStoredVoiceClip(key, queued);
+    }
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> setSelfDestructMessage(
+    ChatMessage message,
+    Duration duration,
+  ) async {
+    final id = (message.customProperties?['ldesk_id'] ?? '').toString();
+    final key = _currentKey;
+    if (id.isEmpty || key.peerId.isEmpty) return false;
+    final updated = await DirectChatRepository.instance.setSelfDestruct(
+      key.peerId,
+      id,
+      duration,
+    );
+    if (updated == null) return false;
+    insertMessage(key, _toChatMessage(updated, me));
+    _scheduleSelfDestruct(key, updated, me);
+    await _transmitRecord(key, updated);
+    notifyListeners();
+    return true;
+  }
+
+  void _scheduleSelfDestruct(
+    MessageKey key,
+    DirectChatRecord record,
+    ChatUser user,
+  ) {
+    final expiresAt = record.expiresAt;
+    if (expiresAt == null ||
+        record.disposition != DirectChatDisposition.active) {
+      return;
+    }
+    _selfDestructTimers.remove(record.id)?.cancel();
+    final remaining = expiresAt.difference(DateTime.now().toUtc());
+    _selfDestructTimers[record.id] = Timer(
+      remaining > Duration.zero ? remaining : Duration.zero,
+      () async {
+        _selfDestructTimers.remove(record.id);
+        final current = await DirectChatRepository.instance.find(record.id);
+        if (current == null ||
+            current.disposition != DirectChatDisposition.active) {
+          return;
+        }
+        if (current.isOutgoing) {
+          final destroyed = await DirectChatRepository.instance.mutateOutgoing(
+            current.conversationId,
+            current.id,
+            DirectChatDisposition.destroyed,
+          );
+          if (destroyed == null) return;
+          insertMessage(key, _toChatMessage(destroyed, user));
+          await _transmitRecord(key, destroyed);
+        } else {
+          insertMessage(
+            key,
+            _toChatMessage(
+              current.copyWith(disposition: DirectChatDisposition.destroyed),
+              user,
+            ),
+          );
+        }
+        notifyListeners();
+      },
+    );
   }
 
   Future<void> sendFileRecord({
@@ -1136,6 +1230,13 @@ class ChatModel with ChangeNotifier {
               record.isOutgoing ? me : body.chatUser,
             ))
         .toList(growable: true);
+    for (final record in records) {
+      _scheduleSelfDestruct(
+        key,
+        record,
+        record.isOutgoing ? me : body.chatUser,
+      );
+    }
     if (_currentKey == key) notifyListeners();
   }
 
@@ -1174,6 +1275,8 @@ class ChatModel with ChangeNotifier {
           'ldesk_file_sha256': record.fileSha256,
         if (record.voiceDurationMs > 0)
           'ldesk_voice_duration_ms': record.voiceDurationMs,
+        if (record.expiresAt != null)
+          'ldesk_expires_at': record.expiresAt!.toUtc().toIso8601String(),
         'ldesk_disposition': record.disposition.name,
       },
     );
@@ -1194,6 +1297,7 @@ class ChatModel with ChangeNotifier {
           );
     if (message.customProperties?['ldesk_disposition'] ==
         DirectChatDisposition.destroyed.name) {
+      if (messageId != null) _selfDestructTimers.remove(messageId)?.cancel();
       if (index >= 0) messages.removeAt(index);
       return;
     }
@@ -1244,6 +1348,10 @@ class ChatModel with ChangeNotifier {
   }
 
   close() {
+    for (final timer in _selfDestructTimers.values) {
+      timer.cancel();
+    }
+    _selfDestructTimers.clear();
     hideChatIconOverlay();
     hideChatWindowOverlay();
     notifyListeners();

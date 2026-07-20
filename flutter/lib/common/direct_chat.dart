@@ -33,6 +33,7 @@ class DirectChatRecord {
     this.fileSha256 = '',
     this.voiceDurationMs = 0,
     this.disposition = DirectChatDisposition.active,
+    this.expiresAt,
   });
 
   final String id;
@@ -52,8 +53,11 @@ class DirectChatRecord {
   final String fileSha256;
   final DirectChatDisposition disposition;
   final int voiceDurationMs;
+  final DateTime? expiresAt;
 
   bool get isOutgoing => direction == DirectChatDirection.outgoing;
+  bool get isExpired =>
+      expiresAt != null && !expiresAt!.isAfter(DateTime.now().toUtc());
 
   DirectChatRecord copyWith({
     String? conversationId,
@@ -61,6 +65,7 @@ class DirectChatRecord {
     DirectChatDelivery? delivery,
     int? originSequence,
     DirectChatDisposition? disposition,
+    DateTime? expiresAt,
   }) {
     return DirectChatRecord(
       id: id,
@@ -80,6 +85,7 @@ class DirectChatRecord {
       fileSize: fileSize,
       fileSha256: fileSha256,
       voiceDurationMs: voiceDurationMs,
+      expiresAt: expiresAt ?? this.expiresAt,
     );
   }
 
@@ -101,6 +107,8 @@ class DirectChatRecord {
         if (fileSize > 0) 'file_size': fileSize,
         if (fileSha256.isNotEmpty) 'file_sha256': fileSha256,
         if (voiceDurationMs > 0) 'voice_duration_ms': voiceDurationMs,
+        if (expiresAt != null)
+          'expires_at': expiresAt!.toUtc().toIso8601String(),
       };
 
   factory DirectChatRecord.fromJson(Map<String, dynamic> json) {
@@ -140,6 +148,7 @@ class DirectChatRecord {
       fileSize: int.tryParse('${json['file_size'] ?? 0}') ?? 0,
       fileSha256: (json['file_sha256'] ?? '').toString(),
       voiceDurationMs: int.tryParse('${json['voice_duration_ms'] ?? 0}') ?? 0,
+      expiresAt: DateTime.tryParse((json['expires_at'] ?? '').toString()),
     );
   }
 }
@@ -400,6 +409,30 @@ class DirectChatRepository {
     });
   }
 
+  Future<DirectChatRecord?> setSelfDestruct(
+    String conversationId,
+    String id,
+    Duration duration,
+  ) {
+    return _write((state) async {
+      final record = state.records[id];
+      if (record == null ||
+          record.conversationId != conversationId ||
+          !record.isOutgoing ||
+          record.disposition != DirectChatDisposition.active ||
+          duration <= Duration.zero) {
+        return null;
+      }
+      final updated = record.copyWith(
+        originSequence: state.nextSequence++,
+        delivery: DirectChatDelivery.queued,
+        expiresAt: DateTime.now().toUtc().add(duration),
+      );
+      state.records[id] = updated;
+      return updated;
+    });
+  }
+
   Future<void> markDelivery(String id, DirectChatDelivery delivery) {
     return _write((state) async {
       final record = state.records[id];
@@ -455,7 +488,8 @@ class DirectChatRepository {
         .values
         .where((record) =>
             record.conversationId == conversationId &&
-            record.disposition != DirectChatDisposition.destroyed)
+            record.disposition != DirectChatDisposition.destroyed &&
+            !record.isExpired)
         .toList();
     records.sort((a, b) => b.sentAt.compareTo(a.sentAt));
     return records;
@@ -470,6 +504,7 @@ class DirectChatRepository {
               record.delivery == DirectChatDelivery.delivered)) {
         continue;
       }
+      if (record.isExpired) continue;
       final previous = latest[record.conversationId];
       if (previous == null || record.sentAt.isAfter(previous)) {
         latest[record.conversationId] = record.sentAt;
@@ -527,6 +562,7 @@ class DirectChatRepository {
     return records
         .where((record) =>
             record.isOutgoing &&
+            !record.isExpired &&
             record.delivery != DirectChatDelivery.delivered)
         .toList()
       ..sort((a, b) => a.sentAt.compareTo(b.sentAt));

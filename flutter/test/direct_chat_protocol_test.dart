@@ -92,6 +92,33 @@ void main() {
     );
   });
 
+  test('self-destruct expiry survives direct message serialization', () {
+    final expiresAt = DateTime.utc(2026, 7, 20, 12, 5);
+    final record = DirectChatRecord(
+      id: 'expiring-message',
+      conversationId: 'peer',
+      originDeviceId: 'device',
+      originSequence: 3,
+      direction: DirectChatDirection.outgoing,
+      kind: DirectChatKind.text,
+      text: 'temporary',
+      senderId: 'sender',
+      senderName: 'PC',
+      senderAvatar: '',
+      sentAt: DateTime.utc(2026, 7, 20, 12),
+      delivery: DirectChatDelivery.sent,
+      expiresAt: expiresAt,
+    );
+
+    final restored = DirectChatRecord.fromJson(
+      DirectChatEnvelope.decode(DirectChatEnvelope.message(record).encode())!
+          .data,
+    );
+
+    expect(restored.expiresAt, expiresAt);
+    expect(restored.toJson()['expires_at'], expiresAt.toIso8601String());
+  });
+
   test('voice record and chunk envelopes preserve playback metadata', () {
     final record = DirectChatRecord(
       id: 'voice-1',

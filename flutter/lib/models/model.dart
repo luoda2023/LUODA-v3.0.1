@@ -132,7 +132,9 @@ class FfiModel with ChangeNotifier {
   RxBool waitForImageDialogShow = true.obs;
   Timer? waitForImageTimer;
   Timer? waitForImageAutoDismissTimer;
+  Timer? firstFrameTimeoutTimer;
   RxBool waitForFirstImage = true.obs;
+  RxBool firstFrameTimedOut = false.obs;
   bool isRefreshing = false;
 
   Timer? timerScreenshot;
@@ -270,8 +272,36 @@ class FfiModel with ChangeNotifier {
     _timer = null;
     clearPermissions();
     waitForImageTimer?.cancel();
+    firstFrameTimeoutTimer?.cancel();
     waitForImageAutoDismissTimer?.cancel();
+    firstFrameTimeoutTimer = null;
+    firstFrameTimedOut.value = false;
     timerScreenshot?.cancel();
+  }
+
+  void startConnectionTimeout() {
+    if (waitForFirstImage.isFalse) return;
+    firstFrameTimedOut.value = false;
+    firstFrameTimeoutTimer?.cancel();
+    firstFrameTimeoutTimer = Timer(const Duration(seconds: 30), () {
+      if (waitForFirstImage.isTrue) {
+        waitForImageDialogShow.value = false;
+        firstFrameTimedOut.value = true;
+        notifyListeners();
+      }
+    });
+  }
+
+  void startFirstFrameWait(SessionID sessionId) {
+    if (waitForFirstImage.isFalse) return;
+    waitForImageDialogShow.value = true;
+    waitForImageTimer?.cancel();
+    waitForImageTimer = Timer(const Duration(milliseconds: 1500), () {
+      if (waitForFirstImage.isTrue && !isRefreshing) {
+        bind.sessionInputOsPassword(sessionId: sessionId, value: '');
+      }
+    });
+    startConnectionTimeout();
   }
 
   setConnectionType(
@@ -774,8 +804,8 @@ class FfiModel with ChangeNotifier {
     parent.target?.imageModel.setUseTextureRender(evt['v'] == 'Y');
     waitForFirstImage.value = true;
     isRefreshing = true;
-    showConnectedWaitingForImage(parent.target!.dialogManager, sessionId,
-        'success', 'Successful', kMsgboxTextWaitingForImage);
+    startFirstFrameWait(sessionId);
+    bind.sessionOnWaitingForImageDialogShow(sessionId: sessionId);
   }
 
   _handleSyncPeerOption(Map<String, dynamic> evt, String peer) {
@@ -958,6 +988,8 @@ class FfiModel with ChangeNotifier {
         (type is String && type.contains('error'))) {
       parent.target?.inputModel.setRelativeMouseMode(false);
       _lastConnectionError = text?.toString();
+      firstFrameTimeoutTimer?.cancel();
+      firstFrameTimedOut.value = false;
       if (parent.target?.connType == ConnType.chat) {
         final chatModel = parent.target?.chatModel;
         if (chatModel != null) {
@@ -969,6 +1001,15 @@ class FfiModel with ChangeNotifier {
         }
       }
       notifyListeners();
+      if ((parent.target?.connType == ConnType.defaultConn ||
+              parent.target?.connType == ConnType.viewCamera) &&
+          (title == 'Connection Error' ||
+              type == 'error' ||
+              type == 'restarting')) {
+        // RemotePage renders an actionable inline failure state. Do not put a
+        // second modal over the window after the transport has failed.
+        return;
+      }
     }
 
     if (parent.target?.suppressConnectionDialogs == true &&
@@ -1008,7 +1049,7 @@ class FfiModel with ChangeNotifier {
         parent.target?.connType != ConnType.chat) {
       showRelayHintDialog(sessionId, type, title, text, dialogManager, peerId);
     } else if (text == kMsgboxTextWaitingForImage) {
-      showConnectedWaitingForImage(dialogManager, sessionId, type, title, text);
+      showConnectedWaitingForImage(sessionId);
     } else if (title == 'Privacy mode') {
       final hasRetry = evt['hasRetry'] == 'true';
       showPrivacyFailedDialog(
@@ -1149,9 +1190,9 @@ class FfiModel with ChangeNotifier {
     parent.target?.inputModel.setRelativeMouseMode(false);
     bind.sessionReconnect(sessionId: sessionId, forceRelay: forceRelay);
     clearPermissions();
+    waitForFirstImage.value = true;
+    startConnectionTimeout();
     dialogManager.dismissAll();
-    dialogManager.showLoading(translate('Connecting...'),
-        onCancel: closeConnection);
   }
 
   Future<void> showRelayHintDialog(
@@ -1166,6 +1207,13 @@ class FfiModel with ChangeNotifier {
       hint = "";
     }
     final text2 = "${translate(text)}$hint";
+
+    if (parent.target?.connType == ConnType.defaultConn ||
+        parent.target?.connType == ConnType.viewCamera) {
+      _lastConnectionError = text2;
+      notifyListeners();
+      return;
+    }
 
     if (parent.target != null &&
         allowAskForNoteAtEndOfConnection(parent.target, false) &&
@@ -1209,38 +1257,11 @@ class FfiModel with ChangeNotifier {
     });
   }
 
-  void showConnectedWaitingForImage(OverlayDialogManager dialogManager,
-      SessionID sessionId, String type, String title, String text) {
-    onClose() {
-      waitForImageAutoDismissTimer?.cancel();
-      closeConnection();
-    }
-
+  void showConnectedWaitingForImage(SessionID sessionId) {
     if (waitForFirstImage.isFalse) return;
-    dialogManager.show(
-      (setState, close, context) => CustomAlertDialog(
-          title: null,
-          content: SelectionArea(child: msgboxContent(type, title, text)),
-          actions: [
-            dialogButton("Cancel", onPressed: onClose, isOutline: true)
-          ],
-          onCancel: onClose),
-      tag: '$sessionId-waiting-for-image',
-    );
-    waitForImageDialogShow.value = true;
-    waitForImageTimer = Timer(Duration(milliseconds: 1500), () {
-      if (waitForFirstImage.isTrue && !isRefreshing) {
-        bind.sessionInputOsPassword(sessionId: sessionId, value: '');
-      }
-    });
-    // Auto-dismiss after 30 seconds if no image received
-    waitForImageAutoDismissTimer?.cancel();
-    waitForImageAutoDismissTimer = Timer(Duration(seconds: 30), () {
-      if (waitForImageDialogShow.isTrue) {
-        waitForImageDialogShow.value = false;
-        dialogManager.dismissByTag('$sessionId-waiting-for-image');
-      }
-    });
+    // The first-frame handshake is deliberately non-blocking. The remote page
+    // renders its own inline progress state so the window can still close or retry.
+    startFirstFrameWait(sessionId);
     bind.sessionOnWaitingForImageDialogShow(sessionId: sessionId);
   }
 
@@ -3805,12 +3826,15 @@ class FFI {
   /// Mobile reuse FFI
   void mobileReset() {
     ffiModel.waitForFirstImage.value = true;
+    ffiModel.firstFrameTimedOut.value = false;
     ffiModel.isRefreshing = false;
     ffiModel.waitForImageDialogShow.value = true;
     ffiModel.waitForImageTimer?.cancel();
     ffiModel.waitForImageTimer = null;
     ffiModel.waitForImageAutoDismissTimer?.cancel();
     ffiModel.waitForImageAutoDismissTimer = null;
+    ffiModel.firstFrameTimeoutTimer?.cancel();
+    ffiModel.firstFrameTimeoutTimer = null;
   }
 
   /// Start with the given [id]. Only transfer file if [isFileTransfer], only view camera if [isViewCamera], only port forward if [isPortForward].
@@ -4048,11 +4072,14 @@ class FFI {
     if (ffiModel.waitForImageDialogShow.isTrue) {
       ffiModel.waitForImageDialogShow.value = false;
       ffiModel.waitForImageTimer?.cancel();
+      ffiModel.firstFrameTimeoutTimer?.cancel();
       ffiModel.waitForImageAutoDismissTimer?.cancel();
       clearWaitingForImage(dialogManager, sessionId);
     }
     if (ffiModel.waitForFirstImage.value == true) {
       ffiModel.waitForFirstImage.value = false;
+      ffiModel.firstFrameTimedOut.value = false;
+      ffiModel.firstFrameTimeoutTimer?.cancel();
       dialogManager.dismissAll();
       await canvasModel.updateViewStyle();
       await canvasModel.updateScrollStyle();

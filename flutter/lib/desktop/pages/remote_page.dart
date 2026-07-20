@@ -147,10 +147,9 @@ class _RemotePageState extends State<RemotePage>
       viewerId: widget.viewerId,
       viewerDisplayName: widget.viewerDisplayName,
     );
+    _ffi.ffiModel.startConnectionTimeout();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: []);
-      _ffi.dialogManager
-          .showLoading(translate('Connecting...'), onCancel: closeConnection);
     });
     WakelockManager.enable(_uniqueKey);
 
@@ -352,15 +351,6 @@ class _RemotePageState extends State<RemotePage>
     removeSharedStates(widget.id);
   }
 
-  Widget emptyOverlay() => BlockableOverlay(
-        /// the Overlay key will be set with _blockableOverlayState in BlockableOverlay
-        /// see override build() in [BlockableOverlay]
-        state: _blockableOverlayState,
-        underlying: Container(
-          color: Colors.transparent,
-        ),
-      );
-
   Widget buildBody(BuildContext context) {
     remoteToolbar(BuildContext context) => RemoteToolbar(
           id: widget.id,
@@ -414,7 +404,8 @@ class _RemotePageState extends State<RemotePage>
                             _rawKeyFocusNode.unfocus();
                           });
                         }
-                        if (imageFocused) {
+                        if (imageFocused &&
+                            _ffi.ffiModel.waitForFirstImage.isFalse) {
                           _ffi.inputModel.enterOrLeave(true);
                         } else {
                           _ffi.inputModel.enterOrLeave(false);
@@ -422,7 +413,12 @@ class _RemotePageState extends State<RemotePage>
                       }
                     },
                     inputModel: _ffi.inputModel,
-                    child: getBodyForDesktop(context),
+                    child: Obx(
+                      () => IgnorePointer(
+                        ignoring: _ffi.ffiModel.waitForFirstImage.isTrue,
+                        child: getBodyForDesktop(context),
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -431,26 +427,23 @@ class _RemotePageState extends State<RemotePage>
           ),
           Stack(
             children: [
-              _ffi.ffiModel.pi.isSet.isTrue &&
-                      _ffi.ffiModel.waitForFirstImage.isTrue
-                  ? emptyOverlay()
-                  : () {
-                      if (!_ffi.ffiModel.isPeerAndroid) {
-                        return Offstage();
-                      } else {
-                        return Obx(() => Offstage(
-                              offstage: _ffi.dialogManager
-                                  .mobileActionsOverlayVisible.isFalse,
-                              child: Overlay(initialEntries: [
-                                makeMobileActionsOverlayEntry(
-                                  () => _ffi.dialogManager
-                                      .setMobileActionsOverlayVisible(false),
-                                  ffi: _ffi,
-                                )
-                              ]),
-                            ));
-                      }
-                    }(),
+              () {
+                if (!_ffi.ffiModel.isPeerAndroid) {
+                  return Offstage();
+                } else {
+                  return Obx(() => Offstage(
+                        offstage: _ffi
+                            .dialogManager.mobileActionsOverlayVisible.isFalse,
+                        child: Overlay(initialEntries: [
+                          makeMobileActionsOverlayEntry(
+                            () => _ffi.dialogManager
+                                .setMobileActionsOverlayVisible(false),
+                            ffi: _ffi,
+                          )
+                        ]),
+                      ));
+                }
+              }(),
               // Use Overlay to enable rebuild every time on menu button click.
               // Hide toolbar when relative mouse mode is active to prevent
               // cursor from escaping to toolbar area.
@@ -461,8 +454,23 @@ class _RemotePageState extends State<RemotePage>
                           OverlayEntry(builder: remoteToolbar)
                         ])
                       : remoteToolbar(context)),
-              _ffi.ffiModel.pi.isSet.isFalse ? emptyOverlay() : Offstage(),
             ],
+          ),
+          Positioned(
+            left: 12,
+            right: 12,
+            bottom: 38,
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: RemoteConnectionProgress(
+                  ffi: _ffi,
+                  sessionId: sessionId,
+                  onClose: closeConnection,
+                ),
+              ),
+            ),
           ),
         ],
       );
@@ -474,8 +482,7 @@ class _RemotePageState extends State<RemotePage>
         animation: _ffi.ffiModel,
         builder: (context, _) => Obx(() {
           final error = _ffi.ffiModel.lastConnectionError;
-          if (!_ffi.ffiModel.pi.isSet.isTrue &&
-              error?.trim().isNotEmpty == true) {
+          if (error?.trim().isNotEmpty == true) {
             return _buildConnectionFailure(context, error!);
           }
           final imageReady = _ffi.ffiModel.pi.isSet.isTrue &&
@@ -552,6 +559,22 @@ class _RemotePageState extends State<RemotePage>
                     icon: const Icon(Icons.refresh_rounded),
                     label: Text(translate('Retry')),
                   ),
+                  if (bind.mainGetOptionSync(
+                        key: kOptionServerlessDirectOnly,
+                      ) !=
+                      'Y')
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        _ffi.ffiModel.clearConnectionError();
+                        _ffi.ffiModel.reconnect(
+                          _ffi.dialogManager,
+                          sessionId,
+                          true,
+                        );
+                      },
+                      icon: const Icon(Icons.swap_horiz_rounded),
+                      label: Text(translate('Connect via relay')),
+                    ),
                 ],
               ),
             ],
@@ -725,6 +748,102 @@ class _RemotePageState extends State<RemotePage>
   bool get wantKeepAlive => true;
 }
 
+class RemoteConnectionProgress extends StatelessWidget {
+  const RemoteConnectionProgress({
+    required this.ffi,
+    required this.sessionId,
+    required this.onClose,
+  });
+
+  final FFI ffi;
+  final SessionID sessionId;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    return Obx(() {
+      final waiting = !ffi.ffiModel.pi.isSet.isTrue ||
+          ffi.ffiModel.waitForFirstImage.isTrue ||
+          ffi.ffiModel.firstFrameTimedOut.isTrue;
+      if (!waiting ||
+          ffi.ffiModel.lastConnectionError?.trim().isNotEmpty == true) {
+        return const SizedBox.shrink();
+      }
+      final timedOut = ffi.ffiModel.firstFrameTimedOut.isTrue;
+      final label = timedOut
+          ? translate(ffi.ffiModel.pi.isSet.isTrue
+              ? 'Remote frame timeout'
+              : 'Connection timed out')
+          : ffi.ffiModel.pi.isSet.isTrue
+              ? translate('Connected, waiting for image...')
+              : translate('Connecting...');
+      return Material(
+        color: const Color(0xE620232A),
+        borderRadius: BorderRadius.circular(6),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+          child: Row(
+            children: <Widget>[
+              if (!timedOut)
+                const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Color(0xFF07C160),
+                  ),
+                )
+              else
+                const Icon(
+                  Icons.warning_amber_rounded,
+                  size: 17,
+                  color: Color(0xFFE8A33A),
+                ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFFE2E6EC),
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+              if (timedOut)
+                TextButton.icon(
+                  onPressed: () {
+                    ffi.ffiModel.clearConnectionError();
+                    ffi.ffiModel.reconnect(ffi.dialogManager, sessionId, false);
+                  },
+                  icon: const Icon(Icons.refresh_rounded, size: 16),
+                  label: Text(translate('Retry')),
+                  style: TextButton.styleFrom(
+                    foregroundColor: const Color(0xFF8BE28A),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
+              IconButton(
+                onPressed: onClose,
+                tooltip: translate('Close'),
+                icon: const Icon(
+                  Icons.close_rounded,
+                  size: 18,
+                  color: Color(0xFFD7DCE4),
+                ),
+                constraints:
+                    const BoxConstraints.tightFor(width: 30, height: 30),
+                padding: EdgeInsets.zero,
+              ),
+            ],
+          ),
+        ),
+      );
+    });
+  }
+}
+
 class _RemoteSessionStatusBar extends StatefulWidget {
   final String id;
   final FFI ffi;
@@ -783,13 +902,23 @@ class _RemoteSessionStatusBarState extends State<_RemoteSessionStatusBar> {
           final connected = connection.isValid();
           final secure = connection.secure.value == ConnectionType.strSecure;
           final direct = connection.direct.value == ConnectionType.strDirect;
-          final connectionLabel = connected
+          final routeLabel = connected
               ? getConnectionText(
                   secure,
                   direct,
                   connection.stream_type.value,
                 )
-              : translate('Connecting...');
+              : '';
+          final connectionLabel = widget.ffi.ffiModel.firstFrameTimedOut.isTrue
+              ? translate(widget.ffi.ffiModel.pi.isSet.isTrue
+                  ? 'Remote frame timeout'
+                  : 'Connection timed out')
+              : widget.ffi.ffiModel.pi.isSet.isTrue &&
+                      widget.ffi.ffiModel.waitForFirstImage.isTrue
+                  ? '${translate('Connected, waiting for image...')}${routeLabel.isEmpty ? '' : ' · $routeLabel'}'
+                  : routeLabel.isNotEmpty
+                      ? routeLabel
+                      : translate('Connecting...');
           final data = widget.ffi.qualityMonitorModel.data;
           return LayoutBuilder(builder: (context, constraints) {
             final showQuality = constraints.maxWidth >= 620;
@@ -800,9 +929,11 @@ class _RemoteSessionStatusBarState extends State<_RemoteSessionStatusBar> {
                   width: 7,
                   height: 7,
                   decoration: BoxDecoration(
-                    color: connected
-                        ? const Color(0xFF07C160)
-                        : const Color(0xFFF0A020),
+                    color: widget.ffi.ffiModel.firstFrameTimedOut.isTrue
+                        ? const Color(0xFFE05B5B)
+                        : connected
+                            ? const Color(0xFF07C160)
+                            : const Color(0xFFF0A020),
                     shape: BoxShape.circle,
                   ),
                 ),
