@@ -385,7 +385,9 @@ class DirectChatRepository {
       if (record == null ||
           record.conversationId != conversationId ||
           !record.isOutgoing ||
-          record.disposition == DirectChatDisposition.destroyed) {
+          record.disposition == DirectChatDisposition.destroyed ||
+          (record.disposition == DirectChatDisposition.recalled &&
+              disposition == DirectChatDisposition.recalled)) {
         return null;
       }
       final updated = record.copyWith(
