@@ -610,6 +610,17 @@ pub extern "C" fn wire_session_request_invite_token(
 }
 
 #[no_mangle]
+pub extern "C" fn wire_session_prepare_viewer(
+    port_: i64,
+    session_id: *mut wire_uint_8_list,
+    token: *mut wire_uint_8_list,
+    viewer_id: *mut wire_uint_8_list,
+    display_name: *mut wire_uint_8_list,
+) {
+    wire_session_prepare_viewer_impl(port_, session_id, token, viewer_id, display_name)
+}
+
+#[no_mangle]
 pub extern "C" fn wire_session_join_as_viewer(
     port_: i64,
     session_id: *mut wire_uint_8_list,

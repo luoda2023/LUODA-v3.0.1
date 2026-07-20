@@ -2058,6 +2058,7 @@ pub struct LoginConfigHandler {
     pub other_server: Option<(String, String, String)>,
     direct_pairing_secret: String,
     direct_fallback_endpoint: String,
+    config_id: String,
     pub custom_fps: Arc<Mutex<Option<usize>>>,
     pub last_auto_fps: Option<usize>,
     pub adapter_luid: Option<i64>,
@@ -2154,6 +2155,7 @@ impl LoginConfigHandler {
         }
 
         self.id = id;
+        self.config_id = self.id.clone();
         self.conn_type = conn_type;
         let config = self.load_config();
         self.remember = !config.password.is_empty();
@@ -2221,7 +2223,14 @@ impl LoginConfigHandler {
     /// Load [`PeerConfig`].
     pub fn load_config(&self) -> PeerConfig {
         debug_assert!(self.id.len() > 0);
-        PeerConfig::load(&self.id)
+        let mut config = PeerConfig::load(&self.id);
+        if config.password.is_empty()
+            && !self.config_id.is_empty()
+            && self.config_id != self.id
+        {
+            config.password = PeerConfig::load(&self.config_id).password;
+        }
+        config
     }
 
     /// Save a [`PeerConfig`] into the handler.
@@ -2231,6 +2240,9 @@ impl LoginConfigHandler {
     /// * `config` - [`PeerConfig`] to save.
     pub fn save_config(&mut self, config: PeerConfig) {
         config.store(&self.id);
+        if !self.config_id.is_empty() && self.config_id != self.id {
+            config.store(&self.config_id);
+        }
         self.config = config;
     }
 

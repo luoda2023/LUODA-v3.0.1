@@ -26,6 +26,9 @@ void main() {
   final remotePageSource = File(
     'lib/desktop/pages/remote_page.dart',
   ).readAsStringSync();
+  final remoteTabSource = File(
+    'lib/desktop/pages/remote_tab_page.dart',
+  ).readAsStringSync();
   final desktopTabSource = File(
     'lib/desktop/pages/desktop_tab_page.dart',
   ).readAsStringSync();
@@ -85,6 +88,9 @@ void main() {
   ).readAsStringSync();
   final mobileConnectionSource = File(
     'lib/mobile/pages/connection_page.dart',
+  ).readAsStringSync();
+  final desktopServerSource = File(
+    'lib/desktop/pages/server_page.dart',
   ).readAsStringSync();
   final mobileSettingsSource = File(
     'lib/mobile/pages/settings_page.dart',
@@ -221,6 +227,11 @@ void main() {
   final serverConnectionViewerSource = File(
     '../src/server/connection.rs',
   ).readAsStringSync();
+  final ipcSource = File('../src/ipc.rs').readAsStringSync();
+  final uiCmSource = File(
+    '../src/ui_cm_interface.rs',
+  ).readAsStringSync();
+
   final uiSessionSource = File(
     '../src/ui_session_interface.rs',
   ).readAsStringSync();
@@ -266,6 +277,21 @@ void main() {
     expect(mobileConnectionSource, contains('_ConnectionMode.viewer'));
     expect(mobileConnectionSource, contains('JoinViewerPage('));
     expect(inviteViewerSource, contains('ViewerInviteLink('));
+  });
+
+  test('viewer invites require explicit permission from the controlled side',
+      () {
+    expect(protocolSource, contains('Viewer = 9;'));
+    expect(clientIoLoopSource, contains('Ok(Permission::Viewer)'));
+    expect(modelSource, contains("_permissions['viewer'] == true"));
+    expect(serverModelSource, contains('bool viewer = false'));
+    expect(desktopServerSource, contains('Icons.group_add_outlined'));
+    expect(desktopServerSource, contains('name: "viewer"'));
+    expect(viewerCollaborationSource, contains('ffi.ffiModel.viewer'));
+    expect(serverConnectionSource,
+        contains('viewer invite request rejected: permission disabled'));
+    expect(ipcSource, contains('viewer: bool'));
+    expect(uiCmSource, contains('pub viewer: bool'));
   });
 
   test('viewer wire mode is configured before the session starts', () {
@@ -376,6 +402,24 @@ void main() {
     expect(desktopRailSource, isNot(contains("label: '设置'")));
   });
 
+  test('new desktop shell keeps navigation and presence status separate', () {
+    expect(homePageSource, contains('onSelected: _selectSection'));
+    expect(homePageSource, contains('_buildPresenceStatusStrip(context)'));
+    expect(homePageSource, contains("translate('My status')"));
+    expect(homePageSource, contains("translate('Peer status')"));
+    expect(homePageSource, contains("translate('Not selected')"));
+    expect(
+      homePageSource,
+      contains('_selectedConversationPeerId ?? peer?.id'),
+    );
+    expect(homePageSource, contains('_directDeliveryStatus(peerId'));
+    expect(
+      desktopTabSource,
+      contains('DesktopHomePage.selectSection'),
+    );
+    expect(desktopTabSource, isNot(contains('PeerTabPage.selectDesktopTab')));
+  });
+
   test('connection failures stay actionable and settings navigation stays live',
       () {
     expect(remotePageSource, contains('_buildConnectionFailure'));
@@ -389,6 +433,17 @@ void main() {
       settingsLayout.indexOf('_buildPrimaryRail(context)'),
       lessThan(settingsLayout.indexOf('child: _buildBlock')),
     );
+  });
+
+  test('remote window exposes the active direct or relay route without hover',
+      () {
+    expect(
+      remoteTabSource,
+      contains("translate(direct ? 'Direct' : 'Relay')"),
+    );
+    expect(remoteTabSource, contains("streamType == 'Relay'"));
+    expect(remoteTabSource, contains(r"'$route / $streamType'"));
+    expect(remoteTabSource, contains('getConnectionText('));
   });
 
   test('language changes notify other windows before rebuilding the shell', () {
@@ -813,6 +868,40 @@ void main() {
     expect(homePageSource, contains("host.startsWith('127.')"));
   });
 
+  test('desktop chat exposes text voice file and remote assistance workflows',
+      () {
+    expect(chatPageSource, contains('readOnly: readOnly'));
+    expect(
+      chatPageSource,
+      isNot(contains('readOnly: isDesktopHome ? true : readOnly')),
+    );
+    expect(chatModelSource, contains('void sendText(String text)'));
+    expect(chatModelSource, contains('Future<void> sendVoiceClip('));
+    expect(chatPageSource, contains('VoiceMessageRecorderButton('));
+    final fileFlow = homePageSource
+        .split('Future<void> _sendFilesFromConversation')[1]
+        .split('Future<FFI?> _ensureDirectFileSession')[0];
+    expect(fileFlow, contains('FilePicker.platform.pickFiles'));
+    expect(fileFlow, contains('await _ensureDirectFileSession(peerId)'));
+    expect(fileFlow, contains('localController.sendFiles'));
+    expect(
+      fileFlow.indexOf('FilePicker.platform.pickFiles'),
+      lessThan(fileFlow.indexOf('_ensureDirectFileSession(peerId)')),
+    );
+    final remoteFlow = homePageSource
+        .split('Future<void> _connectDirect')[1]
+        .split('Future<bool> _isSelfTarget')[0];
+    expect(remoteFlow, contains('DirectPairingStore.resolveConnectionTarget'));
+    expect(remoteFlow, contains('await connect('));
+  });
+
+  test('remembered passwords persist for direct endpoints and peer IDs', () {
+    expect(clientSource, contains('config_id: String'));
+    expect(
+        clientSource, contains('PeerConfig::load(&self.config_id).password'));
+    expect(clientSource, contains('config.store(&self.config_id)'));
+  });
+
   test('direct chat persists, acknowledges and incrementally synchronizes', () {
     expect(directChatSource, contains('DirectChatDelivery.queued'));
     expect(directChatSource, contains('DirectChatDelivery.sent'));
@@ -841,6 +930,17 @@ void main() {
     expect(directChatSource, contains('markUndeliveredQueued'));
     expect(chatModelSource, contains('markCurrentUndeliveredQueued'));
     expect(modelSource, contains('markCurrentUndeliveredQueued'));
+  });
+
+  test('sent direct messages support recall and permanent destruction', () {
+    expect(directChatSource, contains('DirectChatDisposition.recalled'));
+    expect(directChatSource, contains('DirectChatDisposition.destroyed'));
+    expect(directChatSource, contains('mutateOutgoing'));
+    expect(chatModelSource, contains('recallMessage('));
+    expect(chatModelSource, contains('destroyMessage('));
+    expect(chatPageSource, contains('onLongPressMessage:'));
+    expect(chatPageSource, contains("translate('Recall')"));
+    expect(chatPageSource, contains("translate('Destroy')"));
   });
 
   test('voice messages record, validate, transfer and play over direct chat',

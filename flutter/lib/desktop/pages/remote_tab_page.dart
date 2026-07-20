@@ -699,6 +699,68 @@ class _RemoteWindowTitleBarState extends State<_RemoteWindowTitleBar> {
                         ),
                       ),
                     ),
+                    Obx(() {
+                      final connectionType = ConnectionTypeState.find(peerId);
+                      if (!connectionType.isValid()) {
+                        return const SizedBox.shrink();
+                      }
+                      final secure = connectionType.secure.value ==
+                          ConnectionType.strSecure;
+                      final direct = connectionType.direct.value ==
+                          ConnectionType.strDirect;
+                      var streamType = connectionType.stream_type.value;
+                      if (streamType == 'Relay') streamType = 'TCP';
+                      final route = translate(direct ? 'Direct' : 'Relay');
+                      final label =
+                          streamType.isEmpty ? route : '$route / $streamType';
+                      final color = direct
+                          ? const Color(0xFF39D477)
+                          : const Color(0xFFF0A020);
+                      return Padding(
+                        padding: const EdgeInsets.only(left: 12),
+                        child: Tooltip(
+                          message: getConnectionText(
+                            secure,
+                            direct,
+                            streamType,
+                          ),
+                          child: Container(
+                            constraints: const BoxConstraints(maxWidth: 132),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: color.withOpacity(0.14),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: color.withOpacity(0.48),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.link_rounded,
+                                    size: 13, color: color),
+                                const SizedBox(width: 5),
+                                Flexible(
+                                  child: Text(
+                                    label,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: color,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
                     if (ffi != null && MediaQuery.sizeOf(context).width >= 900)
                       AnimatedBuilder(
                         animation: Listenable.merge([

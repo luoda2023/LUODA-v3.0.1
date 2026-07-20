@@ -310,6 +310,7 @@ pub struct Connection {
     restart: bool,
     recording: bool,
     block_input: bool,
+    viewer: bool,
     control_permissions: Option<ControlPermissions>,
     last_test_delay: Option<Instant>,
     network_delay: u32,
@@ -509,6 +510,7 @@ impl Connection {
             restart: Self::permission(keys::OPTION_ENABLE_REMOTE_RESTART, &control_permissions),
             recording: Self::permission(keys::OPTION_ENABLE_RECORD_SESSION, &control_permissions),
             block_input: Self::permission(keys::OPTION_ENABLE_BLOCK_INPUT, &control_permissions),
+            viewer: false,
             control_permissions,
             last_test_delay: None,
             network_delay: 0,
@@ -605,6 +607,9 @@ impl Connection {
         }
         if !conn.block_input {
             conn.send_permission(Permission::BlockInput, false).await;
+        }
+        if !conn.viewer {
+            conn.send_permission(Permission::Viewer, false).await;
         }
         let mut test_delay_timer =
             crate::luoda_interval(time::interval_at(Instant::now(), TEST_DELAY_TIMEOUT));
@@ -757,6 +762,9 @@ impl Connection {
                             } else if &name == "block_input" {
                                 conn.block_input = enabled;
                                 conn.send_permission(Permission::BlockInput, enabled).await;
+                            } else if &name == "viewer" {
+                                conn.viewer = enabled;
+                                conn.send_permission(Permission::Viewer, enabled).await;
                             }
                         }
                         ipc::Data::RawMessage(bytes) => {
@@ -2075,6 +2083,7 @@ impl Connection {
             file: self.file,
             file_transfer_enabled: self.file,
             restart: self.restart,
+            viewer: self.viewer,
             recording: self.recording,
             block_input: self.block_input,
             from_switch: self.from_switch,
@@ -6023,6 +6032,10 @@ impl Connection {
     /// can paste / QR-encode it. ttl_minutes == 0 selects the registry default
     /// (recommended 30 minutes); one_shot controls single-use vs reusable.
     async fn handle_request_invite_token(&self, req: RequestInviteToken) {
+        if !self.viewer {
+            log::warn!("viewer invite request rejected: permission disabled");
+            return;
+        }
         let session = self.session_key();
         let host_id = session.peer_id.clone();
         let session_id = host_id.clone();

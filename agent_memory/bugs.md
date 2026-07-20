@@ -92,3 +92,15 @@ rule 9, unrelated issues are only recorded, not extended or removed.
   `cargo:rustc-link-lib=sodium` (or test which file exists in
   `SODIUM_LIB_DIR` and pick the matching name). The build-exe workflow
   should be re-run on `windows-latest` to confirm the correct name.
+
+## 8. `hbb_common` WebSocket test depends on suite order
+
+- Command: `cargo test -p hbb_common`
+- Behaviour: `websocket::tests::test_check_ws` expected
+  `ws://127.0.0.1:21118` but received `127.0.0.1:21116` after other config
+  tests ran in the same process.
+- Evidence: rerunning only
+  `cargo test -p hbb_common websocket::tests::test_check_ws -- --exact`
+  passes.
+- Risk: the full package test suite is nondeterministic because tests share
+  mutable configuration state.

@@ -91,6 +91,80 @@ class ChatPage extends StatelessWidget implements PageShape {
         })
   ];
 
+  Future<void> _showMessageActions(
+    BuildContext context,
+    ChatMessage message,
+  ) async {
+    final properties = message.customProperties;
+    final id = (properties?['ldesk_id'] ?? '').toString();
+    final disposition =
+        (properties?['ldesk_disposition'] ?? 'active').toString();
+    if (id.isEmpty ||
+        message.user.id != chatModel.me.id ||
+        disposition != 'active') {
+      return;
+    }
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      useSafeArea: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            ListTile(
+              leading: const Icon(Icons.undo_rounded),
+              title: Text(translate('Recall')),
+              onTap: () => Navigator.pop(sheetContext, 'recall'),
+            ),
+            ListTile(
+              leading: Icon(
+                Icons.delete_forever_outlined,
+                color: Theme.of(sheetContext).colorScheme.error,
+              ),
+              title: Text(
+                translate('Destroy'),
+                style: TextStyle(
+                  color: Theme.of(sheetContext).colorScheme.error,
+                ),
+              ),
+              onTap: () => Navigator.pop(sheetContext, 'destroy'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!context.mounted || action == null) return;
+    if (action == 'destroy') {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(translate('Destroy message')),
+          content: Text(translate('Destroy message on both devices?')),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: Text(translate('Cancel')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: Text(translate('Destroy')),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+    }
+    final changed = action == 'recall'
+        ? await chatModel.recallMessage(message)
+        : await chatModel.destroyMessage(message);
+    if (!context.mounted || !changed) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(
+          content: Text(translate(
+              action == 'recall' ? 'Message recalled' : 'Message destroyed'))),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider.value(
@@ -201,8 +275,9 @@ class ChatPage extends StatelessWidget implements PageShape {
             }) {
               final foreground = dark ? Colors.white : const Color(0xFF181818);
               final properties = message.customProperties;
-              final isFile = properties?['ldesk_kind'] == 'file';
-              final isVoice = properties?['ldesk_kind'] == 'voice';
+              final recalled = properties?['ldesk_disposition'] == 'recalled';
+              final isFile = !recalled && properties?['ldesk_kind'] == 'file';
+              final isVoice = !recalled && properties?['ldesk_kind'] == 'voice';
               final messageId = (properties?['ldesk_id'] ?? '').toString();
               final voiceDurationMs = int.tryParse(
                     '${properties?['ldesk_voice_duration_ms'] ?? 0}',
@@ -437,7 +512,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                     messages: chatModel
                             .messages[chatModel.currentKey]?.chatMessages ??
                         [],
-                    readOnly: isDesktopHome ? true : readOnly,
+                    readOnly: readOnly,
                     inputOptions: InputOptions(
                       focusNode: chatModel.inputNode,
                       textController: chatModel.textController,
@@ -549,6 +624,8 @@ class ChatPage extends StatelessWidget implements PageShape {
                       showOtherUsersAvatar:
                           isDesktopHome || type == ChatPageType.mobileMain,
                       showOtherUsersName: false,
+                      onLongPressMessage: (message) =>
+                          _showMessageActions(context, message),
                       avatarBuilder:
                           isDesktopHome || type == ChatPageType.mobileMain
                               ? messageAvatar

@@ -12,6 +12,8 @@ enum DirectChatDirection { incoming, outgoing }
 
 enum DirectChatKind { text, file, voice }
 
+enum DirectChatDisposition { active, recalled, destroyed }
+
 class DirectChatRecord {
   const DirectChatRecord({
     required this.id,
@@ -30,6 +32,7 @@ class DirectChatRecord {
     this.fileSize = 0,
     this.fileSha256 = '',
     this.voiceDurationMs = 0,
+    this.disposition = DirectChatDisposition.active,
   });
 
   final String id;
@@ -47,6 +50,7 @@ class DirectChatRecord {
   final String fileName;
   final int fileSize;
   final String fileSha256;
+  final DirectChatDisposition disposition;
   final int voiceDurationMs;
 
   bool get isOutgoing => direction == DirectChatDirection.outgoing;
@@ -55,12 +59,14 @@ class DirectChatRecord {
     String? conversationId,
     DirectChatDirection? direction,
     DirectChatDelivery? delivery,
+    int? originSequence,
+    DirectChatDisposition? disposition,
   }) {
     return DirectChatRecord(
       id: id,
       conversationId: conversationId ?? this.conversationId,
       originDeviceId: originDeviceId,
-      originSequence: originSequence,
+      originSequence: originSequence ?? this.originSequence,
       direction: direction ?? this.direction,
       kind: kind,
       text: text,
@@ -69,6 +75,7 @@ class DirectChatRecord {
       senderAvatar: senderAvatar,
       sentAt: sentAt,
       delivery: delivery ?? this.delivery,
+      disposition: disposition ?? this.disposition,
       fileName: fileName,
       fileSize: fileSize,
       fileSha256: fileSha256,
@@ -89,6 +96,7 @@ class DirectChatRecord {
         'sender_avatar': senderAvatar,
         'sent_at': sentAt.toUtc().toIso8601String(),
         'delivery': delivery.name,
+        'disposition': disposition.name,
         if (fileName.isNotEmpty) 'file_name': fileName,
         if (fileSize > 0) 'file_size': fileSize,
         if (fileSha256.isNotEmpty) 'file_sha256': fileSha256,
@@ -126,6 +134,8 @@ class DirectChatRecord {
         'delivery',
         DirectChatDelivery.queued,
       ),
+      disposition: enumValue(DirectChatDisposition.values, 'disposition',
+          DirectChatDisposition.active),
       fileName: (json['file_name'] ?? '').toString(),
       fileSize: int.tryParse('${json['file_size'] ?? 0}') ?? 0,
       fileSha256: (json['file_sha256'] ?? '').toString(),
@@ -351,10 +361,40 @@ class DirectChatRepository {
         state.records[record.id] = record;
         return true;
       }
+      final newerMutation = record.originDeviceId == previous.originDeviceId &&
+          record.originSequence > previous.originSequence;
+      if (newerMutation) {
+        state.records[record.id] = record;
+        return true;
+      }
       if (_deliveryRank(record.delivery) > _deliveryRank(previous.delivery)) {
         state.records[record.id] = previous.copyWith(delivery: record.delivery);
+        return true;
       }
       return false;
+    });
+  }
+
+  Future<DirectChatRecord?> mutateOutgoing(
+    String conversationId,
+    String id,
+    DirectChatDisposition disposition,
+  ) {
+    return _write((state) async {
+      final record = state.records[id];
+      if (record == null ||
+          record.conversationId != conversationId ||
+          !record.isOutgoing ||
+          record.disposition == DirectChatDisposition.destroyed) {
+        return null;
+      }
+      final updated = record.copyWith(
+        originSequence: state.nextSequence++,
+        delivery: DirectChatDelivery.queued,
+        disposition: disposition,
+      );
+      state.records[id] = updated;
+      return updated;
     });
   }
 
@@ -411,7 +451,9 @@ class DirectChatRepository {
     final records = (await _freshState())
         .records
         .values
-        .where((record) => record.conversationId == conversationId)
+        .where((record) =>
+            record.conversationId == conversationId &&
+            record.disposition != DirectChatDisposition.destroyed)
         .toList();
     records.sort((a, b) => b.sentAt.compareTo(a.sentAt));
     return records;
@@ -421,6 +463,11 @@ class DirectChatRepository {
     await _pendingWrite;
     final latest = <String, DateTime>{};
     for (final record in (await _freshState()).records.values) {
+      if (record.disposition == DirectChatDisposition.destroyed &&
+          (!record.isOutgoing ||
+              record.delivery == DirectChatDelivery.delivered)) {
+        continue;
+      }
       final previous = latest[record.conversationId];
       if (previous == null || record.sentAt.isAfter(previous)) {
         latest[record.conversationId] = record.sentAt;
@@ -469,7 +516,12 @@ class DirectChatRepository {
   }
 
   Future<List<DirectChatRecord>> pendingFor(String conversationId) async {
-    final records = await forConversation(conversationId);
+    await _pendingWrite;
+    final records = (await _freshState())
+        .records
+        .values
+        .where((record) => record.conversationId == conversationId)
+        .toList();
     return records
         .where((record) =>
             record.isOutgoing &&

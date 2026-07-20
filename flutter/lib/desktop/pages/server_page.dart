@@ -787,6 +787,20 @@ class _PrivilegeBoardState extends State<_PrivilegeBoard> {
                         },
                         translate('Enable recording session'),
                       ),
+                      buildPermissionIcon(
+                        client.viewer,
+                        Icons.group_add_outlined,
+                        (enabled) {
+                          bind.cmSwitchPermission(
+                              connId: client.id,
+                              name: "viewer",
+                              enabled: enabled);
+                          setState(() {
+                            client.viewer = enabled;
+                          });
+                        },
+                        translate('Allow viewers to join'),
+                      ),
                       // only windows support block input
                       if (isWindows)
                         buildPermissionIcon(

@@ -387,6 +387,61 @@ abstract class Luoda {
 
   FlutterRustBridgeTaskConstMeta get kSessionSendChatConstMeta;
 
+  Future<void> sessionSendChatToViewer(
+      {required UuidValue sessionId,
+      required String toViewerId,
+      required String text,
+      dynamic hint});
+
+  FlutterRustBridgeTaskConstMeta get kSessionSendChatToViewerConstMeta;
+
+  Future<void> sessionKickViewer(
+      {required UuidValue sessionId,
+      required String viewerId,
+      required String reason,
+      dynamic hint});
+
+  FlutterRustBridgeTaskConstMeta get kSessionKickViewerConstMeta;
+
+  Future<void> sessionPromoteViewer(
+      {required UuidValue sessionId, required String viewerId, dynamic hint});
+
+  FlutterRustBridgeTaskConstMeta get kSessionPromoteViewerConstMeta;
+
+  Future<void> sessionRaiseHand(
+      {required UuidValue sessionId,
+      required String viewerId,
+      required bool raised,
+      dynamic hint});
+
+  FlutterRustBridgeTaskConstMeta get kSessionRaiseHandConstMeta;
+
+  Future<void> sessionRequestInviteToken(
+      {required UuidValue sessionId,
+      required int ttlMinutes,
+      required bool oneShot,
+      dynamic hint});
+
+  FlutterRustBridgeTaskConstMeta get kSessionRequestInviteTokenConstMeta;
+
+  Future<void> sessionPrepareViewer(
+      {required UuidValue sessionId,
+      required String token,
+      required String viewerId,
+      required String displayName,
+      dynamic hint});
+
+  FlutterRustBridgeTaskConstMeta get kSessionPrepareViewerConstMeta;
+
+  Future<void> sessionJoinAsViewer(
+      {required UuidValue sessionId,
+      required String token,
+      required String viewerId,
+      required String displayName,
+      dynamic hint});
+
+  FlutterRustBridgeTaskConstMeta get kSessionJoinAsViewerConstMeta;
+
   Future<void> sessionOpenTerminal(
       {required UuidValue sessionId,
       required int terminalId,
@@ -3141,10 +3196,177 @@ class LuodaImpl implements Luoda {
 
   FlutterRustBridgeTaskConstMeta get kSessionSendChatConstMeta =>
       const FlutterRustBridgeTaskConstMeta(
-        debugName: "session_send_chat",
-        argNames: ["sessionId", "text"],
+        debugName: 'session_send_chat',
+        argNames: ['sessionId', 'text'],
       );
 
+  Future<void> sessionSendChatToViewer(
+      {required UuidValue sessionId,
+      required String toViewerId,
+      required String text,
+      dynamic hint}) {
+    var arg0 = _platform.api2wire_Uuid(sessionId);
+    var arg1 = _platform.api2wire_String(toViewerId);
+    var arg2 = _platform.api2wire_String(text);
+    return _platform.executeNormal(FlutterRustBridgeTask(
+      callFfi: (port_) => _platform.inner
+          .wire_session_send_chat_to_viewer(port_, arg0, arg1, arg2),
+      parseSuccessData: _wire2api_unit,
+      constMeta: kSessionSendChatToViewerConstMeta,
+      argValues: [sessionId, toViewerId, text],
+      hint: hint,
+    ));
+  }
+
+  FlutterRustBridgeTaskConstMeta get kSessionSendChatToViewerConstMeta =>
+      const FlutterRustBridgeTaskConstMeta(
+        debugName: 'session_send_chat_to_viewer',
+        argNames: ['sessionId', 'toViewerId', 'text'],
+      );
+
+  Future<void> sessionKickViewer(
+      {required UuidValue sessionId,
+      required String viewerId,
+      required String reason,
+      dynamic hint}) {
+    var arg0 = _platform.api2wire_Uuid(sessionId);
+    var arg1 = _platform.api2wire_String(viewerId);
+    var arg2 = _platform.api2wire_String(reason);
+    return _platform.executeNormal(FlutterRustBridgeTask(
+      callFfi: (port_) =>
+          _platform.inner.wire_session_kick_viewer(port_, arg0, arg1, arg2),
+      parseSuccessData: _wire2api_unit,
+      constMeta: kSessionKickViewerConstMeta,
+      argValues: [sessionId, viewerId, reason],
+      hint: hint,
+    ));
+  }
+
+  FlutterRustBridgeTaskConstMeta get kSessionKickViewerConstMeta =>
+      const FlutterRustBridgeTaskConstMeta(
+        debugName: 'session_kick_viewer',
+        argNames: ['sessionId', 'viewerId', 'reason'],
+      );
+
+  Future<void> sessionPromoteViewer(
+      {required UuidValue sessionId, required String viewerId, dynamic hint}) {
+    var arg0 = _platform.api2wire_Uuid(sessionId);
+    var arg1 = _platform.api2wire_String(viewerId);
+    return _platform.executeNormal(FlutterRustBridgeTask(
+      callFfi: (port_) =>
+          _platform.inner.wire_session_promote_viewer(port_, arg0, arg1),
+      parseSuccessData: _wire2api_unit,
+      constMeta: kSessionPromoteViewerConstMeta,
+      argValues: [sessionId, viewerId],
+      hint: hint,
+    ));
+  }
+
+  FlutterRustBridgeTaskConstMeta get kSessionPromoteViewerConstMeta =>
+      const FlutterRustBridgeTaskConstMeta(
+        debugName: 'session_promote_viewer',
+        argNames: ['sessionId', 'viewerId'],
+      );
+
+  Future<void> sessionRaiseHand(
+      {required UuidValue sessionId,
+      required String viewerId,
+      required bool raised,
+      dynamic hint}) {
+    var arg0 = _platform.api2wire_Uuid(sessionId);
+    var arg1 = _platform.api2wire_String(viewerId);
+    var arg2 = raised;
+    return _platform.executeNormal(FlutterRustBridgeTask(
+      callFfi: (port_) =>
+          _platform.inner.wire_session_raise_hand(port_, arg0, arg1, arg2),
+      parseSuccessData: _wire2api_unit,
+      constMeta: kSessionRaiseHandConstMeta,
+      argValues: [sessionId, viewerId, raised],
+      hint: hint,
+    ));
+  }
+
+  FlutterRustBridgeTaskConstMeta get kSessionRaiseHandConstMeta =>
+      const FlutterRustBridgeTaskConstMeta(
+        debugName: 'session_raise_hand',
+        argNames: ['sessionId', 'viewerId', 'raised'],
+      );
+
+  Future<void> sessionRequestInviteToken(
+      {required UuidValue sessionId,
+      required int ttlMinutes,
+      required bool oneShot,
+      dynamic hint}) {
+    var arg0 = _platform.api2wire_Uuid(sessionId);
+    var arg1 = api2wire_i32(ttlMinutes);
+    var arg2 = oneShot;
+    return _platform.executeNormal(FlutterRustBridgeTask(
+      callFfi: (port_) => _platform.inner
+          .wire_session_request_invite_token(port_, arg0, arg1, arg2),
+      parseSuccessData: _wire2api_unit,
+      constMeta: kSessionRequestInviteTokenConstMeta,
+      argValues: [sessionId, ttlMinutes, oneShot],
+      hint: hint,
+    ));
+  }
+
+  FlutterRustBridgeTaskConstMeta get kSessionRequestInviteTokenConstMeta =>
+      const FlutterRustBridgeTaskConstMeta(
+        debugName: 'session_request_invite_token',
+        argNames: ['sessionId', 'ttlMinutes', 'oneShot'],
+      );
+
+  Future<void> sessionPrepareViewer(
+      {required UuidValue sessionId,
+      required String token,
+      required String viewerId,
+      required String displayName,
+      dynamic hint}) {
+    var arg0 = _platform.api2wire_Uuid(sessionId);
+    var arg1 = _platform.api2wire_String(token);
+    var arg2 = _platform.api2wire_String(viewerId);
+    var arg3 = _platform.api2wire_String(displayName);
+    return _platform.executeNormal(FlutterRustBridgeTask(
+      callFfi: (port_) => _platform.inner
+          .wire_session_prepare_viewer(port_, arg0, arg1, arg2, arg3),
+      parseSuccessData: _wire2api_unit,
+      constMeta: kSessionPrepareViewerConstMeta,
+      argValues: [sessionId, token, viewerId, displayName],
+      hint: hint,
+    ));
+  }
+
+  FlutterRustBridgeTaskConstMeta get kSessionPrepareViewerConstMeta =>
+      const FlutterRustBridgeTaskConstMeta(
+        debugName: 'session_prepare_viewer',
+        argNames: ['sessionId', 'token', 'viewerId', 'displayName'],
+      );
+
+  Future<void> sessionJoinAsViewer(
+      {required UuidValue sessionId,
+      required String token,
+      required String viewerId,
+      required String displayName,
+      dynamic hint}) {
+    var arg0 = _platform.api2wire_Uuid(sessionId);
+    var arg1 = _platform.api2wire_String(token);
+    var arg2 = _platform.api2wire_String(viewerId);
+    var arg3 = _platform.api2wire_String(displayName);
+    return _platform.executeNormal(FlutterRustBridgeTask(
+      callFfi: (port_) => _platform.inner
+          .wire_session_join_as_viewer(port_, arg0, arg1, arg2, arg3),
+      parseSuccessData: _wire2api_unit,
+      constMeta: kSessionJoinAsViewerConstMeta,
+      argValues: [sessionId, token, viewerId, displayName],
+      hint: hint,
+    ));
+  }
+
+  FlutterRustBridgeTaskConstMeta get kSessionJoinAsViewerConstMeta =>
+      const FlutterRustBridgeTaskConstMeta(
+        debugName: 'session_join_as_viewer',
+        argNames: ['sessionId', 'token', 'viewerId', 'displayName'],
+      );
   Future<void> sessionOpenTerminal(
       {required UuidValue sessionId,
       required int terminalId,
@@ -9629,6 +9851,164 @@ class LuodaWire implements FlutterRustBridgeWireBase {
       void Function(
           int, ffi.Pointer<wire_uint_8_list>, ffi.Pointer<wire_uint_8_list>)>();
 
+  void wire_session_send_chat_to_viewer(
+    int port_,
+    ffi.Pointer<wire_uint_8_list> session_id,
+    ffi.Pointer<wire_uint_8_list> to_viewer_id,
+    ffi.Pointer<wire_uint_8_list> text,
+  ) {
+    return _wire_session_send_chat_to_viewer(
+      port_,
+      session_id,
+      to_viewer_id,
+      text,
+    );
+  }
+
+  late final _wire_session_send_chat_to_viewerPtr = _lookup<
+          ffi.NativeFunction<
+              ffi.Void Function(
+                  ffi.Int64,
+                  ffi.Pointer<wire_uint_8_list>,
+                  ffi.Pointer<wire_uint_8_list>,
+                  ffi.Pointer<wire_uint_8_list>)>>(
+      'wire_session_send_chat_to_viewer');
+  late final _wire_session_send_chat_to_viewer =
+      _wire_session_send_chat_to_viewerPtr.asFunction<
+          void Function(int, ffi.Pointer<wire_uint_8_list>,
+              ffi.Pointer<wire_uint_8_list>, ffi.Pointer<wire_uint_8_list>)>();
+
+  void wire_session_kick_viewer(
+    int port_,
+    ffi.Pointer<wire_uint_8_list> session_id,
+    ffi.Pointer<wire_uint_8_list> viewer_id,
+    ffi.Pointer<wire_uint_8_list> reason,
+  ) {
+    return _wire_session_kick_viewer(port_, session_id, viewer_id, reason);
+  }
+
+  late final _wire_session_kick_viewerPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Void Function(
+              ffi.Int64,
+              ffi.Pointer<wire_uint_8_list>,
+              ffi.Pointer<wire_uint_8_list>,
+              ffi.Pointer<wire_uint_8_list>)>>('wire_session_kick_viewer');
+  late final _wire_session_kick_viewer =
+      _wire_session_kick_viewerPtr.asFunction<
+          void Function(int, ffi.Pointer<wire_uint_8_list>,
+              ffi.Pointer<wire_uint_8_list>, ffi.Pointer<wire_uint_8_list>)>();
+
+  void wire_session_promote_viewer(
+    int port_,
+    ffi.Pointer<wire_uint_8_list> session_id,
+    ffi.Pointer<wire_uint_8_list> viewer_id,
+  ) {
+    return _wire_session_promote_viewer(port_, session_id, viewer_id);
+  }
+
+  late final _wire_session_promote_viewerPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Void Function(ffi.Int64, ffi.Pointer<wire_uint_8_list>,
+              ffi.Pointer<wire_uint_8_list>)>>('wire_session_promote_viewer');
+  late final _wire_session_promote_viewer =
+      _wire_session_promote_viewerPtr.asFunction<
+          void Function(int, ffi.Pointer<wire_uint_8_list>,
+              ffi.Pointer<wire_uint_8_list>)>();
+
+  void wire_session_raise_hand(
+    int port_,
+    ffi.Pointer<wire_uint_8_list> session_id,
+    ffi.Pointer<wire_uint_8_list> viewer_id,
+    bool raised,
+  ) {
+    return _wire_session_raise_hand(port_, session_id, viewer_id, raised);
+  }
+
+  late final _wire_session_raise_handPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Void Function(
+              ffi.Int64,
+              ffi.Pointer<wire_uint_8_list>,
+              ffi.Pointer<wire_uint_8_list>,
+              ffi.Bool)>>('wire_session_raise_hand');
+  late final _wire_session_raise_hand = _wire_session_raise_handPtr.asFunction<
+      void Function(int, ffi.Pointer<wire_uint_8_list>,
+          ffi.Pointer<wire_uint_8_list>, bool)>();
+
+  void wire_session_request_invite_token(
+    int port_,
+    ffi.Pointer<wire_uint_8_list> session_id,
+    int ttl_minutes,
+    bool one_shot,
+  ) {
+    return _wire_session_request_invite_token(
+        port_, session_id, ttl_minutes, one_shot);
+  }
+
+  late final _wire_session_request_invite_tokenPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Void Function(ffi.Int64, ffi.Pointer<wire_uint_8_list>, ffi.Int32,
+              ffi.Bool)>>('wire_session_request_invite_token');
+  late final _wire_session_request_invite_token =
+      _wire_session_request_invite_tokenPtr.asFunction<
+          void Function(int, ffi.Pointer<wire_uint_8_list>, int, bool)>();
+
+  void wire_session_prepare_viewer(
+    int port_,
+    ffi.Pointer<wire_uint_8_list> session_id,
+    ffi.Pointer<wire_uint_8_list> token,
+    ffi.Pointer<wire_uint_8_list> viewer_id,
+    ffi.Pointer<wire_uint_8_list> display_name,
+  ) {
+    return _wire_session_prepare_viewer(
+        port_, session_id, token, viewer_id, display_name);
+  }
+
+  late final _wire_session_prepare_viewerPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Void Function(
+              ffi.Int64,
+              ffi.Pointer<wire_uint_8_list>,
+              ffi.Pointer<wire_uint_8_list>,
+              ffi.Pointer<wire_uint_8_list>,
+              ffi.Pointer<wire_uint_8_list>)>>('wire_session_prepare_viewer');
+  late final _wire_session_prepare_viewer =
+      _wire_session_prepare_viewerPtr.asFunction<
+          void Function(
+              int,
+              ffi.Pointer<wire_uint_8_list>,
+              ffi.Pointer<wire_uint_8_list>,
+              ffi.Pointer<wire_uint_8_list>,
+              ffi.Pointer<wire_uint_8_list>)>();
+
+  void wire_session_join_as_viewer(
+    int port_,
+    ffi.Pointer<wire_uint_8_list> session_id,
+    ffi.Pointer<wire_uint_8_list> token,
+    ffi.Pointer<wire_uint_8_list> viewer_id,
+    ffi.Pointer<wire_uint_8_list> display_name,
+  ) {
+    return _wire_session_join_as_viewer(
+        port_, session_id, token, viewer_id, display_name);
+  }
+
+  late final _wire_session_join_as_viewerPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Void Function(
+              ffi.Int64,
+              ffi.Pointer<wire_uint_8_list>,
+              ffi.Pointer<wire_uint_8_list>,
+              ffi.Pointer<wire_uint_8_list>,
+              ffi.Pointer<wire_uint_8_list>)>>('wire_session_join_as_viewer');
+  late final _wire_session_join_as_viewer =
+      _wire_session_join_as_viewerPtr.asFunction<
+          void Function(
+              int,
+              ffi.Pointer<wire_uint_8_list>,
+              ffi.Pointer<wire_uint_8_list>,
+              ffi.Pointer<wire_uint_8_list>,
+              ffi.Pointer<wire_uint_8_list>)>();
   void wire_session_open_terminal(
     int port_,
     ffi.Pointer<wire_uint_8_list> session_id,

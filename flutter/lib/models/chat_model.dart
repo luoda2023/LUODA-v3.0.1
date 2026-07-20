@@ -524,6 +524,11 @@ class ChatModel with ChangeNotifier {
       );
     }
 
+    if (record.disposition == DirectChatDisposition.destroyed) {
+      insertMessage(messagekey, _toChatMessage(record, chatUser));
+      notifyListeners();
+      return;
+    }
     if (desktopType == DesktopType.cm) {
       await showCmWindow();
     }
@@ -621,6 +626,33 @@ class ChatModel with ChangeNotifier {
         createdAt: DateTime.now(),
       ),
     );
+  }
+
+  Future<bool> _mutateMessage(
+    ChatMessage message,
+    DirectChatDisposition disposition,
+  ) async {
+    final id = (message.customProperties?['ldesk_id'] ?? '').toString();
+    final key = _currentKey;
+    if (id.isEmpty || key.peerId.isEmpty) return false;
+    final updated = await DirectChatRepository.instance.mutateOutgoing(
+      key.peerId,
+      id,
+      disposition,
+    );
+    if (updated == null) return false;
+    insertMessage(key, _toChatMessage(updated, me));
+    await _transmitRecord(key, updated);
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> recallMessage(ChatMessage message) {
+    return _mutateMessage(message, DirectChatDisposition.recalled);
+  }
+
+  Future<bool> destroyMessage(ChatMessage message) {
+    return _mutateMessage(message, DirectChatDisposition.destroyed);
   }
 
   Future<void> sendFileRecord({
@@ -1108,6 +1140,12 @@ class ChatModel with ChangeNotifier {
   }
 
   ChatMessage _toChatMessage(DirectChatRecord record, ChatUser user) {
+    final recalled = record.disposition == DirectChatDisposition.recalled;
+    final displayText = recalled
+        ? translate(record.isOutgoing
+            ? 'You recalled a message'
+            : 'The other party recalled a message')
+        : record.text;
     MessageStatus status;
     switch (record.delivery) {
       case DirectChatDelivery.queued:
@@ -1122,7 +1160,7 @@ class ChatModel with ChangeNotifier {
         break;
     }
     return ChatMessage(
-      text: record.text,
+      text: displayText,
       user: user,
       createdAt: record.sentAt.toLocal(),
       status: status,
@@ -1136,6 +1174,7 @@ class ChatModel with ChangeNotifier {
           'ldesk_file_sha256': record.fileSha256,
         if (record.voiceDurationMs > 0)
           'ldesk_voice_duration_ms': record.voiceDurationMs,
+        'ldesk_disposition': record.disposition.name,
       },
     );
   }
@@ -1153,6 +1192,11 @@ class ChatModel with ChangeNotifier {
             (item) =>
                 item.customProperties?['ldesk_id']?.toString() == messageId,
           );
+    if (message.customProperties?['ldesk_disposition'] ==
+        DirectChatDisposition.destroyed.name) {
+      if (index >= 0) messages.removeAt(index);
+      return;
+    }
     if (index < 0) {
       messages.add(message);
     } else {

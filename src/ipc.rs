@@ -238,6 +238,7 @@ pub enum Data {
         restart: bool,
         recording: bool,
         block_input: bool,
+        viewer: bool,
         from_switch: bool,
     },
     ChatMessage {

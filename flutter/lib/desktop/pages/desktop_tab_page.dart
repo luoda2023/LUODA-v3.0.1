@@ -3,7 +3,6 @@ import 'package:luoda_flutter/common.dart';
 import 'package:luoda_flutter/consts.dart';
 import 'package:luoda_flutter/desktop/pages/desktop_home_page.dart';
 import 'package:luoda_flutter/desktop/pages/desktop_setting_page.dart';
-import 'package:luoda_flutter/common/widgets/peer_tab_page.dart';
 import 'package:luoda_flutter/desktop/widgets/desktop_main_title_bar.dart';
 import 'package:luoda_flutter/desktop/widgets/tabbar_widget.dart';
 import 'package:luoda_flutter/models/platform_model.dart';
@@ -46,7 +45,17 @@ class DesktopTabPage extends StatefulWidget {
       if (index >= 0) {
         controller.jumpTo(index);
       }
-      await PeerTabPage.selectDesktopTab(peerTabIndex);
+      const sections = <String>[
+        'recent',
+        'favorites',
+        'discovered',
+        'contacts',
+        'history',
+        'vip',
+      ];
+      await DesktopHomePage.selectSection(
+        sections[peerTabIndex.clamp(0, sections.length - 1)],
+      );
     } catch (e) {
       debugPrintStack(label: '$e');
     }
@@ -66,7 +75,7 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
         unselectedIcon: Icons.home_outlined,
         closable: false,
         page: DesktopHomePage(
-          key: const ValueKey(kTabLabelHomePage),
+          key: DesktopHomePage.pageKey,
           isClientOnly: isCustomClient,
         )));
     if (bind.isIncomingOnly() || isCustomClient) {

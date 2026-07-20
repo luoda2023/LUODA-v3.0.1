@@ -857,6 +857,7 @@ class Client {
   bool restart = false;
   bool recording = false;
   bool blockInput = false;
+  bool viewer = false;
   bool disconnected = false;
   bool fromSwitch = false;
   bool inVoiceCall = false;
@@ -886,6 +887,7 @@ class Client {
     restart = json['restart'];
     recording = json['recording'];
     blockInput = json['block_input'];
+    viewer = json['viewer'] ?? false;
     disconnected = json['disconnected'];
     fromSwitch = json['from_switch'];
     inVoiceCall = json['in_voice_call'];
@@ -911,6 +913,7 @@ class Client {
     data['restart'] = restart;
     data['recording'] = recording;
     data['block_input'] = blockInput;
+    data['viewer'] = viewer;
     data['disconnected'] = disconnected;
     data['from_switch'] = fromSwitch;
     data['in_voice_call'] = inVoiceCall;

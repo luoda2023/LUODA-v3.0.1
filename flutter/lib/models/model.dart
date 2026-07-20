@@ -257,6 +257,8 @@ class FfiModel with ChangeNotifier {
     notifyListeners();
   }
 
+  bool get viewer => _permissions['viewer'] == true;
+
   bool get keyboard => _permissions['keyboard'] != false;
 
   clear() {

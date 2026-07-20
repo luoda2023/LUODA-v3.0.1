@@ -43,8 +43,16 @@ import '../../common/wechat_ui_tokens.dart';
 class DesktopHomePage extends StatefulWidget {
   /// 如果为 true，只显示左侧内容（客户端专用版）
   final bool isClientOnly;
+  static final GlobalKey<_DesktopHomePageState> _pageKey =
+      GlobalKey<_DesktopHomePageState>();
+  static Key get pageKey => _pageKey;
+
   const DesktopHomePage({Key? key, this.isClientOnly = false})
       : super(key: key);
+
+  static Future<void> selectSection(String section) async {
+    await _pageKey.currentState?._selectSection(section);
+  }
 
   @override
   State<DesktopHomePage> createState() => _DesktopHomePageState();
@@ -211,24 +219,26 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       onAvatarPressed: () => DesktopTabPage.onAddSetting(
         initialPage: SettingsTabKey.account,
       ),
-      onSelected: (id) async {
-        const indexes = <String, int>{
-          'chat': 0,
-          'recent': 0,
-          'favorites': 1,
-          'discovered': 2,
-          'contacts': 3,
-          'history': 4,
-          'vip': 5,
-        };
-        setState(() => _selectedRailId = id);
-        await PeerTabPage.selectDesktopTab(indexes[id] ?? 0);
-        await _loadContactSection(id);
-      },
+      onSelected: _selectSection,
       onSettings: DesktopTabPage.onAddSetting,
       onPairPhone: () => _showPairingQrDialog(context),
       onMore: () => _showToolsMenu(context),
     );
+  }
+
+  Future<void> _selectSection(String section) async {
+    const sections = <String>{
+      'chat',
+      'recent',
+      'favorites',
+      'discovered',
+      'contacts',
+      'history',
+      'vip',
+    };
+    if (!sections.contains(section)) return;
+    if (mounted) setState(() => _selectedRailId = section);
+    await _loadContactSection(section);
   }
 
   Widget _buildContactsPane(BuildContext context) {
@@ -358,9 +368,140 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             height: 1,
             color: dark ? const Color(0xFF3A3D43) : const Color(0xFFE5E5E7),
           ),
+          AnimatedBuilder(
+            animation: Listenable.merge(<Listenable>[
+              gFFI.serverModel,
+              gFFI.recentPeersModel,
+              gFFI.favoritePeersModel,
+              gFFI.lanPeersModel,
+            ]),
+            builder: (context, _) => _buildPresenceStatusStrip(context),
+          ),
           Expanded(child: _buildContactSection(context)),
         ],
       ),
+    );
+  }
+
+  Widget _buildPresenceStatusStrip(BuildContext context) {
+    final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
+    final networkStatus = gFFI.serverModel.connectStatus;
+    final localLabel = networkStatus > 0
+        ? translate('Online')
+        : networkStatus == 0
+            ? translate('Connecting')
+            : translate('Offline');
+    final localColor = networkStatus > 0
+        ? const Color(0xFF238A57)
+        : networkStatus == 0
+            ? const Color(0xFFE39128)
+            : const Color(0xFF667085);
+    final peer = _selectedContact;
+    final peerId = _selectedConversationPeerId ?? peer?.id ?? '';
+    final peerStatus =
+        peerId.isEmpty ? null : _directDeliveryStatus(peerId, contact: peer);
+    final peerLabel = peerStatus == null
+        ? translate('Not selected')
+        : translate(peerStatus.$1);
+    final peerColor =
+        peerStatus?.$2 ?? theme.colorScheme.onSurface.withOpacity(0.46);
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: dark ? const Color(0xFF1D2025) : const Color(0xFFF1F4F7),
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(
+          color: dark ? const Color(0xFF353941) : const Color(0xFFE0E5EA),
+        ),
+      ),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: _presenceStatusCell(
+              context,
+              label: translate('My status'),
+              value: localLabel,
+              color: localColor,
+              icon: Icons.person_outline_rounded,
+            ),
+          ),
+          SizedBox(
+            height: 26,
+            child: VerticalDivider(
+              width: 18,
+              color: dark ? const Color(0xFF454951) : const Color(0xFFD5DADF),
+            ),
+          ),
+          Expanded(
+            child: _presenceStatusCell(
+              context,
+              label: translate('Peer status'),
+              value: peerLabel,
+              color: peerColor,
+              icon: Icons.devices_other_outlined,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _presenceStatusCell(
+    BuildContext context, {
+    required String label,
+    required String value,
+    required Color color,
+    required IconData icon,
+  }) {
+    final muted = Theme.of(context).colorScheme.onSurface.withOpacity(0.56);
+    return Row(
+      children: <Widget>[
+        Icon(icon, size: 16, color: muted),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: muted,
+                      fontSize: 10,
+                    ),
+              ),
+              const SizedBox(height: 1),
+              Row(
+                children: <Widget>[
+                  Container(
+                    width: 7,
+                    height: 7,
+                    decoration: BoxDecoration(
+                      color: color,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 5),
+                  Expanded(
+                    child: Text(
+                      value,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                            color: color,
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -1706,19 +1847,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   }
 
   Future<void> _sendFilesFromConversation(String peerId) async {
-    final chatFfi = _directChatSessionFor(peerId);
-    final outgoingReady = chatFfi != null &&
-        !chatFfi.closed &&
-        chatFfi.ffiModel.pi.isSet.isTrue &&
-        chatFfi.ffiModel.direct == true;
-    final incoming = _incomingDirectChatClientFor(peerId);
-    if (!outgoingReady && incoming == null) {
-      _showConversationNotice(
-        translate('Connect to the contact before sending files.'),
-      );
-      return;
-    }
-
     final picked = await FilePicker.platform.pickFiles(allowMultiple: true);
     final files = picked?.files.where((file) => file.path != null).toList() ??
         <PlatformFile>[];
@@ -1726,6 +1854,12 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
     final ffi = await _ensureDirectFileSession(peerId);
     if (ffi == null || !mounted) return;
+    final chatFfi = _directChatSessionFor(peerId);
+    final outgoingReady = chatFfi != null &&
+        !chatFfi.closed &&
+        chatFfi.ffiModel.pi.isSet.isTrue &&
+        chatFfi.ffiModel.direct == true;
+    final incoming = _incomingDirectChatClientFor(peerId);
 
     final items = SelectedItems(isLocal: true);
     for (final file in files) {
@@ -1741,11 +1875,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       items,
       ffi.fileModel.remoteController.directoryData(),
     );
-    final chatModel = outgoingReady ? chatFfi!.chatModel : gFFI.chatModel;
+    final chatModel = outgoingReady ? chatFfi.chatModel : gFFI.chatModel;
     chatModel.changeCurrentKey(
       MessageKey(
         peerId,
-        outgoingReady ? ChatModel.clientModeID : incoming!.id,
+        outgoingReady
+            ? ChatModel.clientModeID
+            : incoming?.id ?? ChatModel.clientModeID,
       ),
     );
     for (final file in files) {

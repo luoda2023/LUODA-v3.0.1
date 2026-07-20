@@ -62,6 +62,36 @@ void main() {
     expect(record.delivery, DirectChatDelivery.delivered);
   });
 
+  test('recalled and destroyed messages keep mutation state on the wire', () {
+    final record = DirectChatRecord(
+      id: 'mutation',
+      conversationId: 'peer',
+      originDeviceId: 'device',
+      originSequence: 1,
+      direction: DirectChatDirection.outgoing,
+      kind: DirectChatKind.text,
+      text: 'secret',
+      senderId: 'sender',
+      senderName: 'PC',
+      senderAvatar: '',
+      sentAt: DateTime.utc(2026, 7, 20),
+      delivery: DirectChatDelivery.delivered,
+    );
+    final recalled = record.copyWith(
+      originSequence: 2,
+      disposition: DirectChatDisposition.recalled,
+    );
+    final restored = DirectChatRecord.fromJson(
+      DirectChatEnvelope.decode(DirectChatEnvelope.message(recalled).encode())!
+          .data,
+    );
+    expect(restored.disposition, DirectChatDisposition.recalled);
+    expect(
+      record.copyWith(disposition: DirectChatDisposition.destroyed).disposition,
+      DirectChatDisposition.destroyed,
+    );
+  });
+
   test('voice record and chunk envelopes preserve playback metadata', () {
     final record = DirectChatRecord(
       id: 'voice-1',

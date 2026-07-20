@@ -1390,6 +1390,35 @@ fn wire_session_request_invite_token_impl(
         },
     )
 }
+fn wire_session_prepare_viewer_impl(
+    port_: MessagePort,
+    session_id: impl Wire2Api<uuid::Uuid> + UnwindSafe,
+    token: impl Wire2Api<String> + UnwindSafe,
+    viewer_id: impl Wire2Api<String> + UnwindSafe,
+    display_name: impl Wire2Api<String> + UnwindSafe,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap::<_, _, _, ()>(
+        WrapInfo {
+            debug_name: "session_prepare_viewer",
+            port: Some(port_),
+            mode: FfiCallMode::Normal,
+        },
+        move || {
+            let api_session_id = session_id.wire2api();
+            let api_token = token.wire2api();
+            let api_viewer_id = viewer_id.wire2api();
+            let api_display_name = display_name.wire2api();
+            move |task_callback| {
+                Ok(session_prepare_viewer(
+                    api_session_id,
+                    api_token,
+                    api_viewer_id,
+                    api_display_name,
+                ))
+            }
+        },
+    )
+}
 fn wire_session_join_as_viewer_impl(
     port_: MessagePort,
     session_id: impl Wire2Api<uuid::Uuid> + UnwindSafe,

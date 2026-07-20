@@ -79,23 +79,35 @@ class ViewerCollaborationPanel extends StatelessWidget {
                               ),
                             ),
                           ),
-                          TextButton.icon(
-                            onPressed: ffi.closed || !isHost
-                                ? null
-                                : () => InviteViewerDialog.show(
-                                      context,
-                                      sessionId: ffi.sessionId,
-                                      hostLabel:
-                                          '${translate('Remote Desktop')}: ${ffi.id}',
-                                      hostEndpoint: hostEndpoint,
-                                      viewerSessionModel:
-                                          ffi.viewerSessionModel,
-                                    ),
-                            icon: const Icon(
-                              Icons.person_add_alt_1_rounded,
-                              size: 18,
-                            ),
-                            label: Text(translate('Invite Viewer')),
+                          AnimatedBuilder(
+                            animation: ffi.ffiModel,
+                            builder: (context, _) {
+                              final allowed =
+                                  isHost && ffi.ffiModel.viewer && !ffi.closed;
+                              return Tooltip(
+                                message: translate(allowed
+                                    ? 'Invite Viewer'
+                                    : 'Viewer permission required'),
+                                child: TextButton.icon(
+                                  onPressed: !allowed
+                                      ? null
+                                      : () => InviteViewerDialog.show(
+                                            context,
+                                            sessionId: ffi.sessionId,
+                                            hostLabel:
+                                                '${translate('Remote Desktop')}: ${ffi.id}',
+                                            hostEndpoint: hostEndpoint,
+                                            viewerSessionModel:
+                                                ffi.viewerSessionModel,
+                                          ),
+                                  icon: const Icon(
+                                    Icons.person_add_alt_1_rounded,
+                                    size: 18,
+                                  ),
+                                  label: Text(translate('Invite Viewer')),
+                                ),
+                              );
+                            },
                           ),
                           IconButton(
                             tooltip: translate('Close'),
