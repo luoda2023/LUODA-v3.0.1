@@ -879,40 +879,6 @@ impl InvokeUiSession for FlutterHandler {
         self.on_rgba_soft_render(display, rgba);
     }
 
-    fn push_frame_size_event(&self, display: usize, width: usize, height: usize) {
-        if width == 0 || height == 0 {
-            return;
-        }
-        let changed = {
-            let mut frames = self.frame_sizes.write().unwrap();
-            let frame = frames.entry(display).or_default();
-            if *frame == (width, height) {
-                false
-            } else {
-                *frame = (width, height);
-                true
-            }
-        };
-        if !changed {
-            return;
-        }
-        let event = serde_json::json!({
-            "name": "frame_size",
-            "display": display,
-            "width": width,
-            "height": height,
-        })
-        .to_string();
-        for session in self.session_handlers.read().unwrap().values() {
-            if !session.displays.is_empty() && !session.displays.contains(&display) {
-                continue;
-            }
-            if let Some(stream) = &session.event_stream {
-                stream.add(EventToUI::Event(event.clone()));
-            }
-        }
-    }
-
     #[inline]
     #[cfg(feature = "vram")]
     fn on_texture(&self, display: usize, texture: *mut c_void) {
@@ -1226,6 +1192,40 @@ impl InvokeUiSession for FlutterHandler {
 }
 
 impl FlutterHandler {
+    fn push_frame_size_event(&self, display: usize, width: usize, height: usize) {
+        if width == 0 || height == 0 {
+            return;
+        }
+        let changed = {
+            let mut frames = self.frame_sizes.write().unwrap();
+            let frame = frames.entry(display).or_default();
+            if *frame == (width, height) {
+                false
+            } else {
+                *frame = (width, height);
+                true
+            }
+        };
+        if !changed {
+            return;
+        }
+        let event = serde_json::json!({
+            "name": "frame_size",
+            "display": display,
+            "width": width,
+            "height": height,
+        })
+        .to_string();
+        for session in self.session_handlers.read().unwrap().values() {
+            if !session.displays.is_empty() && !session.displays.contains(&display) {
+                continue;
+            }
+            if let Some(stream) = &session.event_stream {
+                stream.add(EventToUI::Event(event.clone()));
+            }
+        }
+    }
+
     #[inline]
     fn on_rgba_soft_render(&self, display: usize, rgba: &mut scrap::ImageRgb) {
         // Give a chance for plugins or etc to hook a rgba data.
