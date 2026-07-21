@@ -57,7 +57,7 @@ void main() {
   });
 
   test('remote chat can float or return to the main conversation', () {
-    expect(remoteToolbarSource, contains('toggleChatOverlay('));
+    expect(remoteToolbarSource, contains('DesktopHomePage.selectSection'));
     expect(constantsSource, contains('kWindowEventOpenDirectChat'));
     expect(remoteTabSource, contains('kWindowEventOpenDirectChat'));
     expect(
