@@ -2306,19 +2306,7 @@ class _ChatMenuState extends State<_ChatMenu> {
   }
 
   _textChatOnPressed() {
-    RenderBox? renderBox =
-        chatButtonKey.currentContext?.findRenderObject() as RenderBox?;
-    Offset? initPos;
-    if (renderBox != null) {
-      final pos = renderBox.localToGlobal(Offset.zero);
-      initPos = Offset(
-        pos.dx,
-        pos.dy + RemoteToolbar.expandedHeight + 8,
-      );
-    }
-    widget.ffi.chatModel
-        .changeCurrentKey(MessageKey(widget.ffi.id, ChatModel.clientModeID));
-    widget.ffi.chatModel.toggleChatOverlay(chatInitPos: initPos);
+    DesktopHomePage.selectSection('chat');
   }
 
   voiceCall() {
