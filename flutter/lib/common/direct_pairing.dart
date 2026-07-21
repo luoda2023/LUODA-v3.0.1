@@ -291,6 +291,84 @@ class DirectPairingStore {
     return false;
   }
 
+  static Future<bool> isSelfTarget(String value) async {
+    try {
+      return isSelfTargetValue(
+        value,
+        ownId: await bind.mainGetMyId(),
+        localAddresses: <String>[
+          bind.mainGetOptionSync(key: 'lan-ip'),
+          bind.mainGetOptionSync(key: 'public-ip'),
+        ],
+      );
+    } catch (error) {
+      debugPrint('Unable to check local connection target: $error');
+      return false;
+    }
+  }
+
+  @visibleForTesting
+  static bool isSelfTargetValue(
+    String value, {
+    required String ownId,
+    Iterable<String> localAddresses = const <String>[],
+  }) {
+    final input = value.trim().replaceAll(' ', '');
+    if (input.isEmpty) return false;
+
+    final at = input.indexOf('@');
+    final targetId = at > 0 ? input.substring(0, at) : input;
+    final normalizedOwnId = _withoutRelaySuffix(
+      ownId.trim().replaceAll(' ', ''),
+    );
+    if (normalizedOwnId.isNotEmpty &&
+        _withoutRelaySuffix(targetId) == normalizedOwnId) {
+      return true;
+    }
+
+    final endpoint =
+        (at > 0 ? input.substring(at + 1) : input).split('?').first;
+    final host = _endpointHost(endpoint);
+    if (host == null) return false;
+    final normalizedHost = host.toLowerCase();
+    if (normalizedHost == 'localhost' ||
+        normalizedHost == '::1' ||
+        normalizedHost == '::' ||
+        normalizedHost == '0.0.0.0' ||
+        normalizedHost.startsWith('127.')) {
+      return true;
+    }
+
+    for (final address in localAddresses) {
+      final localHost = _endpointHost(address.trim())?.toLowerCase();
+      if (localHost != null &&
+          localHost.isNotEmpty &&
+          localHost == normalizedHost) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static String _withoutRelaySuffix(String value) {
+    return value.toLowerCase().endsWith('/r')
+        ? value.substring(0, value.length - 2)
+        : value;
+  }
+
+  static String? _endpointHost(String value) {
+    final endpoint = value.trim();
+    if (endpoint.isEmpty) return null;
+    if (endpoint.startsWith('[')) {
+      final closingBracket = endpoint.indexOf(']');
+      if (closingBracket <= 1) return null;
+      return endpoint.substring(1, closingBracket);
+    }
+    if (endpoint.split(':').length > 2) return endpoint;
+    final portSeparator = endpoint.lastIndexOf(':');
+    return portSeparator > 0 ? endpoint.substring(0, portSeparator) : endpoint;
+  }
+
   static bool _validPort(String? raw) {
     final port = int.tryParse(raw ?? '');
     return port != null && port > 0 && port <= 65535;

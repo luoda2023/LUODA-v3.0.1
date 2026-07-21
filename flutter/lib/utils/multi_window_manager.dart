@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:luoda_flutter/consts.dart';
 import 'package:luoda_flutter/common.dart';
+import 'package:luoda_flutter/common/direct_pairing.dart';
 import 'package:luoda_flutter/main.dart';
 import 'package:luoda_flutter/models/input_model.dart';
 
@@ -244,6 +245,10 @@ class LUODAMultiWindowManager {
     String? viewerId,
     String? viewerDisplayName,
   }) async {
+    if (await DirectPairingStore.isSelfTarget(remoteId)) {
+      showToast(translate('Cannot connect to this device.'));
+      return MultiWindowCallResult(-1, false);
+    }
     var params = {
       "type": type.index,
       "id": remoteId,
@@ -514,7 +519,8 @@ class LUODAMultiWindowManager {
     }
     for (int i = 0; i < windows.length; i++) {
       final wId = windows[i];
-      final shouldSavePos = type != WindowType.Terminal || i == windows.length - 1;
+      final shouldSavePos =
+          type != WindowType.Terminal || i == windows.length - 1;
       if (shouldSavePos) {
         debugPrint("closing multi window, type: ${type.toString()} id: $wId");
         try {

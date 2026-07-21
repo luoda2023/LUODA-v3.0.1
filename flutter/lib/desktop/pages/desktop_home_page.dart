@@ -1678,7 +1678,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   }) async {
     final requestedId = rawPeerId.trim().replaceAll(' ', '');
     if (requestedId.isEmpty) return;
-    if (await _isSelfTarget(requestedId)) {
+    if (await DirectPairingStore.isSelfTarget(requestedId)) {
       _showConversationNotice(translate('Cannot connect to this device.'));
       return;
     }
@@ -2174,7 +2174,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     bool isTerminal = false,
     bool isTcpTunneling = false,
   }) async {
-    if (await _isSelfTarget(peerIdOrEndpoint)) {
+    if (await DirectPairingStore.isSelfTarget(peerIdOrEndpoint)) {
       _showConversationNotice(translate('Cannot connect to this device.'));
       return;
     }
@@ -2208,24 +2208,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         translate('Unable to open the connection window.'),
       );
     }
-  }
-
-  Future<bool> _isSelfTarget(String value) async {
-    final input = value.trim().replaceAll(' ', '');
-    if (input.isEmpty) return false;
-    if (DirectPairingStore.isDeviceId(input)) {
-      final ownId = (await bind.mainGetMyId()).trim().replaceAll(' ', '');
-      return ownId.isNotEmpty && ownId == input;
-    }
-    if (!DirectPairingStore.isDirectEndpoint(input)) return false;
-    final host = input.startsWith('[')
-        ? input.substring(1, input.indexOf(']'))
-        : input.substring(0, input.lastIndexOf(':'));
-    if (host == 'localhost' || host == '::1' || host.startsWith('127.')) {
-      return true;
-    }
-    final lanIp = bind.mainGetOptionSync(key: 'lan-ip').trim();
-    return lanIp.isNotEmpty && host == lanIp;
   }
 
   Future<void> _showToolsMenu(BuildContext context) async {

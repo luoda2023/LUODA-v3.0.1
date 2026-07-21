@@ -4,6 +4,49 @@ import 'package:luoda_flutter/common/direct_pairing.dart';
 import 'package:luoda_flutter/models/viewer_session_model.dart';
 
 void main() {
+  test('self target guard recognizes every local connection form', () {
+    const ownId = '423727';
+    const localAddresses = <String>['192.168.1.20', '36.134.211.189'];
+
+    for (final target in <String>[
+      '423 727',
+      '423727/r',
+      '423727@192.168.1.20:21118?key=test',
+      'localhost:21118',
+      '127.0.0.1:21118',
+      '[::1]:21118',
+      '0.0.0.0:21118',
+      '192.168.1.20:21118',
+      '36.134.211.189:21118',
+    ]) {
+      expect(
+        DirectPairingStore.isSelfTargetValue(
+          target,
+          ownId: ownId,
+          localAddresses: localAddresses,
+        ),
+        isTrue,
+        reason: target,
+      );
+    }
+
+    for (final target in <String>[
+      '423728',
+      '192.168.1.21:21118',
+      '36.134.211.190:21118',
+    ]) {
+      expect(
+        DirectPairingStore.isSelfTargetValue(
+          target,
+          ownId: ownId,
+          localAddresses: localAddresses,
+        ),
+        isFalse,
+        reason: target,
+      );
+    }
+  });
+
   test('direct chat message envelope preserves identity and unicode', () {
     final record = DirectChatRecord(
       id: 'message-1',

@@ -23,6 +23,8 @@ void main() {
   final modelSource = File('lib/models/model.dart').readAsStringSync();
   final remotePageSource =
       File('lib/desktop/pages/remote_page.dart').readAsStringSync();
+  final multiWindowSource =
+      File('lib/utils/multi_window_manager.dart').readAsStringSync();
 
   test('server status polling clears stale remote-control blocking state', () {
     expect(serverModelSource,
@@ -96,5 +98,21 @@ void main() {
         remotePageSource, contains('unawaited(_finishDispose(closeSession))'));
     expect(remotePageSource, contains('.timeout(const Duration(seconds: 5))'));
     expect(remotePageSource, contains('removeSharedStates(widget.id)'));
+  });
+
+  test('desktop session manager rejects self targets before window creation',
+      () {
+    final newSession = methodBody(
+      multiWindowSource,
+      'Future<MultiWindowCallResult> newSession(',
+      'Future<MultiWindowCallResult> newRemoteDesktop(',
+    );
+    final guard =
+        newSession.indexOf('await DirectPairingStore.isSelfTarget(remoteId)');
+    final probe = newSession.indexOf('for (final windowId');
+    expect(guard, greaterThanOrEqualTo(0));
+    expect(probe, greaterThan(guard));
+    expect(newSession, contains("translate('Cannot connect to this device.')"));
+    expect(newSession, contains('return MultiWindowCallResult(-1, false);'));
   });
 }

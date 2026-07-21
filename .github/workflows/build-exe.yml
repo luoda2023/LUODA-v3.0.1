@@ -161,7 +161,7 @@ jobs:
         run: |
           cd flutter
           flutter pub get
-          flutter test test/direct_chat_protocol_test.dart test/viewer_invite_link_test.dart test/ui_regression_contract_test.dart test/remote_window_chrome_contract_test.dart
+          flutter test test/direct_chat_protocol_test.dart test/viewer_invite_link_test.dart test/ui_regression_contract_test.dart test/remote_window_chrome_contract_test.dart test/interaction_stability_contract_test.dart
       - name: Normalize Windows resource encoding
         if: matrix.arch == 'x64'
         shell: pwsh
