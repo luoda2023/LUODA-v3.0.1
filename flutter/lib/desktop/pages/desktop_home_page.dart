@@ -153,7 +153,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         final contactsWidth = weChatConversationListWidth(constraints.maxWidth);
         final dark = Theme.of(context).brightness == Brightness.dark;
         return ColoredBox(
-          color: dark ? const Color(0xFF191B20) : const Color(0xFFF7F7F8),
+          color: dark ? const Color(0xFF191B20) : kWeChatChromeColor,
           child: Row(
             children: [
               if (showRail) _buildPrimaryRail(context),
@@ -205,6 +205,12 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         icon: Icons.devices_outlined,
         selectedIcon: Icons.devices_rounded,
       ),
+      DesktopRailDestination(
+        id: 'vip',
+        label: 'VIP',
+        icon: Icons.workspace_premium_outlined,
+        selectedIcon: Icons.workspace_premium_rounded,
+      ),
     ];
     return DesktopPrimaryRail(
       destinations: destinations,
@@ -228,6 +234,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       'discovered',
       'contacts',
       'history',
+      'vip',
     };
     if (!sections.contains(section)) return;
     if (mounted) setState(() => _selectedRailId = section);
