@@ -864,8 +864,14 @@ void main() {
       directPairingSource,
       contains("(isDeviceId(input) ? input : null)"),
     );
-    expect(homePageSource, contains('_isSelfTarget(peerIdOrEndpoint)'));
-    expect(homePageSource, contains("host.startsWith('127.')"));
+    expect(
+      homePageSource,
+      contains('DirectPairingStore.isSelfTarget(peerIdOrEndpoint)'),
+    );
+    expect(
+      directPairingSource,
+      contains("normalizedHost.startsWith('127.')"),
+    );
   });
 
   test('desktop chat exposes text voice file and remote assistance workflows',
