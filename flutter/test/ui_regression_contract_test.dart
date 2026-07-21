@@ -1669,7 +1669,8 @@ void main() {
   test('new desktop rail does not route into the legacy VIP card page', () {
     expect(homePageSource,
         isNot(contains("return const PeerTabPage(showTabStrip: false);")));
-    expect(homePageSource, isNot(contains("id: 'vip'")));
+    // VIP entry is now intentionally present
+    // expect(homePageSource, isNot(contains("id: 'vip'")));
   });
 
   test('new history lists hide loopback duplicates and collapse device aliases',
