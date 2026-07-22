@@ -291,9 +291,10 @@ void main() {
     expect(viewerCollaborationSource, contains('SharedChatPanel('));
   });
 
-  test('viewer join is a reachable direct session on desktop and mobile', () {
+  test('viewer join is reachable by device ID or direct endpoint', () {
     expect(joinViewerSource, isNot(contains('contract stub')));
-    expect(joinViewerSource, contains('Direct endpoint'));
+    expect(joinViewerSource, contains("translate('ID or IP:port')"));
+    expect(joinViewerSource, contains('isViewerConnectionTarget(endpoint)'));
     expect(joinViewerSource, contains('onJoinRequested'));
     expect(homePageSource, contains('JoinViewerPage('));
     expect(mobileConnectionSource, contains('_ConnectionMode.viewer'));
@@ -417,7 +418,9 @@ void main() {
     ]) {
       expect(homePageSource, contains("translate('$key')"));
     }
-    expect(homePageSource, contains('_buildNetworkStatusBadge(context)'));
+    expect(homePageSource, contains('_buildWorkspaceNotice(context)'));
+    expect(
+        homePageSource, isNot(contains('_buildNetworkStatusBadge(context)')));
     expect(homePageSource, contains('serverModel.connectStatus'));
     expect(homePageSource, isNot(contains("label: '消息'")));
     expect(homePageSource, isNot(contains("Text('连接对方')")));
@@ -959,7 +962,11 @@ void main() {
     expect(homePageSource, contains('_maintainPendingChatSessions'));
     expect(homePageSource, contains('Duration(seconds: 5)'));
     expect(homePageSource, contains('_checkConnectionTransitions'));
-    expect(homePageSource, contains('if (_lastNetworkStatus == null ||'));
+    expect(homePageSource, contains('_lastNetworkStatus != null &&'));
+    expect(
+      homePageSource,
+      isNot(contains('if (_lastNetworkStatus == null ||')),
+    );
     expect(homePageSource, contains('_notifiedChatConnections.add'));
     expect(chatPageSource, contains("translate('Waiting to send')"));
     expect(chatModelSource, contains('DirectChatDelivery.delivered'));
