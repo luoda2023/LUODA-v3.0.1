@@ -13,6 +13,7 @@ import 'package:luoda_flutter/common/widgets/join_viewer_page.dart';
 import 'package:luoda_flutter/common/widgets/custom_password.dart';
 import 'package:luoda_flutter/common/widgets/dialog.dart';
 import 'package:luoda_flutter/common/widgets/peer_tab_page.dart';
+import 'package:luoda_flutter/common/widgets/vip_features_page.dart';
 import 'package:luoda_flutter/consts.dart';
 import 'package:luoda_flutter/desktop/pages/connection_page.dart';
 import 'package:luoda_flutter/desktop/pages/desktop_setting_page.dart';
@@ -291,11 +292,15 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           child: Row(
             children: [
               if (showRail) _buildPrimaryRail(context),
-              SizedBox(
-                width: contactsWidth,
-                child: _buildContactsPane(context),
-              ),
-              Expanded(child: _buildConversationWorkspace(context)),
+              if (_selectedRailId == 'vip')
+                const Expanded(child: VipFeaturesPage())
+              else ...[
+                SizedBox(
+                  width: contactsWidth,
+                  child: _buildContactsPane(context),
+                ),
+                Expanded(child: _buildConversationWorkspace(context)),
+              ],
             ],
           ),
         );
@@ -1919,6 +1924,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         break;
       case 'history':
         bind.mainLoadRecentPeers();
+        break;
+      case 'vip':
         break;
       case 'chat':
       case 'recent':

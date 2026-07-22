@@ -1666,11 +1666,13 @@ void main() {
     expect(homePageSource, contains('barrierDismissible: true'));
   });
 
-  test('new desktop rail does not route into the legacy VIP card page', () {
+  test('desktop rail routes the VIP entry to the VIP features page', () {
+    expect(homePageSource, contains("id: 'vip'"));
+    expect(homePageSource, contains("if (_selectedRailId == 'vip')"));
+    expect(homePageSource,
+        contains('const Expanded(child: VipFeaturesPage())'));
     expect(homePageSource,
         isNot(contains("return const PeerTabPage(showTabStrip: false);")));
-    // VIP entry is now intentionally present
-    // expect(homePageSource, isNot(contains("id: 'vip'")));
   });
 
   test('new history lists hide loopback duplicates and collapse device aliases',
