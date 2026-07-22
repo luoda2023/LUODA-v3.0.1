@@ -451,9 +451,7 @@ fn wait_for_headless_display() -> ResultType<Vec<Display>> {
     loop {
         match Display::all() {
             Ok(displays) => {
-                if !no_displays(&displays)
-                    || started.elapsed() >= HEADLESS_DISPLAY_WAIT_TIMEOUT
-                {
+                if !no_displays(&displays) || started.elapsed() >= HEADLESS_DISPLAY_WAIT_TIMEOUT {
                     return Ok(displays);
                 }
             }
@@ -481,9 +479,9 @@ pub(crate) fn plug_in_headless_and_wait() -> ResultType<Vec<Display>> {
 pub fn try_get_displays_(add_amyuni_headless: bool) -> ResultType<Vec<Display>> {
     let mut displays = Display::all()?;
 
-    // Do not add virtual display if the platform is not installed or the virtual display is not supported.
-    if !crate::platform::is_installed() || !virtual_display_manager::is_virtual_display_supported()
-    {
+    // Portable VPS hosts also need the bundled virtual display driver after
+    // an RDP session disconnects, so installation state must not gate this.
+    if !virtual_display_manager::is_virtual_display_supported() {
         return Ok(displays);
     }
 

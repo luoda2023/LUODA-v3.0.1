@@ -1352,6 +1352,16 @@ class ChatModel with ChangeNotifier {
     }
   }
 
+  Future<void> deleteConversations(Iterable<String> peerIds) async {
+    final ids = peerIds.toSet();
+    _messages.removeWhere((key, _) => ids.contains(key.peerId));
+    await DirectChatRepository.instance.deleteConversations(ids);
+    if (ids.contains(_currentKey.peerId)) {
+      _currentKey = MessageKey('', clientModeID);
+    }
+    notifyListeners();
+  }
+
   close() {
     for (final timer in _selfDestructTimers.values) {
       timer.cancel();

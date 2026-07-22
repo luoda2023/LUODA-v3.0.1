@@ -99,6 +99,7 @@ class LDeskMainTitleBar extends StatelessWidget {
                 final listWidth =
                     weChatConversationListWidth(constraints.maxWidth);
                 return Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
                     if (showRail)
                       SizedBox(

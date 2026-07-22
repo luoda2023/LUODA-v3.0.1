@@ -11,6 +11,7 @@ import 'package:luoda_flutter/common/widgets/animated_rotation_widget.dart';
 import 'package:luoda_flutter/common/widgets/chat_page.dart';
 import 'package:luoda_flutter/common/widgets/join_viewer_page.dart';
 import 'package:luoda_flutter/common/widgets/custom_password.dart';
+import 'package:luoda_flutter/common/widgets/dialog.dart';
 import 'package:luoda_flutter/common/widgets/peer_tab_page.dart';
 import 'package:luoda_flutter/consts.dart';
 import 'package:luoda_flutter/desktop/pages/connection_page.dart';
@@ -92,6 +93,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   final Set<String> _notifiedChatConnections = <String>{};
   int? _lastNetworkStatus;
   String? _activeDirectChatPeerId;
+  bool _contactSelectionMode = false;
+  final Set<String> _selectedManagedEntries = <String>{};
   final RxBool _settingsHover = false.obs;
   final RxBool _relayHover = false.obs;
   final RxBool _block = false.obs;
@@ -108,6 +111,120 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final trimmed = id.trim();
     if (trimmed.isEmpty) return;
     _connectDirect(buildCtx, trimmed);
+  }
+
+  void _toggleManagedEntry(String id) {
+    setState(() {
+      _contactSelectionMode = true;
+      if (!_selectedManagedEntries.add(id)) {
+        _selectedManagedEntries.remove(id);
+      }
+      if (_selectedManagedEntries.isEmpty) _contactSelectionMode = false;
+    });
+  }
+
+  Future<void> _addManagedEntriesToFavorites(Iterable<String> ids) async {
+    final favorites = (await bind.mainGetFav()).toList();
+    for (final id in ids) {
+      if (!favorites.contains(id)) favorites.add(id);
+    }
+    await bind.mainStoreFav(favs: favorites);
+    bind.mainLoadFavPeers();
+    showToast(translate('Successful'));
+  }
+
+  Future<void> _deleteManagedEntries(Iterable<String> ids) async {
+    final selected = ids.toSet();
+    if (selected.isEmpty) return;
+    switch (_selectedRailId) {
+      case 'chat':
+        await gFFI.chatModel.deleteConversations(selected);
+        break;
+      case 'favorites':
+        final favorites = (await bind.mainGetFav()).toList()
+          ..removeWhere(selected.contains);
+        await bind.mainStoreFav(favs: favorites);
+        bind.mainLoadFavPeers();
+        break;
+      case 'discovered':
+        for (final id in selected) {
+          await bind.mainRemoveDiscovered(id: id);
+        }
+        bind.mainLoadLanPeers();
+        break;
+      case 'contacts':
+        await gFFI.abModel.deletePeers(selected.toList());
+        await DirectPairingStore.removeAll(selected);
+        break;
+      default:
+        for (final id in selected) {
+          await bind.mainRemovePeer(id: id);
+        }
+        bind.mainLoadRecentPeers();
+    }
+    if (!mounted) return;
+    setState(() {
+      _selectedManagedEntries.clear();
+      _contactSelectionMode = false;
+      if (selected.contains(_selectedConversationPeerId)) {
+        _selectedConversationPeerId = null;
+        _selectedContact = null;
+      }
+    });
+    showToast(translate('Successful'));
+  }
+
+  void _confirmDeleteManagedEntries(Iterable<String> ids) {
+    final selected = ids.toSet();
+    if (selected.isEmpty) return;
+    deleteConfirmDialog(
+      () => _deleteManagedEntries(selected),
+      '${translate('Delete')} ${selected.length} ${translate('Selected')}?',
+    );
+  }
+
+  Future<void> _showManagedEntryMenu(
+    BuildContext context,
+    String id,
+    Offset position, {
+    Peer? peer,
+  }) async {
+    final action = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(position.dx, position.dy, 0, 0),
+      items: <PopupMenuEntry<String>>[
+        PopupMenuItem(value: 'select', child: Text(translate('Select'))),
+        PopupMenuItem(
+          value: 'favorite',
+          child: Text(translate('Add to Favorites')),
+        ),
+        if (peer != null && _selectedRailId == 'contacts')
+          PopupMenuItem(value: 'tags', child: Text(translate('Edit Tag'))),
+        PopupMenuItem(
+          value: 'delete',
+          child: Text(
+            translate('Delete'),
+            style: const TextStyle(color: Colors.red),
+          ),
+        ),
+      ],
+    );
+    switch (action) {
+      case 'select':
+        _toggleManagedEntry(id);
+        break;
+      case 'favorite':
+        await _addManagedEntriesToFavorites(<String>[id]);
+        break;
+      case 'tags':
+        editAbTagDialog(gFFI.abModel.getPeerTags(id), (tags) async {
+          await gFFI.abModel.changeTagForPeers(<String>[id], tags);
+        });
+        break;
+      case 'delete':
+        _confirmDeleteManagedEntries(<String>[id]);
+        break;
+    }
   }
 
   @override
@@ -354,12 +471,47 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                     ),
                   ),
                 ),
-                Icon(
-                  Icons.keyboard_arrow_down_rounded,
-                  size: 20,
-                  color: theme.colorScheme.onSurface.withOpacity(0.56),
-                ),
-                const SizedBox(width: 16),
+                if (_contactSelectionMode) ...[
+                  Text(
+                    '${_selectedManagedEntries.length} ${translate('Selected')}',
+                    style: theme.textTheme.labelMedium,
+                  ),
+                  IconButton(
+                    tooltip: translate('Add to Favorites'),
+                    icon: const Icon(Icons.star_outline_rounded, size: 20),
+                    onPressed: _selectedManagedEntries.isEmpty
+                        ? null
+                        : () => _addManagedEntriesToFavorites(
+                              _selectedManagedEntries,
+                            ),
+                  ),
+                  IconButton(
+                    tooltip: translate('Delete'),
+                    icon: const Icon(Icons.delete_outline_rounded, size: 20),
+                    color: Colors.red,
+                    onPressed: _selectedManagedEntries.isEmpty
+                        ? null
+                        : () => _confirmDeleteManagedEntries(
+                              _selectedManagedEntries,
+                            ),
+                  ),
+                  IconButton(
+                    tooltip: translate('Cancel'),
+                    icon: const Icon(Icons.close_rounded, size: 20),
+                    onPressed: () => setState(() {
+                      _selectedManagedEntries.clear();
+                      _contactSelectionMode = false;
+                    }),
+                  ),
+                ] else
+                  IconButton(
+                    tooltip: translate('Select multiple'),
+                    icon: const Icon(Icons.checklist_rounded, size: 20),
+                    onPressed: () => setState(() {
+                      _contactSelectionMode = true;
+                    }),
+                  ),
+                const SizedBox(width: 8),
               ],
             ),
           ),
@@ -1032,8 +1184,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           peers.add(peer);
         }
         final peerIds = peers.map((peer) => peer.id).toSet();
-        final standalonePairings =
-            DirectPairingStore.load().values.where((pairing) {
+        final standalonePairings = (_selectedRailId == 'contacts'
+                ? DirectPairingStore.load().values
+                : const <DirectPairing>[])
+            .where((pairing) {
           if (peerIds.contains(pairing.peerId)) return false;
           if (query.isEmpty) return true;
           return pairing.peerId.toLowerCase().contains(query) ||
@@ -1042,7 +1196,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 (endpoint) => endpoint.toLowerCase().contains(query),
               );
         }).toList()
-              ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+          ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
         if (peers.isEmpty && standalonePairings.isEmpty) {
           return Center(
             child: Padding(
@@ -1246,94 +1400,111 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                   client.isChat &&
                   !client.disconnected,
             );
-            return Material(
-              color: selected
-                  ? Theme.of(context).brightness == Brightness.dark
-                      ? const Color(0xFF087A4E)
-                      : kWeChatSelectedConversationColor
-                  : Colors.transparent,
-              child: InkWell(
-                onTap: () => _openConversation(entry),
-                onDoubleTap: () => _connectDirect(context, peerId),
-                child: SizedBox(
-                  height: 68,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 8,
-                    ),
-                    child: Row(
-                      children: <Widget>[
-                        _buildConversationAvatar(
-                          avatar: user.profileImage ?? '',
-                          name: displayName,
-                          initial: displayName.characters.first,
-                          size: 40,
-                        ),
-                        const SizedBox(width: 11),
-                        Expanded(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: <Widget>[
-                              Row(
-                                children: <Widget>[
-                                  Expanded(
-                                    child: Text(
-                                      displayName,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style:
-                                          theme.textTheme.bodyLarge?.copyWith(
-                                        color: selected ? Colors.white : null,
-                                        fontWeight: FontWeight.w500,
-                                        fontSize: 15,
-                                        letterSpacing: 0,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    _conversationTimeLabel(
-                                      _conversationTime(entry),
-                                    ),
-                                    style: theme.textTheme.labelSmall?.copyWith(
-                                      color: selected
-                                          ? Colors.white.withOpacity(0.82)
-                                          : theme.colorScheme.onSurface
-                                              .withOpacity(0.46),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 3),
-                              Row(
-                                children: <Widget>[
-                                  Expanded(
-                                    child: Text(
-                                      _conversationPreview(entry),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style:
-                                          theme.textTheme.bodySmall?.copyWith(
-                                        color: selected
-                                            ? Colors.white.withOpacity(0.88)
-                                            : theme.colorScheme.onSurface
-                                                .withOpacity(0.52),
-                                        fontSize: 12,
-                                        letterSpacing: 0,
-                                      ),
-                                    ),
-                                  ),
-                                  if (client != null)
-                                    unreadMessageCountBuilder(
-                                      client.unreadChatMessageCount,
-                                    ).marginOnly(left: 8),
-                                ],
-                              ),
-                            ],
+            return GestureDetector(
+              onSecondaryTapDown: (details) => _showManagedEntryMenu(
+                context,
+                peerId,
+                details.globalPosition,
+              ),
+              child: Material(
+                color: selected
+                    ? Theme.of(context).brightness == Brightness.dark
+                        ? const Color(0xFF087A4E)
+                        : kWeChatSelectedConversationColor
+                    : Colors.transparent,
+                child: InkWell(
+                  onTap: _contactSelectionMode
+                      ? () => _toggleManagedEntry(peerId)
+                      : () => _openConversation(entry),
+                  onDoubleTap: () => _connectDirect(context, peerId),
+                  child: SizedBox(
+                    height: 68,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 8,
+                      ),
+                      child: Row(
+                        children: <Widget>[
+                          if (_contactSelectionMode) ...[
+                            Checkbox(
+                              value: _selectedManagedEntries.contains(peerId),
+                              onChanged: (_) => _toggleManagedEntry(peerId),
+                            ),
+                            const SizedBox(width: 4),
+                          ],
+                          _buildConversationAvatar(
+                            avatar: user.profileImage ?? '',
+                            name: displayName,
+                            initial: displayName.characters.first,
+                            size: 40,
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 11),
+                          Expanded(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: <Widget>[
+                                Row(
+                                  children: <Widget>[
+                                    Expanded(
+                                      child: Text(
+                                        displayName,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style:
+                                            theme.textTheme.bodyLarge?.copyWith(
+                                          color: selected ? Colors.white : null,
+                                          fontWeight: FontWeight.w500,
+                                          fontSize: 15,
+                                          letterSpacing: 0,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      _conversationTimeLabel(
+                                        _conversationTime(entry),
+                                      ),
+                                      style:
+                                          theme.textTheme.labelSmall?.copyWith(
+                                        color: selected
+                                            ? Colors.white.withOpacity(0.82)
+                                            : theme.colorScheme.onSurface
+                                                .withOpacity(0.46),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 3),
+                                Row(
+                                  children: <Widget>[
+                                    Expanded(
+                                      child: Text(
+                                        _conversationPreview(entry),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style:
+                                            theme.textTheme.bodySmall?.copyWith(
+                                          color: selected
+                                              ? Colors.white.withOpacity(0.88)
+                                              : theme.colorScheme.onSurface
+                                                  .withOpacity(0.52),
+                                          fontSize: 12,
+                                          letterSpacing: 0,
+                                        ),
+                                      ),
+                                    ),
+                                    if (client != null)
+                                      unreadMessageCountBuilder(
+                                        client.unreadChatMessageCount,
+                                      ).marginOnly(left: 8),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -1368,67 +1539,83 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         pairing.displayName.isEmpty ? pairing.peerId : pairing.displayName;
     final selected = _selectedConversationPeerId == pairing.peerId;
     final delivery = _directDeliveryStatus(pairing.peerId);
-    return Material(
-      color: selected
-          ? theme.colorScheme.onSurface.withOpacity(0.08)
-          : Colors.transparent,
-      child: InkWell(
-        onTap: () => _startDirectChat(pairing.peerId),
-        onDoubleTap: () => _connectDirect(context, pairing.peerId),
-        child: SizedBox(
-          height: 66,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            child: Row(
-              children: <Widget>[
-                _buildConversationAvatar(
-                  avatar: pairing.avatar,
-                  name: name,
-                  initial: name.characters.first,
-                  size: 42,
-                ),
-                const SizedBox(width: 11),
-                Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodyLarge?.copyWith(
-                          fontWeight: FontWeight.w500,
+    return GestureDetector(
+      onSecondaryTapDown: (details) => _showManagedEntryMenu(
+        context,
+        pairing.peerId,
+        details.globalPosition,
+      ),
+      child: Material(
+        color: selected
+            ? theme.colorScheme.onSurface.withOpacity(0.08)
+            : Colors.transparent,
+        child: InkWell(
+          onTap: _contactSelectionMode
+              ? () => _toggleManagedEntry(pairing.peerId)
+              : () => _startDirectChat(pairing.peerId),
+          onDoubleTap: () => _connectDirect(context, pairing.peerId),
+          child: SizedBox(
+            height: 66,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              child: Row(
+                children: <Widget>[
+                  if (_contactSelectionMode) ...[
+                    Checkbox(
+                      value: _selectedManagedEntries.contains(pairing.peerId),
+                      onChanged: (_) => _toggleManagedEntry(pairing.peerId),
+                    ),
+                    const SizedBox(width: 4),
+                  ],
+                  _buildConversationAvatar(
+                    avatar: pairing.avatar,
+                    name: name,
+                    initial: name.characters.first,
+                    size: 42,
+                  ),
+                  const SizedBox(width: 11),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 3),
-                      Row(
-                        children: <Widget>[
-                          Expanded(
-                            child: Text(
-                              pairing.peerId,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.colorScheme.onSurface
-                                    .withOpacity(0.48),
+                        const SizedBox(height: 3),
+                        Row(
+                          children: <Widget>[
+                            Expanded(
+                              child: Text(
+                                pairing.peerId,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.onSurface
+                                      .withOpacity(0.48),
+                                ),
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            translate(delivery.$1),
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: delivery.$2,
-                              fontWeight: FontWeight.w500,
+                            const SizedBox(width: 6),
+                            Text(
+                              translate(delivery.$1),
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: delivery.$2,
+                                fontWeight: FontWeight.w500,
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ],
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -1453,116 +1640,135 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final selected = _selectedConversationPeerId == peer.id;
     final initial = name.trim().isEmpty ? '?' : name.trim().characters.first;
     final delivery = _contactDeliveryStatus(peer);
-    return Material(
-      color: selected
-          ? theme.colorScheme.onSurface.withOpacity(0.08)
-          : Colors.transparent,
-      child: InkWell(
-        onTap: () {
-          final registered = _directChatSessionFor(peer.id);
-          final active =
-              registered != null && !registered.closed ? registered : null;
-          final incoming =
-              active == null ? _incomingDirectChatClientFor(peer.id) : null;
-          setState(() {
-            _selectedContact = peer;
-            _selectedConversationPeerId = peer.id;
-            _activeDirectChatPeerId = active == null ? null : peer.id;
-          });
-          final model = active?.chatModel ?? gFFI.chatModel;
-          model.changeCurrentKey(
-            MessageKey(
-              peer.id,
-              incoming?.id ?? ChatModel.clientModeID,
-            ),
-          );
-          model.updatePeerIdentity(
-            peer.id,
-            displayName: _contactName(peer),
-            avatar: peer.avatar,
-          );
-          if (active == null && incoming == null) {
-            unawaited(_startDirectChat(peer.id));
-          }
-        },
-        onDoubleTap: () => _connectDirect(context, peer.id),
-        child: SizedBox(
-          height: 66,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            child: Row(
-              children: <Widget>[
-                Stack(
-                  clipBehavior: Clip.none,
-                  children: <Widget>[
-                    _buildConversationAvatar(
-                      avatar: peer.avatar,
-                      name: name,
-                      initial: initial,
-                      size: 42,
+    return GestureDetector(
+      onSecondaryTapDown: (details) => _showManagedEntryMenu(
+        context,
+        peer.id,
+        details.globalPosition,
+        peer: peer,
+      ),
+      child: Material(
+        color: selected
+            ? theme.colorScheme.onSurface.withOpacity(0.08)
+            : Colors.transparent,
+        child: InkWell(
+          onTap: _contactSelectionMode
+              ? () => _toggleManagedEntry(peer.id)
+              : () {
+                  final registered = _directChatSessionFor(peer.id);
+                  final active = registered != null && !registered.closed
+                      ? registered
+                      : null;
+                  final incoming = active == null
+                      ? _incomingDirectChatClientFor(peer.id)
+                      : null;
+                  setState(() {
+                    _selectedContact = peer;
+                    _selectedConversationPeerId = peer.id;
+                    _activeDirectChatPeerId = active == null ? null : peer.id;
+                  });
+                  final model = active?.chatModel ?? gFFI.chatModel;
+                  model.changeCurrentKey(
+                    MessageKey(
+                      peer.id,
+                      incoming?.id ?? ChatModel.clientModeID,
                     ),
-                    Positioned(
-                      right: -2,
-                      bottom: -2,
-                      child: Container(
-                        width: 11,
-                        height: 11,
-                        decoration: BoxDecoration(
-                          color: peer.online
-                              ? const Color(0xFF2BB673)
-                              : const Color(0xFFA7A9AF),
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: theme.colorScheme.surface,
-                            width: 2,
-                          ),
-                        ),
-                      ),
+                  );
+                  model.updatePeerIdentity(
+                    peer.id,
+                    displayName: _contactName(peer),
+                    avatar: peer.avatar,
+                  );
+                  if (active == null && incoming == null) {
+                    unawaited(_startDirectChat(peer.id));
+                  }
+                },
+          onDoubleTap: () => _connectDirect(context, peer.id),
+          child: SizedBox(
+            height: 66,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              child: Row(
+                children: <Widget>[
+                  if (_contactSelectionMode) ...[
+                    Checkbox(
+                      value: _selectedManagedEntries.contains(peer.id),
+                      onChanged: (_) => _toggleManagedEntry(peer.id),
                     ),
+                    const SizedBox(width: 4),
                   ],
-                ),
-                const SizedBox(width: 11),
-                Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  Stack(
+                    clipBehavior: Clip.none,
                     children: <Widget>[
-                      Text(
-                        name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodyLarge?.copyWith(
-                          fontWeight: FontWeight.w500,
-                        ),
+                      _buildConversationAvatar(
+                        avatar: peer.avatar,
+                        name: name,
+                        initial: initial,
+                        size: 42,
                       ),
-                      const SizedBox(height: 3),
-                      Row(
-                        children: <Widget>[
-                          Expanded(
-                            child: Text(
-                              peer.id,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.colorScheme.onSurface
-                                    .withOpacity(0.48),
-                              ),
+                      Positioned(
+                        right: -2,
+                        bottom: -2,
+                        child: Container(
+                          width: 11,
+                          height: 11,
+                          decoration: BoxDecoration(
+                            color: peer.online
+                                ? const Color(0xFF2BB673)
+                                : const Color(0xFFA7A9AF),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: theme.colorScheme.surface,
+                              width: 2,
                             ),
                           ),
-                          const SizedBox(width: 6),
-                          Text(
-                            translate(delivery.$1),
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: delivery.$2,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
                     ],
                   ),
-                ),
-              ],
+                  const SizedBox(width: 11),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Row(
+                          children: <Widget>[
+                            Expanded(
+                              child: Text(
+                                peer.id,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.onSurface
+                                      .withOpacity(0.48),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              translate(delivery.$1),
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: delivery.$2,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -1646,7 +1852,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       case 'discovered':
         return gFFI.lanPeersModel;
       case 'contacts':
-        return gFFI.recentPeersModel;
+        return gFFI.abModel.peersModel;
       case 'history':
         return gFFI.recentPeersModel;
       case 'chat':
@@ -1666,7 +1872,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         bind.mainDiscover();
         break;
       case 'contacts':
-        bind.mainLoadRecentPeers();
+        await gFFI.abModel.pullAb(force: null, quiet: true);
         break;
       case 'history':
         bind.mainLoadRecentPeers();

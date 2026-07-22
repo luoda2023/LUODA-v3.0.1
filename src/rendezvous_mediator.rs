@@ -13,13 +13,13 @@ use hbb_common::{
     allow_err,
     anyhow::{self, bail},
     config::{
-        self, keys::*, option2bool, use_ws, Config, CONNECT_TIMEOUT,
-        DEFAULT_DIRECT_PORT, REG_INTERVAL, RENDEZVOUS_PORT,
+        self, keys::*, option2bool, use_ws, Config, CONNECT_TIMEOUT, DEFAULT_DIRECT_PORT,
+        REG_INTERVAL, RENDEZVOUS_PORT,
     },
-    rand::Rng,
     futures::future::join_all,
     log,
     protobuf::Message as _,
+    rand::Rng,
     rendezvous_proto::*,
     sleep,
     socket_client::{self, connect_tcp, is_ipv4, new_direct_udp_for, new_udp_for},
@@ -307,6 +307,7 @@ impl RendezvousMediator {
                         Config::set_key_confirmed(true);
                         Config::set_host_key_confirmed(&self.host_prefix, true);
                         *SOLVING_PK_MISMATCH.lock().await = "".to_owned();
+                        self.register_peer(sink).await?;
                     }
                     Ok(register_pk_response::Result::UUID_MISMATCH) => {
                         self.handle_uuid_mismatch(sink).await?;
@@ -403,10 +404,13 @@ impl RendezvousMediator {
                     if last_recv_msg.elapsed().as_millis() as u64 > rz.keep_alive as u64 * 3 / 2 {
                         bail!("Rendezvous connection is timeout");
                     }
-                    if (!Config::get_key_confirmed() ||
-                        !Config::get_host_key_confirmed(&rz.host_prefix)) &&
-                        last_register_sent.map(|x| x.elapsed().as_millis() as i64).unwrap_or(REG_INTERVAL) >= REG_INTERVAL {
-                        rz.register_pk(Sink::Stream(&mut conn)).await?;
+                    if last_register_sent.map(|x| x.elapsed().as_millis() as i64).unwrap_or(REG_INTERVAL) >= REG_INTERVAL {
+                        if !Config::get_key_confirmed() ||
+                            !Config::get_host_key_confirmed(&rz.host_prefix) {
+                            rz.register_pk(Sink::Stream(&mut conn)).await?;
+                        } else {
+                            rz.register_peer(Sink::Stream(&mut conn)).await?;
+                        }
                         last_register_sent = Some(Instant::now());
                     }
                 }
@@ -417,8 +421,13 @@ impl RendezvousMediator {
 
     pub async fn start(server: ServerPtr, host: String) -> ResultType<()> {
         log::info!("start rendezvous mediator of {}", host);
+        #[cfg(target_os = "windows")]
+        let windows_server = crate::platform::windows::is_windows_server();
+        #[cfg(not(target_os = "windows"))]
+        let windows_server = false;
         //If the investment agent type is http or https, then tcp forwarding is enabled.
-        if (cfg!(debug_assertions) && option_env!("TEST_TCP").is_some())
+        if windows_server
+            || (cfg!(debug_assertions) && option_env!("TEST_TCP").is_some())
             || Config::is_proxy()
             || use_ws()
             || crate::is_udp_disabled()
@@ -810,9 +819,7 @@ mod direct_port_tests {
 }
 
 fn get_direct_port() -> i32 {
-    let mtx = DIRECT_PORT.get_or_init(|| {
-        std::sync::Mutex::new(configured_direct_port())
-    });
+    let mtx = DIRECT_PORT.get_or_init(|| std::sync::Mutex::new(configured_direct_port()));
     *mtx.lock().unwrap()
 }
 
@@ -826,19 +833,22 @@ fn sync_direct_port_from_config() {
 }
 
 /// Mark the current port as failed (e.g. port already in use),
-/// incrementing to the next port (21118 → 21119 → 21120 …).
-/// Falls back to a random port 20000-40000 only after 100 consecutive increments.
+/// incrementing through the fixed VPS fallback range 21118-21128.
 fn invalidate_direct_port() {
     if let Some(mtx) = DIRECT_PORT.get() {
         let mut port = mtx.lock().unwrap();
         let failed_port = *port;
-        if *port < DEFAULT_DIRECT_PORT + 100 {
+        if *port < DEFAULT_DIRECT_PORT + 10 {
             *port += 1;
         } else {
             *port = rand::thread_rng().gen_range(20000..40000);
         }
         Config::set_option(OPTION_DIRECT_ACCESS_PORT.to_owned(), port.to_string());
-        log::info!("Direct port {} was unavailable, trying {}", failed_port, *port);
+        log::info!(
+            "Direct port {} was unavailable, trying {}",
+            failed_port,
+            *port
+        );
     }
 }
 
@@ -969,11 +979,7 @@ async fn direct_server(server: ServerPtr) {
             if disabled || port != get_direct_port() {
                 log::info!("Exit direct access listen");
                 listener = None;
-                set_direct_listener_status(if disabled {
-                    "not-ready"
-                } else {
-                    "connecting"
-                });
+                set_direct_listener_status(if disabled { "not-ready" } else { "connecting" });
                 #[cfg(not(any(target_os = "android", target_os = "ios")))]
                 if let Some(previous_port) = mapped_port.take() {
                     crate::upnp::remove_port_mapping(previous_port);

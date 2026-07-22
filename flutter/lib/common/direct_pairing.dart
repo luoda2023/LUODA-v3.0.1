@@ -137,6 +137,23 @@ class DirectPairingStore {
     revision.value++;
   }
 
+  static Future<void> removeAll(Iterable<String> peerIds) async {
+    final ids =
+        peerIds.map((id) => id.trim()).where((id) => id.isNotEmpty).toSet();
+    if (ids.isEmpty) return;
+    final pairings = load();
+    final previousLength = pairings.length;
+    pairings.removeWhere((peerId, _) => ids.contains(peerId));
+    if (pairings.length == previousLength) return;
+    await bind.mainSetLocalOption(
+      key: storageKey,
+      value: jsonEncode(
+        pairings.map((key, value) => MapEntry(key, value.toJson())),
+      ),
+    );
+    revision.value++;
+  }
+
   static List<Map<String, dynamic>> exportContacts() => load()
       .values
       .where((pairing) => !pairing.companion)

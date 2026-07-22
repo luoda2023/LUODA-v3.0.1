@@ -586,6 +586,14 @@ class DirectChatRepository {
     return (await _freshState()).records[id];
   }
 
+  Future<void> deleteConversations(Iterable<String> conversationIds) {
+    final ids = conversationIds.toSet();
+    return _write((state) async {
+      state.records
+          .removeWhere((_, record) => ids.contains(record.conversationId));
+    });
+  }
+
   static int _deliveryRank(DirectChatDelivery delivery) {
     switch (delivery) {
       case DirectChatDelivery.queued:

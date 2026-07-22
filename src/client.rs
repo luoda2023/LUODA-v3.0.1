@@ -1,3 +1,5 @@
+#[cfg(any(target_os = "android", target_os = "ios"))]
+use crate::android_opus_stub::{Channels::*, Decoder as AudioDecoder};
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use crate::clipboard::clipboard_listener;
 use async_trait::async_trait;
@@ -12,8 +14,6 @@ use cpal::{
 use crossbeam_queue::ArrayQueue;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use magnum_opus::{Channels::*, Decoder as AudioDecoder};
-#[cfg(any(target_os = "android", target_os = "ios"))]
-use crate::android_opus_stub::{Channels::*, Decoder as AudioDecoder};
 #[cfg(not(target_os = "linux"))]
 use ringbuf::{ring_buffer::RbBase, Rb};
 use serde::{Deserialize, Serialize};
@@ -51,7 +51,8 @@ use hbb_common::{
     bail,
     config::{
         self, keys, use_ws, Config, LocalConfig, PeerConfig, PeerInfoSerde, Resolution,
-        CONNECT_TIMEOUT, DEFAULT_DIRECT_PORT, READ_TIMEOUT, RELAY_PORT, RENDEZVOUS_PORT, RENDEZVOUS_SERVERS,
+        CONNECT_TIMEOUT, DEFAULT_DIRECT_PORT, READ_TIMEOUT, RELAY_PORT, RENDEZVOUS_PORT,
+        RENDEZVOUS_SERVERS,
     },
     fs::JobType,
     futures::future::{select_ok, FutureExt},
@@ -124,11 +125,9 @@ pub const LOGIN_SCREEN_WAYLAND: &str = "Wayland login screen is not supported";
 #[cfg(target_os = "linux")]
 pub const SCRAP_UBUNTU_HIGHER_REQUIRED: &str = "ubuntu-21-04-required";
 #[cfg(target_os = "linux")]
-pub const SCRAP_OTHER_VERSION_OR_X11_REQUIRED: &str =
-    "wayland-requires-higher-linux-version";
+pub const SCRAP_OTHER_VERSION_OR_X11_REQUIRED: &str = "wayland-requires-higher-linux-version";
 #[cfg(target_os = "linux")]
-pub const SCRAP_XDP_PORTAL_UNAVAILABLE: &str =
-    "xdp-portal-unavailable";
+pub const SCRAP_XDP_PORTAL_UNAVAILABLE: &str = "xdp-portal-unavailable";
 pub const SCRAP_X11_REQUIRED: &str = "x11 expected";
 pub const SCRAP_X11_REF_URL: &str = "https://dicad.cn/docs/en/manual/linux/#x11-required";
 
@@ -188,16 +187,13 @@ fn bare_direct_ip(peer: &str) -> Option<IpAddr> {
     IpAddr::from_str(peer).ok()
 }
 
-const DIRECT_PORT_PROBE_RADIUS: u16 = 5;
+const DIRECT_PORT_FALLBACK_COUNT: u16 = 10;
 
 fn direct_probe_addresses(ip: IpAddr, preferred_port: u16) -> Vec<SocketAddr> {
-    let mut addresses = Vec::with_capacity((DIRECT_PORT_PROBE_RADIUS * 2 + 1) as usize);
+    let mut addresses = Vec::with_capacity((DIRECT_PORT_FALLBACK_COUNT + 1) as usize);
     addresses.push(SocketAddr::new(ip, preferred_port));
-    for offset in 1..=DIRECT_PORT_PROBE_RADIUS {
+    for offset in 1..=DIRECT_PORT_FALLBACK_COUNT {
         if let Some(port) = preferred_port.checked_add(offset) {
-            addresses.push(SocketAddr::new(ip, port));
-        }
-        if let Some(port) = preferred_port.checked_sub(offset).filter(|port| *port > 0) {
             addresses.push(SocketAddr::new(ip, port));
         }
     }
@@ -224,9 +220,8 @@ async fn connect_direct_candidates(
 }
 
 fn direct_endpoint(peer: &str) -> Option<String> {
-    explicit_direct_endpoint(peer).or_else(|| {
-        hbb_common::is_domain_port_str(peer).then(|| peer.to_owned())
-    })
+    explicit_direct_endpoint(peer)
+        .or_else(|| hbb_common::is_domain_port_str(peer).then(|| peer.to_owned()))
 }
 
 fn is_loopback_rendezvous_server(server: &str) -> bool {
@@ -317,7 +312,10 @@ fn enforce_rendezvous_policy(serverless_direct_only: bool) -> ResultType<()> {
 }
 
 fn fingerprint_public_key(value: &str) -> Option<Vec<u8>> {
-    let hex: String = value.chars().filter(|c| !c.is_whitespace() && *c != ':').collect();
+    let hex: String = value
+        .chars()
+        .filter(|c| !c.is_whitespace() && *c != ':')
+        .collect();
     if hex.len() != sign::PUBLICKEYBYTES * 2 {
         return None;
     }
@@ -406,9 +404,7 @@ mod direct_endpoint_tests {
 
     #[test]
     fn remote_custom_rendezvous_does_not_add_public_fallbacks() {
-        assert!(
-            rendezvous_fallback_servers("customer.example:23458", Vec::new()).is_empty()
-        );
+        assert!(rendezvous_fallback_servers("customer.example:23458", Vec::new()).is_empty());
     }
 
     #[test]
@@ -428,18 +424,13 @@ mod direct_endpoint_tests {
     }
 
     #[test]
-    fn probes_the_requested_direct_port_and_five_neighbors_each_way() {
+    fn probes_the_requested_direct_port_then_the_vps_fallback_range() {
         let ip = "192.168.1.20".parse().unwrap();
         let ports: Vec<_> = direct_probe_addresses(ip, 21118)
             .into_iter()
             .map(|address| address.port())
             .collect();
-        assert_eq!(
-            ports,
-            vec![
-                21118, 21119, 21117, 21120, 21116, 21121, 21115, 21122, 21114, 21123, 21113,
-            ]
-        );
+        assert_eq!(ports, (21118..=21128).collect::<Vec<_>>());
     }
 
     #[test]
@@ -453,13 +444,14 @@ mod direct_endpoint_tests {
             .into_iter()
             .map(|address| address.port())
             .collect();
-        assert_eq!(low, vec![1, 2, 3, 4, 5, 6]);
-        assert_eq!(high, vec![65535, 65534, 65533, 65532, 65531, 65530]);
+        assert_eq!(low, (1..=11).collect::<Vec<_>>());
+        assert_eq!(high, vec![65535]);
     }
 
     #[test]
     fn decodes_direct_public_key_fingerprint() {
-        let fingerprint = "0011 2233 4455 6677 8899 aabb ccdd eeff 0011 2233 4455 6677 8899 aabb ccdd eeff";
+        let fingerprint =
+            "0011 2233 4455 6677 8899 aabb ccdd eeff 0011 2233 4455 6677 8899 aabb ccdd eeff";
         let key = fingerprint_public_key(fingerprint).unwrap();
         assert_eq!(key.len(), 32);
         assert_eq!(&key[..4], &[0x00, 0x11, 0x22, 0x33]);
@@ -596,7 +588,10 @@ impl Client {
                         Err(error) => errors.push(format!("{endpoint}: {error}")),
                     }
                 }
-                bail!("Failed to connect to direct endpoints: {}", errors.join("; "));
+                bail!(
+                    "Failed to connect to direct endpoints: {}",
+                    errors.join("; ")
+                );
             }
         }
         match connection_route(peer) {
@@ -627,8 +622,7 @@ impl Client {
             (peer, "", key, token)
         };
         let (rendezvous_server, servers, contained) = if other_server.is_empty() {
-            let (rendezvous_server, servers, contained) =
-                crate::get_rendezvous_server(1_000).await;
+            let (rendezvous_server, servers, contained) = crate::get_rendezvous_server(1_000).await;
             (
                 rendezvous_server.clone(),
                 rendezvous_fallback_servers(&rendezvous_server, servers),
@@ -2213,11 +2207,7 @@ impl LoginConfigHandler {
             let server = server_key.next().unwrap_or_default();
             let args = server_key.next().unwrap_or_default();
             let (key, pairing_secret, fallback_endpoint) = if server == PUBLIC_SERVER {
-                (
-                    config::RS_PUB_KEY.to_owned(),
-                    String::new(),
-                    String::new(),
-                )
+                (config::RS_PUB_KEY.to_owned(), String::new(), String::new())
             } else {
                 let mut args_map: HashMap<String, &str> = HashMap::new();
                 for arg in args.split('&') {
@@ -2330,10 +2320,7 @@ impl LoginConfigHandler {
     pub fn load_config(&self) -> PeerConfig {
         debug_assert!(self.id.len() > 0);
         let mut config = PeerConfig::load(&self.id);
-        if config.password.is_empty()
-            && !self.config_id.is_empty()
-            && self.config_id != self.id
-        {
+        if config.password.is_empty() && !self.config_id.is_empty() && self.config_id != self.id {
             config.password = PeerConfig::load(&self.config_id).password;
         }
         config
@@ -3088,13 +3075,13 @@ impl LoginConfigHandler {
         };
         let mut avatar =
             serde_json::from_str::<serde_json::Value>(&LocalConfig::get_option("user_info"))
-            .ok()
-            .and_then(|x| {
-                x.get("avatar")
-                    .and_then(|x| x.as_str())
-                    .map(|x| x.trim().to_owned())
-            })
-            .unwrap_or_default();
+                .ok()
+                .and_then(|x| {
+                    x.get("avatar")
+                        .and_then(|x| x.as_str())
+                        .map(|x| x.trim().to_owned())
+                })
+                .unwrap_or_default();
         if avatar.is_empty() {
             avatar = get_builtin_option(keys::OPTION_AVATAR);
         }

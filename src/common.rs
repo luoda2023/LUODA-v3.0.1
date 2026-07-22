@@ -1017,8 +1017,7 @@ pub fn is_luoda() -> bool {
 
 #[inline]
 pub fn is_serverless_direct_only() -> bool {
-    is_luoda()
-        && Config::get_option(config::keys::OPTION_SERVERLESS_DIRECT_ONLY).as_str() == "Y"
+    is_luoda() && Config::get_option(config::keys::OPTION_SERVERLESS_DIRECT_ONLY).as_str() == "Y"
 }
 
 #[inline]
@@ -1097,7 +1096,10 @@ fn get_api_server_(api: String, custom: String) -> String {
         }
     }
     // fallback: derive API server from default rendezvous server
-    let default_rs = config::RENDEZVOUS_SERVERS.first().cloned().unwrap_or("rev.dicad.cn");
+    let default_rs = config::RENDEZVOUS_SERVERS
+        .first()
+        .cloned()
+        .unwrap_or("rev.dicad.cn");
     let s = crate::increase_port(default_rs, -2);
     if s == default_rs {
         return format!("http://{}:{}", s, config::RENDEZVOUS_PORT - 2);
@@ -1108,7 +1110,10 @@ fn get_api_server_(api: String, custom: String) -> String {
 
 #[inline]
 pub fn is_public(url: &str) -> bool {
-    url.contains("dicad.cn/") || url.ends_with("dicad.cn") || url.contains("dicad.cn/") || url.ends_with("dicad.cn")
+    url.contains("dicad.cn/")
+        || url.ends_with("dicad.cn")
+        || url.contains("dicad.cn/")
+        || url.ends_with("dicad.cn")
 }
 
 pub fn get_udp_punch_enabled() -> bool {
@@ -1126,15 +1131,7 @@ pub fn get_ipv6_punch_enabled() -> bool {
 }
 
 pub fn get_local_option(key: &str) -> String {
-    let v = LocalConfig::get_option(key);
-    if key == keys::OPTION_ENABLE_UDP_PUNCH || key == keys::OPTION_ENABLE_IPV6_PUNCH {
-        if v.is_empty() {
-            if !is_public(&Config::get_rendezvous_server()) {
-                return "N".to_owned();
-            }
-        }
-    }
-    v
+    LocalConfig::get_option(key)
 }
 
 pub fn get_audit_server(api: String, custom: String, typ: String) -> String {
