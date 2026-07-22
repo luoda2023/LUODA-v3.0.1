@@ -187,6 +187,7 @@ fn bare_direct_ip(peer: &str) -> Option<IpAddr> {
     IpAddr::from_str(peer).ok()
 }
 
+const DIRECT_PROBE_TIMEOUT: u64 = 3_000;
 const DIRECT_PORT_FALLBACK_COUNT: u16 = 10;
 
 fn direct_probe_addresses(ip: IpAddr, preferred_port: u16) -> Vec<SocketAddr> {
@@ -209,7 +210,7 @@ async fn connect_direct_candidates(
         .map(|address| {
             async move {
                 let host = address.to_string();
-                let mut conn = connect_tcp_local(host.as_str(), None, CONNECT_TIMEOUT).await?;
+                let mut conn = connect_tcp_local(host.as_str(), None, DIRECT_PROBE_TIMEOUT).await?;
                 let pk = Client::secure_direct_connection("", None, &mut conn).await?;
                 Ok::<_, hbb_common::anyhow::Error>((conn, pk, address))
             }
