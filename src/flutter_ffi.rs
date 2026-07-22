@@ -1100,6 +1100,16 @@ pub fn main_show_option(_key: String) -> SyncReturn<bool> {
 }
 
 pub fn main_set_option(key: String, value: String) {
+    if config::option2bool(&key, &value) {
+        if key.eq(config::keys::OPTION_ALLOW_WEBSOCKET) {
+            set_option(config::keys::OPTION_DISABLE_UDP.to_owned(), "N".to_owned());
+        } else if key.eq(config::keys::OPTION_DISABLE_UDP) {
+            set_option(
+                config::keys::OPTION_ALLOW_WEBSOCKET.to_owned(),
+                "N".to_owned(),
+            );
+        }
+    }
 
     #[cfg(target_os = "android")]
     if key.eq(config::keys::OPTION_ENABLE_KEYBOARD) {

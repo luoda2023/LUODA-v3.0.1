@@ -89,8 +89,21 @@ fn setup(
         eprintln!("failed to create runtime directory: {err}");
         return None;
     }
+    #[cfg(windows)]
+    let total_bytes = reader
+        .files
+        .iter()
+        .map(|file| file.raw.len())
+        .sum::<usize>();
+    #[cfg(windows)]
+    let mut completed_bytes = 0usize;
     for file in reader.files.iter() {
         file.write_to_file(&dir);
+        #[cfg(windows)]
+        {
+            completed_bytes = completed_bytes.saturating_add(file.raw.len());
+            ui::set_progress(completed_bytes, total_bytes);
+        }
     }
     Some(dir.join(&reader.exe))
 }

@@ -156,7 +156,7 @@ const CHARS: &[char] = &[
     'm', 'n', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
 ];
 
-pub const RENDEZVOUS_SERVERS: &[&str] = &["rev.dicad.cn"];
+pub const RENDEZVOUS_SERVERS: &[&str] = &["47.114.75.115:21116"];
 pub const RS_PUB_KEY: &str = "OQnLEvt6xjfPCUc1ozpTUiAxijwnn624zy0GH9IxX90=";
 
 pub const RENDEZVOUS_PORT: i32 = 21116;

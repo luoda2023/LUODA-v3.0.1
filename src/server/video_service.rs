@@ -365,6 +365,7 @@ pub(super) struct CapturerInfo {
     pub origin: (i32, i32),
     pub width: usize,
     pub height: usize,
+    pub display_name: String,
     pub ndisplay: usize,
     pub current: usize,
     pub privacy_mode_id: i32,
@@ -386,6 +387,26 @@ impl DerefMut for CapturerInfo {
     }
 }
 
+#[cfg(windows)]
+fn recover_windows_server_headless_capture(c: &CapturerInfo, reason: &str) -> bool {
+    if !crate::platform::windows::is_win_server()
+        || crate::virtual_display_manager::is_virtual_display(&c.display_name)
+    {
+        return false;
+    }
+    match display_service::prepare_windows_server_headless_display() {
+        Ok(()) => {
+            display_service::prefer_virtual_display();
+            log::warn!("{reason}; switching capture to the VPS virtual display");
+            true
+        }
+        Err(error) => {
+            log::error!("{reason}; failed to prepare the VPS virtual display: {error}");
+            false
+        }
+    }
+}
+
 fn get_capturer_monitor(
     current: usize,
     portable_service_running: bool,
@@ -397,6 +418,9 @@ fn get_capturer_monitor(
         }
     }
 
+    #[cfg(windows)]
+    let mut displays = display_service::try_get_displays()?;
+    #[cfg(not(windows))]
     let mut displays = Display::all()?;
     let ndisplay = displays.len();
     if ndisplay <= current {
@@ -472,6 +496,7 @@ fn get_capturer_monitor(
         origin,
         width,
         height,
+        display_name: name,
         ndisplay,
         current,
         privacy_mode_id,
@@ -513,6 +538,7 @@ fn get_capturer_camera(current: usize) -> ResultType<CapturerInfo> {
         origin,
         width,
         height,
+        display_name: name.clone(),
         ndisplay: ncamera,
         current,
         privacy_mode_id,
@@ -853,6 +879,17 @@ fn run(vs: VideoService) -> ResultType<()> {
                 }
 
                 #[cfg(windows)]
+                if c.is_gdi()
+                    && err
+                        .to_string()
+                        .contains("Failed to copy screen to Windows buffer")
+                    && recover_windows_server_headless_capture(&c, &err.to_string())
+                {
+                    try_broadcast_display_changed(&sp, display_idx, &c, true).ok();
+                    bail!("SWITCH");
+                }
+
+                #[cfg(windows)]
                 if !c.is_gdi() {
                     c.set_gdi();
                     log::info!("dxgi error, fall back to gdi: {:?}", err);
@@ -879,6 +916,12 @@ fn run(vs: VideoService) -> ResultType<()> {
                 try_gdi = 0;
                 first_frame_started = Instant::now();
                 log::warn!("first frame capture timed out, fall back to gdi");
+            } else if recover_windows_server_headless_capture(
+                &c,
+                "first frame capture timed out after gdi fallback",
+            ) {
+                try_broadcast_display_changed(&sp, display_idx, &c, true).ok();
+                bail!("SWITCH");
             } else {
                 log::error!("first frame capture timed out after gdi fallback");
                 bail!("first frame capture timed out");

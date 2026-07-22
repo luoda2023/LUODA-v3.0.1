@@ -15,14 +15,23 @@ void main() {
     expect(ViewerInviteLink.tryParse(uri), invite);
   });
 
-  test('viewer invite rejects links without a direct endpoint', () {
+  test('viewer invite link also carries a rendezvous device ID', () {
+    final invite = ViewerInviteLink(
+      endpoint: '123456789',
+      token: 'ABCD-EFGH-JKMN',
+    );
+
+    expect(ViewerInviteLink.tryParse(invite.toUri()), invite);
+  });
+
+  test('viewer invite rejects links without a valid connection target', () {
     expect(
       ViewerInviteLink.tryParse(Uri.parse('luoda://join/ABCD-EFGH-JKMN')),
       isNull,
     );
     expect(
       ViewerInviteLink.tryParse(
-        Uri.parse('luoda://join/ABCD-EFGH-JKMN?endpoint=peer-id'),
+        Uri.parse('luoda://join/ABCD-EFGH-JKMN?endpoint=bad%20target'),
       ),
       isNull,
     );

@@ -64,6 +64,8 @@ const borderColor = Color(0xFF2F65BA);
 
 enum _ConversationAction { fileTransfer, remoteAssist, camera, terminal, port }
 
+enum _WorkspaceNoticeTone { info, success, warning, error }
+
 class _DesktopHomePageState extends State<DesktopHomePage>
     with AutomaticKeepAliveClientMixin, WidgetsBindingObserver {
   final _leftPaneScrollController = ScrollController();
@@ -93,6 +95,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   final Map<String, bool> _knownPeerOnline = <String, bool>{};
   final Set<String> _notifiedChatConnections = <String>{};
   int? _lastNetworkStatus;
+  Timer? _workspaceNoticeTimer;
+  String? _workspaceNotice;
+  _WorkspaceNoticeTone _workspaceNoticeTone = _WorkspaceNoticeTone.info;
+  int _workspaceNoticeRevision = 0;
   String? _activeDirectChatPeerId;
   bool _contactSelectionMode = false;
   final Set<String> _selectedManagedEntries = <String>{};
@@ -202,9 +208,16 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     Offset position, {
     Peer? peer,
   }) async {
+    final overlayBox =
+        Overlay.of(context).context.findRenderObject() as RenderBox;
+    final localPosition = overlayBox.globalToLocal(position);
+    final anchor = Rect.fromLTWH(localPosition.dx, localPosition.dy, 1, 1);
     final action = await showMenu<String>(
       context: context,
-      position: RelativeRect.fromLTRB(position.dx, position.dy, 0, 0),
+      position: RelativeRect.fromRect(
+        anchor,
+        Offset.zero & overlayBox.size,
+      ),
       items: <PopupMenuEntry<String>>[
         PopupMenuItem(value: 'select', child: Text(translate('Select'))),
         PopupMenuItem(
@@ -289,18 +302,30 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         final dark = Theme.of(context).brightness == Brightness.dark;
         return ColoredBox(
           color: dark ? const Color(0xFF191B20) : kWeChatChromeColor,
-          child: Row(
-            children: [
-              if (showRail) _buildPrimaryRail(context),
-              if (_selectedRailId == 'vip')
-                const Expanded(child: VipFeaturesPage())
-              else ...[
-                SizedBox(
-                  width: contactsWidth,
-                  child: _buildContactsPane(context),
-                ),
-                Expanded(child: _buildConversationWorkspace(context)),
-              ],
+          child: Stack(
+            children: <Widget>[
+              Row(
+                children: [
+                  if (showRail) _buildPrimaryRail(context),
+                  if (_selectedRailId == 'vip')
+                    const Expanded(child: VipFeaturesPage())
+                  else ...[
+                    SizedBox(
+                      width: contactsWidth,
+                      child: _buildContactsPane(context),
+                    ),
+                    Expanded(child: _buildConversationWorkspace(context)),
+                  ],
+                ],
+              ),
+              Positioned(
+                top: 60,
+                right: 16,
+                width: constraints.maxWidth < 392
+                    ? constraints.maxWidth - 32
+                    : 360,
+                child: _buildWorkspaceNotice(context),
+              ),
             ],
           ),
         );
@@ -895,8 +920,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 ],
               ),
             ),
-            _buildNetworkStatusBadge(context),
-            const SizedBox(width: 8),
             _conversationActionButton(
               context,
               tooltip: translate('File Transfer'),
@@ -955,38 +978,92 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     );
   }
 
-  Widget _buildNetworkStatusBadge(BuildContext context) {
-    final status = gFFI.serverModel.connectStatus;
-    final label = status > 0
-        ? translate('Online')
-        : status == 0
-            ? translate('Connecting')
-            : translate('Offline');
-    final color = status > 0
-        ? const Color(0xFF238A57)
-        : status == 0
-            ? const Color(0xFFE39128)
-            : const Color(0xFF667085);
-    return Tooltip(
-      message: translate('Network') + ': $label',
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          Container(
-            width: 7,
-            height: 7,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+  Widget _buildWorkspaceNotice(BuildContext context) {
+    final message = _workspaceNotice;
+    final reduceMotion =
+        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    final (background, foreground, icon) = switch (_workspaceNoticeTone) {
+      _WorkspaceNoticeTone.success => (
+          const Color(0xFFF0F8F3),
+          const Color(0xFF166A42),
+          Icons.check_circle_outline_rounded,
+        ),
+      _WorkspaceNoticeTone.warning => (
+          const Color(0xFFFFF7E8),
+          const Color(0xFF8A5A12),
+          Icons.wifi_tethering_error_rounded,
+        ),
+      _WorkspaceNoticeTone.error => (
+          const Color(0xFFFFF1F1),
+          const Color(0xFFA83B3B),
+          Icons.error_outline_rounded,
+        ),
+      _WorkspaceNoticeTone.info => (
+          const Color(0xFFF1F6FB),
+          const Color(0xFF315C86),
+          Icons.info_outline_rounded,
+        ),
+    };
+    return AnimatedSwitcher(
+      duration: Duration(milliseconds: reduceMotion ? 0 : 180),
+      reverseDuration: Duration(milliseconds: reduceMotion ? 0 : 120),
+      transitionBuilder: (child, animation) => FadeTransition(
+        opacity: animation,
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, -0.12),
+            end: Offset.zero,
+          ).animate(
+            CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
           ),
-          const SizedBox(width: 5),
-          Text(
-            label,
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: color,
-                  fontSize: 11,
-                ),
-          ),
-        ],
+          child: child,
+        ),
       ),
+      child: message == null
+          ? const SizedBox.shrink(key: ValueKey<String>('notice-empty'))
+          : Container(
+              key: ValueKey<int>(_workspaceNoticeRevision),
+              constraints: const BoxConstraints(minHeight: 42),
+              padding: const EdgeInsets.only(left: 12, right: 4),
+              decoration: BoxDecoration(
+                color: background,
+                borderRadius: BorderRadius.circular(8),
+                boxShadow: const <BoxShadow>[
+                  BoxShadow(
+                    color: Color(0x22000000),
+                    blurRadius: 8,
+                    offset: Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: <Widget>[
+                  Icon(icon, size: 18, color: foreground),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      message,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: foreground,
+                            fontWeight: FontWeight.w500,
+                            letterSpacing: 0,
+                          ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: translate('Close'),
+                    onPressed: _dismissWorkspaceNotice,
+                    icon:
+                        Icon(Icons.close_rounded, size: 17, color: foreground),
+                    constraints:
+                        const BoxConstraints.tightFor(width: 36, height: 36),
+                    padding: EdgeInsets.zero,
+                  ),
+                ],
+              ),
+            ),
     );
   }
 
@@ -1942,7 +2019,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final requestedId = rawPeerId.trim().replaceAll(' ', '');
     if (requestedId.isEmpty) return;
     if (await DirectPairingStore.isSelfTarget(requestedId)) {
-      _showConversationNotice(translate('Cannot connect to this device.'));
+      _showConversationNotice(
+        translate('Cannot connect to this device.'),
+        tone: _WorkspaceNoticeTone.error,
+      );
       return;
     }
     final pairing = DirectPairingStore.find(requestedId);
@@ -1951,6 +2031,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       _showConversationNotice(
         translate(
             'Direct endpoint required. Scan the PC QR code or enter IP:port.'),
+        tone: _WorkspaceNoticeTone.warning,
       );
       return;
     }
@@ -2171,7 +2252,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         fileSize: file.size,
       );
     }
-    _showConversationNotice(translate('Direct file transfer started.'));
+    _showConversationNotice(
+      translate('Direct file transfer started.'),
+      tone: _WorkspaceNoticeTone.success,
+    );
   }
 
   Future<FFI?> _ensureDirectFileSession(String peerId) async {
@@ -2196,6 +2280,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       _showConversationNotice(
         translate(
             'Direct endpoint required. Scan the PC QR code or enter IP:port.'),
+        tone: _WorkspaceNoticeTone.warning,
       );
       return null;
     }
@@ -2209,6 +2294,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           await _disposeFileSession(ffi);
           _showConversationNotice(
             translate('Direct connection failed. File relay is disabled.'),
+            tone: _WorkspaceNoticeTone.error,
           );
           return null;
         }
@@ -2232,6 +2318,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             ? error!
             : 'Direct file transfer connection timed out.',
       ),
+      tone: _WorkspaceNoticeTone.error,
     );
     return null;
   }
@@ -2256,11 +2343,31 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     }
   }
 
-  void _showConversationNotice(String message) {
+  void _showConversationNotice(
+    String message, {
+    _WorkspaceNoticeTone tone = _WorkspaceNoticeTone.info,
+  }) {
     if (!mounted) return;
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
-    );
+    _workspaceNoticeTimer?.cancel();
+    setState(() {
+      _workspaceNotice = message;
+      _workspaceNoticeTone = tone;
+      _workspaceNoticeRevision++;
+    });
+    final duration = switch (tone) {
+      _WorkspaceNoticeTone.success => const Duration(milliseconds: 3200),
+      _WorkspaceNoticeTone.info => const Duration(seconds: 4),
+      _WorkspaceNoticeTone.warning => const Duration(seconds: 5),
+      _WorkspaceNoticeTone.error => const Duration(seconds: 6),
+    };
+    _workspaceNoticeTimer = Timer(duration, _dismissWorkspaceNotice);
+  }
+
+  void _dismissWorkspaceNotice() {
+    _workspaceNoticeTimer?.cancel();
+    _workspaceNoticeTimer = null;
+    if (!mounted || _workspaceNotice == null) return;
+    setState(() => _workspaceNotice = null);
   }
 
   Widget _buildLocalAvatar(double size) {
@@ -2341,8 +2448,11 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final listenerStatus =
         bind.mainGetOptionSync(key: kOptionDirectListenerStatus).trim();
     if (listenerStatus != 'ready') {
-      _showConversationNotice(translate(
-          'Direct listener is not ready. Check the LAN address and port.'));
+      _showConversationNotice(
+        translate(
+            'Direct listener is not ready. Check the LAN address and port.'),
+        tone: _WorkspaceNoticeTone.warning,
+      );
       return;
     }
     final payload = await DirectPairingStore.buildLocalPayload();
@@ -2351,6 +2461,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       _showConversationNotice(
         translate(
             'Direct listener is not ready. Check the LAN address and port.'),
+        tone: _WorkspaceNoticeTone.warning,
       );
       return;
     }
@@ -2438,7 +2549,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     bool isTcpTunneling = false,
   }) async {
     if (await DirectPairingStore.isSelfTarget(peerIdOrEndpoint)) {
-      _showConversationNotice(translate('Cannot connect to this device.'));
+      _showConversationNotice(
+        translate('Cannot connect to this device.'),
+        tone: _WorkspaceNoticeTone.error,
+      );
       return;
     }
     final endpoint =
@@ -2447,6 +2561,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       _showConversationNotice(
         translate(
             'Direct endpoint required. Scan the PC QR code or enter IP:port.'),
+        tone: _WorkspaceNoticeTone.warning,
       );
       return;
     }
@@ -2464,11 +2579,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       debugPrint('Direct connection window timed out: $error');
       _showConversationNotice(
         translate('Connection window timed out. Please try again.'),
+        tone: _WorkspaceNoticeTone.error,
       );
     } catch (error) {
       debugPrint('Failed to open direct connection window: $error');
       _showConversationNotice(
         translate('Unable to open the connection window.'),
+        tone: _WorkspaceNoticeTone.error,
       );
     }
   }
@@ -2779,7 +2896,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                           width: double.infinity,
                           height: 44,
                           child: ElevatedButton.icon(
-                            onPressed: ConnectionPage.focusRemoteId,
+                            onPressed: () => _showDirectConnectDialog(context),
                             icon: const Icon(
                               Icons.add_rounded,
                               size: 20,
@@ -4329,14 +4446,22 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       if (previous != null && previous != peer.online) {
         _showConversationNotice(
           '${_contactName(peer)}: ${translate(peer.online ? 'Online' : 'Offline')}',
+          tone: peer.online
+              ? _WorkspaceNoticeTone.success
+              : _WorkspaceNoticeTone.info,
         );
       }
     }
 
     final networkStatus = gFFI.serverModel.connectStatus;
-    if (_lastNetworkStatus == null || _lastNetworkStatus != networkStatus) {
+    if (_lastNetworkStatus != null &&
+        _lastNetworkStatus != networkStatus &&
+        networkStatus <= 0) {
       _showConversationNotice(
-        '${translate('Network')}: ${networkStatus > 0 ? translate('Online') : networkStatus == 0 ? translate('Connecting') : translate('Offline')}',
+        '${translate('Network')}: ${networkStatus == 0 ? translate('Connecting') : translate('Offline')}',
+        tone: networkStatus == 0
+            ? _WorkspaceNoticeTone.warning
+            : _WorkspaceNoticeTone.error,
       );
     }
     _lastNetworkStatus = networkStatus;
@@ -4346,6 +4471,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           _notifiedChatConnections.add(entry.key)) {
         _showConversationNotice(
           '${entry.key}: ${translate('Connected')}',
+          tone: _WorkspaceNoticeTone.success,
         );
       }
     }
@@ -4388,6 +4514,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     Get.delete<RxBool>(tag: 'stop-service');
     _updateTimer?.cancel();
     _directChatKeepAliveTimer?.cancel();
+    _workspaceNoticeTimer?.cancel();
     for (final ffi in _directChatSessions.values) {
       unawaited(ffi.close());
     }

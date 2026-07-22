@@ -542,12 +542,7 @@ pub mod client {
             bail!("already running");
         }
         if SHMEM.lock().unwrap().is_none() {
-            let mut displays = scrap::Display::all()?;
-            if display_service::no_displays(&displays)
-                && crate::virtual_display_manager::is_virtual_display_supported()
-            {
-                displays = display_service::plug_in_headless_and_wait()?;
-            }
+            let displays = display_service::try_get_displays_add_amyuni_headless()?;
             if display_service::no_displays(&displays) {
                 bail!("no display available!");
             }

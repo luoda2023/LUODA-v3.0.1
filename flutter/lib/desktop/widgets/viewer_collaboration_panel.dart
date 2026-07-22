@@ -42,6 +42,26 @@ class ViewerCollaborationPanel extends StatelessWidget {
     );
   }
 
+  static Future<void> showInvite(
+    BuildContext context, {
+    required FFI ffi,
+  }) async {
+    if (ffi.closed || ffi.viewerMode) return;
+    if (!ffi.ffiModel.viewer) {
+      await show(context, ffi: ffi);
+      return;
+    }
+    final hostEndpoint =
+        DirectPairingStore.resolveEndpoint(ffi.id) ?? ffi.id.trim();
+    await InviteViewerDialog.show(
+      context,
+      sessionId: ffi.sessionId,
+      hostLabel: '${translate('Remote Desktop')}: ${ffi.id}',
+      hostEndpoint: hostEndpoint,
+      viewerSessionModel: ffi.viewerSessionModel,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -119,6 +139,38 @@ class ViewerCollaborationPanel extends StatelessWidget {
                     ),
                   ),
                   const Divider(height: 1),
+                  AnimatedBuilder(
+                    animation: ffi.ffiModel,
+                    builder: (context, _) => isHost && !ffi.ffiModel.viewer
+                        ? Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 18,
+                              vertical: 10,
+                            ),
+                            color: theme.colorScheme.surfaceVariant,
+                            child: Row(
+                              children: <Widget>[
+                                Icon(
+                                  Icons.info_outline_rounded,
+                                  size: 18,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    '${translate('Viewer permission required')}: '
+                                    '${translate('Allow viewers to join')}',
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                        : const SizedBox.shrink(),
+                  ),
                   TabBar(
                     tabs: <Widget>[
                       Tab(text: translate('Viewer List')),

@@ -14,6 +14,22 @@ pub fn is_amyuni_idd() -> bool {
     IDD_IMPL == IDD_IMPL_AMYUNI
 }
 
+pub fn has_headless_display() -> bool {
+    match IDD_IMPL {
+        IDD_IMPL_LUODA => luoda_idd::has_headless_display(),
+        IDD_IMPL_AMYUNI => amyuni_idd::get_monitor_count() > 0,
+        _ => false,
+    }
+}
+
+pub fn is_virtual_display(name: &str) -> bool {
+    match IDD_IMPL {
+        IDD_IMPL_LUODA => luoda_idd::is_virtual_display(name),
+        IDD_IMPL_AMYUNI => amyuni_idd::is_my_display(name),
+        _ => false,
+    }
+}
+
 pub fn get_cur_device_string() -> &'static str {
     match IDD_IMPL {
         IDD_IMPL_LUODA => LUODA_IDD_DEVICE_STRING,
@@ -252,6 +268,14 @@ pub mod luoda_idd {
             .keys()
             .cloned()
             .collect()
+    }
+
+    pub fn has_headless_display() -> bool {
+        VIRTUAL_DISPLAY_MANAGER
+            .lock()
+            .unwrap()
+            .headless_index_name
+            .is_some()
     }
 
     pub fn plug_in_index_modes(

@@ -24,7 +24,7 @@ class ViewerInviteLink {
     }
     final token = uri.pathSegments.first.trim();
     final endpoint = uri.queryParameters['endpoint']?.trim() ?? '';
-    if (token.isEmpty || !isViewerDirectEndpoint(endpoint)) return null;
+    if (token.isEmpty || !isViewerConnectionTarget(endpoint)) return null;
     return ViewerInviteLink(endpoint: endpoint, token: token);
   }
 
@@ -54,7 +54,7 @@ ViewerInviteLink? takePendingViewerInvite() {
   return invite;
 }
 
-bool isViewerDirectEndpoint(String value) {
+bool isViewerConnectionTarget(String value) {
   final input = value.trim();
   if (input.isEmpty || input.contains(RegExp(r'\s'))) return false;
 
@@ -75,7 +75,8 @@ bool isViewerDirectEndpoint(String value) {
 
   final hostPort = RegExp(r'^[A-Za-z0-9.-]+:([0-9]{1,5})$').firstMatch(input);
   if (hostPort != null) return _validPort(hostPort.group(1));
-  return input.contains(':') && input.split(':').length > 2;
+  if (input.contains(':') && input.split(':').length > 2) return true;
+  return RegExp(r'^[A-Za-z0-9_-]{3,64}(?:/r)?$').hasMatch(input);
 }
 
 bool _validPort(String? raw) {

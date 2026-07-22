@@ -39,6 +39,27 @@ lazy_static::lazy_static! {
 
 // https://github.com/luoda/luoda/pull/8537
 static TEMP_IGNORE_DISPLAYS_CHANGED: AtomicBool = AtomicBool::new(false);
+#[cfg(windows)]
+static PREFER_VIRTUAL_DISPLAY: AtomicBool = AtomicBool::new(false);
+
+#[cfg(windows)]
+fn filter_and_order_displays(displays: &mut Vec<Display>) {
+    displays.retain(|display| display.is_online());
+    if !PREFER_VIRTUAL_DISPLAY.load(Ordering::Relaxed) {
+        return;
+    }
+    if let Some(index) = displays
+        .iter()
+        .position(|display| virtual_display_manager::is_virtual_display(&display.name()))
+    {
+        displays.swap(0, index);
+    }
+}
+
+#[cfg(windows)]
+pub(crate) fn prefer_virtual_display() {
+    PREFER_VIRTUAL_DISPLAY.store(true, Ordering::Relaxed);
+}
 
 #[derive(Default)]
 struct SyncDisplaysInfo {
@@ -450,9 +471,16 @@ fn wait_for_headless_display() -> ResultType<Vec<Display>> {
     let started = Instant::now();
     loop {
         match Display::all() {
-            Ok(displays) => {
-                if !no_displays(&displays) || started.elapsed() >= HEADLESS_DISPLAY_WAIT_TIMEOUT {
+            Ok(mut displays) => {
+                filter_and_order_displays(&mut displays);
+                if displays
+                    .iter()
+                    .any(|display| virtual_display_manager::is_virtual_display(&display.name()))
+                {
                     return Ok(displays);
+                }
+                if started.elapsed() >= HEADLESS_DISPLAY_WAIT_TIMEOUT {
+                    bail!("virtual display did not enumerate before timeout");
                 }
             }
             Err(error) => {
@@ -468,16 +496,28 @@ fn wait_for_headless_display() -> ResultType<Vec<Display>> {
 
 #[cfg(windows)]
 pub(crate) fn plug_in_headless_and_wait() -> ResultType<Vec<Display>> {
-    if let Err(error) = virtual_display_manager::plug_in_headless() {
-        log::error!("plug in headless failed {error}");
+    if !virtual_display_manager::has_headless_display() {
+        if let Err(error) = virtual_display_manager::plug_in_headless() {
+            log::error!("plug in headless failed {error}");
+            return Err(error);
+        }
     }
     wait_for_headless_display()
+}
+
+#[cfg(windows)]
+pub(crate) fn prepare_windows_server_headless_display() -> ResultType<()> {
+    if !virtual_display_manager::is_virtual_display_supported() {
+        return Ok(());
+    }
+    plug_in_headless_and_wait().map(|_| ())
 }
 
 #[inline]
 #[cfg(windows)]
 pub fn try_get_displays_(add_amyuni_headless: bool) -> ResultType<Vec<Display>> {
     let mut displays = Display::all()?;
+    filter_and_order_displays(&mut displays);
 
     // Portable VPS hosts also need the bundled virtual display driver after
     // an RDP session disconnects, so installation state must not gate this.

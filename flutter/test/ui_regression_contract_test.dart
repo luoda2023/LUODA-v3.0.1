@@ -147,18 +147,31 @@ void main() {
     'android/app/build.gradle.kts',
   ).readAsStringSync();
   final commonRustSource = File('../src/common.rs').readAsStringSync();
+  final configRustSource = File(
+    '../libs/hbb_common/src/config.rs',
+  ).readAsStringSync();
   final clientRustSource = File('../src/client.rs').readAsStringSync();
   final rendezvousRustSource =
       File('../src/rendezvous_mediator.rs').readAsStringSync();
   final coreMainSource = File('../src/core_main.rs').readAsStringSync();
+  final flutterFfiSource = File('../src/flutter_ffi.rs').readAsStringSync();
   final portablePackerSource = File(
     '../libs/portable/src/main.rs',
+  ).readAsStringSync();
+  final portablePackerUiSource = File(
+    '../libs/portable/src/ui.rs',
+  ).readAsStringSync();
+  final portablePackerCargoSource = File(
+    '../libs/portable/Cargo.toml',
   ).readAsStringSync();
   final displayServiceSource = File(
     '../src/server/display_service.rs',
   ).readAsStringSync();
   final videoServiceSource = File(
     '../src/server/video_service.rs',
+  ).readAsStringSync();
+  final virtualDisplaySource = File(
+    '../src/virtual_display_manager.rs',
   ).readAsStringSync();
   final portableServiceSource = File(
     '../src/server/portable_service.rs',
@@ -264,7 +277,16 @@ void main() {
       remoteToolbarSource,
       contains('ViewerCollaborationPanel.show('),
     );
+    expect(
+      remoteToolbarSource,
+      contains('ViewerCollaborationPanel.showInvite('),
+    );
     expect(viewerCollaborationSource, contains('InviteViewerDialog.show('));
+    expect(viewerCollaborationSource, contains("translate('Invite Viewer')"));
+    expect(
+      viewerCollaborationSource,
+      contains("translate('Viewer permission required')"),
+    );
     expect(viewerCollaborationSource, contains('ViewerListPanel('));
     expect(viewerCollaborationSource, contains('SharedChatPanel('));
   });
@@ -1111,7 +1133,7 @@ void main() {
     expect(displayServiceSource, contains('wait_for_headless_display()'));
     expect(
       portableServiceSource,
-      contains('display_service::plug_in_headless_and_wait()'),
+      contains('display_service::try_get_displays_add_amyuni_headless()'),
     );
     expect(
       portableServiceSource,
@@ -1120,6 +1142,31 @@ void main() {
     expect(videoServiceSource, contains('FIRST_FRAME_CAPTURE_TIMEOUT'));
     expect(videoServiceSource, contains('Duration::from_secs(8)'));
     expect(videoServiceSource, contains('first frame capture timed out'));
+  });
+
+  test('Windows Server registration uses the fixed TCP rendezvous endpoint',
+      () {
+    expect(configRustSource, contains('47.114.75.115:21116'));
+    expect(rendezvousRustSource, contains('normalize_transport_options'));
+    expect(rendezvousRustSource, contains('OPTION_ALLOW_WEBSOCKET'));
+    expect(flutterFfiSource, contains('OPTION_DISABLE_UDP'));
+    expect(flutterFfiSource, contains('OPTION_ALLOW_WEBSOCKET'));
+  });
+
+  test('portable Windows Server prepares and prefers a virtual display', () {
+    expect(
+      rendezvousRustSource,
+      contains('PORTABLE_APPNAME_RUNTIME_ENV_KEY'),
+    );
+    expect(virtualDisplaySource, contains('has_headless_display'));
+    expect(displayServiceSource, contains('display.is_online()'));
+    expect(displayServiceSource, contains('prefer_virtual_display'));
+    expect(
+      videoServiceSource,
+      contains('Failed to copy screen to Windows buffer'),
+    );
+    expect(videoServiceSource, contains('prefer_virtual_display()'));
+    expect(videoServiceSource, contains('bail!("SWITCH")'));
   });
 
   test('Windows packages contain the signed headless display driver', () {
@@ -1269,6 +1316,15 @@ void main() {
     expect(portablePackerSource, contains('ShowWindow'));
     expect(portablePackerSource, contains('SetForegroundWindow'));
     expect(portablePackerSource, isNot(contains('remove_dir_all')));
+  });
+
+  test('portable launcher uses a green progress bar instead of the legacy GIF',
+      () {
+    expect(portablePackerCargoSource, contains('"progress-bar"'));
+    expect(portablePackerUiSource, contains('nwg::ProgressBar'));
+    expect(portablePackerUiSource, contains('ProgressBarState::Normal'));
+    expect(portablePackerUiSource, contains('PORTABLE_PROGRESS'));
+    expect(portablePackerUiSource, isNot(contains('spin.gif')));
   });
 
   test(
@@ -1669,10 +1725,42 @@ void main() {
   test('desktop rail routes the VIP entry to the VIP features page', () {
     expect(homePageSource, contains("id: 'vip'"));
     expect(homePageSource, contains("if (_selectedRailId == 'vip')"));
-    expect(homePageSource,
-        contains('const Expanded(child: VipFeaturesPage())'));
+    expect(
+        homePageSource, contains('const Expanded(child: VipFeaturesPage())'));
     expect(homePageSource,
         isNot(contains("return const PeerTabPage(showTabStrip: false);")));
+  });
+
+  test('desktop managed-entry menu stays anchored to the clicked item', () {
+    expect(homePageSource, contains('overlayBox.globalToLocal(position)'));
+    expect(homePageSource, contains('RelativeRect.fromRect('));
+    expect(
+      homePageSource,
+      isNot(contains('RelativeRect.fromLTRB(position.dx, position.dy, 0, 0)')),
+    );
+  });
+
+  test('desktop connection notices use a compact workspace overlay', () {
+    expect(homePageSource, contains('_buildWorkspaceNotice'));
+    expect(homePageSource, contains('AnimatedSwitcher('));
+    expect(homePageSource, contains('_WorkspaceNoticeTone'));
+    expect(
+      homePageSource,
+      isNot(contains('SnackBar(content: Text(message)')),
+    );
+  });
+
+  test('desktop identity connection action opens the active ID or IP dialog',
+      () {
+    expect(
+      homePageSource,
+      isNot(contains('onPressed: ConnectionPage.focusRemoteId')),
+    );
+    expect(homePageSource, contains('_showDirectConnectDialog(context)'));
+  });
+
+  test('desktop conversation header omits the duplicate online badge', () {
+    expect(homePageSource, isNot(contains('_buildNetworkStatusBadge')));
   });
 
   test('new history lists hide loopback duplicates and collapse device aliases',

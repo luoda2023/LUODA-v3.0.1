@@ -109,11 +109,9 @@ class _JoinViewerPageState extends State<JoinViewerPage> {
     final endpointInput = _endpointCtrl.text.trim();
     final endpoint = DirectPairingStore.resolveEndpoint(endpointInput) ??
         endpointInput.replaceAll(' ', '');
-    if (!isViewerDirectEndpoint(endpoint)) {
+    if (!isViewerConnectionTarget(endpoint)) {
       setState(
-        () => _error = translate(
-          'Direct endpoint required. Scan the PC QR code or enter IP:port.',
-        ),
+        () => _error = translate('ID or IP:port'),
       );
       return;
     }
@@ -227,8 +225,8 @@ class _JoinViewerPageState extends State<JoinViewerPage> {
                   keyboardType: TextInputType.url,
                   textInputAction: TextInputAction.next,
                   decoration: InputDecoration(
-                    labelText: translate('Direct endpoint'),
-                    hintText: '203.0.113.8:21118',
+                    labelText: translate('ID or IP:port'),
+                    hintText: translate('Enter Remote ID'),
                     prefixIcon: const Icon(Icons.link_rounded),
                     border: const OutlineInputBorder(),
                   ),

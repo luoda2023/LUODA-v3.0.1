@@ -44,6 +44,19 @@ static SHOULD_EXIT: AtomicBool = AtomicBool::new(false);
 static MANUAL_RESTARTED: AtomicBool = AtomicBool::new(false);
 static SENT_REGISTER_PK: AtomicBool = AtomicBool::new(false);
 
+fn normalize_transport_options() {
+    #[cfg(target_os = "windows")]
+    if crate::platform::windows::is_win_server() {
+        Config::set_option(OPTION_ALLOW_WEBSOCKET.to_owned(), "N".to_owned());
+        Config::set_option(OPTION_DISABLE_UDP.to_owned(), "Y".to_owned());
+        return;
+    }
+    if use_ws() && crate::is_udp_disabled() {
+        Config::set_option(OPTION_ALLOW_WEBSOCKET.to_owned(), "N".to_owned());
+        log::warn!("Disable UDP and WebSocket were both enabled; keeping raw TCP registration");
+    }
+}
+
 #[derive(Clone)]
 pub struct RendezvousMediator {
     addr: TargetAddr<'static>,
@@ -60,6 +73,17 @@ impl RendezvousMediator {
     }
 
     pub async fn start_all() {
+        normalize_transport_options();
+        #[cfg(target_os = "windows")]
+        if crate::platform::windows::is_win_server()
+            && std::env::var_os(crate::common::PORTABLE_APPNAME_RUNTIME_ENV_KEY).is_some()
+        {
+            if let Err(error) =
+                crate::server::display_service::prepare_windows_server_headless_display()
+            {
+                log::error!("failed to prepare the portable VPS virtual display: {error}");
+            }
+        }
         if !crate::is_serverless_direct_only() {
             crate::test_nat_type();
         }

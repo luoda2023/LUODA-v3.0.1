@@ -1099,7 +1099,7 @@ fn get_api_server_(api: String, custom: String) -> String {
     let default_rs = config::RENDEZVOUS_SERVERS
         .first()
         .cloned()
-        .unwrap_or("rev.dicad.cn");
+        .unwrap_or("47.114.75.115:21116");
     let s = crate::increase_port(default_rs, -2);
     if s == default_rs {
         return format!("http://{}:{}", s, config::RENDEZVOUS_PORT - 2);
@@ -1110,7 +1110,8 @@ fn get_api_server_(api: String, custom: String) -> String {
 
 #[inline]
 pub fn is_public(url: &str) -> bool {
-    url.contains("dicad.cn/")
+    url.contains("47.114.75.115")
+        || url.contains("dicad.cn/")
         || url.ends_with("dicad.cn")
         || url.contains("dicad.cn/")
         || url.ends_with("dicad.cn")

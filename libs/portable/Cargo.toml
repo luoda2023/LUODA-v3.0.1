@@ -29,7 +29,7 @@ windows = { version = "0.61", features = [
     "Win32_System",
     "Win32_System_SystemInformation",
 ] }
-native-windows-gui = {version = "1.0", default-features = false, features = ["animation-timer", "image-decoder"]}
+native-windows-gui = {version = "1.0", default-features = false, features = ["animation-timer", "progress-bar"]}
 
 [package.metadata.winres]
 LegalCopyright = "Copyright (c) 2026 LDesk. All rights reserved."

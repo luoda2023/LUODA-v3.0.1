@@ -163,11 +163,9 @@ class _InviteViewerDialogState extends State<InviteViewerDialog> {
   }
 
   Future<void> _generate() async {
-    if (!isViewerDirectEndpoint(widget.hostEndpoint)) {
+    if (!isViewerConnectionTarget(widget.hostEndpoint)) {
       setState(() {
-        _lastError = translate(
-          'Direct endpoint required. Reconnect by IP:port before inviting a viewer.',
-        );
+        _lastError = translate('ID or IP:port');
       });
       return;
     }

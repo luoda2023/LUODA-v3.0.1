@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -439,6 +439,7 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
     toolbarItems.add(_PinMenu(state: widget.state));
     toolbarItems.add(_ChatMenu(id: widget.id, ffi: widget.ffi));
     if (widget.ffi.connType == ConnType.defaultConn) {
+      toolbarItems.add(_ViewerInviteMenu(ffi: widget.ffi));
       toolbarItems.add(_FileTransferMenu(id: widget.id));
       toolbarItems.add(_TerminalMenu(id: widget.id));
     }
@@ -2316,6 +2317,34 @@ class _ChatMenuState extends State<_ChatMenu> {
       ffi: widget.ffi,
       onPressed: () =>
           bind.sessionRequestVoiceCall(sessionId: widget.ffi.sessionId),
+    );
+  }
+}
+
+class _ViewerInviteMenu extends StatelessWidget {
+  const _ViewerInviteMenu({required this.ffi});
+
+  final FFI ffi;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: ffi.ffiModel,
+      builder: (context, _) => _IconMenuButton(
+        icon: const Icon(Icons.group_add_outlined, size: 22),
+        tooltip: translate(ffi.ffiModel.viewer
+            ? 'Invite Viewer'
+            : 'Viewer permission required'),
+        label: translate('Invite Viewer'),
+        onPressed: ffi.closed || ffi.viewerMode
+            ? null
+            : () => ViewerCollaborationPanel.showInvite(
+                  context,
+                  ffi: ffi,
+                ),
+        color: _ToolbarTheme.blueColor,
+        hoverColor: _ToolbarTheme.hoverBlueColor,
+      ),
     );
   }
 }
