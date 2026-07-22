@@ -133,6 +133,18 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     showToast(translate('Successful'));
   }
 
+  List<Peer> _selectedAddressBookPeers(Iterable<String> ids) => ids
+      .map(gFFI.abModel.find)
+      .whereType<Peer>()
+      .map(Peer.copy)
+      .toList(growable: false);
+
+  void _moveAddressBookPeers(Iterable<String> ids) {
+    final peers = _selectedAddressBookPeers(ids);
+    if (peers.isEmpty) return;
+    addPeersToAbDialog(peers, moveFromCurrent: true);
+  }
+
   Future<void> _deleteManagedEntries(Iterable<String> ids) async {
     final selected = ids.toSet();
     if (selected.isEmpty) return;
@@ -200,6 +212,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         ),
         if (peer != null && _selectedRailId == 'contacts')
           PopupMenuItem(value: 'tags', child: Text(translate('Edit Tag'))),
+        if (peer != null && _selectedRailId == 'contacts')
+          PopupMenuItem(value: 'move', child: Text(translate('Move'))),
         PopupMenuItem(
           value: 'delete',
           child: Text(
@@ -220,6 +234,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         editAbTagDialog(gFFI.abModel.getPeerTags(id), (tags) async {
           await gFFI.abModel.changeTagForPeers(<String>[id], tags);
         });
+        break;
+      case 'move':
+        _moveAddressBookPeers(<String>[id]);
         break;
       case 'delete':
         _confirmDeleteManagedEntries(<String>[id]);
@@ -485,6 +502,32 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                               _selectedManagedEntries,
                             ),
                   ),
+                  if (_selectedRailId == 'contacts') ...[
+                    IconButton(
+                      tooltip: translate('Edit Tag'),
+                      icon: const Icon(Icons.tag_outlined, size: 20),
+                      onPressed: _selectedManagedEntries.isEmpty
+                          ? null
+                          : () => editAbTagDialog(<dynamic>[], (tags) async {
+                                await gFFI.abModel.changeTagForPeers(
+                                  _selectedManagedEntries.toList(),
+                                  tags,
+                                );
+                              }),
+                    ),
+                    IconButton(
+                      tooltip: translate('Move'),
+                      icon: const Icon(
+                        Icons.drive_file_move_outline,
+                        size: 20,
+                      ),
+                      onPressed: _selectedManagedEntries.isEmpty
+                          ? null
+                          : () => _moveAddressBookPeers(
+                                _selectedManagedEntries,
+                              ),
+                    ),
+                  ],
                   IconButton(
                     tooltip: translate('Delete'),
                     icon: const Icon(Icons.delete_outline_rounded, size: 20),

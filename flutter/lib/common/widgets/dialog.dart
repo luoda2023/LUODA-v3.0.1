@@ -2380,9 +2380,8 @@ void showWindowsSessionsDialog(
   });
 }
 
-void addPeersToAbDialog(
-  List<Peer> peers,
-) async {
+void addPeersToAbDialog(List<Peer> peers,
+    {bool moveFromCurrent = false}) async {
   Future<bool> addTo(String abname) async {
     final mapList = peers.map((e) {
       var json = e.toJson();
@@ -2393,6 +2392,9 @@ void addPeersToAbDialog(
     }).toList();
     final errMsg = await gFFI.abModel.addPeersTo(mapList, abname);
     if (errMsg == null) {
+      if (moveFromCurrent) {
+        await gFFI.abModel.deletePeers(peers.map((peer) => peer.id).toList());
+      }
       showToast(translate('Successful'));
       return true;
     } else {
@@ -2402,7 +2404,8 @@ void addPeersToAbDialog(
   }
 
   // if only one address book and it is personal, add to it directly
-  if (gFFI.abModel.addressbooks.length == 1 &&
+  if (!moveFromCurrent &&
+      gFFI.abModel.addressbooks.length == 1 &&
       gFFI.abModel.current.isPersonal()) {
     await addTo(gFFI.abModel.currentName.value);
     return;
@@ -2412,7 +2415,8 @@ void addPeersToAbDialog(
   final names = gFFI.abModel.addressBooksCanWrite();
   RxString currentName = gFFI.abModel.currentName.value.obs;
   TextEditingController controller = TextEditingController();
-  if (gFFI.peerTabModel.currentTab == PeerTabIndex.ab.index) {
+  if (moveFromCurrent ||
+      gFFI.peerTabModel.currentTab == PeerTabIndex.ab.index) {
     names.remove(currentName.value);
   }
   if (names.isEmpty) {
@@ -2446,7 +2450,8 @@ void addPeersToAbDialog(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(IconFont.addressBook, color: MyTheme.accent),
-          Text(translate('Add to address book')).paddingOnly(left: 10),
+          Text(translate(moveFromCurrent ? 'Move' : 'Add to address book'))
+              .paddingOnly(left: 10),
         ],
       ),
       content: Obx(() => Column(
