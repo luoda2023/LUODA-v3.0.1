@@ -422,7 +422,7 @@ impl RendezvousMediator {
     pub async fn start(server: ServerPtr, host: String) -> ResultType<()> {
         log::info!("start rendezvous mediator of {}", host);
         #[cfg(target_os = "windows")]
-        let windows_server = crate::platform::windows::is_windows_server();
+        let windows_server = crate::platform::windows::is_win_server();
         #[cfg(not(target_os = "windows"))]
         let windows_server = false;
         //If the investment agent type is http or https, then tcp forwarding is enabled.
