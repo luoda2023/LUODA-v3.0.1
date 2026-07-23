@@ -389,15 +389,22 @@ impl DerefMut for CapturerInfo {
 
 #[cfg(windows)]
 fn recover_windows_server_headless_capture(c: &CapturerInfo, reason: &str) -> bool {
-    if !crate::platform::windows::is_win_server()
-        || crate::virtual_display_manager::is_virtual_display(&c.display_name)
-    {
+    // Only attempt recovery on Windows Server or when running in portable mode
+    let is_portable =
+        std::env::var_os(crate::common::PORTABLE_APPNAME_RUNTIME_ENV_KEY).is_some();
+    if !crate::platform::windows::is_win_server() && !is_portable {
         return false;
     }
+    if !crate::virtual_display_manager::is_virtual_display_supported() {
+        return false;
+    }
+    // Even if we are already on a virtual display, try to re-create it.
+    // On a headless VPS the virtual display may need re-plugging after
+    // the RDP session disconnects.
     match display_service::prepare_windows_server_headless_display() {
         Ok(()) => {
             display_service::prefer_virtual_display();
-            log::warn!("{reason}; switching capture to the VPS virtual display");
+            log::warn!("{reason}; switched capture to the VPS virtual display");
             true
         }
         Err(error) => {
@@ -590,7 +597,36 @@ fn run(vs: VideoService) -> ResultType<()> {
 
     let display_idx = vs.idx;
     let sp = vs.sp;
-    let mut c = get_capturer(vs.source, display_idx, last_portable_service_running)?;
+    let mut c = match get_capturer(vs.source, display_idx, last_portable_service_running) {
+        Ok(c) => c,
+        #[cfg(windows)]
+        Err(first_err) => {
+            // On a headless VPS the first attempt may fail because no display
+            // is available yet.  Try to create a virtual display and retry.
+            log::warn!("initial capturer failed: {first_err}; attempting headless recovery");
+            let is_portable = std::env::var_os(crate::common::PORTABLE_APPNAME_RUNTIME_ENV_KEY).is_some();
+            let should_recover = crate::platform::windows::is_win_server() || is_portable;
+            if should_recover
+                && crate::virtual_display_manager::is_virtual_display_supported()
+            {
+                match display_service::prepare_windows_server_headless_display() {
+                    Ok(()) => {
+                        display_service::prefer_virtual_display();
+                        log::warn!("headless recovery ok; retrying capturer");
+                    }
+                    Err(recovery_err) => {
+                        log::error!("headless recovery also failed: {recovery_err}");
+                    }
+                }
+                // Retry capturer after virtual display preparation
+                get_capturer(vs.source, display_idx, last_portable_service_running)?
+            } else {
+                return Err(first_err);
+            }
+        }
+        #[cfg(not(windows))]
+        Err(e) => return Err(e),
+    };
     #[cfg(windows)]
     if !scrap::codec::enable_directx_capture() && !c.is_gdi() {
         log::info!("disable dxgi with option, fall back to gdi");
@@ -895,6 +931,18 @@ fn run(vs: VideoService) -> ResultType<()> {
                     log::info!("dxgi error, fall back to gdi: {:?}", err);
                     continue;
                 }
+
+                // Last-resort recovery: on a headless VPS the GDI capturer may
+                // fail because the underlying display disappeared (e.g. after an
+                // RDP disconnect).  Try re-creating the virtual display and
+                // restart the video service loop.
+                #[cfg(windows)]
+                if recover_windows_server_headless_capture(&c, &format!("gdi capture error: {err}"))
+                {
+                    try_broadcast_display_changed(&sp, display_idx, &c, true).ok();
+                    bail!("SWITCH");
+                }
+
                 return Err(err.into());
             }
             _ => {

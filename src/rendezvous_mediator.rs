@@ -49,6 +49,12 @@ fn normalize_transport_options() {
     if crate::platform::windows::is_win_server() {
         Config::set_option(OPTION_ALLOW_WEBSOCKET.to_owned(), "N".to_owned());
         Config::set_option(OPTION_DISABLE_UDP.to_owned(), "Y".to_owned());
+        // Ensure direct IP access listener is always enabled on Windows Server
+        // so that remote peers can connect via IP:port without a rendezvous server.
+        if Config::get_option(OPTION_DIRECT_SERVER).is_empty() {
+            Config::set_option(OPTION_DIRECT_SERVER.to_owned(), "Y".to_owned());
+            log::info!("Windows Server: auto-enabled direct-server for IP access");
+        }
         return;
     }
     if use_ws() && crate::is_udp_disabled() {
@@ -75,13 +81,25 @@ impl RendezvousMediator {
     pub async fn start_all() {
         normalize_transport_options();
         #[cfg(target_os = "windows")]
-        if crate::platform::windows::is_win_server()
-            && std::env::var_os(crate::common::PORTABLE_APPNAME_RUNTIME_ENV_KEY).is_some()
-        {
-            if let Err(error) =
-                crate::server::display_service::prepare_windows_server_headless_display()
-            {
-                log::error!("failed to prepare the portable VPS virtual display: {error}");
+        if std::env::var_os(crate::common::PORTABLE_APPNAME_RUNTIME_ENV_KEY).is_some() {
+            // Portable mode: always attempt headless virtual display.
+            // On a VPS without MSTSC login, there is no desktop session,
+            // so we MUST have a virtual display for screen capture.
+            for attempt in 1..=3 {
+                match crate::server::display_service::prepare_windows_server_headless_display() {
+                    Ok(()) => {
+                        log::info!("portable VPS virtual display ready (attempt {attempt})");
+                        break;
+                    }
+                    Err(error) => {
+                        log::error!(
+                            "failed to prepare the portable VPS virtual display (attempt {attempt}/3): {error}"
+                        );
+                        if attempt < 3 {
+                            std::thread::sleep(std::time::Duration::from_secs(2));
+                        }
+                    }
+                }
             }
         }
         if !crate::is_serverless_direct_only() {

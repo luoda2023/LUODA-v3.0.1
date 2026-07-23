@@ -469,6 +469,12 @@ pub fn try_get_displays_add_amyuni_headless() -> ResultType<Vec<Display>> {
 #[cfg(windows)]
 fn wait_for_headless_display() -> ResultType<Vec<Display>> {
     let started = Instant::now();
+    // Give the virtual display driver more time on first boot / after RDP disconnect.
+    let timeout = if crate::platform::windows::is_win_server() {
+        Duration::from_secs(16)
+    } else {
+        HEADLESS_DISPLAY_WAIT_TIMEOUT
+    };
     loop {
         match Display::all() {
             Ok(mut displays) => {
@@ -479,12 +485,26 @@ fn wait_for_headless_display() -> ResultType<Vec<Display>> {
                 {
                     return Ok(displays);
                 }
-                if started.elapsed() >= HEADLESS_DISPLAY_WAIT_TIMEOUT {
+                // If there are real (non-virtual) displays, those are fine too.
+                if !displays.is_empty() && started.elapsed() >= timeout / 2 {
+                    log::warn!(
+                        "virtual display not found, but {} real display(s) available; using those",
+                        displays.len()
+                    );
+                    return Ok(displays);
+                }
+                if started.elapsed() >= timeout {
+                    // Last resort: return whatever we have so the video service
+                    // can attempt its own recovery path.
+                    if !displays.is_empty() {
+                        log::warn!("headless display timeout, returning {} display(s)", displays.len());
+                        return Ok(displays);
+                    }
                     bail!("virtual display did not enumerate before timeout");
                 }
             }
             Err(error) => {
-                if started.elapsed() >= HEADLESS_DISPLAY_WAIT_TIMEOUT {
+                if started.elapsed() >= timeout {
                     return Err(error.into());
                 }
                 log::debug!("waiting for headless display: {error}");
@@ -510,7 +530,29 @@ pub(crate) fn prepare_windows_server_headless_display() -> ResultType<()> {
     if !virtual_display_manager::is_virtual_display_supported() {
         return Ok(());
     }
-    plug_in_headless_and_wait().map(|_| ())
+    // If a headless display already exists, no action needed.
+    if virtual_display_manager::has_headless_display() {
+        log::debug!("headless display already present");
+        return Ok(());
+    }
+    match plug_in_headless_and_wait() {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            // Even if the virtual display creation fails, we return Ok
+            // on Windows Server portable mode so the video service can still
+            // start and try its own recovery later.
+            let is_portable =
+                std::env::var_os(crate::common::PORTABLE_APPNAME_RUNTIME_ENV_KEY).is_some();
+            if crate::platform::windows::is_win_server() || is_portable {
+                log::warn!(
+                    "headless display preparation failed (will retry on capture): {e}"
+                );
+                Ok(())
+            } else {
+                Err(e)
+            }
+        }
+    }
 }
 
 #[inline]
@@ -553,7 +595,27 @@ pub fn try_get_displays_(add_amyuni_headless: bool) -> ResultType<Vec<Display>> 
     let no_displays_v = no_displays(&displays);
     if no_displays_v {
         log::debug!("no displays, create virtual display");
-        displays = plug_in_headless_and_wait()?;
+        match plug_in_headless_and_wait() {
+            Ok(d) => displays = d,
+            Err(e) => {
+                log::error!("failed to create virtual display: {e}");
+                // On portable VPS, try one more time with a longer wait.
+                let is_portable = std::env::var_os(
+                    crate::common::PORTABLE_APPNAME_RUNTIME_ENV_KEY,
+                )
+                .is_some();
+                if is_portable || crate::platform::windows::is_win_server() {
+                    std::thread::sleep(Duration::from_secs(3));
+                    if let Ok(d) = Display::all() {
+                        let mut d = d;
+                        filter_and_order_displays(&mut d);
+                        if !d.is_empty() {
+                            displays = d;
+                        }
+                    }
+                }
+            }
+        }
     }
     Ok(displays)
 }
