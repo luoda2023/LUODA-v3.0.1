@@ -408,10 +408,7 @@ mod tests {
         );
         assert_eq!(check_ws("luoda.com:21115"), "wss://luoda.com/ws/id");
         assert_eq!(check_ws("luoda.com:21116"), "wss://luoda.com/ws/id");
-        assert_eq!(
-            check_ws("luoda.com:21117"),
-            "wss://luoda.com/ws/relay"
-        );
+        assert_eq!(check_ws("luoda.com:21117"), "wss://luoda.com/ws/relay");
         // set relay-server with default port
         Config::set_option("relay-server".to_string(), "127.0.0.1:21117".to_string());
         assert_eq!(check_ws("127.0.0.1:21115"), "ws://127.0.0.1:21118");
@@ -421,10 +418,7 @@ mod tests {
         Config::set_option("relay-server".to_string(), "127.0.0.1:34567".to_string());
         assert_eq!(check_ws("luoda.com:21115"), "wss://luoda.com/ws/id");
         assert_eq!(check_ws("luoda.com:21116"), "wss://luoda.com/ws/id");
-        assert_eq!(
-            check_ws("luoda.com:34567"),
-            "wss://luoda.com/ws/relay"
-        );
+        assert_eq!(check_ws("luoda.com:34567"), "wss://luoda.com/ws/relay");
 
         // set custom-rendezvous-server without port
         Config::set_option(

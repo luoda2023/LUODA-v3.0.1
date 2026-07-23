@@ -8,9 +8,7 @@ use std::{
 };
 
 use crate::ImageFormat;
-use crate::{
-    CodecFormat, I420ToABGR, I420ToARGB, ImageRgb,
-};
+use crate::{CodecFormat, I420ToABGR, I420ToARGB, ImageRgb};
 
 /// MediaCodec mime type name
 const H264_MIME_TYPE: &str = "video/avc";

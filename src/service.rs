@@ -1,5 +1,5 @@
-use luoda::*;
 use hbb_common::{config, log};
+use luoda::*;
 
 #[cfg(not(target_os = "macos"))]
 fn main() {}
@@ -24,7 +24,10 @@ fn main() {
         }
         if config::Config::get_option(keys::OPTION_APPROVE_MODE).is_empty() {
             log::info!("service: setting default approve-mode=password");
-            config::Config::set_option(keys::OPTION_APPROVE_MODE.to_string(), "password".to_string());
+            config::Config::set_option(
+                keys::OPTION_APPROVE_MODE.to_string(),
+                "password".to_string(),
+            );
         }
         if config::Config::get_option(keys::OPTION_ENABLE_KEYBOARD).is_empty() {
             log::info!("service: setting default enable-keyboard=Y");

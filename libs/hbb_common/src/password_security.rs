@@ -1,7 +1,7 @@
 use crate::config::Config;
 use sodiumoxide::base64;
-use std::sync::{Arc, RwLock};
 use std::path::PathBuf;
+use std::sync::{Arc, RwLock};
 
 const PASSWORD_CACHE_FILE: &str = ".temporary_password_cache";
 
@@ -14,8 +14,7 @@ fn password_cache_path() -> Option<PathBuf> {
         let dir = std::env::var("ALLUSERSPROFILE")
             .map(PathBuf::from)
             .unwrap_or_else(|_| {
-                dirs_next::data_dir()
-                    .unwrap_or_else(|| PathBuf::from("C:\\ProgramData"))
+                dirs_next::data_dir().unwrap_or_else(|| PathBuf::from("C:\\ProgramData"))
             });
         #[cfg(not(target_os = "windows"))]
         let dir = dirs_next::data_dir()?;

@@ -290,10 +290,7 @@ mod tests {
             ipv4_to_ipv6("1.1.1.1:8080".to_owned(), false),
             "1.1.1.1.nip.io:8080"
         );
-        assert_eq!(
-            ipv4_to_ipv6("luoda.com".to_owned(), false),
-            "luoda.com"
-        );
+        assert_eq!(ipv4_to_ipv6("luoda.com".to_owned(), false), "luoda.com");
         if ("luoda.com:80")
             .to_socket_addrs()
             .unwrap()

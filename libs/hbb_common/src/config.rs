@@ -1041,19 +1041,13 @@ impl Config {
     fn get_auto_id() -> Option<String> {
         #[cfg(any(target_os = "android", target_os = "ios"))]
         {
-            return Some(
-                rand::thread_rng()
-                    .gen_range(100_000..1_000_000)
-                    .to_string(),
-            );
+            return Some(rand::thread_rng().gen_range(100_000..1_000_000).to_string());
         }
 
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
             // Generate 6-digit random ID for desktop platforms
-            let id = rand::thread_rng()
-                .gen_range(100_000..1_000_000)
-                .to_string();
+            let id = rand::thread_rng().gen_range(100_000..1_000_000).to_string();
             log::info!("Generated 6-digit id: {}", id);
             Some(id)
         }
@@ -2855,7 +2849,8 @@ pub mod keys {
     pub const OPTION_ENABLE_RECORD_SESSION: &str = "enable-record-session";
     pub const OPTION_ENABLE_BLOCK_INPUT: &str = "enable-block-input";
     pub const OPTION_ENABLE_PRIVACY_MODE: &str = "enable-privacy-mode";
-    pub const OPTION_ENABLE_PERM_CHANGE_IN_ACCEPT_WINDOW: &str = "enable-perm-change-in-accept-window";
+    pub const OPTION_ENABLE_PERM_CHANGE_IN_ACCEPT_WINDOW: &str =
+        "enable-perm-change-in-accept-window";
     pub const OPTION_ALLOW_REMOTE_CONFIG_MODIFICATION: &str = "allow-remote-config-modification";
     pub const OPTION_ALLOW_NUMERNIC_ONE_TIME_PASSWORD: &str = "allow-numeric-one-time-password";
     pub const OPTION_ENABLE_LAN_DISCOVERY: &str = "enable-lan-discovery";

@@ -16,10 +16,12 @@
 
 use std::time::Duration;
 
-use hbb_common::message_proto::{ChatChannel, ChatBroadcast, Message, VideoFrame};
+use hbb_common::message_proto::{ChatBroadcast, ChatChannel, Message, VideoFrame};
 use luoda::{
     chat_broadcast::ChatHub,
-    viewer_direct_channel::{encode_message, for_session as dc_for_session, retire_session as dc_retire},
+    viewer_direct_channel::{
+        encode_message, for_session as dc_for_session, retire_session as dc_retire,
+    },
     viewer_registry::{AdmitError, Registry},
 };
 
@@ -65,7 +67,8 @@ fn admit_viewer_succeeds_under_cap() {
 fn admit_viewer_rejects_over_cap() {
     let reg = Registry::new();
     reg.set_max_viewers("host-D", 1);
-    reg.admit_viewer("host-D", "v1", "V1", "127.0.0.1:1").unwrap();
+    reg.admit_viewer("host-D", "v1", "V1", "127.0.0.1:1")
+        .unwrap();
     let err = reg
         .admit_viewer("host-D", "v2", "V2", "127.0.0.1:2")
         .unwrap_err();
@@ -75,7 +78,8 @@ fn admit_viewer_rejects_over_cap() {
 #[test]
 fn admit_viewer_rejoin_replaces_existing() {
     let reg = Registry::new();
-    reg.admit_viewer("host-E", "v1", "OldName", "127.0.0.1:1").unwrap();
+    reg.admit_viewer("host-E", "v1", "OldName", "127.0.0.1:1")
+        .unwrap();
     let info = reg
         .admit_viewer("host-E", "v1", "NewName", "127.0.0.1:2")
         .expect("rejoin replaces existing row");
@@ -88,11 +92,15 @@ fn admit_viewer_rejoin_replaces_existing() {
 #[test]
 fn promote_and_kick() {
     let reg = Registry::new();
-    reg.admit_viewer("host-F", "v1", "V1", "127.0.0.1:1").unwrap();
+    reg.admit_viewer("host-F", "v1", "V1", "127.0.0.1:1")
+        .unwrap();
 
     let promoted = reg.promote(
         "host-F",
-        &hbb_common::message_proto::PromoteViewer { viewer_id: "v1".to_string(), ..Default::default() },
+        &hbb_common::message_proto::PromoteViewer {
+            viewer_id: "v1".to_string(),
+            ..Default::default()
+        },
     );
     assert!(promoted);
     let list = reg.list_viewers("host-F");
@@ -100,7 +108,11 @@ fn promote_and_kick() {
 
     let removed = reg.kick(
         "host-F",
-        &hbb_common::message_proto::KickViewer { viewer_id: "v1".to_string(), reason: "test".to_string(), ..Default::default() },
+        &hbb_common::message_proto::KickViewer {
+            viewer_id: "v1".to_string(),
+            reason: "test".to_string(),
+            ..Default::default()
+        },
     );
     assert!(removed);
     assert!(reg.list_viewers("host-F").is_empty());
@@ -110,7 +122,8 @@ fn promote_and_kick() {
 fn snapshot_reports_max_viewers_and_uplink() {
     let reg = Registry::new();
     reg.set_max_viewers("host-G", 2);
-    reg.admit_viewer("host-G", "v1", "V1", "127.0.0.1:1").unwrap();
+    reg.admit_viewer("host-G", "v1", "V1", "127.0.0.1:1")
+        .unwrap();
     let snap = reg.snapshot("host-G", 1_500_000);
     assert_eq!(snap.max_viewers, 2);
     assert_eq!(snap.total_uplink_bps, 1_500_000);
@@ -120,7 +133,8 @@ fn snapshot_reports_max_viewers_and_uplink() {
 #[test]
 fn purge_clears_all_host_state() {
     let reg = Registry::new();
-    reg.admit_viewer("host-H", "v1", "V1", "127.0.0.1:1").unwrap();
+    reg.admit_viewer("host-H", "v1", "V1", "127.0.0.1:1")
+        .unwrap();
     reg.purge("host-H");
     let snap = reg.snapshot("host-H", 0);
     assert_eq!(snap.viewers.len(), 0);
@@ -138,7 +152,8 @@ fn resolve_short_code_then_consume_full_chain() {
     assert!(!invite.short_code.is_empty());
     // Short code (with hyphens) should resolve to the same token.
     let pretty = format_short_code(&invite.short_code);
-    let resolved = reg.resolve_short_code(&pretty)
+    let resolved = reg
+        .resolve_short_code(&pretty)
         .expect("hyphenated short code resolves");
     assert_eq!(resolved, invite.token);
     // consume_token with the canonical token should still work after resolve
@@ -154,13 +169,18 @@ fn resolve_short_code_accepts_confusables_and_lowercase() {
     let reg = Registry::new();
     let invite = reg.issue_token("host-SC2", "ses-SC2", None);
     // Garble: lowercase + swap 0/1/V with O/I/U. Must normalise back.
-    let mangled: String = invite.short_code.chars().map(|c| match c {
-        '0' => 'O',
-        '1' => 'I',
-        'V' => 'U',
-        _ => c.to_ascii_lowercase(),
-    }).collect();
-    let resolved = reg.resolve_short_code(&mangled)
+    let mangled: String = invite
+        .short_code
+        .chars()
+        .map(|c| match c {
+            '0' => 'O',
+            '1' => 'I',
+            'V' => 'U',
+            _ => c.to_ascii_lowercase(),
+        })
+        .collect();
+    let resolved = reg
+        .resolve_short_code(&mangled)
         .expect("confusables + lowercase normalise back to canonical");
     assert_eq!(resolved, invite.token);
 }

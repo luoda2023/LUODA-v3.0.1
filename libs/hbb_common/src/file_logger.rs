@@ -21,8 +21,8 @@ impl FileLogger {
     }
 
     fn log_path() -> Option<PathBuf> {
-        let base = std::env::var("ALLUSERSPROFILE")
-            .unwrap_or_else(|_| "C:\\ProgramData".to_string());
+        let base =
+            std::env::var("ALLUSERSPROFILE").unwrap_or_else(|_| "C:\\ProgramData".to_string());
         let dir = PathBuf::from(base).join("LUODA").join("logs");
         fs::create_dir_all(&dir).ok()?;
         let date = Local::now().format("%Y-%m-%d");
@@ -67,7 +67,13 @@ impl Log for FileLogger {
         }
         let ts = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
         let target = record.target();
-        let msg = format!("[{}] [{}] [{}] {}\n", ts, record.level(), target, record.args());
+        let msg = format!(
+            "[{}] [{}] [{}] {}\n",
+            ts,
+            record.level(),
+            target,
+            record.args()
+        );
         self.write_log(&msg);
         // Also output to stderr
         eprint!("{}", msg);
@@ -99,7 +105,10 @@ pub fn setup_panic_hook() {
                 msg
             );
             let text_wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
-            let title_wide: Vec<u16> = "LUODA Error".encode_utf16().chain(std::iter::once(0)).collect();
+            let title_wide: Vec<u16> = "LUODA Error"
+                .encode_utf16()
+                .chain(std::iter::once(0))
+                .collect();
             unsafe {
                 winapi::um::winuser::MessageBoxW(
                     std::ptr::null_mut(),

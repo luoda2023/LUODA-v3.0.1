@@ -180,7 +180,10 @@ impl<T: InvokeUiSession> Remote<T> {
                     .lock()
                     .unwrap()
                     .set_connected();
-                #[cfg(all(feature = "flutter", not(any(target_os = "android", target_os = "ios"))))]
+                #[cfg(all(
+                    feature = "flutter",
+                    not(any(target_os = "android", target_os = "ios"))
+                ))]
                 crate::debug_api::record_connection(
                     &self.handler.get_id(),
                     peer.is_secured(),
@@ -232,8 +235,7 @@ impl<T: InvokeUiSession> Remote<T> {
                 #[cfg(any(target_os = "windows", feature = "unix-file-copy-paste"))]
                 let mut rx_clip_client = rx_clip_client_holder.0.lock().await;
 
-                let mut status_timer =
-                    crate::luoda_interval(time::interval(Duration::new(1, 0)));
+                let mut status_timer = crate::luoda_interval(time::interval(Duration::new(1, 0)));
                 let mut fps_instant = Instant::now();
 
                 let _keep_it = client::hc_connection(feedback, rendezvous_server, token).await;
@@ -350,7 +352,10 @@ impl<T: InvokeUiSession> Remote<T> {
                 }
             }
             Err(err) => {
-                #[cfg(all(feature = "flutter", not(any(target_os = "android", target_os = "ios"))))]
+                #[cfg(all(
+                    feature = "flutter",
+                    not(any(target_os = "android", target_os = "ios"))
+                ))]
                 crate::debug_api::mark_error(&self.handler.get_id(), &err.to_string());
                 self.handler.on_establish_connection_error(err.to_string());
             }
@@ -362,7 +367,10 @@ impl<T: InvokeUiSession> Remote<T> {
             .lock()
             .unwrap()
             .set_disconnected(round);
-        #[cfg(all(feature = "flutter", not(any(target_os = "android", target_os = "ios"))))]
+        #[cfg(all(
+            feature = "flutter",
+            not(any(target_os = "android", target_os = "ios"))
+        ))]
         crate::debug_api::mark_disconnected(&self.handler.get_id());
 
         #[cfg(not(target_os = "ios"))]
@@ -1955,28 +1963,27 @@ impl<T: InvokeUiSession> Remote<T> {
                     Some(misc::Union::KickViewer(k)) => {
                         log::info!(
                             "[viewer] received kick from host: viewer_id={} reason={}",
-                            k.viewer_id, k.reason
+                            k.viewer_id,
+                            k.reason
                         );
                         // Defer the actual disconnect to the UI layer so it
                         // can show a dialog before tearing down the session.
-                        self.handler.new_message(format!(
-                            "KICK_VIEWER:{}:{}",
-                            k.viewer_id, k.reason
-                        ));
+                        self.handler
+                            .new_message(format!("KICK_VIEWER:{}:{}", k.viewer_id, k.reason));
                     }
                     Some(misc::Union::PromoteViewer(p)) => {
                         log::info!("[viewer] received promotion viewer_id={}", p.viewer_id);
-                        self.handler.new_message(format!("PROMOTE_VIEWER:{}", p.viewer_id));
+                        self.handler
+                            .new_message(format!("PROMOTE_VIEWER:{}", p.viewer_id));
                     }
                     Some(misc::Union::RaiseHand(r)) => {
                         log::info!(
                             "[viewer] received raise_hand viewer_id={} raised={}",
-                            r.viewer_id, r.raised
+                            r.viewer_id,
+                            r.raised
                         );
-                        self.handler.new_message(format!(
-                            "RAISE_HAND:{}:{}",
-                            r.viewer_id, r.raised
-                        ));
+                        self.handler
+                            .new_message(format!("RAISE_HAND:{}:{}", r.viewer_id, r.raised));
                     }
                     // ===== LUODA 3.1.1 inbound: invite token + viewer list + badge =====
                     // Host side emitted these. As a viewer, we surface them
@@ -1986,7 +1993,9 @@ impl<T: InvokeUiSession> Remote<T> {
                     Some(misc::Union::InviteToken(t)) => {
                         log::info!(
                             "[viewer] received invite_token session_id={} short={} one_shot={}",
-                            t.session_id, t.short_code, t.one_shot
+                            t.session_id,
+                            t.short_code,
+                            t.one_shot
                         );
                         // Format: INVITE_TOKEN:<short_code>:<session_id>:<expires_at>:<one_shot>
                         self.handler.new_message(format!(
@@ -1999,7 +2008,8 @@ impl<T: InvokeUiSession> Remote<T> {
                         // secondary host (rare path). Surface so UI can decide.
                         log::info!(
                             "[viewer] received request_invite_token ttl_minutes={} one_shot={}",
-                            r.ttl_minutes, r.one_shot
+                            r.ttl_minutes,
+                            r.one_shot
                         );
                         self.handler.new_message(format!(
                             "REQUEST_INVITE_TOKEN:{}:{}",
@@ -2009,7 +2019,8 @@ impl<T: InvokeUiSession> Remote<T> {
                     Some(misc::Union::ViewerListUpdate(u)) => {
                         log::info!(
                             "[viewer] received viewer_list_update count={} max={}",
-                            u.viewers.len(), u.max_viewers
+                            u.viewers.len(),
+                            u.max_viewers
                         );
                         // Compact CSV of viewer_id|display_name|promoted|joined_at (epoch seconds).
                         let body = u
@@ -2021,16 +2032,21 @@ impl<T: InvokeUiSession> Remote<T> {
                                     v.viewer_id, v.display_name, v.promoted, v.joined_at
                                 )
                             })
-                            .collect::<Vec<_>>().join(";");
+                            .collect::<Vec<_>>()
+                            .join(";");
                         self.handler.new_message(format!(
                             "VIEWER_LIST:{}:{}:{}:{}",
-                            u.max_viewers, u.total_uplink_bps, u.viewers.len(), body
+                            u.max_viewers,
+                            u.total_uplink_bps,
+                            u.viewers.len(),
+                            body
                         ));
                     }
                     Some(misc::Union::ViewerBadgeUpdate(b)) => {
                         log::info!(
                             "[viewer] received viewer_badge_update total={} online={}",
-                            b.total_viewers_count, b.online_audience_total
+                            b.total_viewers_count,
+                            b.online_audience_total
                         );
                         self.handler.new_message(format!(
                             "VIEWER_BADGE:{}:{}:{}",

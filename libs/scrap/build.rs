@@ -301,7 +301,6 @@ fn main() {
     }
 }
 
-
 /// Replace bindgen's opaque placeholder `pub struct <alias> { pub _address: u8, }`
 /// with a `pub type <alias> = <real>;` so the union field uses the complete
 /// structure.  Works for any line ending (LF / CRLF).

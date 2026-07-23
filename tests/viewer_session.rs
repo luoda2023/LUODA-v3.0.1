@@ -29,13 +29,11 @@ use std::time::Duration;
 
 use hbb_common::message_proto::{ChatChannel, KickViewer, PromoteViewer};
 use luoda::{
-    chat_broadcast::ChatHub,
-    invite_code::format_short_code,
-    viewer_registry::Registry,
+    chat_broadcast::ChatHub, invite_code::format_short_code, viewer_registry::Registry,
     viewer_state::ViewerState,
 };
 
-const HOST:   &str = "host-3-1-1";
+const HOST: &str = "host-3-1-1";
 const SESSION: &str = "ses-3-1-1";
 
 // ---------------------------------------------------------------------------

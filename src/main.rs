@@ -1,20 +1,11 @@
 #![cfg_attr(
-
     all(not(debug_assertions), target_os = "windows"),
-
     windows_subsystem = "windows"
-
 )]
-
-
 
 use luoda::*;
 
-
-
 // CI trigger: Rust toolchain bumped to 1.88, i686 nightly→stable fix applied (2026-05-15)
-
-
 
 #[cfg(any(target_os = "android", target_os = "ios", feature = "flutter"))]
 
@@ -26,11 +17,9 @@ fn main() {
         return;
     }
     if !common::global_init() {
-
         eprintln!("Global initialization failed.");
 
         return;
-
     }
 
     common::test_rendezvous_server();
@@ -40,50 +29,31 @@ fn main() {
     common::global_clean();
 }
 
-
-
 #[cfg(not(any(
-
     target_os = "android",
-
     target_os = "ios",
-
     feature = "cli",
-
     feature = "flutter"
-
 )))]
 
 fn main() {
-
     #[cfg(all(windows, not(feature = "inline")))]
-
     unsafe {
-
         winapi::um::shellscalingapi::SetProcessDpiAwareness(2);
-
     }
 
     if let Some(args) = crate::core_main::core_main().as_mut() {
-
         ui::start(args);
-
     }
 
     common::global_clean();
-
 }
-
-
 
 #[cfg(feature = "cli")]
 
 fn main() {
-
     if !common::global_init() {
-
         return;
-
     }
 
     use clap::App;
@@ -103,15 +73,10 @@ fn main() {
     );
 
     let matches = App::new("luoda")
-
         .version(crate::VERSION)
-
         .author("LUODA <info@dicad.cn>")
-
         .about("LUODA command line tool")
-
         .args_from_usage(&args)
-
         .get_matches();
 
     use hbb_common::{config::LocalConfig, env_logger::*};
@@ -119,51 +84,38 @@ fn main() {
     init_from_env(Env::default().filter_or(DEFAULT_FILTER_ENV, "info"));
 
     if let Some(p) = matches.value_of("port-forward") {
-
         let options: Vec<String> = p.split(":").map(|x| x.to_owned()).collect();
 
         if options.len() < 3 {
-
             log::error!("Wrong port-forward options");
 
             return;
-
         }
 
         let mut port = 0;
 
         if let Ok(v) = options[1].parse::<i32>() {
-
             port = v;
-
         } else {
-
             log::error!("Wrong local-port");
 
             return;
-
         }
 
         let mut remote_port = 0;
 
         if let Ok(v) = options[2].parse::<i32>() {
-
             remote_port = v;
-
         } else {
-
             log::error!("Wrong remote-port");
 
             return;
-
         }
 
         let mut remote_host = "localhost".to_owned();
 
         if options.len() > 3 {
-
             remote_host = options[3].clone();
-
         }
 
         common::test_rendezvous_server();
@@ -175,23 +127,14 @@ fn main() {
         let token = LocalConfig::get_option("access_token");
 
         cli::start_one_port_forward(
-
             options[0].clone(),
-
             port,
-
             remote_host,
-
             remote_port,
-
             key,
-
             token,
-
         );
-
     } else if let Some(p) = matches.value_of("connect") {
-
         common::test_rendezvous_server();
 
         common::test_nat_type();
@@ -201,16 +144,11 @@ fn main() {
         let token = LocalConfig::get_option("access_token");
 
         cli::connect_test(p, key, token);
-
     } else if let Some(p) = matches.value_of("server") {
-
         log::info!("id={}", hbb_common::config::Config::get_id());
 
         crate::start_server(true, false);
-
     }
 
     common::global_clean();
-
 }
-
