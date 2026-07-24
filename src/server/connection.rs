@@ -1889,8 +1889,7 @@ impl Connection {
         // Auto-allow if the peer is a known contact (exists in peer config / address book).
         // Chat, file transfer, and voice connections from known contacts should not
         // trigger the approval popup — only remote desktop access should.
-        let peer = PeerConfig::load(peer_id);
-        if !peer.id.is_empty() {
+        if PeerConfig::exists(peer_id) {
             return true;
         }
         if !self.direct_chat_identity_matches(peer_id) {
