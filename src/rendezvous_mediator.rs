@@ -403,9 +403,18 @@ impl RendezvousMediator {
     pub async fn start_tcp(server: ServerPtr, host: String) -> ResultType<()> {
         let host = check_port(&host, RENDEZVOUS_PORT);
         log::info!("start tcp: {}", hbb_common::websocket::check_ws(&host));
-        let mut conn = connect_tcp(host.clone(), CONNECT_TIMEOUT).await?;
+        let mut conn = match connect_tcp(host.clone(), CONNECT_TIMEOUT).await {
+            Ok(c) => c,
+            Err(e) => {
+                log::error!("Failed to connect to rendezvous server {}: {}", host, e);
+                return Err(e);
+            }
+        };
         let key = crate::get_key(true).await;
-        crate::secure_tcp(&mut conn, &key).await?;
+        if let Err(e) = crate::secure_tcp(&mut conn, &key).await {
+            log::error!("Key exchange failed with {}: {}", host, e);
+            return Err(e);
+        }
         let mut rz = Self {
             addr: conn.local_addr().into_target_addr()?,
             host: host.clone(),
@@ -415,8 +424,10 @@ impl RendezvousMediator {
         let mut timer = crate::luoda_interval(interval(crate::TIMER_OUT));
         let mut last_register_sent: Option<Instant> = None;
         let mut last_recv_msg = Instant::now();
+        let mut register_fail_count: u32 = 0;
         // we won't support connecting to multiple rendzvous servers any more, so we can use a global variable here.
         Config::set_host_key_confirmed(&rz.host_prefix, false);
+        log::info!("TCP rendezvous connected to {}, starting registration loop", host);
         loop {
             let mut update_latency = || {
                 let latency = last_register_sent
@@ -444,13 +455,32 @@ impl RendezvousMediator {
                     }
                     // https://www.emqx.com/en/blog/mqtt-keep-alive
                     if last_recv_msg.elapsed().as_millis() as u64 > rz.keep_alive as u64 * 3 / 2 {
+                        log::error!("Rendezvous connection to {} timed out (no response for {}ms)",
+                            host, rz.keep_alive as u64 * 3 / 2);
                         bail!("Rendezvous connection is timeout");
                     }
                     if last_register_sent.map(|x| x.elapsed().as_millis() as i64).unwrap_or(REG_INTERVAL) >= REG_INTERVAL {
-                        if !Config::get_key_confirmed() ||
-                            !Config::get_host_key_confirmed(&rz.host_prefix) {
+                        let key_confirmed = Config::get_key_confirmed();
+                        let host_key_confirmed = Config::get_host_key_confirmed(&rz.host_prefix);
+                        if !key_confirmed || !host_key_confirmed {
+                            register_fail_count += 1;
+                            if register_fail_count % 4 == 1 {
+                                log::warn!(
+                                    "Key not confirmed for {} (global={}, host={}), attempt {}",
+                                    rz.host_prefix, key_confirmed, host_key_confirmed, register_fail_count
+                                );
+                            }
+                            // After 8 failed attempts (~2 min), force reset key confirmation
+                            // to recover from a stuck state.
+                            if register_fail_count == 8 {
+                                log::warn!("Forcing key re-registration for {} after {} failed attempts",
+                                    rz.host_prefix, register_fail_count);
+                                Config::set_key_confirmed(false);
+                                Config::set_host_key_confirmed(&rz.host_prefix, false);
+                            }
                             rz.register_pk(Sink::Stream(&mut conn)).await?;
                         } else {
+                            register_fail_count = 0;
                             rz.register_peer(Sink::Stream(&mut conn)).await?;
                         }
                         last_register_sent = Some(Instant::now());
