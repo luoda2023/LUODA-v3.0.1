@@ -9,7 +9,7 @@ use std::{
 
 static PORTABLE_PROGRESS: AtomicUsize = AtomicUsize::new(4);
 
-const WINDOW_SIZE: (i32, i32) = (360, 132);
+const WINDOW_SIZE: (i32, i32) = (420, 160);
 const BORDER_COLOR: [u8; 3] = [220, 229, 226];
 const SURFACE_COLOR: [u8; 3] = [255, 255, 255];
 
@@ -69,13 +69,13 @@ mod basic_app_ui {
         fn build_ui(mut data: BasicApp) -> Result<BasicAppUi, nwg::NwgError> {
             nwg::Font::builder()
                 .family("Microsoft YaHei UI")
-                .size(16)
+                .size(20)
                 .weight(600)
                 .build(&mut data.title_font)?;
 
             nwg::Font::builder()
                 .family("Microsoft YaHei UI")
-                .size(12)
+                .size(14)
                 .build(&mut data.status_font)?;
 
             nwg::Window::builder()
@@ -100,8 +100,8 @@ mod basic_app_ui {
             nwg::Label::builder()
                 .parent(&data.surface_image)
                 .text("LDesk")
-                .position((24, 18))
-                .size((310, 28))
+                .position((28, 20))
+                .size((360, 32))
                 .font(Some(&data.title_font))
                 .background_color(Some(SURFACE_COLOR))
                 .build(&mut data.title_label)?;
@@ -109,16 +109,16 @@ mod basic_app_ui {
             nwg::Label::builder()
                 .parent(&data.surface_image)
                 .text("正在启动 LDesk  4%")
-                .position((24, 50))
-                .size((310, 22))
+                .position((28, 58))
+                .size((360, 26))
                 .font(Some(&data.status_font))
                 .background_color(Some(SURFACE_COLOR))
                 .build(&mut data.status_label)?;
 
             nwg::ProgressBar::builder()
                 .parent(&data.surface_image)
-                .position((24, 86))
-                .size((310, 9))
+                .position((28, 98))
+                .size((360, 20))
                 .flags(nwg::ProgressBarFlags::VISIBLE)
                 .state(nwg::ProgressBarState::Normal)
                 .range(0..100)
