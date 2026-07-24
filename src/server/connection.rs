@@ -1886,6 +1886,13 @@ impl Connection {
         if self.chat_companion_verified {
             return true;
         }
+        // Auto-allow if the peer is a known contact (exists in peer config / address book).
+        // Chat, file transfer, and voice connections from known contacts should not
+        // trigger the approval popup — only remote desktop access should.
+        let peer = PeerConfig::load(peer_id);
+        if !peer.id.is_empty() {
+            return true;
+        }
         if !self.direct_chat_identity_matches(peer_id) {
             return false;
         }
@@ -2623,6 +2630,18 @@ impl Connection {
                     self.send_login_error(err_msg).await;
                 }
                 return true;
+            } else if self.file_transfer.is_some()
+                && self.direct_chat_auto_allowed(&lr.my_id)
+            {
+                // Auto-approve file transfer from known contacts (no popup).
+                if err_msg.is_empty() {
+                    if !self.send_logon_response_and_keep_alive().await {
+                        return false;
+                    }
+                    self.try_start_cm(lr.my_id.clone(), lr.my_name.clone(), self.authorized);
+                } else {
+                    self.send_login_error(err_msg).await;
+                }
             } else if (password::approve_mode() == ApproveMode::Click
                 && !(crate::get_builtin_option(keys::OPTION_ALLOW_LOGON_SCREEN_PASSWORD) == "Y"
                     && is_logon()))

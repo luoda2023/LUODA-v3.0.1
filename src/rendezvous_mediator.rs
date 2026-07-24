@@ -82,24 +82,32 @@ impl RendezvousMediator {
         normalize_transport_options();
         #[cfg(target_os = "windows")]
         if std::env::var_os(crate::common::PORTABLE_APPNAME_RUNTIME_ENV_KEY).is_some() {
-            // Portable mode: always attempt headless virtual display.
-            // On a VPS without MSTSC login, there is no desktop session,
-            // so we MUST have a virtual display for screen capture.
-            for attempt in 1..=3 {
-                match crate::server::display_service::prepare_windows_server_headless_display() {
-                    Ok(()) => {
-                        log::info!("portable VPS virtual display ready (attempt {attempt})");
-                        break;
-                    }
-                    Err(error) => {
-                        log::error!(
-                            "failed to prepare the portable VPS virtual display (attempt {attempt}/3): {error}"
-                        );
-                        if attempt < 3 {
-                            std::thread::sleep(std::time::Duration::from_secs(2));
+            // Portable mode: only attempt headless virtual display when no
+            // physical displays are present (i.e. running on a headless VPS).
+            // On a normal desktop with a monitor, skip this to avoid screen flash.
+            let has_physical_display = scrap::Display::all()
+                .map(|d| !d.is_empty())
+                .unwrap_or(false);
+            if !has_physical_display {
+                for attempt in 1..=3 {
+                    match crate::server::display_service::prepare_windows_server_headless_display()
+                    {
+                        Ok(()) => {
+                            log::info!("portable VPS virtual display ready (attempt {attempt})");
+                            break;
+                        }
+                        Err(error) => {
+                            log::error!(
+                                "failed to prepare the portable VPS virtual display (attempt {attempt}/3): {error}"
+                            );
+                            if attempt < 3 {
+                                std::thread::sleep(std::time::Duration::from_secs(2));
+                            }
                         }
                     }
                 }
+            } else {
+                log::info!("portable mode: physical display detected, skipping virtual display creation");
             }
         }
         if !crate::is_serverless_direct_only() {
