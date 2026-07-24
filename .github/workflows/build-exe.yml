@@ -552,12 +552,25 @@ jobs:
           path: .auto_build_logs/
           include-hidden-files: true
       - name: Upload to v3.1.1 Release (x64 only)
-        if: matrix.arch == 'x64' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/3.1.1'
+        if: matrix.arch == 'x64' && github.ref == 'refs/heads/3.1.1'
         uses: softprops/action-gh-release@v2
         with:
           prerelease: false
-          draft: true
+          draft: false
           tag_name: v3.1.1
+          name: "LDesk v3.1.1"
+          body: |
+            ## LDesk v3.1.1 Release
+
+            ### 下载
+            - **LDesk-3.1.1-portable-x64.exe** - 便携版（无需安装）
+            - **LDesk-3.1.1-Setup-x64.exe** - 安装版
+
+            ### 更新内容
+            - 修复 VPS headless 虚拟显示器问题
+            - 修复 ID/IP 连接可靠性
+            - 修复密码显示切换
+            - 改进启动进度条 UI
           files: |
             SignOutput/LDesk-3.1.1-portable-x64.exe
             SignOutput/LDesk-3.1.1-Setup-x64.exe
