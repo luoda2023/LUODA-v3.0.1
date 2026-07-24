@@ -2390,12 +2390,14 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   Future<void> _showIdentityDialog(BuildContext context) async {
     await showDialog<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        contentPadding: EdgeInsets.zero,
-        content: SizedBox(
-          width: 420,
-          height: 620,
-          child: _buildIdentityPane(dialogContext),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext2, setDialogState) => AlertDialog(
+          contentPadding: EdgeInsets.zero,
+          content: SizedBox(
+            width: 420,
+            height: 620,
+            child: _buildIdentityPane(dialogContext2, setDialogState),
+          ),
         ),
       ),
     );
@@ -2851,7 +2853,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     );
   }
 
-  Widget _buildIdentityPane(BuildContext context) {
+  Widget _buildIdentityPane(BuildContext context, [void Function(void Function())? setDialogState]) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final outgoingOnly = bind.isOutgoingOnly();
     return ColoredBox(
@@ -2881,7 +2883,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                 ),
                           ),
                           const SizedBox(height: 12),
-                          _buildIdentityCard(context, model),
+                          _buildIdentityCard(context, model, setDialogState: setDialogState),
                           const SizedBox(height: 22),
                         ],
                         Text(
@@ -2943,6 +2945,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     BuildContext context,
     ServerModel model, {
     bool compact = false,
+    void Function(void Function())? setDialogState,
   }) {
     final publicIP = bind.mainGetOptionSync(key: 'public-ip');
     final lanIP = bind.mainGetOptionSync(key: 'lan-ip');
@@ -2985,7 +2988,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             obscure: true,
             revealed: _passwordVisible,
             onToggleVisibility: () {
-              setState(() => _passwordVisible = !_passwordVisible);
+              final updater = setDialogState ?? setState;
+              updater(() => _passwordVisible = !_passwordVisible);
             },
           ),
           Divider(height: compact ? 16 : 22),
