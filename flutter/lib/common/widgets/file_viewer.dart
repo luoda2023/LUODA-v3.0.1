@@ -6,19 +6,12 @@ import 'package:luoda_flutter/common.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:external_path/external_path.dart';
-import 'package:video_player/video_player.dart';
-import 'package:chewie/chewie.dart';
-import 'package:pdfx/pdfx.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:open_filex/open_filex.dart';
 
 const Set<String> _kImageExts = <String>{
   'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg',
 };
-const Set<String> _kVideoExts = <String>{
-  'mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm',
-};
-const Set<String> _kPdfExts = <String>{'pdf'};
 const Set<String> _kAudioExts = <String>{
   'mp3', 'wav', 'flac', 'aac', 'ogg', 'wma', 'm4a',
 };
@@ -32,8 +25,6 @@ String _ext(String fileName) {
 }
 
 bool _isImage(String fileName) => _kImageExts.contains(_ext(fileName));
-bool _isVideo(String fileName) => _kVideoExts.contains(_ext(fileName));
-bool _isPdf(String fileName) => _kPdfExts.contains(_ext(fileName));
 bool _isAudio(String fileName) => _kAudioExts.contains(_ext(fileName));
 bool _isText(String fileName) => _kTextExts.contains(_ext(fileName));
 
@@ -148,7 +139,7 @@ class _FileViewerPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final canOpen = path != null && !_isImage(fileName) && !_isVideo(fileName);
+    final canOpen = path != null && !_isImage(fileName);
     return Scaffold(
       backgroundColor: dark ? const Color(0xFF15171B) : const Color(0xFFF2F2F2),
       appBar: AppBar(
@@ -187,8 +178,6 @@ class _FileViewerPage extends StatelessWidget {
         child: Center(child: Image.file(File(path!))),
       );
     }
-    if (_isVideo(fileName)) return _VideoPreview(path!);
-    if (_isPdf(fileName)) return _PdfPreview(path!);
     if (_isAudio(fileName)) return _AudioPreview(path!, fileName);
     if (_isText(fileName)) return _TextPreview(path!, fileName);
     return _OtherPreview(path!, fileName, fileSize);
@@ -228,81 +217,6 @@ class _FileViewerPage extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-class _VideoPreview extends StatefulWidget {
-  const _VideoPreview(this.path);
-  final String path;
-
-  @override
-  State<_VideoPreview> createState() => _VideoPreviewState();
-}
-
-class _VideoPreviewState extends State<_VideoPreview> {
-  late final VideoPlayerController _videoController;
-  ChewieController? _chewieController;
-
-  @override
-  void initState() {
-    super.initState();
-    _videoController = VideoPlayerController.file(File(widget.path));
-    _videoController.initialize().then((_) {
-      if (!mounted) return;
-      _chewieController = ChewieController(
-        videoPlayerController: _videoController,
-        autoPlay: false,
-        looping: false,
-        aspectRatio: _videoController.value.isInitialized
-            ? _videoController.value.aspectRatio
-            : 16 / 9,
-      );
-      setState(() {});
-    }).catchError((_) {});
-  }
-
-  @override
-  void dispose() {
-    _chewieController?.dispose();
-    _videoController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_chewieController != null) {
-      return SafeArea(child: Chewie(controller: _chewieController!));
-    }
-    return const Center(child: CircularProgressIndicator());
-  }
-}
-
-class _PdfPreview extends StatefulWidget {
-  const _PdfPreview(this.path);
-  final String path;
-
-  @override
-  State<_PdfPreview> createState() => _PdfPreviewState();
-}
-
-class _PdfPreviewState extends State<_PdfPreview> {
-  late final PdfController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = PdfController(document: PdfDocument.openFile(widget.path));
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return PdfView(controller: _controller);
   }
 }
 

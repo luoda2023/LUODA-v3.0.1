@@ -111,12 +111,9 @@ dependencies:
   sqflite: 2.2.0
   google_fonts: ^6.2.1
   vector_math: ^2.1.4
-  # File preview dependencies
-  video_player: ^2.8.1
-  # pin chewie to exactly 1.8.0: 1.8.1+ -> wakelock_plus -> package_info_plus >=6,
-  # which conflicts with the project's pinned package_info_plus ^4.2.0
-  chewie: "1.8.0"
-  pdfx: ^2.3.0
+  # File preview: open received files with the system app (open_filex);
+  # in-app image/audio/text preview uses Flutter native widgets, avoiding
+  # heavy deps that conflict with this project's pinned SDK/dependencies.
   open_filex: ^4.7.0
 
 dev_dependencies:
