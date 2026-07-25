@@ -113,7 +113,9 @@ dependencies:
   vector_math: ^2.1.4
   # File preview dependencies
   video_player: ^2.8.1
-  chewie: ^1.8.1
+  # pin chewie to exactly 1.8.0: 1.8.1+ -> wakelock_plus -> package_info_plus >=6,
+  # which conflicts with the project's pinned package_info_plus ^4.2.0
+  chewie: "1.8.0"
   pdfx: ^2.3.0
   open_filex: ^4.7.0
 
