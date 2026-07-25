@@ -2167,8 +2167,26 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     }
   }
 
+  Future<void> _maintainPendingChatSessions() async {
+    for (final peerId
+        in await DirectChatRepository.instance.conversationIds()) {
+      if (!mounted) return;
+      final pending = await DirectChatRepository.instance.pendingFor(peerId);
+      if (pending.isEmpty) {
+        continue;
+      }
+      final existing = _directChatSessionFor(peerId);
+      final hasError =
+          existing?.ffiModel.lastConnectionError?.isNotEmpty == true;
+      if (existing != null && !existing.closed && !hasError) continue;
+      if (existing != null && !existing.closed) await existing.close();
+      await _startDirectChat(peerId, activate: false);
+    }
+  }
+
   Future<void> _refreshDirectSessions() async {
     await _maintainTrustedChatSessions();
+    await _maintainPendingChatSessions();
     await _maintainChatKeepAlive();
     await gFFI.chatModel.syncActiveCompanionSessions();
   }
