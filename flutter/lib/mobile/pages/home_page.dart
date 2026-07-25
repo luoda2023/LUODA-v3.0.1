@@ -11,7 +11,6 @@ import 'package:uuid/uuid.dart';
 import '../../common.dart';
 import '../../common/direct_pairing.dart';
 import '../../common/widgets/chat_page.dart';
-import '../../common/clipboard_image_sender.dart';
 import '../../models/chat_model.dart';
 import '../../models/file_model.dart';
 import '../../models/model.dart';
@@ -104,7 +103,6 @@ class HomePageState extends State<HomePage> {
                   type: ChatPageType.mobileMain,
                   onAttachFile: _sendDirectChatFiles,
                   onRemoteAssist: _startRemoteFromChat,
-                  onPasteImage: () => pasteImageToChat(gFFI.chatModel),
                 ),
               );
             },

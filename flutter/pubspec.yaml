@@ -98,7 +98,7 @@ dependencies:
     git:
       url: https://github.com/luoda2023/flutter_gpu_texture_renderer
       ref: 08a471bb8ceccdd50483c81cdfa8b81b07b14b87
-  uuid: ^4.1.0
+  uuid: ^3.0.7
   auto_size_text_field: ^2.2.1
   flex_color_picker: ^3.3.0
   dynamic_layouts:
@@ -111,14 +111,11 @@ dependencies:
   sqflite: 2.2.0
   google_fonts: ^6.2.1
   vector_math: ^2.1.4
-  # File preview & clipboard image dependencies
+  # File preview dependencies
   video_player: ^2.8.1
   chewie: ^1.8.1
   pdfx: ^2.3.0
   open_filex: ^4.7.0
-  # super_clipboard 0.8.x -> super_native_extensions >=0.7.1 -> uuid ^4.1.0,
-  # so the project's uuid is pinned to ^4.1.0 to keep version solving green.
-  super_clipboard: ^0.8.18
 
 dev_dependencies:
   icons_launcher: ^2.0.4

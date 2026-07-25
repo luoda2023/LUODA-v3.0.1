@@ -9,7 +9,6 @@ import 'package:flutter/services.dart';
 import 'package:luoda_flutter/common.dart';
 import 'package:luoda_flutter/common/widgets/animated_rotation_widget.dart';
 import 'package:luoda_flutter/common/widgets/chat_page.dart';
-import 'package:luoda_flutter/common/clipboard_image_sender.dart';
 import 'package:luoda_flutter/common/widgets/join_viewer_page.dart';
 import 'package:luoda_flutter/common/widgets/custom_password.dart';
 import 'package:luoda_flutter/common/widgets/dialog.dart';
@@ -849,7 +848,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                   _sendFilesFromConversation(peerId),
                               onRemoteAssist: () =>
                                   _connectDirect(context, peerId),
-                              onPasteImage: () => pasteImageToChat(model),
                             )
                           : _buildEmptyConversation(
                               context,
