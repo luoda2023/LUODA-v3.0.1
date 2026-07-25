@@ -2623,8 +2623,14 @@ impl Connection {
                     self.send_login_error(err_msg).await;
                 }
             } else if self.chat_only {
+                // LUODA FIX: chat/file/voice (isChat) direct connections are
+                // auto-approved in the background — no "access your device" popup.
+                // Only real remote-desktop control (non chat_only) still prompts.
                 if err_msg.is_empty() {
-                    self.try_start_cm(lr.my_id, lr.my_name, false);
+                    if !self.send_logon_response_and_keep_alive().await {
+                        return false;
+                    }
+                    self.try_start_cm(lr.my_id, lr.my_name, self.authorized);
                 } else {
                     self.send_login_error(err_msg).await;
                 }
@@ -2865,6 +2871,8 @@ impl Connection {
                         }
                         #[cfg(target_os = "macos")]
                         self.retina.on_mouse_event(&mut me, self.display_idx);
+                        #[cfg(target_os = "windows")]
+                        Self::on_mouse_event_windows(&mut me);
                         self.input_mouse(
                             me,
                             self.inner.id(),
@@ -2876,6 +2884,8 @@ impl Connection {
                     } else if self.show_my_cursor {
                         #[cfg(target_os = "macos")]
                         self.retina.on_mouse_event(&mut me, self.display_idx);
+                        #[cfg(target_os = "windows")]
+                        Self::on_mouse_event_windows(&mut me);
                         self.input_mouse(
                             me,
                             self.inner.id(),
@@ -4211,14 +4221,15 @@ impl Connection {
             }
             self.send(msg).await;
             self.voice_calling = accepted;
-            if self.is_authed_view_camera_conn() {
-                if let Some(s) = self.server.upgrade() {
-                    s.write().unwrap().subscribe(
-                        super::audio_service::NAME,
-                        self.inner.clone(),
-                        self.audio_enabled() && accepted,
-                    );
-                }
+            // Subscribe the host microphone to the voice call for any authed
+            // session (not only ViewCamera), gated by explicit acceptance and
+            // the audio option. This enables PC VoIP for normal desktop control.
+            if let Some(s) = self.server.upgrade() {
+                s.write().unwrap().subscribe(
+                    super::audio_service::NAME,
+                    self.inner.clone(),
+                    self.audio_enabled() && accepted,
+                );
             }
         } else {
             log::warn!("Possible a voice call attack.");
@@ -4230,12 +4241,10 @@ impl Connection {
         // Notify the connection manager that the voice call has been closed.
         self.send_to_cm(Data::CloseVoiceCall("".to_owned()));
         self.voice_calling = false;
-        if self.is_authed_view_camera_conn() {
-            if let Some(s) = self.server.upgrade() {
-                s.write()
-                    .unwrap()
-                    .subscribe(super::audio_service::NAME, self.inner.clone(), false);
-            }
+        if let Some(s) = self.server.upgrade() {
+            s.write()
+                .unwrap()
+                .subscribe(super::audio_service::NAME, self.inner.clone(), false);
         }
     }
 
@@ -5743,6 +5752,39 @@ impl Retina {
             return Some(msg);
         }
         None
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Connection {
+    #[inline]
+    fn on_mouse_event_windows(e: &mut MouseEvent) {
+        // The controlling side sends physical-pixel coordinates. The controlled
+        // side now reports its real per-monitor DPI scale (see
+        // display_service::check_update_displays), so map physical -> logical here,
+        // mirroring the macOS Retina path. Windows enigo (MOUSEEVENTF_ABSOLUTE)
+        // expects logical coordinates regardless of process DPI awareness, so
+        // dividing by the scale is always correct.
+        let evt_type = e.mask & crate::input::MOUSE_TYPE_MASK;
+        if evt_type == crate::input::MOUSE_TYPE_WHEEL
+            || evt_type == crate::input::MOUSE_TYPE_TRACKPAD
+            || evt_type == crate::input::MOUSE_TYPE_MOVE_RELATIVE
+        {
+            return;
+        }
+        let displays = super::display_service::get_sync_displays();
+        let d = match displays
+            .iter()
+            .find(|d| e.x >= d.x && e.y >= d.y && e.x < d.x + d.width && e.y < d.y + d.height)
+        {
+            Some(d) => d,
+            None => return,
+        };
+        let s = d.scale;
+        if s > 1.0 {
+            e.x = d.x + ((e.x - d.x) as f64 / s) as i32;
+            e.y = d.y + ((e.y - d.y) as f64 / s) as i32;
+        }
     }
 }
 

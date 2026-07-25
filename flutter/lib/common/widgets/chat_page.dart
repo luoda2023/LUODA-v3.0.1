@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:dash_chat_2/dash_chat_2.dart';
 import 'package:flutter/material.dart';
 import 'package:luoda_flutter/common.dart';
@@ -7,6 +9,7 @@ import 'package:provider/provider.dart';
 
 import '../../mobile/pages/home_page.dart';
 import '../wechat_ui_tokens.dart';
+import 'file_viewer.dart';
 import 'voice_message_controls.dart';
 
 enum ChatPageType {
@@ -20,12 +23,14 @@ class ChatPage extends StatelessWidget implements PageShape {
   final ChatPageType? type;
   final VoidCallback? onAttachFile;
   final VoidCallback? onRemoteAssist;
+  final VoidCallback? onPasteImage;
 
   ChatPage({
     ChatModel? chatModel,
     this.type,
     this.onAttachFile,
     this.onRemoteAssist,
+    this.onPasteImage,
   }) {
     this.chatModel = chatModel ?? gFFI.chatModel;
     this.chatModel.refreshLocalIdentity();
@@ -321,6 +326,115 @@ class ChatPage extends StatelessWidget implements PageShape {
               return '${(fileSize / 1024 / 1024).toStringAsFixed(1)} MB';
             }
 
+            IconData fileTypeIcon(String fileName) {
+              final ext = fileName.contains('.')
+                  ? fileName.split('.').last.toLowerCase()
+                  : '';
+              switch (ext) {
+                case 'jpg':
+                case 'jpeg':
+                case 'png':
+                case 'gif':
+                case 'bmp':
+                case 'webp':
+                case 'svg':
+                  return Icons.image_outlined;
+                case 'mp4':
+                case 'avi':
+                case 'mkv':
+                case 'mov':
+                case 'wmv':
+                case 'flv':
+                  return Icons.movie_outlined;
+                case 'mp3':
+                case 'wav':
+                case 'flac':
+                case 'aac':
+                case 'ogg':
+                case 'wma':
+                  return Icons.audiotrack_outlined;
+                case 'pdf':
+                  return Icons.picture_as_pdf_outlined;
+                case 'doc':
+                case 'docx':
+                  return Icons.description_outlined;
+                case 'xls':
+                case 'xlsx':
+                case 'csv':
+                  return Icons.table_chart_outlined;
+                case 'ppt':
+                case 'pptx':
+                  return Icons.slideshow_outlined;
+                case 'zip':
+                case 'rar':
+                case '7z':
+                case 'tar':
+                case 'gz':
+                  return Icons.folder_zip_outlined;
+                case 'exe':
+                case 'msi':
+                case 'apk':
+                case 'dmg':
+                  return Icons.android_outlined;
+                case 'txt':
+                case 'md':
+                case 'log':
+                  return Icons.article_outlined;
+                case 'json':
+                case 'xml':
+                case 'yaml':
+                case 'yml':
+                case 'toml':
+                  return Icons.code_outlined;
+                default:
+                  return Icons.insert_drive_file_outlined;
+              }
+            }
+
+            Color fileTypeColor(String fileName, double opacity) {
+              final ext = fileName.contains('.')
+                  ? fileName.split('.').last.toLowerCase()
+                  : '';
+              switch (ext) {
+                case 'jpg':
+                case 'jpeg':
+                case 'png':
+                case 'gif':
+                case 'bmp':
+                case 'webp':
+                case 'svg':
+                  return Color(0xFF4CAF50).withOpacity(opacity);
+                case 'mp4':
+                case 'avi':
+                case 'mkv':
+                case 'mov':
+                  return Color(0xFFE91E63).withOpacity(opacity);
+                case 'mp3':
+                case 'wav':
+                case 'flac':
+                case 'aac':
+                  return Color(0xFF9C27B0).withOpacity(opacity);
+                case 'pdf':
+                  return Color(0xFFF44336).withOpacity(opacity);
+                case 'doc':
+                case 'docx':
+                  return Color(0xFF2196F3).withOpacity(opacity);
+                case 'xls':
+                case 'xlsx':
+                case 'csv':
+                  return Color(0xFF4CAF50).withOpacity(opacity);
+                case 'ppt':
+                case 'pptx':
+                  return Color(0xFFFF9800).withOpacity(opacity);
+                case 'zip':
+                case 'rar':
+                case '7z':
+                  return Color(0xFFFFC107).withOpacity(opacity);
+                default:
+                  return Color(0xFF607D8B).withOpacity(opacity);
+              }
+            }
+
             Widget messageBody(
               ChatMessage message, {
               required bool isOwnMessage,
@@ -342,6 +456,8 @@ class ChatPage extends StatelessWidget implements PageShape {
                     '${properties?['ldesk_file_size'] ?? 0}',
                   ) ??
                   0;
+              final localPath =
+                  (properties?['ldesk_local_path'] ?? '').toString();
               return Column(
                 crossAxisAlignment: isOwnMessage
                     ? CrossAxisAlignment.end
@@ -354,42 +470,89 @@ class ChatPage extends StatelessWidget implements PageShape {
                       durationMs: voiceDurationMs,
                     )
                   else if (isFile && fileName.isNotEmpty)
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        Icon(
-                          Icons.insert_drive_file_outlined,
-                          size: 24,
-                          color: foreground.withOpacity(0.78),
-                        ),
-                        const SizedBox(width: 8),
-                        Flexible(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: <Widget>[
-                              Text(
-                                fileName,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: foreground,
-                                  fontSize: isDesktopHome ? 14 : 15,
-                                  fontWeight: FontWeight.w500,
-                                  height: 1.35,
+                    InkWell(
+                      onTap: () => showFileViewer(
+                        context,
+                        fileName: fileName,
+                        fileSize: fileSize,
+                        localPath: localPath,
+                      ),
+                      borderRadius: BorderRadius.circular(8),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: <Widget>[
+                            Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                color: fileTypeColor(
+                                  fileName,
+                                  dark ? 0.18 : 0.12,
                                 ),
+                                borderRadius: BorderRadius.circular(8),
                               ),
-                              const SizedBox(height: 2),
-                              Text(
-                                fileSizeLabel(fileSize),
-                                style: TextStyle(
-                                  color: foreground.withOpacity(0.56),
-                                  fontSize: 11,
-                                ),
+                              child: fileTypeIcon(fileName) ==
+                                          Icons.image_outlined &&
+                                      localPath.isNotEmpty
+                                  ? ClipRRect(
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: Image.file(
+                                        File(localPath),
+                                        width: 44,
+                                        height: 44,
+                                        fit: BoxFit.cover,
+                                        errorBuilder:
+                                            (_, __, ___) => Icon(
+                                          fileTypeIcon(fileName),
+                                          size: 22,
+                                          color: fileTypeColor(
+                                            fileName,
+                                            0.85,
+                                          ),
+                                        ),
+                                      ),
+                                    )
+                                  : Icon(
+                                      fileTypeIcon(fileName),
+                                      size: 22,
+                                      color: fileTypeColor(
+                                        fileName,
+                                        0.85,
+                                      ),
+                                    ),
+                            ),
+                            const SizedBox(width: 10),
+                            Flexible(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: <Widget>[
+                                  Text(
+                                    fileName,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: foreground,
+                                      fontSize: isDesktopHome ? 14 : 15,
+                                      fontWeight: FontWeight.w500,
+                                      height: 1.35,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    fileSizeLabel(fileSize),
+                                    style: TextStyle(
+                                      color: foreground.withOpacity(0.56),
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
                     )
                   else
                     Text(
@@ -530,20 +693,55 @@ class ChatPage extends StatelessWidget implements PageShape {
               final canManage = isOwnMessage &&
                   message.customProperties?['ldesk_disposition'] == 'active';
               final actionButton = canManage
-                  ? IconButton(
-                      onPressed: () => _showMessageActions(context, message),
-                      tooltip: translate('Message actions'),
-                      visualDensity: VisualDensity.compact,
-                      constraints:
-                          const BoxConstraints.tightFor(width: 30, height: 30),
-                      padding: EdgeInsets.zero,
-                      icon: Icon(
-                        Icons.more_horiz_rounded,
-                        size: 18,
-                        color: dark
-                            ? const Color(0xFF999CA2)
-                            : const Color(0xFF7B7B7B),
-                      ),
+                  ? Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        // LUODA FIX: prominent one-tap Recall button.
+                        IconButton(
+                          onPressed: () async {
+                            final changed = await chatModel.recallMessage(message);
+                            if (context.mounted && changed) {
+                              ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                                SnackBar(
+                                    content: Text(translate('Message recalled'))),
+                              );
+                            }
+                          },
+                          tooltip: translate('Recall'),
+                          visualDensity: VisualDensity.compact,
+                          constraints:
+                              const BoxConstraints.tightFor(width: 34, height: 34),
+                          padding: EdgeInsets.zero,
+                          style: IconButton.styleFrom(
+                            backgroundColor: dark
+                                ? const Color(0x33FF6B6B)
+                                : const Color(0x1AE5484D),
+                          ),
+                          icon: Icon(
+                            Icons.undo_rounded,
+                            size: 18,
+                            color: dark
+                                ? const Color(0xFFFF8A8A)
+                                : const Color(0xFFE5484D),
+                          ),
+                        ),
+                        const SizedBox(width: 2),
+                        IconButton(
+                          onPressed: () => _showMessageActions(context, message),
+                          tooltip: translate('Message actions'),
+                          visualDensity: VisualDensity.compact,
+                          constraints:
+                              const BoxConstraints.tightFor(width: 30, height: 30),
+                          padding: EdgeInsets.zero,
+                          icon: Icon(
+                            Icons.more_horiz_rounded,
+                            size: 18,
+                            color: dark
+                                ? const Color(0xFF999CA2)
+                                : const Color(0xFF7B7B7B),
+                          ),
+                        ),
+                      ],
                     )
                   : const SizedBox(width: 30, height: 30);
               return Padding(
@@ -774,6 +972,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                         dark: dark,
                         onAttachFile: onAttachFile,
                         onRemoteAssist: onRemoteAssist,
+                        onPasteImage: onPasteImage,
                       ),
                     ],
                   );
@@ -794,6 +993,7 @@ class _DesktopChatComposer extends StatelessWidget {
     required this.dark,
     this.onAttachFile,
     this.onRemoteAssist,
+    this.onPasteImage,
   });
 
   final ChatModel chatModel;
@@ -801,6 +1001,7 @@ class _DesktopChatComposer extends StatelessWidget {
   final bool dark;
   final VoidCallback? onAttachFile;
   final VoidCallback? onRemoteAssist;
+  final VoidCallback? onPasteImage;
 
   void _send() {
     final text = chatModel.textController.text.trim();
@@ -864,6 +1065,13 @@ class _DesktopChatComposer extends StatelessWidget {
                       tooltip: translate('File Transfer'),
                       enabled: enabled,
                       onPressed: onAttachFile,
+                    ),
+                  if (onPasteImage != null)
+                    _ComposerToolButton(
+                      icon: Icons.image_outlined,
+                      tooltip: translate('Send Image'),
+                      enabled: enabled,
+                      onPressed: onPasteImage,
                     ),
                   if (onRemoteAssist != null)
                     _ComposerToolButton(

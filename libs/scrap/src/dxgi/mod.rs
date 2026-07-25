@@ -15,8 +15,8 @@ use winapi::{
         // dxgiformat::{DXGI_FORMAT, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_420_OPAQUE},
     },
     um::{
-        d3d11::*, d3dcommon::D3D_DRIVER_TYPE_UNKNOWN, unknwnbase::IUnknown, wingdi::*,
-        winnt::HRESULT, winuser::*,
+        d3d11::*, d3dcommon::D3D_DRIVER_TYPE_UNKNOWN, shellscalingapi::*, unknwnbase::IUnknown,
+        wingdi::*, winnt::HRESULT, winuser::*,
     },
 };
 
@@ -836,6 +836,21 @@ impl Display {
             self.desc.DesktopCoordinates.left,
             self.desc.DesktopCoordinates.top,
         )
+    }
+
+    pub fn dpi_scale(&self) -> f64 {
+        // Effective DPI for this monitor (96 DPI == scale 1.0). Lets the
+        // controlled Windows side report its real per-monitor scale so remote
+        // mouse coordinates can be mapped correctly under display scaling.
+        unsafe {
+            let mut dpi_x: UINT = 96;
+            let mut dpi_y: UINT = 96;
+            if GetDpiForMonitor(self.desc.Monitor, MDT_EFFECTIVE_DPI, &mut dpi_x, &mut dpi_y) == 0 {
+                (dpi_y as f64) / 96.0
+            } else {
+                1.0
+            }
+        }
     }
 
     #[cfg(feature = "vram")]

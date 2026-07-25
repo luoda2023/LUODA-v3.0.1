@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:luoda_flutter/common.dart';
 import 'package:luoda_flutter/common/widgets/animated_rotation_widget.dart';
 import 'package:luoda_flutter/common/widgets/chat_page.dart';
+import 'package:luoda_flutter/common/clipboard_image_sender.dart';
 import 'package:luoda_flutter/common/widgets/join_viewer_page.dart';
 import 'package:luoda_flutter/common/widgets/custom_password.dart';
 import 'package:luoda_flutter/common/widgets/dialog.dart';
@@ -81,6 +82,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   var watchIsCanRecordAudio = false;
   Timer? _updateTimer;
   Timer? _directChatKeepAliveTimer;
+  // 空闲会话轮询拉取消息后的“自动关闭”定时器，以及上次重连时刻（用于限制重连频率）。
+  final Map<String, Timer> _idlePollClosers = <String, Timer>{};
+  final Map<String, DateTime> _lastIdleReconnect = <String, DateTime>{};
   bool isCardClosed = false;
   String _lastIp = '';
   String _lastLanIp = '';
@@ -845,6 +849,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                   _sendFilesFromConversation(peerId),
                               onRemoteAssist: () =>
                                   _connectDirect(context, peerId),
+                              onPasteImage: () => pasteImageToChat(model),
                             )
                           : _buildEmptyConversation(
                               context,
@@ -2166,25 +2171,91 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
   Future<void> _refreshDirectSessions() async {
     await _maintainTrustedChatSessions();
-    await _maintainPendingChatSessions();
+    await _maintainChatKeepAlive();
     await gFFI.chatModel.syncActiveCompanionSessions();
   }
 
-  Future<void> _maintainPendingChatSessions() async {
-    for (final peerId
-        in await DirectChatRepository.instance.conversationIds()) {
+  /// 是否为受“常驻在线”开关管控的可信联系人（由 _maintainTrustedChatSessions 全权保活）。
+  bool _isTrustedAlwaysOn(String peerId) {
+    if (bind.mainGetLocalOption(key: 'direct-chat-always-on') != 'Y' ||
+        bind.mainGetLocalOption(key: 'direct-chat-auto-reconnect') == 'N') {
+      return false;
+    }
+    final pairing = DirectPairingStore.find(peerId);
+    if (pairing?.companion == true) return false;
+    final raw = bind.mainGetLocalOption(key: 'direct-chat-contact-policies');
+    if (raw.isEmpty) return false;
+    try {
+      final policies = Map<String, dynamic>.from(jsonDecode(raw) as Map);
+      return policies[peerId] == 'allow';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 对所有聊过天的会话执行保活与空闲重连：
+  /// - 处于保活窗口内（最近收发过消息）：保持连接在线，对方消息即时送达。
+  /// - 空闲超时：每 [ChatModel.kChatReconnectInterval] 自动重连一次拉取消息，
+  ///   拉取后短暂保活再断开以节省资源（正在查看的会话不主动断开）。
+  Future<void> _maintainChatKeepAlive() async {
+    if (!mounted) return;
+    final peerIds = await DirectChatRepository.instance.conversationIds();
+    for (final peerId in peerIds) {
       if (!mounted) return;
-      final pending = await DirectChatRepository.instance.pendingFor(peerId);
-      if (pending.isEmpty) {
+      // 受“常驻在线”开关管控的可信联系人，交由 _maintainTrustedChatSessions 全权保活，
+      // 避免与空闲轮询关闭逻辑相互拉扯。
+      if (_isTrustedAlwaysOn(peerId)) continue;
+      final active = gFFI.chatModel.isChatActive(peerId);
+      final existing = _directChatSessionFor(peerId);
+      final isViewing = _activeDirectChatPeerId == peerId;
+      if (active) {
+        // 保活窗口内：确保连接在线，并取消任何待关闭的定时器。
+        _idlePollClosers[peerId]?.cancel();
+        _idlePollClosers.remove(peerId);
+        if (existing == null || existing.closed) {
+          await _startDirectChat(peerId, activate: false);
+        }
         continue;
       }
-      final existing = _directChatSessionFor(peerId);
-      final hasError =
-          existing?.ffiModel.lastConnectionError?.isNotEmpty == true;
-      if (existing != null && !existing.closed && !hasError) continue;
-      if (existing != null && !existing.closed) await existing.close();
-      await _startDirectChat(peerId, activate: false);
+      // 空闲超时：正在查看则不主动断开。
+      if (isViewing) {
+        _idlePollClosers[peerId]?.cancel();
+        _idlePollClosers.remove(peerId);
+        continue;
+      }
+      if (existing != null && !existing.closed) {
+        // 已在线但空闲：安排一个短保活窗口后自动关闭（拉取消息）。
+        _scheduleIdlePollClose(peerId);
+      } else {
+        // 未连接：按固定间隔重连一次以拉取消息。
+        final last = _lastIdleReconnect[peerId];
+        final due = last == null ||
+            DateTime.now().difference(last) >= ChatModel.kChatReconnectInterval;
+        if (due && DirectPairingStore.resolveConnectionTarget(peerId) != null) {
+          await _startDirectChat(peerId, activate: false);
+          _lastIdleReconnect[peerId] = DateTime.now();
+          _scheduleIdlePollClose(peerId);
+        }
+      }
     }
+  }
+
+  /// 空闲会话在拉取消息后短暂保活，若无新活动且未被查看则自动关闭。
+  void _scheduleIdlePollClose(String peerId) {
+    _idlePollClosers[peerId]?.cancel();
+    _idlePollClosers[peerId] = Timer(const Duration(seconds: 4), () async {
+      if (!mounted) return;
+      if (gFFI.chatModel.isChatActive(peerId) ||
+          _activeDirectChatPeerId == peerId) {
+        _idlePollClosers.remove(peerId);
+        return;
+      }
+      final existing = _directChatSessionFor(peerId);
+      if (existing != null && !existing.closed) {
+        await _closeDirectChat(peerId);
+      }
+      _idlePollClosers.remove(peerId);
+    });
   }
 
   Future<void> _closeDirectChat(String peerId) async {
@@ -2250,6 +2321,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       await chatModel.sendFileRecord(
         fileName: file.name,
         fileSize: file.size,
+        localPath: file.path!,
       );
     }
     _showConversationNotice(
@@ -4232,6 +4304,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   @override
   void initState() {
     super.initState();
+    gFFI.chatModel.ensureChatConnection = (peerId) async {
+      if (DirectPairingStore.resolveConnectionTarget(peerId) == null) return;
+      await _startDirectChat(peerId, activate: false);
+    };
     pendingViewerInvite.addListener(_handlePendingViewerInvite);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _handlePendingViewerInvite();
@@ -4518,6 +4594,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     Get.delete<RxBool>(tag: 'stop-service');
     _updateTimer?.cancel();
     _directChatKeepAliveTimer?.cancel();
+    for (final timer in _idlePollClosers.values) {
+      timer.cancel();
+    }
+    _idlePollClosers.clear();
     _workspaceNoticeTimer?.cancel();
     for (final ffi in _directChatSessions.values) {
       unawaited(ffi.close());

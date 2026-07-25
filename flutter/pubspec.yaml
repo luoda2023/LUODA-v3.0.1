@@ -111,6 +111,12 @@ dependencies:
   sqflite: 2.2.0
   google_fonts: ^6.2.1
   vector_math: ^2.1.4
+  # File preview & clipboard image dependencies
+  video_player: ^2.8.1
+  chewie: ^1.8.1
+  pdfx: ^2.3.0
+  open_filex: ^5.5.0
+  super_clipboard: ^0.8.18
 
 dev_dependencies:
   icons_launcher: ^2.0.4

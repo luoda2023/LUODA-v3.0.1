@@ -176,6 +176,9 @@ void runMainApp(bool startService) async {
     if (handledByUniLinks || handleUriLink(cmdArgs: kBootArgs)) {
       windowManager.hide();
     } else {
+      // LUODA FIX: wait for the first frame to paint before showing the
+      // window, so the OS default black background never flashes.
+      await WidgetsBinding.instance.endOfFrame;
       windowManager.show();
       windowManager.focus();
       // Move registration of active main window here to prevent from async visible check.
@@ -426,7 +429,16 @@ WindowOptions getHiddenTitleBarWindowOptions(
   return WindowOptions(
     size: size,
     center: center,
-    backgroundColor: (isMacOS && isMainWindow) ? null : Colors.transparent,
+    // LUODA FIX: on Windows/Linux the native window ignores transparency and
+    // shows black before Flutter paints. Use the app theme canvas color so no
+    // black flash appears. macOS keeps its native transparent title bar.
+    backgroundColor: (isMacOS && isMainWindow)
+        ? null
+        : (isMainWindow
+            ? (MyTheme.currentThemeMode() == ThemeMode.dark
+                ? MyTheme.canvasDark
+                : MyTheme.canvasLight)
+            : Colors.transparent),
     skipTaskbar: false,
     titleBarStyle: defaultTitleBarStyle,
     alwaysOnTop: alwaysOnTop,

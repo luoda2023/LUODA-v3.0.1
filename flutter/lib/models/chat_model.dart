@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
@@ -61,6 +62,12 @@ class MessageBody {
 class ChatModel with ChangeNotifier {
   static final clientModeID = -1;
 
+  // 直连聊天保活策略：
+  // - 空闲（未收发消息）超过 [kChatKeepAlive] 后允许断开连接，节省资源。
+  // - 断开后按 [kChatReconnectInterval] 周期自动重连，用于拉取对方可能发来的消息。
+  static const Duration kChatKeepAlive = Duration(minutes: 10);
+  static const Duration kChatReconnectInterval = Duration(seconds: 10);
+
   OverlayEntry? chatIconOverlayEntry;
   OverlayEntry? chatWindowOverlayEntry;
 
@@ -104,6 +111,38 @@ class ChatModel with ChangeNotifier {
   bool _activeCompanionSyncInProgress = false;
   Future<void>? _recentRestoreTask;
   bool _recentRestoreQueued = false;
+
+  // 每个会话最后收发消息的时间，用于保活 / 空闲超时判断。
+  final Map<String, DateTime> _lastChatActivity = {};
+  // 发送消息但当前无可用连接时，由页面层提供一个“建立直连会话”的回调，
+  // 确保消息能尽快送达（连上后 onDirectSessionReady 会自动重发 pending）。
+  Future<void> Function(String peerId)? ensureChatConnection;
+
+  void _touchChatActivity(String peerId) {
+    final id = peerId.trim();
+    if (id.isEmpty) return;
+    _lastChatActivity[id] = DateTime.now();
+  }
+
+  /// 会话在保活时间窗口内（最近收发过消息）返回 true。
+  bool isChatActive(String peerId) {
+    final last = _lastChatActivity[peerId.trim()];
+    if (last == null) return false;
+    return DateTime.now().difference(last) < kChatKeepAlive;
+  }
+
+  /// 返回活动时间最近（最可能需要保持/恢复连接）的会话 peerId，移动端单连接场景使用。
+  String? get lastActiveChatPeerId {
+    String? best;
+    DateTime? bestTime;
+    for (final entry in _lastChatActivity.entries) {
+      if (bestTime == null || entry.value.isAfter(bestTime)) {
+        bestTime = entry.value;
+        best = entry.key;
+      }
+    }
+    return best;
+  }
 
   MessageKey _currentKey = MessageKey('', -2); // -2 is invalid value
   late bool _isShowCMSidePage = false;
@@ -470,6 +509,7 @@ class ChatModel with ChangeNotifier {
       debugPrint("Failed to receive msg, peerId is null");
       return;
     }
+    _touchChatActivity(peerId);
 
     final messagekey = MessageKey(peerId, id);
     final envelope = DirectChatEnvelope.decode(rawText);
@@ -499,7 +539,7 @@ class ChatModel with ChangeNotifier {
       );
     }
 
-    late final DirectChatRecord record;
+    late DirectChatRecord record;
     if (envelope != null) {
       try {
         final incoming = DirectChatRecord.fromJson(envelope.data);
@@ -513,6 +553,19 @@ class ChatModel with ChangeNotifier {
           direction: DirectChatDirection.incoming,
           delivery: DirectChatDelivery.delivered,
         );
+        // LUODA FIX: persist inlined file/image bytes so preview works.
+        final inline = envelope.data['inline_bytes'];
+        if (inline is String &&
+            inline.isNotEmpty &&
+            record.kind == DirectChatKind.file) {
+          try {
+            final saved = await saveInlineChatFile(
+              record.fileName,
+              base64Decode(inline),
+            );
+            if (saved != null) record = record.copyWith(localPath: saved);
+          } catch (_) {}
+        }
       } catch (_) {
         return;
       }
@@ -609,6 +662,7 @@ class ChatModel with ChangeNotifier {
     }
     final key = _currentKey;
     if (key.peerId.isEmpty) return;
+    _touchChatActivity(key.peerId);
     final record = await DirectChatRepository.instance.createOutgoing(
       conversationId: key.peerId,
       kind: DirectChatKind.text,
@@ -753,9 +807,26 @@ class ChatModel with ChangeNotifier {
     required String fileName,
     required int fileSize,
     String fileSha256 = '',
+    String localPath = '',
   }) async {
     final key = _currentKey;
     if (key.peerId.isEmpty || fileName.isEmpty) return;
+    _touchChatActivity(key.peerId);
+    // LUODA FIX: inline small file/image bytes into the chat message so the
+    // receiver can preview/open them without a separate file-transfer session.
+    String inlineBytes = '';
+    if (localPath.isNotEmpty &&
+        fileSize > 0 &&
+        fileSize <= kMaxInlineChatFileBytes) {
+      try {
+        final bytes = await File(localPath).readAsBytes();
+        if (bytes.length <= kMaxInlineChatFileBytes) {
+          inlineBytes = base64Encode(bytes);
+        }
+      } catch (_) {
+        inlineBytes = '';
+      }
+    }
     final record = await DirectChatRepository.instance.createOutgoing(
       conversationId: key.peerId,
       kind: DirectChatKind.file,
@@ -766,6 +837,8 @@ class ChatModel with ChangeNotifier {
       fileName: fileName,
       fileSize: fileSize,
       fileSha256: fileSha256,
+      localPath: localPath,
+      inlineBytes: inlineBytes,
     );
     insertMessage(key, _toChatMessage(record, me));
     await _transmitRecord(key, record);
@@ -779,6 +852,7 @@ class ChatModel with ChangeNotifier {
     final resolvedPeerId =
         peerId?.trim().isNotEmpty == true ? peerId!.trim() : _currentKey.peerId;
     if (resolvedPeerId.isEmpty) return;
+    _touchChatActivity(resolvedPeerId);
     final key = MessageKey(
       resolvedPeerId,
       connId ?? _currentKey.connId,
@@ -830,6 +904,7 @@ class ChatModel with ChangeNotifier {
   }) async {
     final key = _currentKey;
     if (key.peerId.isEmpty || durationMs <= 0) return;
+    _touchChatActivity(key.peerId);
     final bytes = await DirectVoiceStorage.instance.read(messageId);
     if (bytes == null) return;
     final digest = sha256.convert(bytes).toString();
@@ -1055,6 +1130,11 @@ class ChatModel with ChangeNotifier {
       key,
       DirectChatEnvelope.message(record).encode(),
     );
+    if (sent) {
+      _touchChatActivity(key.peerId);
+    } else {
+      unawaited(ensureChatConnection?.call(key.peerId));
+    }
     if (sent && record.delivery != DirectChatDelivery.delivered) {
       final updated = record.copyWith(delivery: DirectChatDelivery.sent);
       await DirectChatRepository.instance
@@ -1278,6 +1358,7 @@ class ChatModel with ChangeNotifier {
         if (record.fileSize > 0) 'ldesk_file_size': record.fileSize,
         if (record.fileSha256.isNotEmpty)
           'ldesk_file_sha256': record.fileSha256,
+        if (record.localPath.isNotEmpty) 'ldesk_local_path': record.localPath,
         if (record.voiceDurationMs > 0)
           'ldesk_voice_duration_ms': record.voiceDurationMs,
         if (record.expiresAt != null)

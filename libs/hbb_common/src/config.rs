@@ -156,7 +156,10 @@ const CHARS: &[char] = &[
     'm', 'n', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
 ];
 
-pub const RENDEZVOUS_SERVERS: &[&str] = &["47.114.75.115:21116"];
+// LUODA FIX: canonical rendezvous server is `rev.dicad.cn` (confirmed by runtime
+// logs + `src/client.rs` / `connection_page.dart` hardcode). `RS_PUB_KEY` must
+// match the hbbs `id_ed25519.pub` on that server, otherwise ID/relay fail.
+pub const RENDEZVOUS_SERVERS: &[&str] = &["rev.dicad.cn:21116"];
 pub const RS_PUB_KEY: &str = "OQnLEvt6xjfPCUc1ozpTUiAxijwnn624zy0GH9IxX90=";
 
 pub const RENDEZVOUS_PORT: i32 = 21116;

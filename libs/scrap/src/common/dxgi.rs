@@ -199,6 +199,11 @@ impl Display {
         self.0.origin()
     }
 
+    #[cfg(target_os = "windows")]
+    pub fn scale(&self) -> f64 {
+        self.0.dpi_scale()
+    }
+
     pub fn is_primary(&self) -> bool {
         // https://docs.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-devmodea
         self.origin() == (0, 0)

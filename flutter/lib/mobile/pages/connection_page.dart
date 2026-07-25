@@ -56,6 +56,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
   final AllPeersLoader _allPeersLoader = AllPeersLoader();
 
   StreamSubscription? _uniLinksSubscription;
+  Timer? _chatKeepAliveTimer;
 
   // https://github.com/flutter/flutter/issues/157244
   Iterable<Peer> _autocompleteOpts = [];
@@ -71,6 +72,13 @@ class _ConnectionPageState extends State<ConnectionPage> {
   @override
   void initState() {
     super.initState();
+    // 发送消息若无可用连接时，由本页提供“建立直连会话”的能力，确保消息尽快送达。
+    gFFI.chatModel.ensureChatConnection = _startDirectChat;
+    // 保活 / 空闲自动重连：按固定间隔对最近活跃会话恢复 isChat 连接以收发消息。
+    _chatKeepAliveTimer = Timer.periodic(
+      ChatModel.kChatReconnectInterval,
+      (_) => unawaited(_maintainChatKeepAlive()),
+    );
     pendingViewerInvite.addListener(_handlePendingViewerInvite);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _handlePendingViewerInvite();
@@ -263,6 +271,26 @@ class _ConnectionPageState extends State<ConnectionPage> {
     gFFI.suppressConnectionDialogs = true;
     gFFI.start(endpoint, isChat: true, forceRelay: false);
     HomePage.homeKey.currentState?.selectChatPage();
+  }
+
+  /// 移动端单连接保活：对最近活跃（或仍在保活窗口内）的会话保持 / 恢复 isChat 连接，
+  /// 以便消息即时收发；空闲时按固定间隔重连拉取消息。正在远程控制时不抢占全局 gFFI。
+  Future<void> _maintainChatKeepAlive() async {
+    if (!mounted) return;
+    // 正在远程控制会话中（默认连接类型），不抢占全局 gFFI。
+    if (!gFFI.closed && gFFI.connType == ConnType.defaultConn) return;
+    final watchPeer = gFFI.chatModel.lastActiveChatPeerId;
+    if (watchPeer == null || watchPeer.isEmpty) return;
+    // 无可用连接端点则不重建，避免周期性弹 toast。
+    if (DirectPairingStore.resolveConnectionTarget(watchPeer) == null) return;
+    // 已是健康的 isChat 连接则无需重建。
+    if (!gFFI.closed &&
+        gFFI.connType == ConnType.chat &&
+        gFFI.chatModel.currentKey.peerId == watchPeer &&
+        gFFI.ffiModel.pi.isSet.isTrue) {
+      return;
+    }
+    await _startDirectChat(watchPeer);
   }
 
   Widget _buildPairedContacts() {
@@ -665,6 +693,10 @@ class _ConnectionPageState extends State<ConnectionPage> {
   void dispose() {
     pendingViewerInvite.removeListener(_handlePendingViewerInvite);
     _uniLinksSubscription?.cancel();
+    _chatKeepAliveTimer?.cancel();
+    if (gFFI.chatModel.ensureChatConnection == _startDirectChat) {
+      gFFI.chatModel.ensureChatConnection = null;
+    }
     _idController.dispose();
     _idFocusNode.removeListener(onFocusChanged);
     _allPeersLoader.clear();

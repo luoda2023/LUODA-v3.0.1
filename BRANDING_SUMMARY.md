@@ -7,7 +7,7 @@
 - [x] `libs/hbb_common/src/config.rs`
   - APP_NAME 改为 `LUODA`
   - ORG 改为 `cn.dicad`
-  - RENDEZVOUS_SERVERS 改为 `luoda.dicad.cn`
+  - RENDEZVOUS_SERVERS 改为 `rev.dicad.cn`
   - RS_PUB_KEY 改为 `OQnLEvt6xjfPCUc1ozpTUiAxijwnn624zy0GH9IxX90=`
   - 文档链接改为 `dicad.cn`
 - [x] `src/main.rs` - CLI 工具信息改为 LUODA
@@ -53,7 +53,7 @@
 
 ## 🔧 服务器配置
 
-- **服务器地址**: `luoda.dicad.cn`
+- **服务器地址**: `rev.dicad.cn`
 - **公钥**: `OQnLEvt6xjfPCUc1ozpTUiAxijwnn624zy0GH9IxX90=`
 - **端口**: 21116 (默认)
 
@@ -94,7 +94,7 @@ cd flutter && flutter build macos
 编译后请验证以下内容：
 - [ ] 应用名称显示为 "LUODA"
 - [ ] 图标为方形带圆角的新图标
-- [ ] 能够连接到 `luoda.dicad.cn` 服务器
+- [ ] 能够连接到 `rev.dicad.cn` 服务器
 - [ ] 关于页面显示 "关于 LUODA"
 - [ ] 无自动更新提示
 - [ ] 无"powered by"文本

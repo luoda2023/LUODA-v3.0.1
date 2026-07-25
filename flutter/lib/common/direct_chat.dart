@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 
 import 'direct_chat_storage.dart';
@@ -31,6 +33,8 @@ class DirectChatRecord {
     this.fileName = '',
     this.fileSize = 0,
     this.fileSha256 = '',
+    this.localPath = '',
+    this.inlineBytes = '',
     this.voiceDurationMs = 0,
     this.disposition = DirectChatDisposition.active,
     this.expiresAt,
@@ -51,6 +55,10 @@ class DirectChatRecord {
   final String fileName;
   final int fileSize;
   final String fileSha256;
+  final String localPath;
+  // Transient: inlined file/image bytes (base64) carried only in the wire
+  // envelope, never persisted to history (keeps storage small).
+  final String inlineBytes;
   final DirectChatDisposition disposition;
   final int voiceDurationMs;
   final DateTime? expiresAt;
@@ -66,6 +74,8 @@ class DirectChatRecord {
     int? originSequence,
     DirectChatDisposition? disposition,
     DateTime? expiresAt,
+    String? localPath,
+    String? inlineBytes,
   }) {
     return DirectChatRecord(
       id: id,
@@ -84,6 +94,8 @@ class DirectChatRecord {
       fileName: fileName,
       fileSize: fileSize,
       fileSha256: fileSha256,
+      localPath: localPath ?? this.localPath,
+      inlineBytes: inlineBytes ?? this.inlineBytes,
       voiceDurationMs: voiceDurationMs,
       expiresAt: expiresAt ?? this.expiresAt,
     );
@@ -106,6 +118,7 @@ class DirectChatRecord {
         if (fileName.isNotEmpty) 'file_name': fileName,
         if (fileSize > 0) 'file_size': fileSize,
         if (fileSha256.isNotEmpty) 'file_sha256': fileSha256,
+        if (localPath.isNotEmpty) 'local_path': localPath,
         if (voiceDurationMs > 0) 'voice_duration_ms': voiceDurationMs,
         if (expiresAt != null)
           'expires_at': expiresAt!.toUtc().toIso8601String(),
@@ -147,6 +160,7 @@ class DirectChatRecord {
       fileName: (json['file_name'] ?? '').toString(),
       fileSize: int.tryParse('${json['file_size'] ?? 0}') ?? 0,
       fileSha256: (json['file_sha256'] ?? '').toString(),
+      localPath: (json['local_path'] ?? '').toString(),
       voiceDurationMs: int.tryParse('${json['voice_duration_ms'] ?? 0}') ?? 0,
       expiresAt: DateTime.tryParse((json['expires_at'] ?? '').toString()),
     );
@@ -185,8 +199,13 @@ class DirectChatEnvelope {
     }
   }
 
-  static DirectChatEnvelope message(DirectChatRecord record) =>
-      DirectChatEnvelope('message', record.toJson());
+  static DirectChatEnvelope message(DirectChatRecord record) {
+    final data = record.toJson();
+    if (record.inlineBytes.isNotEmpty) {
+      data['inline_bytes'] = record.inlineBytes;
+    }
+    return DirectChatEnvelope('message', data);
+  }
 
   static DirectChatEnvelope receipt(String messageId) =>
       DirectChatEnvelope('receipt', <String, dynamic>{'id': messageId});
@@ -311,7 +330,7 @@ class DirectChatRepository {
 
   Future<String> get deviceId async => (await _state()).deviceId;
 
-  Future<DirectChatRecord> createOutgoing({
+  Future<DirectChatRecord>     createOutgoing({
     String? id,
     required String conversationId,
     required DirectChatKind kind,
@@ -322,6 +341,8 @@ class DirectChatRepository {
     String fileName = '',
     int fileSize = 0,
     String fileSha256 = '',
+    String localPath = '',
+    String inlineBytes = '',
     int voiceDurationMs = 0,
   }) {
     return _write((state) async {
@@ -341,6 +362,8 @@ class DirectChatRepository {
         fileName: fileName,
         fileSize: fileSize,
         fileSha256: fileSha256,
+        localPath: localPath,
+        inlineBytes: inlineBytes,
         voiceDurationMs: voiceDurationMs,
       );
       state.records[record.id] = record;
@@ -650,5 +673,27 @@ class _DirectChatState {
           storedNext > maxLocalSequence ? storedNext : maxLocalSequence + 1,
       records: records,
     );
+  }
+}
+
+/// Maximum inline payload for a chat file/image message (5 MB). Larger files
+/// are sent as metadata only — full file-transfer-subsystem delivery is not yet
+/// wired, so keep attachments within this budget (covers images & small docs).
+const int kMaxInlineChatFileBytes = 5 * 1024 * 1024;
+
+/// Persists inline file bytes received over chat and returns the saved path so
+/// the preview UI can open them directly. Returns null on any error.
+Future<String?> saveInlineChatFile(String fileName, List<int> bytes) async {
+  try {
+    final base = await getApplicationDocumentsDirectory();
+    final dir = Directory('${base.path}${Platform.pathSeparator}luoda_chat_received');
+    await dir.create(recursive: true);
+    final safeName = fileName.replaceAll(RegExp(r'[^0-9a-zA-Z._\-]'), '_');
+    final file = File('${dir.path}${Platform.pathSeparator}$safeName');
+    await file.writeAsBytes(bytes, flush: true);
+    return file.path;
+  } catch (e) {
+    debugPrint('Failed to save inline chat file: $e');
+    return null;
   }
 }
