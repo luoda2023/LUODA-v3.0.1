@@ -1153,7 +1153,7 @@ void main() {
 
   test('Windows Server registration uses the fixed TCP rendezvous endpoint',
       () {
-    expect(configRustSource, contains('47.114.75.115:21116'));
+    expect(configRustSource, contains('rev.dicad.cn:21116'));
     expect(rendezvousRustSource, contains('normalize_transport_options'));
     expect(rendezvousRustSource, contains('OPTION_ALLOW_WEBSOCKET'));
     expect(flutterFfiSource, contains('OPTION_DISABLE_UDP'));
