@@ -76,12 +76,12 @@ jobs:
           if-no-files-found: error
 
       - name: Rename web tarball for release
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/3.1.1'
+        if: github.ref == 'refs/heads/3.1.1'
         shell: pwsh
         run: |
           Copy-Item 'flutter/build/LUODA-web.tar.gz' 'flutter/build/LUODA-3.1.1-web.tar.gz'
       - name: Upload to Release
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/3.1.1'
+        if: github.ref == 'refs/heads/3.1.1'
         uses: softprops/action-gh-release@v2
         with:
           prerelease: false

@@ -197,7 +197,7 @@ jobs:
           path: LDesk-3.1.1.rpm
           if-no-files-found: error
       - name: Upload to Release
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/3.1.1'
+        if: github.ref == 'refs/heads/3.1.1'
         uses: softprops/action-gh-release@v2
         with:
           prerelease: false
