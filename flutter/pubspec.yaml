@@ -98,7 +98,7 @@ dependencies:
     git:
       url: https://github.com/luoda2023/flutter_gpu_texture_renderer
       ref: 08a471bb8ceccdd50483c81cdfa8b81b07b14b87
-  uuid: ^3.0.7
+  uuid: ^4.1.0
   auto_size_text_field: ^2.2.1
   flex_color_picker: ^3.3.0
   dynamic_layouts:
@@ -116,9 +116,9 @@ dependencies:
   chewie: ^1.8.1
   pdfx: ^2.3.0
   open_filex: ^4.7.0
-  # cap below 0.8.20: 0.8.20+ pulls super_native_extensions 0.8.20+ -> uuid ^4.1.0,
-  # which conflicts with the project's pinned uuid ^3.0.7. <=0.8.19 uses uuid ^3.
-  super_clipboard: ">=0.8.18 <0.8.20"
+  # super_clipboard 0.8.x -> super_native_extensions >=0.7.1 -> uuid ^4.1.0,
+  # so the project's uuid is pinned to ^4.1.0 to keep version solving green.
+  super_clipboard: ^0.8.18
 
 dev_dependencies:
   icons_launcher: ^2.0.4
