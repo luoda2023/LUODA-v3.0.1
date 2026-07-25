@@ -115,7 +115,7 @@ dependencies:
   video_player: ^2.8.1
   chewie: ^1.8.1
   pdfx: ^2.3.0
-  open_filex: ^5.5.0
+  open_filex: ^4.7.0
   super_clipboard: ^0.8.18
 
 dev_dependencies:
