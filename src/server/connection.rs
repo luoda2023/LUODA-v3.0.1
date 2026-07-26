@@ -1785,6 +1785,7 @@ impl Connection {
                     pi.current_display = 0;
                     res.set_peer_info(pi);
                     sub_service = true;
+                }
                 Ok(displays) => {
                     // For compatibility with old versions, we need to send the displays to the peer.
                     // But the displays may be updated later, before creating the video capturer.

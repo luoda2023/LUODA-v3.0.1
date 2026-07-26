@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:auto_size_text/auto_size_text.dart';
 import 'package:file_picker/file_picker.dart';
@@ -1104,6 +1105,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                   _sendFilesFromConversation(peerId),
                               onRemoteAssist: () =>
                                   _connectDirect(context, peerId),
+                              onPasteImage: () =>
+                                  _pasteImageToConversation(peerId),
                             )
                           : _buildEmptyConversation(
                               context,
@@ -2725,6 +2728,76 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     }
     _showConversationNotice(
       translate('Direct file transfer started.'),
+      tone: _WorkspaceNoticeTone.success,
+    );
+  }
+
+  /// Paste an image from the clipboard and send it as a file in the chat.
+  Future<void> _pasteImageToConversation(String peerId) async {
+    final data = await Clipboard.getData('image/png');
+    if (data == null) {
+      _showConversationNotice(
+        translate('No image in clipboard'),
+        tone: _WorkspaceNoticeTone.warning,
+      );
+      return;
+    }
+    final Uint8List bytes = data.bytes!;
+    if (bytes.isEmpty) {
+      _showConversationNotice(
+        translate('No image in clipboard'),
+        tone: _WorkspaceNoticeTone.warning,
+      );
+      return;
+    }
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final fileName = 'image_$timestamp.png';
+    final tempDir = Directory.systemTemp;
+    final file = File('${tempDir.path}${Platform.pathSeparator}$fileName');
+    try {
+      await file.writeAsBytes(bytes);
+    } catch (e) {
+      _showConversationNotice(
+        '${translate('Failed')}: $e',
+        tone: _WorkspaceNoticeTone.error,
+      );
+      return;
+    }
+    final ffi = await _ensureDirectFileSession(peerId);
+    if (ffi == null || !mounted) return;
+    final chatFfi = _directChatSessionFor(peerId);
+    final outgoingReady = chatFfi != null &&
+        !chatFfi.closed &&
+        chatFfi.ffiModel.pi.isSet.isTrue &&
+        chatFfi.ffiModel.direct == true;
+    final incoming = _incomingDirectChatClientFor(peerId);
+    final items = SelectedItems(isLocal: true);
+    items.add(
+      Entry()
+        ..path = file.path
+        ..name = fileName
+        ..size = bytes.length,
+    );
+    await ffi.fileModel.localController.sendFiles(
+      items,
+      ffi.fileModel.remoteController.directoryData(),
+    );
+    final chatModel = outgoingReady ? chatFfi.chatModel : gFFI.chatModel;
+    chatModel.changeCurrentKey(
+      MessageKey(
+        peerId,
+        outgoingReady
+            ? ChatModel.clientModeID
+            : incoming?.id ?? ChatModel.clientModeID,
+      ),
+    );
+    await chatModel.sendFileRecord(
+      fileName: fileName,
+      fileSize: bytes.length,
+      localPath: file.path,
+    );
+    _showConversationNotice(
+      translate('Image sent.'),
       tone: _WorkspaceNoticeTone.success,
     );
   }
