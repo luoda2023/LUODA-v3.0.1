@@ -218,7 +218,7 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
 
   updateStatus() async {
     final raw = await bind.mainGetConnectStatus();
-    final Map<String, dynamic> status;
+    Map<String, dynamic> status;
     try {
       final decoded = jsonDecode(raw);
       status = decoded is Map<String, dynamic>

@@ -19,7 +19,7 @@ class MeetingGroup {
     required this.title,
     required this.hostPeerId,
     required this.hostDisplayName,
-    this.createdAt,
+    DateTime? createdAt,
     this.members,
     this.activeSessionEndpoint = '',
     this.inviteShortCode = '',

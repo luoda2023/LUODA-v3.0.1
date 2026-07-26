@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 
 import '../../mobile/pages/home_page.dart';
 import '../../models/meeting_group_model.dart';
+import 'package:luoda_flutter/common/direct_viewer_invite.dart';
 import '../wechat_ui_tokens.dart';
 import 'file_viewer.dart';
 import 'voice_message_controls.dart';
@@ -436,168 +437,7 @@ class ChatPage extends StatelessWidget implements PageShape {
               }
             }
 
-            Widget messageBody(
-              ChatMessage message, {
-              required bool isOwnMessage,
-              required bool includeMetadata,
-            }) {
-              final foreground = dark ? Colors.white : const Color(0xFF181818);
-              final properties = message.customProperties;
-              final recalled = properties?['ldesk_disposition'] == 'recalled';
-              final isFile = !recalled && properties?['ldesk_kind'] == 'file';
-              final isVoice = !recalled && properties?['ldesk_kind'] == 'voice';
-              final messageId = (properties?['ldesk_id'] ?? '').toString();
-              final voiceDurationMs = int.tryParse(
-                    '${properties?['ldesk_voice_duration_ms'] ?? 0}',
-                  ) ??
-                  0;
-              final fileName =
-                  (properties?['ldesk_file_name'] ?? '').toString();
-              final fileSize = int.tryParse(
-                    '${properties?['ldesk_file_size'] ?? 0}',
-                  ) ??
-                  0;
-              final localPath =
-                  (properties?['ldesk_local_path'] ?? '').toString();
-              return Column(
-                crossAxisAlignment: isOwnMessage
-                    ? CrossAxisAlignment.end
-                    : CrossAxisAlignment.start,
-                children: <Widget>[
-                  if (isVoice && messageId.isNotEmpty)
-                    VoiceMessageBubble(
-                      chatModel: chatModel,
-                      messageId: messageId,
-                      durationMs: voiceDurationMs,
-                    )
-                  else if (isFile && fileName.isNotEmpty)
-                    InkWell(
-                      onTap: () => showFileViewer(
-                        context,
-                        fileName: fileName,
-                        fileSize: fileSize,
-                        localPath: localPath,
-                      ),
-                      borderRadius: BorderRadius.circular(8),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 2),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: <Widget>[
-                            Container(
-                              width: 44,
-                              height: 44,
-                              decoration: BoxDecoration(
-                                color: fileTypeColor(
-                                  fileName,
-                                  dark ? 0.18 : 0.12,
-                                ),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: fileTypeIcon(fileName) ==
-                                          Icons.image_outlined &&
-                                      localPath.isNotEmpty
-                                  ? ClipRRect(
-                                      borderRadius: BorderRadius.circular(8),
-                                      child: Image.file(
-                                        File(localPath),
-                                        width: 44,
-                                        height: 44,
-                                        fit: BoxFit.cover,
-                                        errorBuilder:
-                                            (_, __, ___) => Icon(
-                                          fileTypeIcon(fileName),
-                                          size: 22,
-                                          color: fileTypeColor(
-                                            fileName,
-                                            0.85,
-                                          ),
-                                        ),
-                                      ),
-                                    )
-                                  : Icon(
-                                      fileTypeIcon(fileName),
-                                      size: 22,
-                                      color: fileTypeColor(
-                                        fileName,
-                                        0.85,
-                                      ),
-                                    ),
-                            ),
-                            const SizedBox(width: 10),
-                            Flexible(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: <Widget>[
-                                  Text(
-                                    fileName,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: foreground,
-                                      fontSize: isDesktopHome ? 14 : 15,
-                                      fontWeight: FontWeight.w500,
-                                      height: 1.35,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    fileSizeLabel(fileSize),
-                                    style: TextStyle(
-                                      color: foreground.withOpacity(0.56),
-                                      fontSize: 11,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    )
-                  else if (message.text.trim().startsWith('luoda://join/') ||
-                      message.text.trim().startsWith('luoda://meeting/'))
-                    _buildInviteCard(context, message.text.trim())
-                  else
-                    Text(
-                      message.text,
-                      style: TextStyle(
-                        color: foreground,
-                        fontSize: isDesktopHome ? 14 : 15,
-                        height: 1.42,
-                        letterSpacing: 0,
-                      ),
-                    ),
-                  if (includeMetadata)
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        Text(
-                          '${message.createdAt.hour.toString().padLeft(2, '0')}:'
-                          '${message.createdAt.minute.toString().padLeft(2, '0')}',
-                          style: TextStyle(
-                            color: foreground.withOpacity(0.52),
-                            fontSize: 11,
-                          ),
-                        ),
-                        if (isOwnMessage &&
-                            deliveryLabel(message).isNotEmpty) ...<Widget>[
-                          const SizedBox(width: 5),
-                          Text(
-                            deliveryLabel(message),
-                            style: TextStyle(
-                              color: foreground.withOpacity(0.52),
-                              fontSize: 11,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ).marginOnly(top: 3),
-                ],
-              );
-            }
-
-            Widget _buildInviteCard(BuildContext context, String link) {
+            Widget _buildInviteCard(BuildContext context, String link, Color foreground) {
               // 会议群邀请: luoda://meeting/{meetingId}
               if (link.startsWith('luoda://meeting/')) {
                 final meetingId = link.split('luoda://meeting/').last.trim();
@@ -744,6 +584,168 @@ class ChatPage extends StatelessWidget implements PageShape {
                     ],
                   ),
                 ),
+              );
+            }
+
+
+            Widget messageBody(
+              ChatMessage message, {
+              required bool isOwnMessage,
+              required bool includeMetadata,
+            }) {
+              final foreground = dark ? Colors.white : const Color(0xFF181818);
+              final properties = message.customProperties;
+              final recalled = properties?['ldesk_disposition'] == 'recalled';
+              final isFile = !recalled && properties?['ldesk_kind'] == 'file';
+              final isVoice = !recalled && properties?['ldesk_kind'] == 'voice';
+              final messageId = (properties?['ldesk_id'] ?? '').toString();
+              final voiceDurationMs = int.tryParse(
+                    '${properties?['ldesk_voice_duration_ms'] ?? 0}',
+                  ) ??
+                  0;
+              final fileName =
+                  (properties?['ldesk_file_name'] ?? '').toString();
+              final fileSize = int.tryParse(
+                    '${properties?['ldesk_file_size'] ?? 0}',
+                  ) ??
+                  0;
+              final localPath =
+                  (properties?['ldesk_local_path'] ?? '').toString();
+              return Column(
+                crossAxisAlignment: isOwnMessage
+                    ? CrossAxisAlignment.end
+                    : CrossAxisAlignment.start,
+                children: <Widget>[
+                  if (isVoice && messageId.isNotEmpty)
+                    VoiceMessageBubble(
+                      chatModel: chatModel,
+                      messageId: messageId,
+                      durationMs: voiceDurationMs,
+                    )
+                  else if (isFile && fileName.isNotEmpty)
+                    InkWell(
+                      onTap: () => showFileViewer(
+                        context,
+                        fileName: fileName,
+                        fileSize: fileSize,
+                        localPath: localPath,
+                      ),
+                      borderRadius: BorderRadius.circular(8),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: <Widget>[
+                            Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                color: fileTypeColor(
+                                  fileName,
+                                  dark ? 0.18 : 0.12,
+                                ),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: fileTypeIcon(fileName) ==
+                                          Icons.image_outlined &&
+                                      localPath.isNotEmpty
+                                  ? ClipRRect(
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: Image.file(
+                                        File(localPath),
+                                        width: 44,
+                                        height: 44,
+                                        fit: BoxFit.cover,
+                                        errorBuilder:
+                                            (_, __, ___) => Icon(
+                                          fileTypeIcon(fileName),
+                                          size: 22,
+                                          color: fileTypeColor(
+                                            fileName,
+                                            0.85,
+                                          ),
+                                        ),
+                                      ),
+                                    )
+                                  : Icon(
+                                      fileTypeIcon(fileName),
+                                      size: 22,
+                                      color: fileTypeColor(
+                                        fileName,
+                                        0.85,
+                                      ),
+                                    ),
+                            ),
+                            const SizedBox(width: 10),
+                            Flexible(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: <Widget>[
+                                  Text(
+                                    fileName,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: foreground,
+                                      fontSize: isDesktopHome ? 14 : 15,
+                                      fontWeight: FontWeight.w500,
+                                      height: 1.35,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    fileSizeLabel(fileSize),
+                                    style: TextStyle(
+                                      color: foreground.withOpacity(0.56),
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  else if (message.text.trim().startsWith('luoda://join/') ||
+                      message.text.trim().startsWith('luoda://meeting/'))
+                    _buildInviteCard(context, message.text.trim(), foreground)
+                  else
+                    Text(
+                      message.text,
+                      style: TextStyle(
+                        color: foreground,
+                        fontSize: isDesktopHome ? 14 : 15,
+                        height: 1.42,
+                        letterSpacing: 0,
+                      ),
+                    ),
+                  if (includeMetadata)
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        Text(
+                          '${message.createdAt.hour.toString().padLeft(2, '0')}:'
+                          '${message.createdAt.minute.toString().padLeft(2, '0')}',
+                          style: TextStyle(
+                            color: foreground.withOpacity(0.52),
+                            fontSize: 11,
+                          ),
+                        ),
+                        if (isOwnMessage &&
+                            deliveryLabel(message).isNotEmpty) ...<Widget>[
+                          const SizedBox(width: 5),
+                          Text(
+                            deliveryLabel(message),
+                            style: TextStyle(
+                              color: foreground.withOpacity(0.52),
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ).marginOnly(top: 3),
+                ],
               );
             }
 

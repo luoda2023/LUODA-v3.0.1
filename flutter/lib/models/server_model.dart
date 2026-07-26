@@ -124,6 +124,9 @@ class ServerModel with ChangeNotifier {
 
   TextEditingController get serverId => _serverId;
 
+  /// The server's own peer ID (formatted), used for host identification.
+  String get id => _serverId.id;
+
   TextEditingController get serverPasswd => _serverPasswd;
 
   List<Client> get clients => _clients;
