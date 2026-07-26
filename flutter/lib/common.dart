@@ -1115,7 +1115,7 @@ class OverlayDialogManager {
 
       return CustomAlertDialog(
         content: Container(
-          constraints: const BoxConstraints(maxWidth: 240),
+          constraints: const BoxConstraints(maxWidth: 280),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1126,7 +1126,7 @@ class OverlayDialogManager {
               Center(
                 child: Text(
                   translate(text),
-                  style: const TextStyle(fontSize: 15),
+                  style: const TextStyle(fontSize: 17),
                 ),
               ),
               const SizedBox(height: 20),
