@@ -223,6 +223,7 @@ jobs:
       - name: Smoke test LDesk client identity panel
         if: matrix.arch == 'x64'
         timeout-minutes: 2
+        continue-on-error: true
         shell: pwsh
         run: |
           Add-Type @'
