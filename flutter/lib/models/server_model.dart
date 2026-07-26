@@ -592,8 +592,8 @@ class ServerModel with ChangeNotifier {
         }
         _clients.add(client);
       }
-      // 聊天连接自动授权，不弹授权窗口
-      if (!client.authorized && client.isChat) {
+      // 桌面端所有连接类型自动授权，不弹授权窗口（ID 连接 / IP 直连 / 聊天等）
+      if (!client.authorized && !isAndroid) {
         client.authorized = true;
         sendLoginResponse(client, true);
       }

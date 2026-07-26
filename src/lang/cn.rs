@@ -64,6 +64,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Not available", "不可用"),
         ("Too frequent", "修改太频繁，请稍后再试"),
         ("Cancel", "取消"),
+        ("Create", "创建"),
         ("Skip", "跳过"),
         ("Close", "关闭"),
         ("Retry", "再试"),

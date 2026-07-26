@@ -1015,6 +1015,11 @@ class FfiModel with ChangeNotifier {
         type == 'error' ||
         type == 'restarting' ||
         (type is String && type.contains('error'))) {
+      // 环境/基础设施问题（如被控端无物理显示器）对所有连接类型直接忽略，
+      // 不触发弹窗/重连/UI 变更，避免循环弹框卡死。
+      if (_isEnvironmentError(text?.toString() ?? '')) {
+        return;
+      }
       parent.target?.inputModel.setRelativeMouseMode(false);
       _lastConnectionError = text?.toString();
       firstFrameTimeoutTimer?.cancel();
