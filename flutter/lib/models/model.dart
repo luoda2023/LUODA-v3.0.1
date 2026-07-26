@@ -1039,6 +1039,16 @@ class FfiModel with ChangeNotifier {
         // second modal over the window after the transport has failed.
         return;
       }
+
+      // Chat mode: environment issues (e.g. "No displays") must not interrupt
+      // the chat UI with a modal. The pending message state has already been
+      // updated to queued/failed above.
+      if (parent.target?.connType == ConnType.chat &&
+          (title == 'Connection Error' ||
+              type == 'error' ||
+              type == 'restarting')) {
+        return;
+      }
     }
 
     if (parent.target?.suppressConnectionDialogs == true &&
@@ -1099,11 +1109,25 @@ class FfiModel with ChangeNotifier {
     String text,
   ) {
     final ffi = parent.target;
-    return ffi?.connType == ConnType.chat &&
-        type == 'error' &&
-        title == 'Connection Error' &&
-        text != 'Direct messages rejected by this contact' &&
-        bind.mainGetLocalOption(key: 'direct-chat-auto-reconnect') != 'N';
+    if (ffi?.connType != ConnType.chat) return false;
+    if (type != 'error' || title != 'Connection Error') return false;
+    if (text == 'Direct messages rejected by this contact') return false;
+    // 环境问题（如被控端无显示器）不应触发自动重连循环，
+    // 否则会持续弹"No displays"对话框且反复建连/断开。
+    if (_isEnvironmentError(text)) return false;
+    return bind.mainGetLocalOption(key: 'direct-chat-auto-reconnect') != 'N';
+  }
+
+  /// Returns true if the error text is an environmental/host issue
+  /// (no physical display, login session missing, etc.) rather than a real
+  /// transport failure. These should not trigger auto-reconnect loops.
+  bool _isEnvironmentError(String text) {
+    final lower = text.toLowerCase();
+    return lower.contains('display') ||
+        lower.contains('没有显示器') ||
+        lower.contains('wayland') ||
+        lower.contains('xorg') ||
+        lower.contains('session');
   }
 
   /// Auto-retry check for "Remote desktop is offline" error.
