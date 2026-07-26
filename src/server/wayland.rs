@@ -281,6 +281,7 @@ pub(super) fn get_capturer_for_display(
                 origin: rect.0,
                 width: rect.1,
                 height: rect.2,
+                display_name: format!(":{}", display_idx),
                 ndisplay: cap_display_info.num,
                 current: cap_display_info.current,
                 privacy_mode_id: 0,

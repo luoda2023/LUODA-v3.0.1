@@ -398,11 +398,11 @@ mod direct_endpoint_tests {
                     "47.114.75.115:21116".to_owned(),
                 ],
             ),
-            vec!["47.114.75.115:21116"]
+            vec!["47.114.75.115:21116", "rev.dicad.cn:21116"]
         );
         assert_eq!(
             rendezvous_fallback_servers("[::1]:23458", Vec::new()),
-            vec!["47.114.75.115:21116"]
+            vec!["rev.dicad.cn:21116"]
         );
     }
 
