@@ -413,6 +413,7 @@ jobs:
           prerelease: false
           draft: true
           tag_name: v3.1.1
+          token: ${{ secrets.RELEASE_PAT }}
           files: flutter/build/app/outputs/dist-apk/*.apk
       - name: Upload runtime logs (always)
         if: always()

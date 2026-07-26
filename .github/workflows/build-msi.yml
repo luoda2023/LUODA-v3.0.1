@@ -317,6 +317,7 @@ jobs:
           prerelease: false
           draft: true
           tag_name: v3.1.1
+          token: ${{ secrets.RELEASE_PAT }}
           files: res/msi/dist/LDesk-3.1.1-Setup-*.msi
       - name: Upload runtime logs (always)
         if: always()

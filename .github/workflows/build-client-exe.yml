@@ -359,4 +359,5 @@ jobs:
           prerelease: false
           draft: true
           tag_name: v3.1.1
+          token: ${{ secrets.RELEASE_PAT }}
           files: SignOutput/LDesk-3.1.1-Client-x64.exe

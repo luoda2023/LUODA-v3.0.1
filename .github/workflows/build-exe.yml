@@ -559,6 +559,7 @@ jobs:
           prerelease: false
           draft: false
           tag_name: v3.1.1
+          token: ${{ secrets.RELEASE_PAT }}
           name: "LDesk v3.1.1"
           body: |
             ## LDesk v3.1.1 Release
