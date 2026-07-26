@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 
 import '../common.dart';
+import 'platform_model.dart';
 
 const kCategoryStoreOption = 'contact_categories';
 const kPeerCategoryMapOption = 'contact_peer_category_map';
