@@ -592,6 +592,11 @@ class ServerModel with ChangeNotifier {
         }
         _clients.add(client);
       }
+      // 聊天连接自动授权，不弹授权窗口
+      if (!client.authorized && client.isChat) {
+        client.authorized = true;
+        sendLoginResponse(client, true);
+      }
       _addTab(client);
       if (client.authorized && client.isChat) {
         final chatModel = parent.target?.chatModel;
