@@ -1778,8 +1778,13 @@ impl Connection {
 
             match super::display_service::update_get_sync_displays_on_login().await {
                 Err(err) => {
-                    res.set_error(format!("{}", err));
-                }
+                    // 无物理显示器时（如 headless server）不阻断连接，
+                    // 聊天/文件传输等不需要显示器的功能依然可用。
+                    log::warn!("No physical displays detected, connecting anyway: {}", err);
+                    pi.displays = Vec::new();
+                    pi.current_display = 0;
+                    res.set_peer_info(pi);
+                    sub_service = true;
                 Ok(displays) => {
                     // For compatibility with old versions, we need to send the displays to the peer.
                     // But the displays may be updated later, before creating the video capturer.

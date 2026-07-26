@@ -451,7 +451,12 @@ pub(crate) fn no_displays(displays: &Vec<Display>) -> bool {
 #[inline]
 #[cfg(not(windows))]
 pub fn try_get_displays() -> ResultType<Vec<Display>> {
-    Ok(Display::all()?)
+    // 无物理显示器时不报错，返回空列表让连接继续
+    // （例如 headless server 只需聊天/文件传输，不需要实际屏幕捕获）
+    match Display::all() {
+        Ok(d) => Ok(d),
+        Err(_) => Ok(Vec::new()),
+    }
 }
 
 #[inline]
