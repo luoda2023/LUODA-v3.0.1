@@ -676,7 +676,7 @@ void main() {
     expect(modelSource, contains("'direct-chat-auto-reconnect'"));
     expect(
       modelSource,
-      contains("text != 'Direct messages rejected by this contact'"),
+      contains("text == 'Direct messages rejected by this contact'"),
     );
     expect(
       modelSource,

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:auto_size_text/auto_size_text.dart';
 import 'package:file_picker/file_picker.dart';
@@ -2732,34 +2731,19 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     );
   }
 
-  /// Paste an image from the clipboard and send it as a file in the chat.
+  /// Pick an image file and send it as a file in the chat.
+  /// (Standard Flutter cannot read raw image bytes from the clipboard, so we
+  /// use a file picker filtered to images.)
   Future<void> _pasteImageToConversation(String peerId) async {
-    final data = await Clipboard.getData('image/png');
-    if (data == null) {
+    final picked = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      allowMultiple: false,
+    );
+    final file = picked?.files.firstOrNull;
+    if (file == null || file.path == null) {
       _showConversationNotice(
-        translate('No image in clipboard'),
+        translate('No image selected'),
         tone: _WorkspaceNoticeTone.warning,
-      );
-      return;
-    }
-    final Uint8List bytes = data.bytes!;
-    if (bytes.isEmpty) {
-      _showConversationNotice(
-        translate('No image in clipboard'),
-        tone: _WorkspaceNoticeTone.warning,
-      );
-      return;
-    }
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final fileName = 'image_$timestamp.png';
-    final tempDir = Directory.systemTemp;
-    final file = File('${tempDir.path}${Platform.pathSeparator}$fileName');
-    try {
-      await file.writeAsBytes(bytes);
-    } catch (e) {
-      _showConversationNotice(
-        '${translate('Failed')}: $e',
-        tone: _WorkspaceNoticeTone.error,
       );
       return;
     }
@@ -2774,9 +2758,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final items = SelectedItems(isLocal: true);
     items.add(
       Entry()
-        ..path = file.path
-        ..name = fileName
-        ..size = bytes.length,
+        ..path = file.path!
+        ..name = file.name
+        ..size = file.size,
     );
     await ffi.fileModel.localController.sendFiles(
       items,
@@ -2792,9 +2776,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       ),
     );
     await chatModel.sendFileRecord(
-      fileName: fileName,
-      fileSize: bytes.length,
-      localPath: file.path,
+      fileName: file.name,
+      fileSize: file.size,
+      localPath: file.path!,
     );
     _showConversationNotice(
       translate('Image sent.'),
