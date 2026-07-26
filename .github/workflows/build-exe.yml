@@ -554,6 +554,7 @@ jobs:
       - name: Upload to v3.1.1 Release (x64 only)
         if: matrix.arch == 'x64' && github.ref == 'refs/heads/3.1.1'
         uses: softprops/action-gh-release@v2
+        continue-on-error: true
         with:
           prerelease: false
           draft: false
