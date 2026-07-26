@@ -388,7 +388,7 @@ mod direct_endpoint_tests {
     fn loopback_rendezvous_adds_normalized_public_fallbacks() {
         assert_eq!(
             rendezvous_fallback_servers("127.0.0.1:23458", Vec::new()),
-            vec!["47.114.75.115:21116"]
+            vec!["rev.dicad.cn:21116"]
         );
         assert_eq!(
             rendezvous_fallback_servers(
