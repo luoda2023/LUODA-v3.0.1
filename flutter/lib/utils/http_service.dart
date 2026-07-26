@@ -91,8 +91,11 @@ class HttpService {
       var parsedJson = jsonDecode(responseJson);
       String body = parsedJson['body'];
       Map<String, String> headers = {};
-      for (var key in parsedJson['headers'].keys) {
-        headers[key] = parsedJson['headers'][key];
+      final rawHeaders = parsedJson['headers'];
+      if (rawHeaders is Map) {
+        for (final key in rawHeaders.keys) {
+          headers[key.toString()] = rawHeaders[key]?.toString() ?? '';
+        }
       }
       int statusCode = parsedJson['status_code'];
       return http.Response(body, statusCode, headers: headers);

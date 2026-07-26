@@ -176,7 +176,7 @@ lazy_static::lazy_static! {
 #[cfg(all(feature = "flutter", feature = "plugin_framework"))]
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn plugin_block_input(peer: &str, block: bool) -> bool {
-    if let Some(tx) = PLUGIN_BLOCK_INPUT_TXS.lock().unwrap().get(peer) {
+    if let Some(tx) = PLUGIN_BLOCK_INPUT_TXS.lock().expect("plugin block lock poisoned").get(peer) {
         let _ = tx.send(if block {
             MessageInput::BlockOnPlugin(peer.to_string())
         } else {

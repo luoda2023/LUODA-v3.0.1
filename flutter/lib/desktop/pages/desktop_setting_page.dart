@@ -93,15 +93,15 @@ class DesktopSettingPage extends StatefulWidget {
       final jsonStr = bind.getSettingsTabConfig();
       final config = jsonDecode(jsonStr) as Map<String, dynamic>;
 
-      final isOutgoingOnly = config['is_outgoing_only'] as bool;
-      final isIncomingOnly = config['is_incoming_only'] as bool;
-      final isDisableSettings = config['is_disable_settings'] as bool;
-      final isDisableAccount = config['is_disable_account'] as bool;
-      final hideSecuritySetting = config['hide_security_setting'] as bool;
-      final hideNetworkSetting = config['hide_network_setting'] as bool;
+      final isOutgoingOnly = config['is_outgoing_only'] == true;
+      final isIncomingOnly = config['is_incoming_only'] == true;
+      final isDisableSettings = config['is_disable_settings'] == true;
+      final isDisableAccount = config['is_disable_account'] == true;
+      final hideSecuritySetting = config['hide_security_setting'] == true;
+      final hideNetworkSetting = config['hide_network_setting'] == true;
       final hideRemotePrinterSetting =
-          config['hide_remote_printer_setting'] as bool;
-      final pluginFeatureEnabled = config['plugin_feature_enabled'] as bool;
+          config['hide_remote_printer_setting'] == true;
+      final pluginFeatureEnabled = config['plugin_feature_enabled'] == true;
 
       if (!isWeb &&
           !isOutgoingOnly &&

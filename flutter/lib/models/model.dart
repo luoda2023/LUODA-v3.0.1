@@ -563,6 +563,7 @@ class FfiModel with ChangeNotifier {
 
   _handleScreenshot(
       Map<String, dynamic> evt, SessionID sessionId, String peerId) {
+    if (parent.target == null) return;
     timerScreenshot?.cancel();
     timerScreenshot = null;
     final msg = evt['msg'] ?? '';
@@ -631,6 +632,7 @@ class FfiModel with ChangeNotifier {
 
   _handlePrinterRequest(
       Map<String, dynamic> evt, SessionID sessionId, String peerId) {
+    if (parent.target == null) return;
     final id = evt['id'];
     final path = evt['path'];
     final dialogManager = parent.target!.dialogManager;
@@ -902,7 +904,7 @@ class FfiModel with ChangeNotifier {
 
   handleSwitchDisplay(
       Map<String, dynamic> evt, SessionID sessionId, String peerId) {
-    final display = int.parse(evt['display']);
+    final display = int.tryParse(evt['display']?.toString() ?? '') ?? 0;
 
     if (_pi.currentDisplay != kAllDisplayValue) {
       if (bind.peerGetSessionsCount(
@@ -3493,8 +3495,8 @@ class CursorModel with ChangeNotifier {
     final id = evt['id'];
     final hotx = double.parse(evt['hotx']);
     final hoty = double.parse(evt['hoty']);
-    final width = int.parse(evt['width']);
-    final height = int.parse(evt['height']);
+    final width = int.tryParse(evt['width']?.toString() ?? '') ?? 0;
+    final height = int.tryParse(evt['height']?.toString() ?? '') ?? 0;
     List<dynamic> colors = json.decode(evt['colors']);
     final rgba = Uint8List.fromList(colors.map((s) => s as int).toList());
     final image = await img.decodeImageFromPixels(

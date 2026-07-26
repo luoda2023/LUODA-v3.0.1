@@ -1,29 +1,36 @@
-.ci_auto_heal/
-.auto_build_logs/
-.github/artifacts/
-*.zip
-!res/drivers/*.zip
-*.apk
-*.aab
-*.dmg
-*.exe
-*.msi
-*.deb
-*.rpm
+# Rust build artifacts
 target/
-!target/.rustc_info.json
-!target/CACHEDIR.TAG
-
-# LUODA 3.1.1 local helper / runtime files (not part of source tree)
-.aom-check.log
-.build_status.log
-.build_status.txt
-.build_stop.txt
-.failed-dmg-logs-extract/
-build-check.log
-monitor_builds.ps1
-publish_release.ps1
-temp_orig_utf8.txt
 _archive/
 artifacts/
-vcpkg_installed/
+*.log
+*.txt
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Local config (not to be committed)
+.workbuddy/
+qa-artifacts/
+step16_log.txt
+
+# Flutter build artifacts
+flutter/build/
+flutter/.dart_tool/
+flutter/.packages
+flutter/.flutter-plugins*
+flutter/pubspec.lock
+flutter/coverage/
+
+# CI runtime logs
+**/ci-runtime-logs/**

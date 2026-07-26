@@ -331,7 +331,7 @@ impl ClipboardContext {
         side: ClipboardSide,
         force: bool,
     ) -> ResultType<Vec<ClipboardData>> {
-        let _lock = ARBOARD_MTX.lock().unwrap();
+        let _lock = ARBOARD_MTX.lock().expect("clipboard mutex poisoned");
         let data = self.get_formats(formats)?;
         if data.is_empty() {
             return Ok(data);
@@ -377,7 +377,7 @@ impl ClipboardContext {
     }
 
     fn set(&mut self, data: &[ClipboardData]) -> ResultType<()> {
-        let _lock = ARBOARD_MTX.lock().unwrap();
+        let _lock = ARBOARD_MTX.lock().expect("clipboard mutex poisoned");
         self.inner.set_formats(data)?;
         Ok(())
     }
@@ -416,7 +416,7 @@ impl ClipboardContext {
 
     #[cfg(feature = "unix-file-copy-paste")]
     fn try_empty_clipboard_files(&mut self, side: ClipboardSide) {
-        let _lock = ARBOARD_MTX.lock().unwrap();
+        let _lock = ARBOARD_MTX.lock().expect("clipboard mutex poisoned");
         if let Ok(data) = self.get_formats(&[ClipboardFormat::FileUrl]) {
             let urls = Self::get_file_urls_set_by_luoda(data, side);
             if !urls.is_empty() {

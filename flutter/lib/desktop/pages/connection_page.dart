@@ -217,8 +217,16 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
   }
 
   updateStatus() async {
-    final status =
-        jsonDecode(await bind.mainGetConnectStatus()) as Map<String, dynamic>;
+    final raw = await bind.mainGetConnectStatus();
+    final Map<String, dynamic> status;
+    try {
+      final decoded = jsonDecode(raw);
+      status = decoded is Map<String, dynamic>
+          ? decoded
+          : <String, dynamic>{};
+    } catch (_) {
+      status = <String, dynamic>{};
+    }
     final listenerStatus =
         bind.mainGetOptionSync(key: kOptionDirectListenerStatus);
     var svcStatus = switch (listenerStatus) {

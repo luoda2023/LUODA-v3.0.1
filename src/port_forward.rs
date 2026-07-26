@@ -30,7 +30,6 @@ fn run_rdp(port: u16) {
         if !password.is_empty() {
             args.push(format!("/pass:{}", password));
         }
-        println!("{:?}", args);
         std::process::Command::new("cmdkey")
             .args(&args)
             .output()
@@ -92,7 +91,7 @@ pub async fn listen(
                         break;
                     }
                     Some(Data::NewRDP) => {
-                        println!("receive run_rdp from ui_receiver");
+                        log::info!("run_rdp from ui_receiver");
                         run_rdp(addr.port());
                     }
                     _ => {}

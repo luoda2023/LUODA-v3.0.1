@@ -1320,7 +1320,9 @@ pub fn main_get_use_texture_render() -> SyncReturn<bool> {
 }
 
 pub fn main_get_env(key: String) -> SyncReturn<String> {
-    SyncReturn(std::env::var(key).unwrap_or_default())
+    const ALLOWED_PREFIXES: &[&str] = &["RUSTDESK_", "LDESK_", "FLUTTER_", "RUST_"];
+    let safe = ALLOWED_PREFIXES.iter().any(|p| key.starts_with(p));
+    SyncReturn(if safe { std::env::var(key).unwrap_or_default() } else { String::new() })
 }
 
 // Dart does not support changing environment variables.

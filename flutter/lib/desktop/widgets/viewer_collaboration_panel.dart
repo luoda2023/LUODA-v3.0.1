@@ -59,6 +59,9 @@ class ViewerCollaborationPanel extends StatelessWidget {
       hostLabel: '${translate('Remote Desktop')}: ${ffi.id}',
       hostEndpoint: hostEndpoint,
       viewerSessionModel: ffi.viewerSessionModel,
+      onSendToChat: (link) {
+        ffi.chatModel.sendText(link);
+      },
     );
   }
 

@@ -1170,8 +1170,8 @@ impl<T: InvokeUiSession> Remote<T> {
                 v.fps_control.inactive_counter = 0;
             }
         });
-        let custom_fps = self.handler.lc.read().unwrap().custom_fps.clone();
-        let custom_fps = custom_fps.lock().unwrap().clone();
+        let custom_fps = self.handler.lc.read().expect("lc lock poisoned").custom_fps.clone();
+        let custom_fps = custom_fps.lock().expect("custom_fps lock poisoned").clone();
         let mut custom_fps = custom_fps.unwrap_or(30);
         if custom_fps < 5 || custom_fps > 120 {
             custom_fps = 30;

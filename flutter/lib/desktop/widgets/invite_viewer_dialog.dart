@@ -64,6 +64,11 @@ class InviteViewerDialog extends StatefulWidget {
     required bool oneShot,
   })? requestInviteToken;
 
+  /// Optional callback: when non-null, a "Send to Chat" button is shown
+  /// alongside "Copy Invite Link". The dialog passes the deeplink string
+  /// so the caller can dispatch it via [ChatModel.sendText].
+  final void Function(String inviteLink)? onSendToChat;
+
   const InviteViewerDialog({
     super.key,
     required this.sessionId,
@@ -71,6 +76,7 @@ class InviteViewerDialog extends StatefulWidget {
     required this.hostEndpoint,
     required this.viewerSessionModel,
     this.requestInviteToken,
+    this.onSendToChat,
   });
 
   /// Convenience wrapper — pushes the dialog onto [context] and returns
@@ -81,6 +87,7 @@ class InviteViewerDialog extends StatefulWidget {
     required String hostLabel,
     required String hostEndpoint,
     required ViewerSessionModel viewerSessionModel,
+    void Function(String inviteLink)? onSendToChat,
   }) {
     return showDialog<InviteViewerResult>(
       context: context,
@@ -90,6 +97,7 @@ class InviteViewerDialog extends StatefulWidget {
         hostLabel: hostLabel,
         hostEndpoint: hostEndpoint,
         viewerSessionModel: viewerSessionModel,
+        onSendToChat: onSendToChat,
       ),
     );
   }
@@ -249,11 +257,17 @@ class _InviteViewerDialogState extends State<InviteViewerDialog> {
               Navigator.of(context).pop<InviteViewerResult>(_result()),
           child: Text(translate('Cancel')),
         ),
-        if (_shortCode != null)
+        if (_shortCode != null) ...[
           TextButton(
             onPressed: _copyLink,
             child: Text(translate('Copy Invite Link')),
           ),
+          if (widget.onSendToChat != null)
+            TextButton(
+              onPressed: _sendToChat,
+              child: Text(translate('Send to Chat')),
+            ),
+        ],
       ],
     );
   }
@@ -349,6 +363,15 @@ class _InviteViewerDialogState extends State<InviteViewerDialog> {
     await Clipboard.setData(ClipboardData(text: _deeplink));
     if (mounted) {
       showToast(translate('Copy Invite Link'));
+    }
+  }
+
+  void _sendToChat() {
+    final link = _deeplink;
+    widget.onSendToChat?.call(link);
+    if (mounted) {
+      showToast(translate('Sent to Chat'));
+      Navigator.of(context).pop<InviteViewerResult>(_result());
     }
   }
 }

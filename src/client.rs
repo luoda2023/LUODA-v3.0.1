@@ -469,7 +469,7 @@ pub fn get_key_state(key: enigo::Key) -> bool {
     if key == enigo::Key::NumLock {
         return true;
     }
-    ENIGO.lock().unwrap().get_key_state(key)
+    ENIGO.lock().expect("ENIGO mutex poisoned").get_key_state(key)
 }
 
 impl Client {

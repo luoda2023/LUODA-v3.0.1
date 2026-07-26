@@ -21,6 +21,8 @@ import 'package:luoda_flutter/desktop/pages/desktop_tab_page.dart';
 import 'package:luoda_flutter/desktop/widgets/update_progress.dart';
 import 'package:luoda_flutter/desktop/widgets/desktop_primary_rail.dart';
 import 'package:luoda_flutter/models/chat_model.dart';
+import 'package:luoda_flutter/models/meeting_group_model.dart';
+import 'package:luoda_flutter/models/contact_category_model.dart';
 import 'package:luoda_flutter/models/file_model.dart';
 import 'package:luoda_flutter/models/model.dart';
 import 'package:luoda_flutter/models/peer_model.dart';
@@ -108,6 +110,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   final RxBool _settingsHover = false.obs;
   final RxBool _relayHover = false.obs;
   final RxBool _block = false.obs;
+  final ContactCategoryModel _categoryModel = ContactCategoryModel();
+  String? _draggingPeerId; // 当前正在拖拽的联系人 ID
+  String? _selectedCategoryFilter; // 当前选中的分类过滤器（null = 全部）
 
   final GlobalKey _childKey = GlobalKey();
 
@@ -211,8 +216,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     Offset position, {
     Peer? peer,
   }) async {
-    final overlayBox =
-        Overlay.of(context).context.findRenderObject() as RenderBox;
+    final overlayObj = Overlay.of(context).context.findRenderObject();
+    if (overlayObj is! RenderBox) return;
+    final overlayBox = overlayObj as RenderBox;
     final localPosition = overlayBox.globalToLocal(position);
     final anchor = Rect.fromLTWH(localPosition.dx, localPosition.dy, 1, 1);
     final action = await showMenu<String>(
@@ -475,6 +481,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                       case 'identity':
                         _showIdentityDialog(context);
                         return;
+                      case 'create-meeting':
+                        _showCreateMeetingDialog(context);
+                        return;
                     }
                   },
                   itemBuilder: (context) => <PopupMenuEntry<String>>[
@@ -494,8 +503,19 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                       value: 'identity',
                       child: Text(translate('My Identity')),
                     ),
+                    if (_selectedRailId == 'chat' || _selectedRailId == 'contacts')
+                      PopupMenuItem<String>(
+                        value: 'create-meeting',
+                        child: Text(translate('Create Meeting')),
+                      ),
                   ],
                 ),
+                if (_selectedRailId == 'contacts')
+                  IconButton(
+                    tooltip: translate('Add Category'),
+                    icon: const Icon(Icons.create_new_folder_outlined, size: 22),
+                    onPressed: () => _showAddCategoryDialog(context),
+                  ),
               ],
             ),
           ),
@@ -604,10 +624,246 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             ]),
             builder: (context, _) => _buildPresenceStatusStrip(context),
           ),
-          Expanded(child: _buildContactSection(context)),
-        ],
-      ),
+          if (_selectedRailId == 'contacts') _buildCategoryFilterBar(context),
+ Expanded(child: _buildContactSection(context)),
+ ],
+ ),
+ );
+ }
+
+  /// 分类过滤器栏 - 显示在联系人列表上方，支持点击筛选与拖拽投放
+  Widget _buildCategoryFilterBar(BuildContext context) {
+    final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
+    return Obx(() {
+      final categories = _categoryModel.categories;
+      if (categories.isEmpty && _selectedCategoryFilter == null) {
+        return const SizedBox.shrink();
+      }
+      return Container(
+        height: 40,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        child: ListView.builder(
+          scrollDirection: Axis.horizontal,
+          itemCount: categories.length + 1,
+          itemBuilder: (context, index) {
+            if (index == 0) {
+              final isSelected = _selectedCategoryFilter == null;
+              return Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: _buildCategoryChip(
+                  label: translate('All'),
+                  count: null,
+                  isSelected: isSelected,
+                  onTap: () => setState(() => _selectedCategoryFilter = null),
+                  color: isSelected
+                      ? theme.colorScheme.primary
+                      : (dark ? const Color(0xFF3A3D43) : const Color(0xFFE0E5EA)),
+                  onAcceptPeer: (_) {},
+                ),
+              );
+            }
+            final category = categories[index - 1];
+            final isSelected = _selectedCategoryFilter == category.name;
+            return Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: _buildCategoryChip(
+                label: category.name,
+                count: _categoryModel.getCategoryCount(category.name),
+                isSelected: isSelected,
+                onTap: () =>
+                    setState(() => _selectedCategoryFilter = isSelected ? null : category.name),
+                color: isSelected
+                    ? theme.colorScheme.primary
+                    : (dark ? const Color(0xFF3A3D43) : const Color(0xFFE0E5EA)),
+                onAcceptPeer: (peerId) {
+                  _categoryModel.setPeerCategory(peerId, category.name);
+                  showToast(translate('Moved to {name}').replaceAll('{name}', category.name));
+                },
+              ),
+            );
+          },
+        ),
+      );
+    });
+  }
+
+  /// 分类标签（可点击筛选，可作为拖放目标接收联系人）
+  Widget _buildCategoryChip({
+    required String label,
+    required int? count,
+    required bool isSelected,
+    required VoidCallback onTap,
+    required Color color,
+    required void Function(String peerId) onAcceptPeer,
+  }) {
+    final theme = Theme.of(context);
+    return DragTarget<String>(
+      onWillAcceptWithDetails: (details) => details.data.isNotEmpty,
+      onAcceptWithDetails: (details) {
+        final peerId = details.data;
+        if (peerId.isNotEmpty) onAcceptPeer(peerId);
+      },
+      builder: (context, candidateData, rejectedData) {
+        final isHover = candidateData.isNotEmpty;
+        return GestureDetector(
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            decoration: BoxDecoration(
+              color: isHover
+                  ? color.withOpacity(0.4)
+                  : isSelected
+                      ? color
+                      : color.withOpacity(0.5),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: isHover ? theme.colorScheme.primary : color,
+                width: isHover ? 2 : 1,
+              ),
+            ),
+            child: Row(
+              children: <Widget>[
+                Icon(
+                  Icons.folder_outlined,
+                  size: 14,
+                  color: (isSelected || isHover) ? Colors.white : theme.colorScheme.onSurface,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: (isSelected || isHover)
+                        ? Colors.white
+                        : theme.colorScheme.onSurface,
+                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                  ),
+                ),
+                if (count != null && count > 0) ...<Widget>[
+                  const SizedBox(width: 4),
+                  Text(
+                    '$count',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: (isSelected || isHover)
+                          ? Colors.white70
+                          : theme.colorScheme.onSurface.withOpacity(0.5),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
     );
+  }
+
+  /// 显示添加分类对话框
+  void _showAddCategoryDialog(BuildContext context) {
+    final controller = TextEditingController();
+    gFFI.dialogManager.show((setState, close, ctx) {
+      return CustomAlertDialog(
+        title: Text(translate('Add Category')),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: InputDecoration(
+            hintText: translate('Category Name'),
+            border: const OutlineInputBorder(),
+          ),
+        ),
+        actions: <Widget>[
+          dialogButton('Cancel', onPressed: close),
+          dialogButton(
+            'OK',
+            onPressed: () {
+              final name = controller.text.trim();
+              if (name.isNotEmpty) _categoryModel.addCategory(name);
+              close();
+            },
+          ),
+        ],
+        onSubmit: () {
+          final name = controller.text.trim();
+          if (name.isNotEmpty) _categoryModel.addCategory(name);
+          close();
+        },
+        onCancel: close,
+      );
+    });
+  }
+
+  /// 显示创建会议对话框
+  void _showCreateMeetingDialog(BuildContext context) {
+    final controller = TextEditingController();
+    gFFI.dialogManager.show((setState, close, ctx) {
+      return CustomAlertDialog(
+        title: Text(translate('Create Meeting')),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: controller,
+              autofocus: true,
+              decoration: InputDecoration(
+                hintText: translate('Meeting Title'),
+                border: const OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              translate('Members can watch your session and chat in group'),
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+              ),
+            ),
+          ],
+        ),
+        actions: <Widget>[
+          dialogButton('Cancel', onPressed: close),
+          dialogButton(
+            'Create',
+            onPressed: () {
+              final title = controller.text.trim();
+              if (title.isEmpty) return;
+              final group = MeetingGroupStore.create(
+                title: title,
+                hostPeerId: gFFI.serverModel.id,
+                hostDisplayName: gFFI.serverModel.serverId.text,
+              );
+              close();
+              // 发送邀请链接到聊天，方便邀请其他人
+              if (group.meetingId.isNotEmpty) {
+                showToast(translate('Meeting created'));
+                // 自动生成邀请链接并复制
+                final link = 'luoda://meeting/${group.meetingId}';
+                _copyToClipboard(link);
+                showToast(translate('Invite link copied'));
+              }
+            },
+          ),
+        ],
+        onSubmit: () {
+          final title = controller.text.trim();
+          if (title.isEmpty) return;
+          MeetingGroupStore.create(
+            title: title,
+            hostPeerId: gFFI.serverModel.id,
+            hostDisplayName: gFFI.serverModel.serverId.text,
+          );
+          close();
+        },
+        onCancel: close,
+      );
+    });
+  }
+
+  void _copyToClipboard(String text) {
+    // Clipboard copy is async, fire-and-forget
+    unawaited(Clipboard.setData(ClipboardData(text: text)));
   }
 
   Widget _buildPresenceStatusStrip(BuildContext context) {
@@ -1304,6 +1560,12 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               !peer.id.toLowerCase().contains(query)) {
             continue;
           }
+          // 按分类筛选
+          if (_selectedCategoryFilter != null &&
+              _selectedRailId == 'contacts' &&
+              _categoryModel.getPeerCategory(peer.id) != _selectedCategoryFilter) {
+            continue;
+          }
           final identity = _historyIdentity(peer);
           if ((_selectedRailId == 'recent' || _selectedRailId == 'history') &&
               !seenPeerKeys.add(identity)) {
@@ -1317,6 +1579,12 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 : const <DirectPairing>[])
             .where((pairing) {
           if (peerIds.contains(pairing.peerId)) return false;
+          // 分类筛选（独立于搜索，需要先判断）
+          if (_selectedCategoryFilter != null &&
+              _selectedRailId == 'contacts' &&
+              _categoryModel.getPeerCategory(pairing.peerId) != _selectedCategoryFilter) {
+            return false;
+          }
           if (query.isEmpty) return true;
           return pairing.peerId.toLowerCase().contains(query) ||
               pairing.displayName.toLowerCase().contains(query) ||
@@ -1474,7 +1742,14 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           ..sort(
             (a, b) => _conversationTime(b).compareTo(_conversationTime(a)),
           );
-        if (entries.isEmpty) {
+        final meetings = MeetingGroupStore.all;
+        final meetingEntries = meetings.where((m) {
+          if (query.isEmpty) return true;
+          return m.title.toLowerCase().contains(query);
+        }).toList(growable: false)
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        final totalItems = meetingEntries.length + entries.length;
+        if (totalItems == 0) {
           return Center(
             child: Padding(
               padding: const EdgeInsets.all(24),
@@ -1506,7 +1781,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         }
         return ListView.separated(
           padding: EdgeInsets.zero,
-          itemCount: entries.length,
+          itemCount: totalItems,
           separatorBuilder: (_, __) => Divider(
             height: 1,
             indent: 65,
@@ -1516,7 +1791,75 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 : kWeChatDividerColor,
           ),
           itemBuilder: (context, index) {
-            final entry = entries[index];
+            if (index < meetingEntries.length) {
+              final meeting = meetingEntries[index];
+              final isSelected = _selectedConversationPeerId == 'meeting:${meeting.meetingId}';
+              return GestureDetector(
+                onTap: () {
+                  setState(() {
+                    _selectedConversationPeerId = 'meeting:${meeting.meetingId}';
+                    _selectedContact = null;
+                    _activeDirectChatPeerId = null;
+                  });
+                  gFFI.chatModel.changeCurrentKey(
+                    MessageKey('meeting:${meeting.meetingId}', ChatModel.clientModeID),
+                  );
+                },
+                child: Material(
+                  color: isSelected
+                      ? Theme.of(context).brightness == Brightness.dark
+                          ? const Color(0xFF087A4E)
+                          : kWeChatSelectedConversationColor
+                      : Colors.transparent,
+                  child: InkWell(
+                    child: SizedBox(
+                      height: 68,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        child: Row(
+                          children: <Widget>[
+                            Container(
+                              width: 40,
+                              height: 40,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF1A8E1A).withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Icon(Icons.groups_rounded, size: 22, color: Color(0xFF1A8E1A)),
+                            ),
+                            const SizedBox(width: 11),
+                            Expanded(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: <Widget>[
+                                  Text(
+                                    meeting.title,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w500),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    '${meeting.members?.length ?? 1} ${translate('members')} · ${meeting.isHost ? translate('Host') : translate('Member')}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: theme.colorScheme.onSurface.withOpacity(0.48),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }
+            final entry = entries[index - meetingEntries.length];
             final peerId = entry.key.peerId;
             final user = entry.value.chatUser;
             final name = (user.firstName ?? '').trim();
@@ -1753,13 +2096,53 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
   Widget _buildContactItem(BuildContext context, Peer peer) {
     final ffi = _directChatSessionFor(peer.id);
-    if (ffi != null) {
-      return AnimatedBuilder(
-        animation: ffi.ffiModel,
-        builder: (context, _) => _buildContactItemBody(context, peer),
-      );
-    }
-    return _buildContactItemBody(context, peer);
+    final body = ffi != null
+        ? AnimatedBuilder(
+            animation: ffi.ffiModel,
+            builder: (context, _) => _buildContactItemBody(context, peer),
+          )
+        : _buildContactItemBody(context, peer);
+    // 仅在联系人（contacts）视图下启用长按拖拽到分类
+    if (_selectedRailId != 'contacts') return body;
+    return LongPressDraggable<String>(
+      data: peer.id,
+      delay: const Duration(milliseconds: 200),
+      feedback: _buildDragFeedback(context, peer),
+      childWhenDragging: Opacity(opacity: 0.3, child: body),
+      onDragStarted: () => setState(() => _draggingPeerId = peer.id),
+      onDragEnd: (_) => setState(() => _draggingPeerId = null),
+      child: body,
+    );
+  }
+
+  Widget _buildDragFeedback(BuildContext context, Peer peer) {
+    final theme = Theme.of(context);
+    return Material(
+      elevation: 6,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        width: 240,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.primary,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: <Widget>[
+            const Icon(Icons.person_rounded, color: Colors.white, size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                _contactName(peer),
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildContactItemBody(BuildContext context, Peer peer) {
@@ -4319,11 +4702,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
   @override
   void initState() {
-    super.initState();
-    gFFI.chatModel.ensureChatConnection = (peerId) async {
-      if (DirectPairingStore.resolveConnectionTarget(peerId) == null) return;
-      await _startDirectChat(peerId, activate: false);
-    };
+ super.initState();
+ _categoryModel.load();
+ MeetingGroupStore.load();
+ gFFI.chatModel.ensureChatConnection = (peerId) async {
+ if (DirectPairingStore.resolveConnectionTarget(peerId) == null) return;
+ await _startDirectChat(peerId, activate: false);
+ };
     pendingViewerInvite.addListener(_handlePendingViewerInvite);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _handlePendingViewerInvite();

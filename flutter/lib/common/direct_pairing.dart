@@ -16,6 +16,7 @@ class DirectPairing {
     this.companion = false,
     this.syncSecret = '',
     this.avatar = '',
+    this.ddnsEndpoint = '',
   });
 
   final String peerId;
@@ -27,14 +28,22 @@ class DirectPairing {
   final bool companion;
   final String syncSecret;
   final String avatar;
+  /// DDNS domain:port, e.g. my-pc.example.com:21116
+  /// When set, the client resolves the domain via DNS AAAA (IPv6) first,
+  /// then falls back to A record (IPv4). This enables direct P2P without
+  /// relay when both sides have IPv6.
+  final String ddnsEndpoint;
 
   List<String> get endpoints => <String>{
+        if (ddnsEndpoint.isNotEmpty) ddnsEndpoint,
         if (lanEndpoint.isNotEmpty) lanEndpoint,
         if (publicEndpoint.isNotEmpty) publicEndpoint,
       }.toList(growable: false);
 
   String get preferredEndpoint =>
-      lanEndpoint.isNotEmpty ? lanEndpoint : publicEndpoint;
+      ddnsEndpoint.isNotEmpty ? ddnsEndpoint
+      : lanEndpoint.isNotEmpty ? lanEndpoint
+      : publicEndpoint;
 
   String get connectionTarget {
     final key = fingerprint.replaceAll(':', '').replaceAll(' ', '');
@@ -60,6 +69,7 @@ class DirectPairing {
         'fingerprint': fingerprint,
         'updated_at': updatedAt.toUtc().toIso8601String(),
         'companion': companion,
+        if (ddnsEndpoint.isNotEmpty) 'ddns_endpoint': ddnsEndpoint,
         if (avatar.isNotEmpty) 'avatar': avatar,
         if (includeSecret && syncSecret.isNotEmpty) 'sync_secret': syncSecret,
       };
@@ -76,6 +86,7 @@ class DirectPairing {
       companion: json['companion'] == true,
       syncSecret: (json['sync_secret'] ?? '').toString(),
       avatar: (json['avatar'] ?? '').toString(),
+      ddnsEndpoint: (json['ddns_endpoint'] ?? '').toString().trim(),
     );
   }
 }

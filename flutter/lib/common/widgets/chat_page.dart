@@ -8,6 +8,7 @@ import 'package:get/get.dart';
 import 'package:provider/provider.dart';
 
 import '../../mobile/pages/home_page.dart';
+import '../../models/meeting_group_model.dart';
 import '../wechat_ui_tokens.dart';
 import 'file_viewer.dart';
 import 'voice_message_controls.dart';
@@ -554,6 +555,9 @@ class ChatPage extends StatelessWidget implements PageShape {
                         ),
                       ),
                     )
+                  else if (message.text.trim().startsWith('luoda://join/') ||
+                      message.text.trim().startsWith('luoda://meeting/'))
+                    _buildInviteCard(context, message.text.trim())
                   else
                     Text(
                       message.text,
@@ -590,6 +594,156 @@ class ChatPage extends StatelessWidget implements PageShape {
                       ],
                     ).marginOnly(top: 3),
                 ],
+              );
+            }
+
+            Widget _buildInviteCard(BuildContext context, String link) {
+              // 会议群邀请: luoda://meeting/{meetingId}
+              if (link.startsWith('luoda://meeting/')) {
+                final meetingId = link.split('luoda://meeting/').last.trim();
+                final theme = Theme.of(context);
+                final dark = theme.brightness == Brightness.dark;
+                return GestureDetector(
+                  onTap: () {
+                    final group = MeetingGroupStore.find(meetingId);
+                    if (group != null) {
+                      // 已有此会议记录，切换到会议聊天
+                    } else {
+                      showToast(translate('Opening meeting...'));
+                    }
+                  },
+                  child: Container(
+                    width: 240,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: dark ? const Color(0xFF2A3A2A) : const Color(0xFFEDF7ED),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: dark ? const Color(0xFF3A6A3A) : const Color(0xFFB8E8B8),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Row(
+                          children: <Widget>[
+                            Icon(Icons.groups_rounded, size: 18,
+                                color: dark ? const Color(0xFF7AE87A) : const Color(0xFF1A8E1A)),
+                            const SizedBox(width: 8),
+                            Text(
+                              translate('Meeting Invitation'),
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                                color: dark ? Colors.white : const Color(0xFF1A1A1A),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          translate('Join meeting group to watch and chat'),
+                          style: TextStyle(fontSize: 11, color: dark ? Colors.white70 : const Color(0xFF666666)),
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1A8E1A),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            translate('Join'),
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }
+
+              // 远程桌面邀请: luoda://join/{short_code}?endpoint={endpoint}
+              final invite = ViewerInviteLink.tryParse(Uri.parse(link));
+              if (invite == null) {
+                return Text(link, style: TextStyle(color: foreground));
+              }
+              final theme = Theme.of(context);
+              final dark = theme.brightness == Brightness.dark;
+              return GestureDetector(
+                onTap: () {
+                  publishViewerInvite(Uri.parse(link));
+                },
+                child: Container(
+                  width: 240,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: dark
+                        ? const Color(0xFF2A3A4A)
+                        : const Color(0xFFE8F4FD),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: dark
+                          ? const Color(0xFF3A5A7A)
+                          : const Color(0xFFB8D4E8),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Row(
+                        children: <Widget>[
+                          Icon(Icons.videocam_rounded,
+                              size: 18,
+                              color: dark
+                                  ? const Color(0xFF7AB8E8)
+                                  : const Color(0xFF1A73E8)),
+                          const SizedBox(width: 8),
+                          Text(
+                            translate('Join Remote Session'),
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                              color: dark ? Colors.white : const Color(0xFF1A1A1A),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        translate('Click to join and watch the remote session'),
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: dark
+                              ? Colors.white70
+                              : const Color(0xFF666666),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        decoration: BoxDecoration(
+                          color: dark
+                              ? const Color(0xFF1A73E8)
+                              : const Color(0xFF1A73E8),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          translate('Join'),
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               );
             }
 

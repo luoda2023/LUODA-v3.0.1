@@ -443,7 +443,7 @@ pub async fn new_listener(postfix: &str) -> ResultType<Incoming> {
             #[cfg(not(windows))]
             {
                 use std::os::unix::fs::PermissionsExt;
-                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o0777)).ok();
+                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).ok();
                 write_pid(postfix);
             }
             Ok(incoming)
@@ -1070,7 +1070,7 @@ fn write_pid(postfix: &str) {
     let path = get_pid_file(postfix);
     if let Ok(mut file) = File::create(&path) {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o0777)).ok();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).ok();
         file.write_all(&std::process::id().to_string().into_bytes())
             .ok();
     }
