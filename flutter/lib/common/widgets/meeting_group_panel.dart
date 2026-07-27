@@ -47,8 +47,7 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
 
   void _refreshInviteLink() {
     if (_group.inviteShortCode.isNotEmpty) {
-      _inviteLink =
-          'luoda-meeting://join?code=${_group.inviteShortCode}&id=${_group.meetingId}&host=${_group.hostPeerId}';
+      _inviteLink = 'luoda://meeting/${_group.meetingId}?code=${_group.inviteShortCode}&host=${_group.hostPeerId}';
     }
     setState(() {});
   }
