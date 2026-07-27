@@ -178,7 +178,10 @@ class ServerModel with ChangeNotifier {
             }
           } else {
             _zeroClientLengthCounter = 0;
-            if (!hideCm) showCmWindow();
+            // LUODA: chat connections stay silent in the background. Only show
+            // the CM window when there is at least one non-chat connection
+            // (remote desktop / file transfer / camera) that needs attention.
+            if (!hideCm && _clients.any((c) => !c.isChat)) showCmWindow();
           }
         }
       }
@@ -565,7 +568,8 @@ class ServerModel with ChangeNotifier {
     if (desktopType == DesktopType.cm) {
       if (_clients.isEmpty) {
         hideCmWindow();
-      } else if (!hideCm) {
+      } else if (!hideCm && _clients.any((c) => !c.isChat)) {
+        // LUODA: only surface the CM window for non-chat connections.
         showCmWindow();
       }
     }
@@ -614,7 +618,7 @@ class ServerModel with ChangeNotifier {
         _clients.removeAt(index_disconnected);
         tabController.remove(index_disconnected);
       }
-      if (desktopType == DesktopType.cm && !hideCm) {
+      if (desktopType == DesktopType.cm && !hideCm && !client.isChat) {
         showCmWindow();
       }
       scrollToBottom();
@@ -634,7 +638,7 @@ class ServerModel with ChangeNotifier {
         onTap: () {},
         page: desktop.buildConnectionCard(client)));
     Future.delayed(Duration.zero, () async {
-      if (!hideCm) windowOnTop(null);
+      if (!hideCm && !client.isChat) windowOnTop(null);
     });
     // Only do the hidden task when on Desktop.
     if (client.authorized && isDesktop) {

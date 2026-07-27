@@ -397,8 +397,11 @@ class ChatModel with ChangeNotifier {
   showChatPage(MessageKey key) async {
     if (isDesktop) {
       if (isConnManager) {
-        if (!_isShowCMSidePage) {
-          await toggleCMChatPage(key);
+        // LUODA: incoming chat must stay silent — do NOT pop up the CM window.
+        // Only keep the current key in sync so the chat panel (if the user
+        // opens it manually) shows the latest conversation.
+        if (currentKey != key) {
+          changeCurrentKey(key);
         }
       } else {
         if (_isChatOverlayHide()) {
@@ -587,9 +590,7 @@ class ChatModel with ChangeNotifier {
       notifyListeners();
       return;
     }
-    if (desktopType == DesktopType.cm) {
-      await showCmWindow();
-    }
+    // LUODA: incoming chat stays silent — do not pop up the CM window here.
 
     // mobile: first message show overlay icon
     if (!isDesktop && chatIconOverlayEntry == null) {
