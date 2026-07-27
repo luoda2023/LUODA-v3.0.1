@@ -1254,8 +1254,8 @@ class ChatModel with ChangeNotifier {
     final ffi = parent.target;
     if (ffi == null || ffi.closed) return false;
     try {
-      if (key.connId == clientModeID) {
-        if (ffi.ffiModel.pi.isSet.isTrue != true) return false;
+      if (key.connId <= clientModeID) {
+        // clientModeID (-1) or uninitialized (-2): send via session
         bind.sessionSendChat(sessionId: sessionId, text: value);
         return true;
       }
@@ -1265,7 +1265,11 @@ class ChatModel with ChangeNotifier {
             client.authorized &&
             !client.disconnected,
       );
-      if (client == null) return false;
+      if (client == null) {
+        // fallback: CM client not found, try session path
+        bind.sessionSendChat(sessionId: sessionId, text: value);
+        return true;
+      }
       bind.cmSendChat(connId: key.connId, msg: value);
       return true;
     } catch (error) {

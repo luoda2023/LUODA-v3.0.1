@@ -178,9 +178,8 @@ class ServerModel with ChangeNotifier {
             }
           } else {
             _zeroClientLengthCounter = 0;
-            // LUODA: chat connections stay silent in the background. Only show
-            // the CM window when there is at least one non-chat connection
-            // (remote desktop / file transfer / camera) that needs attention.
+            // LUODA: CM window only shown for non-chat connections
+            // (chat clients are in _clients but not in tabController).
             if (!hideCm && _clients.any((c) => !c.isChat)) showCmWindow();
           }
         }
@@ -551,16 +550,23 @@ class ServerModel with ChangeNotifier {
       try {
         final client = Client.fromJson(clientJson);
         _clients.add(client);
-        _addTab(client);
-        if (client.authorized && client.isChat) {
-          final chatModel = parent.target?.chatModel;
-          if (chatModel != null) {
-            unawaited(chatModel.onDirectSessionReady(
-              peerId: client.peerId,
-              connId: client.id,
-            ));
+        // LUODA: chat clients stay silent — no CM tab or card.
+        // But still register them in _clients for message routing / online status.
+        if (client.isChat) {
+          if (client.authorized) {
+            final chatModel = parent.target?.chatModel;
+            if (chatModel != null) {
+              unawaited(chatModel.onDirectSessionReady(
+                peerId: client.peerId,
+                connId: client.id,
+              ));
+            }
           }
+          parent.target?.chatModel
+              .updateConnIdOfKey(MessageKey(client.peerId, client.id));
+          continue;
         }
+        _addTab(client);
       } catch (e) {
         debugPrint("Failed to decode clientJson '$clientJson', error $e");
       }
@@ -615,8 +621,12 @@ class ServerModel with ChangeNotifier {
       final index_disconnected = _clients
           .indexWhere((c) => c.disconnected && c.peerId == client.peerId);
       if (index_disconnected >= 0) {
+        final discClient = _clients[index_disconnected];
         _clients.removeAt(index_disconnected);
-        tabController.remove(index_disconnected);
+        // LUODA: chat clients are not in tabController, skip remove.
+        if (!discClient.isChat) {
+          tabController.remove(index_disconnected);
+        }
       }
       if (desktopType == DesktopType.cm && !hideCm && !client.isChat) {
         showCmWindow();
@@ -631,6 +641,13 @@ class ServerModel with ChangeNotifier {
   }
 
   void _addTab(Client client) {
+    // LUODA: chat clients stay silent — no CM card, no window pop.
+    // connId registration is still needed for message routing.
+    if (client.isChat) {
+      parent.target?.chatModel
+          .updateConnIdOfKey(MessageKey(client.peerId, client.id));
+      return;
+    }
     tabController.add(TabInfo(
         key: client.id.toString(),
         label: client.name,
@@ -638,7 +655,7 @@ class ServerModel with ChangeNotifier {
         onTap: () {},
         page: desktop.buildConnectionCard(client)));
     Future.delayed(Duration.zero, () async {
-      if (!hideCm && !client.isChat) windowOnTop(null);
+      if (!hideCm) windowOnTop(null);
     });
     // Only do the hidden task when on Desktop.
     if (client.authorized && isDesktop) {

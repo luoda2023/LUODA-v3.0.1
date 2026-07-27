@@ -167,7 +167,9 @@ class ConnectionManagerState extends State<ConnectionManager>
       }
     }
 
-    return serverModel.clients.isEmpty
+    // LUODA: chat-only connections don't surface the CM window.
+    final hasNonChat = serverModel.clients.any((c) => !c.isChat);
+    return !hasNonChat
         ? Column(
             children: [
               buildTitleBar(),

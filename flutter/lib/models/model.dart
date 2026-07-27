@@ -2479,6 +2479,12 @@ class CanvasModel with ChangeNotifier {
 
   updateSize() => _size = getSize();
 
+  /// LUODA: set canvas size from actual widget layout constraints,
+  /// not from ui.window. This avoids toolbar/status bar height offset.
+  void updateSizeFromWidget(Size widgetSize) {
+    _size = widgetSize;
+  }
+
   updateViewStyle({refreshMousePos = true, notify = true}) async {
     final style = await bind.sessionGetViewStyle(sessionId: sessionId);
     if (style == null) {

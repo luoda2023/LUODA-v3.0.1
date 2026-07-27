@@ -1589,6 +1589,12 @@ pub mod connection_manager {
                 "chat_server_mode",
                 &[("id", &id.to_string()), ("text", &text)],
             );
+            // LUODA: also push chat_client_mode so the main window
+            // (not just the CM window) receives incoming messages.
+            self.push_event(
+                "chat_client_mode",
+                &[("text", &text)],
+            );
         }
 
         fn change_theme(&self, dark: String) {

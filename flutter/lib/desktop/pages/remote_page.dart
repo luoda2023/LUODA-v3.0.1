@@ -1085,6 +1085,10 @@ class _ViewStyleUpdaterState extends State<_ViewStyleUpdater> {
               _callbackScheduled = false;
               final currentSize = _lastSize;
               if (mounted && currentSize != null) {
+                // LUODA: update canvas size from actual layout constraints,
+                // not ui.window.size, so the toolbar/status bar don't
+                // throw off coordinate calculations.
+                widget.canvasModel.updateSizeFromWidget(currentSize);
                 widget.canvasModel.updateViewStyle();
                 widget.inputModel.updateImageWidgetSize(currentSize);
               }

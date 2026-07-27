@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -8,6 +9,9 @@ import 'package:path_provider/path_provider.dart';
 import 'package:external_path/external_path.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:open_filex/open_filex.dart';
+import 'package:desktop_multi_window/desktop_multi_window.dart';
+
+import '../../consts.dart';
 
 const Set<String> _kImageExts = <String>{
   'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg',
@@ -101,6 +105,8 @@ Future<String?> resolveReceivedFilePath(String fileName, int fileSize) async {
 /// Opens a full-screen preview for a chat file. [localPath] is the sender's
 /// local path (reliable for outgoing files); when it is missing or invalid we
 /// attempt to locate a received copy on disk.
+/// Open file preview — images get an independent OS window,
+/// other files open via the system default app.
 Future<void> showFileViewer(
   BuildContext context, {
   required String fileName,
@@ -113,16 +119,40 @@ Future<void> showFileViewer(
   }
   final resolved = path != null && await File(path).exists();
 
-  await Navigator.of(context).push(
-    MaterialPageRoute<void>(
-      fullscreenDialog: true,
-      builder: (_) => _FileViewerPage(
-        fileName: fileName,
-        fileSize: fileSize,
-        path: resolved ? path : null,
+  if (!resolved) {
+    // File not found locally — show a simple dialog.
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => _FileViewerPage(
+          fileName: fileName,
+          fileSize: fileSize,
+          path: null,
+        ),
       ),
-    ),
-  );
+    );
+    return;
+  }
+
+  if (_isImage(fileName)) {
+    // LUODA: open image in an independent OS window with zoom + prev/next.
+    final windowController = await DesktopMultiWindow.createWindow(
+      jsonEncode({
+        'type': kAppTypeDesktopFilePreview,
+        'file_path': path!,
+        'file_name': fileName,
+      }),
+    );
+    windowController
+      ..setFrame(const Offset(0, 0) & const Size(800, 600))
+      ..center()
+      ..setTitle(fileName)
+      ..show();
+    return;
+  }
+
+  // For non-image files, open with system app.
+  await OpenFilex.open(path!);
 }
 
 class _FileViewerPage extends StatelessWidget {

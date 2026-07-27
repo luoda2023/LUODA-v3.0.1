@@ -1,0 +1,8 @@
+```json
+{
+  "message": "Must have admin rights to Repository.",
+  "documentation_url": "https://docs.github.com/rest/actions/workflow-runs#download-workflow-run-logs",
+  "status": "403"
+}
+
+```

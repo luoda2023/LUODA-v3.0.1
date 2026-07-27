@@ -601,13 +601,11 @@ fn run(vs: VideoService) -> ResultType<()> {
         Ok(c) => c,
         #[cfg(windows)]
         Err(first_err) => {
-            // On a headless VPS the first attempt may fail because no display
-            // is available yet.  Try to create a virtual display and retry.
+            // On a headless VPS / RDP-only machine the first capturer attempt
+            // may fail because no real GPU-backed display is available.
+            // Always attempt headless recovery on any Windows when supported.
             log::warn!("initial capturer failed: {first_err}; attempting headless recovery");
-            let is_portable = std::env::var_os(crate::common::PORTABLE_APPNAME_RUNTIME_ENV_KEY).is_some();
-            let should_recover = crate::platform::windows::is_win_server() || is_portable;
-            if should_recover
-                && crate::virtual_display_manager::is_virtual_display_supported()
+            if crate::virtual_display_manager::is_virtual_display_supported()
             {
                 match display_service::prepare_windows_server_headless_display() {
                     Ok(()) => {

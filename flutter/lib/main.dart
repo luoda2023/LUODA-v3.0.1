@@ -16,6 +16,7 @@ import 'package:luoda_flutter/desktop/screen/desktop_view_camera_screen.dart';
 import 'package:luoda_flutter/desktop/screen/desktop_port_forward_screen.dart';
 import 'package:luoda_flutter/desktop/screen/desktop_remote_screen.dart';
 import 'package:luoda_flutter/desktop/screen/desktop_terminal_screen.dart';
+import 'package:luoda_flutter/desktop/pages/file_preview_page.dart';
 import 'package:luoda_flutter/desktop/widgets/refresh_wrapper.dart';
 import 'package:luoda_flutter/models/state_model.dart';
 import 'package:luoda_flutter/utils/multi_window_manager.dart';
@@ -243,6 +244,13 @@ void runMultiWindow(
         params: argument,
       );
       break;
+    case kAppTypeDesktopFilePreview:
+      widget = FilePreviewPage(
+        filePath: argument['file_path'] ?? '',
+        fileName: argument['file_name'] ?? '',
+        siblingPaths: argument['sibling_paths']?.cast<String>(),
+      );
+      break;
     default:
       // no such appType
       exit(0);
@@ -291,6 +299,9 @@ void runMultiWindow(
       break;
     case kAppTypeDesktopTerminal:
       await restoreWindowPosition(WindowType.Terminal, windowId: kWindowId!);
+      break;
+    case kAppTypeDesktopFilePreview:
+      // no position restore needed — each preview is a new window
       break;
     default:
       // no such appType

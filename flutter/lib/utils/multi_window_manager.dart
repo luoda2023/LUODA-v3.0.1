@@ -20,6 +20,7 @@ enum WindowType {
   ViewCamera,
   PortForward,
   Terminal,
+  FilePreview,
   Unknown
 }
 
@@ -38,6 +39,8 @@ extension Index on int {
         return WindowType.PortForward;
       case 5:
         return WindowType.Terminal;
+      case 6:
+        return WindowType.FilePreview;
       default:
         return WindowType.Unknown;
     }
