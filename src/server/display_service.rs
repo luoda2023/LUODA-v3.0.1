@@ -354,10 +354,13 @@ pub(super) fn check_update_displays(all: &Vec<Display>) {
                     scale = d.scale();
                 }
             }
-            #[cfg(target_os = "windows")]
-            {
-                scale = d.scale();
-            }
+            // NOTE: For Windows we intentionally keep scale = 1.0 (matching
+            // upstream RustDesk). The controlled side reports physical pixel
+            // dimensions and the client maps mouse coordinates in that physical
+            // space; enigo on Windows consumes those physical coordinates
+            // directly. Reporting the real DPI scale here (and/or rescaling
+            // injected mouse events) shifts the cursor away from the click
+            // point, so it must NOT be done.
             let original_resolution = get_original_resolution(
                 &display_name,
                 ((d.width() as f64) / scale).round() as usize,
