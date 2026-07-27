@@ -568,11 +568,12 @@ jobs:
             - **LDesk-3.1.1-portable-x64.exe** - 便携版（无需安装）
             - **LDesk-3.1.1-Setup-x64.exe** - 安装版
 
-            ### 更新内容
-            - 修复 VPS headless 虚拟显示器问题
-            - 修复 ID/IP 连接可靠性
-            - 修复密码显示切换
-            - 改进启动进度条 UI
+            ### 更新内容 (2026-07-27)
+            - 聊天静默：聊天时不再弹出CM连接窗口，后台静默授权
+            - 鼠标精度：修复远程协助中工具栏/状态栏导致画布尺寸计算偏差引起的鼠标偏移
+            - 消息收发：修复文字/文件/图片发送后对方收不到的问题
+            - 独立预览：图片和文件预览改为独立OS窗口，支持缩放和左右切换
+            - VPS无头连接：修复非Server版Windows VPS连不上、MSTSC登录后卡等待画面的问题
           files: |
             SignOutput/LDesk-3.1.1-portable-x64.exe
             SignOutput/LDesk-3.1.1-Setup-x64.exe
