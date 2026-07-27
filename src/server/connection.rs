@@ -1776,11 +1776,36 @@ impl Connection {
 
             try_activate_screen();
 
-            match super::display_service::update_get_sync_displays_on_login().await {
+            // Remote-desktop sessions need a real display to capture; chat,
+            // file-transfer and terminal sessions do not. On a headless VPS the
+            // virtual display driver may still be initializing right after an RDP
+            // disconnect, so for desktop sessions we retry display acquisition a
+            // few times before giving up. A missing display never blocks
+            // non-desktop sessions.
+            let needs_display =
+                !self.chat_only && self.file_transfer.is_none() && !self.terminal;
+            let mut display_result =
+                super::display_service::update_get_sync_displays_on_login().await;
+            if display_result.is_err() && needs_display {
+                for _ in 0..3 {
+                    sleep(0.5).await;
+                    display_result = super::display_service::update_get_sync_displays_on_login()
+                        .await;
+                    if display_result.is_ok() {
+                        break;
+                    }
+                }
+            }
+            match display_result {
                 Err(err) => {
-                    // 无物理显示器时（如 headless server）不阻断连接，
-                    // 聊天/文件传输等不需要显示器的功能依然可用。
-                    log::warn!("No physical displays detected, connecting anyway: {}", err);
+                    // No display could be obtained. For non-desktop sessions this
+                    // is fine (chat/file/terminal need no screen). For desktop
+                    // sessions we still connect with an empty display list; the
+                    // video service will keep trying to plug in a virtual display
+                    // and broadcast it once available.
+                    log::warn!(
+                        "No display detected (needs_display={needs_display}), connecting with empty display list: {err}"
+                    );
                     pi.displays = Vec::new();
                     pi.current_display = 0;
                     res.set_peer_info(pi);
