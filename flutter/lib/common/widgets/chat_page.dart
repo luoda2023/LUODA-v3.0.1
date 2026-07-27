@@ -348,6 +348,16 @@ class ChatPage extends StatelessWidget implements PageShape {
               return '${(fileSize / 1024 / 1024).toStringAsFixed(1)} MB';
             }
 
+            /// Returns a short label for the icon overlay (e.g. "PDF", "DOC").
+            String fileExtLabel(String fileName) {
+              final ext = fileName.contains('.')
+                  ? fileName.split('.').last.toLowerCase()
+                  : '';
+              if (ext.isEmpty) return '';
+              if (ext.length <= 4) return ext.toUpperCase();
+              return ext.substring(0, 4).toUpperCase();
+            }
+
             IconData fileTypeIcon(String fileName) {
               final ext = fileName.contains('.')
                   ? fileName.split('.').last.toLowerCase()
@@ -657,44 +667,54 @@ class ChatPage extends StatelessWidget implements PageShape {
                           mainAxisSize: MainAxisSize.min,
                           children: <Widget>[
                             Container(
-                              width: 44,
-                              height: 44,
+                              width: 48,
+                              height: 48,
                               decoration: BoxDecoration(
                                 color: fileTypeColor(
                                   fileName,
-                                  dark ? 0.18 : 0.12,
+                                  dark ? 0.22 : 0.14,
                                 ),
-                                borderRadius: BorderRadius.circular(8),
+                                borderRadius: BorderRadius.circular(10),
                               ),
-                              child: fileTypeIcon(fileName) ==
+                              child: Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  if (fileTypeIcon(fileName) ==
                                           Icons.image_outlined &&
-                                      localPath.isNotEmpty
-                                  ? ClipRRect(
-                                      borderRadius: BorderRadius.circular(8),
+                                      localPath.isNotEmpty)
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(10),
                                       child: Image.file(
                                         File(localPath),
-                                        width: 44,
-                                        height: 44,
+                                        width: 48,
+                                        height: 48,
                                         fit: BoxFit.cover,
-                                        errorBuilder:
-                                            (_, __, ___) => Icon(
-                                          fileTypeIcon(fileName),
-                                          size: 22,
-                                          color: fileTypeColor(
-                                            fileName,
-                                            0.85,
-                                          ),
-                                        ),
                                       ),
                                     )
-                                  : Icon(
+                                  else ...[
+                                    Icon(
                                       fileTypeIcon(fileName),
-                                      size: 22,
-                                      color: fileTypeColor(
-                                        fileName,
-                                        0.85,
+                                      size: 26,
+                                      color: fileTypeColor(fileName, 0.72),
+                                    ),
+                                    Positioned(
+                                      bottom: 5,
+                                      child: Text(
+                                        fileExtLabel(fileName),
+                                        style: TextStyle(
+                                          color: fileTypeColor(
+                                            fileName,
+                                            dark ? 0.95 : 0.85,
+                                          ),
+                                          fontSize: 9.5,
+                                          fontWeight: FontWeight.w700,
+                                          letterSpacing: 0.3,
+                                        ),
                                       ),
                                     ),
+                                  ],
+                                ],
+                              ),
                             ),
                             const SizedBox(width: 10),
                             Flexible(

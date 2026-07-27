@@ -1673,11 +1673,50 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       final fileName = (properties?['ldesk_file_name'] ?? '').toString();
       return fileName.isEmpty
           ? translate('File Transfer')
-          : '${translate('File Transfer')}: $fileName';
+          : fileName;
     }
     return message.text.trim().isEmpty
         ? translate('Message')
         : message.text.trim();
+  }
+
+  /// Returns null if the last message is not a file.
+  IconData? _conversationFileIcon(MapEntry<MessageKey, MessageBody> entry) {
+    final messages = entry.value.chatMessages;
+    if (messages.isEmpty) return null;
+    final message = messages.reduce(
+      (latest, value) =>
+          value.createdAt.isAfter(latest.createdAt) ? value : latest,
+    );
+    final properties = message.customProperties;
+    if (properties?['ldesk_kind'] != 'file') return null;
+    final fileName = (properties?['ldesk_file_name'] ?? '').toString();
+    if (fileName.isEmpty) return null;
+    return _chatFileTypeIcon(fileName);
+  }
+
+  IconData _chatFileTypeIcon(String fileName) {
+    final ext = fileName.contains('.')
+        ? fileName.split('.').last.toLowerCase()
+        : '';
+    switch (ext) {
+      case 'jpg': case 'jpeg': case 'png': case 'gif':
+      case 'bmp': case 'webp': case 'svg':
+        return Icons.image_outlined;
+      case 'mp4': case 'avi': case 'mkv': case 'mov':
+      case 'wmv': case 'flv':
+        return Icons.movie_outlined;
+      case 'mp3': case 'wav': case 'flac': case 'aac':
+        return Icons.audiotrack_outlined;
+      case 'pdf': return Icons.picture_as_pdf_outlined;
+      case 'doc': case 'docx': return Icons.description_outlined;
+      case 'xls': case 'xlsx': case 'csv': return Icons.table_chart_outlined;
+      case 'ppt': case 'pptx': return Icons.slideshow_outlined;
+      case 'zip': case 'rar': case '7z': case 'tar': case 'gz':
+        return Icons.folder_zip_outlined;
+      case 'txt': case 'md': case 'log': return Icons.article_outlined;
+      default: return Icons.insert_drive_file_outlined;
+    }
   }
 
   String _conversationTimeLabel(DateTime value) {
@@ -1951,6 +1990,16 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                 const SizedBox(height: 3),
                                 Row(
                                   children: <Widget>[
+                                    if (_conversationFileIcon(entry) case final icon?)
+                                      Padding(
+                                        padding: const EdgeInsets.only(right: 5),
+                                        child: Icon(
+                                          icon,
+                                          size: 14,
+                                          color: theme.colorScheme.onSurface
+                                              .withOpacity(selected ? 0.82 : 0.46),
+                                        ),
+                                      ),
                                     Expanded(
                                       child: Text(
                                         _conversationPreview(entry),
