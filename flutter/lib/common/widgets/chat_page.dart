@@ -116,49 +116,69 @@ class ChatPage extends StatelessWidget implements PageShape {
       context: context,
       useSafeArea: true,
       builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            if (delivery == 'failed')
-              ListTile(
-                leading: const Icon(Icons.refresh_rounded),
-                title: Text(translate('Retry send')),
-                onTap: () => Navigator.pop(sheetContext, 'retry'),
-              ),
-            ListTile(
-              leading: const Icon(Icons.undo_rounded),
-              title: Text(translate('Recall')),
-              onTap: () => Navigator.pop(sheetContext, 'recall'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.timer_outlined),
-              title: Text(translate('Self-destruct in 1 minute')),
-              onTap: () => Navigator.pop(sheetContext, 'expire-60'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.timer_outlined),
-              title: Text(translate('Self-destruct in 5 minutes')),
-              onTap: () => Navigator.pop(sheetContext, 'expire-300'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.timer_outlined),
-              title: Text(translate('Self-destruct in 1 hour')),
-              onTap: () => Navigator.pop(sheetContext, 'expire-3600'),
-            ),
-            ListTile(
-              leading: Icon(
-                Icons.delete_forever_outlined,
-                color: Theme.of(sheetContext).colorScheme.error,
-              ),
-              title: Text(
-                translate('Destroy'),
-                style: TextStyle(
-                  color: Theme.of(sheetContext).colorScheme.error,
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              // Primary actions: Recall & Destroy — always visible at top
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _ActionChip(
+                        icon: Icons.undo_rounded,
+                        label: translate('Recall'),
+                        color: Theme.of(sheetContext).colorScheme.primary,
+                        onTap: () => Navigator.pop(sheetContext, 'recall'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _ActionChip(
+                        icon: Icons.delete_forever_outlined,
+                        label: translate('Destroy'),
+                        color: Theme.of(sheetContext).colorScheme.error,
+                        onTap: () => Navigator.pop(sheetContext, 'destroy'),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              onTap: () => Navigator.pop(sheetContext, 'destroy'),
-            ),
-          ],
+              if (delivery == 'failed')
+                ListTile(
+                  leading: const Icon(Icons.refresh_rounded, size: 22),
+                  title: Text(translate('Retry send'),
+                      style: const TextStyle(fontSize: 14)),
+                  onTap: () => Navigator.pop(sheetContext, 'retry'),
+                  dense: true,
+                ),
+              const Divider(height: 1),
+              // Self-destruct sub-actions
+              ListTile(
+                leading: const Icon(Icons.timer_outlined, size: 22),
+                title: Text(translate('Self-destruct in 1 minute'),
+                    style: const TextStyle(fontSize: 14)),
+                onTap: () => Navigator.pop(sheetContext, 'expire-60'),
+                dense: true,
+              ),
+              ListTile(
+                leading: const Icon(Icons.timer_outlined, size: 22),
+                title: Text(translate('Self-destruct in 5 minutes'),
+                    style: const TextStyle(fontSize: 14)),
+                onTap: () => Navigator.pop(sheetContext, 'expire-300'),
+                dense: true,
+              ),
+              ListTile(
+                leading: const Icon(Icons.timer_outlined, size: 22),
+                title: Text(translate('Self-destruct in 1 hour'),
+                    style: const TextStyle(fontSize: 14)),
+                onTap: () => Navigator.pop(sheetContext, 'expire-3600'),
+                dense: true,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1346,5 +1366,54 @@ class _ChatBubbleTailPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _ChatBubbleTailPainter oldDelegate) {
     return oldDelegate.color != color || oldDelegate.pointsRight != pointsRight;
+  }
+}
+
+class _ActionChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+  const _ActionChip({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: color.withOpacity(0.35),
+              width: 1.5,
+            ),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 20, color: color),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: TextStyle(
+                  color: color,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
