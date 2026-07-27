@@ -465,6 +465,7 @@ class LUODAMultiWindowManager {
         return _portForwardWindows;
       case WindowType.Terminal:
         return _terminalWindows;
+      case WindowType.FilePreview:
       case WindowType.Unknown:
         break;
     }
@@ -489,6 +490,7 @@ class LUODAMultiWindowManager {
         break;
       case WindowType.Terminal:
         _terminalWindows.clear();
+      case WindowType.FilePreview:
       case WindowType.Unknown:
         break;
     }
