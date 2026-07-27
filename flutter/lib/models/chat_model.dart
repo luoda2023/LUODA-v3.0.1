@@ -498,6 +498,7 @@ class ChatModel with ChangeNotifier {
       return;
     }
     if (rawText.isEmpty) return;
+    // Ignore messages from self to prevent echo loops and freezes.
     String? peerId;
     final client = id == clientModeID
         ? null
@@ -508,9 +509,8 @@ class ChatModel with ChangeNotifier {
     } else {
       peerId = client?.peerId;
     }
-    if (peerId == null) {
-      debugPrint("Failed to receive msg, peerId is null");
-      return;
+    if (peerId == null || peerId == me.id) {
+      return; // self-message: already displayed by send()
     }
     _touchChatActivity(peerId);
 
@@ -1253,6 +1253,8 @@ class ChatModel with ChangeNotifier {
   bool _sendWire(MessageKey key, String value) {
     final ffi = parent.target;
     if (ffi == null || ffi.closed) return false;
+    // Never send messages to self — prevents deadlock and white-screen.
+    if (key.peerId.isNotEmpty && key.peerId == me.id) return false;
     try {
       if (key.connId <= clientModeID) {
         // clientModeID (-1) or uninitialized (-2): send via session

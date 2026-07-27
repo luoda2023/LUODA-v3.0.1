@@ -4812,6 +4812,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
  _categoryModel.load();
  MeetingGroupStore.load();
  gFFI.chatModel.ensureChatConnection = (peerId) async {
+ // LUODA: never try to connect to self — causes freeze / white screen.
+ if (await DirectPairingStore.isSelfTarget(peerId)) return;
  if (DirectPairingStore.resolveConnectionTarget(peerId) == null) return;
  await _startDirectChat(peerId, activate: false);
  };
