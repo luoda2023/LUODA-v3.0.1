@@ -307,20 +307,46 @@ class ChatPage extends StatelessWidget implements PageShape {
                   fallback;
             }
 
-            String deliveryLabel(ChatMessage message) {
-              switch ((message.customProperties?['ldesk_delivery'] ?? '')
-                  .toString()) {
+            bool hasDelivery(ChatMessage message) {
+              final d = (message.customProperties?['ldesk_delivery'] ?? '').toString();
+              return d == 'queued' || d == 'sent' || d == 'delivered' || d == 'failed';
+            }
+
+            Widget deliveryWidget(ChatMessage message) {
+              final d = (message.customProperties?['ldesk_delivery'] ?? '').toString();
+              if (d.isEmpty) return const SizedBox.shrink();
+              IconData icon;
+              Color? color;
+              String label;
+              switch (d) {
                 case 'queued':
-                  return translate('Waiting to send');
+                  icon = Icons.access_time_rounded;
+                  label = translate('Sending...');
+                  break;
                 case 'sent':
-                  return translate('Sent');
+                  icon = Icons.done_rounded;
+                  label = translate('Sent');
+                  break;
                 case 'delivered':
-                  return translate('Delivered');
+                  icon = Icons.done_all_rounded;
+                  label = translate('Delivered');
+                  break;
                 case 'failed':
-                  return translate('Failed');
+                  icon = Icons.error_outline_rounded;
+                  color = Colors.redAccent;
+                  label = translate('Failed');
+                  break;
                 default:
-                  return '';
+                  return const SizedBox.shrink();
               }
+              return Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, size: 13, color: color ?? Colors.grey),
+                  const SizedBox(width: 3),
+                  Text(label, style: TextStyle(fontSize: 11, color: color ?? Colors.grey)),
+                ],
+              );
             }
 
             String selfDestructLabel(ChatMessage message) {
@@ -773,15 +799,9 @@ class ChatPage extends StatelessWidget implements PageShape {
                           ),
                         ),
                         if (isOwnMessage &&
-                            deliveryLabel(message).isNotEmpty) ...<Widget>[
+                            hasDelivery(message)) ...<Widget>[
                           const SizedBox(width: 5),
-                          Text(
-                            deliveryLabel(message),
-                            style: TextStyle(
-                              color: foreground.withOpacity(0.52),
-                              fontSize: 11,
-                            ),
-                          ),
+                          deliveryWidget(message),
                         ],
                       ],
                     ).marginOnly(top: 3),
@@ -860,25 +880,28 @@ class ChatPage extends StatelessWidget implements PageShape {
                     ],
                     bubble,
                     if (isOwnMessage &&
-                        (deliveryLabel(message).isNotEmpty ||
+                        (hasDelivery(message) ||
                             selfDestructLabel(message).isNotEmpty))
                       Padding(
                         padding: const EdgeInsets.only(top: 4, right: 2),
-                        child: Text(
-                          <String>[
-                            if (deliveryLabel(message).isNotEmpty)
-                              deliveryLabel(message),
-                            if (selfDestructLabel(message).isNotEmpty)
-                              selfDestructLabel(message),
-                          ].join('  ·  '),
+                        child: DefaultTextStyle.merge(
                           style: TextStyle(
-                            color: deliveryLabel(message) == translate('Failed')
-                                ? Theme.of(context).colorScheme.error
-                                : dark
-                                    ? const Color(0xFF999CA2)
-                                    : const Color(0xFF999999),
                             fontSize: 11,
                             height: 1.2,
+                            color: dark ? const Color(0xFF999CA2) : const Color(0xFF999999),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (hasDelivery(message)) deliveryWidget(message),
+                              if (hasDelivery(message) && selfDestructLabel(message).isNotEmpty)
+                                const Padding(
+                                  padding: EdgeInsets.symmetric(horizontal: 4),
+                                  child: Text('·'),
+                                ),
+                              if (selfDestructLabel(message).isNotEmpty)
+                                Text(selfDestructLabel(message)),
+                            ],
                           ),
                         ),
                       ),

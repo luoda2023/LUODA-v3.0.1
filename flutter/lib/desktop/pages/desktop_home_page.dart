@@ -22,6 +22,7 @@ import 'package:luoda_flutter/desktop/widgets/update_progress.dart';
 import 'package:luoda_flutter/desktop/widgets/desktop_primary_rail.dart';
 import 'package:luoda_flutter/models/chat_model.dart';
 import 'package:luoda_flutter/models/meeting_group_model.dart';
+import 'package:luoda_flutter/common/widgets/meeting_group_panel.dart';
 import 'package:luoda_flutter/models/contact_category_model.dart';
 import 'package:luoda_flutter/models/file_model.dart';
 import 'package:luoda_flutter/models/model.dart';
@@ -864,6 +865,14 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   void _copyToClipboard(String text) {
     // Clipboard copy is async, fire-and-forget
     unawaited(Clipboard.setData(ClipboardData(text: text)));
+  }
+
+  void _showMeetingGroupSettings(BuildContext context, MeetingGroup group) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => MeetingGroupPanel(group: group),
+      ),
+    );
   }
 
   Widget _buildPresenceStatusStrip(BuildContext context) {
@@ -1845,6 +1854,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                   gFFI.chatModel.changeCurrentKey(
                     MessageKey('meeting:${meeting.meetingId}', ChatModel.clientModeID),
                   );
+                },
+                onSecondaryTapUp: (details) {
+                  _showMeetingGroupSettings(context, meeting);
                 },
                 child: Material(
                   color: isSelected
