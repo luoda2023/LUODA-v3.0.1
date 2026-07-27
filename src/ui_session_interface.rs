@@ -812,7 +812,12 @@ impl<T: InvokeUiSession> Session<T> {
         let mut broadcast = ChatBroadcast {
             from_id,
             from_name,
-            channel: ChatChannel::CHAT_CHANNEL_PRIVATE.into(),
+            channel: if to_viewer_id.is_empty() {
+                ChatChannel::CHAT_CHANNEL_BROADCAST
+            } else {
+                ChatChannel::CHAT_CHANNEL_PRIVATE
+            }
+            .into(),
             to_id: to_viewer_id.clone(),
             text,
             sent_at: std::time::SystemTime::now()
