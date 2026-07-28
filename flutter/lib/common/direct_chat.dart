@@ -80,6 +80,7 @@ class DirectChatRecord {
 
   DirectChatRecord copyWith({
     String? conversationId,
+    String? text,
     DirectChatDirection? direction,
     DirectChatDelivery? delivery,
     int? originSequence,
@@ -100,7 +101,7 @@ class DirectChatRecord {
       originSequence: originSequence ?? this.originSequence,
       direction: direction ?? this.direction,
       kind: kind,
-      text: text,
+      text: text ?? this.text,
       senderId: senderId,
       senderName: senderName,
       senderAvatar: senderAvatar,
