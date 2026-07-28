@@ -17,6 +17,7 @@ import '../../models/model.dart';
 import '../../models/platform_model.dart';
 import '../../models/state_model.dart';
 import 'connection_page.dart';
+import 'first_run_wizard.dart';
 import 'scan_page.dart';
 
 abstract class PageShape extends Widget {
@@ -174,6 +175,10 @@ class HomePageState extends State<HomePage> {
     initPages();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_syncLatestPairing());
+      // Show one-time permission wizard on first install (Android only)
+      if (isAndroid) {
+        unawaited(FirstRunPermissionWizard.showIfNeeded(context));
+      }
     });
     _directPairingSyncTimer = Timer.periodic(
       const Duration(minutes: 30),
