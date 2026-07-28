@@ -1830,6 +1830,22 @@ class ChatModel with ChangeNotifier {
     mobileUpdateUnreadSum();
   }
 
+  /// Get raw option value (bridges bind for external models).
+  String getRawOption(String key) {
+    try {
+      return bind.mainGetLocalOption(key: key);
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /// Set raw option value (bridges bind for external models).
+  void setRawOption({required String key, required String value}) {
+    try {
+      bind.mainSetLocalOption(key: key, value: value);
+    } catch (_) {}
+  }
+
   // ─── Multi-select ────────────────────────────────────────
 
   void enterMultiSelect(String firstMessageId) {
