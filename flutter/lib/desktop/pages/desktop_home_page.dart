@@ -239,6 +239,18 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         if (peer != null && _selectedRailId == 'contacts')
           PopupMenuItem(value: 'move', child: Text(translate('Move'))),
         PopupMenuItem(
+          value: 'mute',
+          child: Text(
+            gFFI.chatSettingsModel.isMuted(id) ? translate('Unmute') : translate('Mute'),
+          ),
+        ),
+        PopupMenuItem(
+          value: 'block',
+          child: Text(
+            gFFI.chatSettingsModel.isBlocked(id) ? translate('Unblock') : translate('Block'),
+          ),
+        ),
+        PopupMenuItem(
           value: 'delete',
           child: Text(
             translate('Delete'),
@@ -264,6 +276,34 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         break;
       case 'delete':
         _confirmDeleteManagedEntries(<String>[id]);
+        break;
+      case 'mute':
+        await gFFI.chatSettingsModel.toggleMute(id);
+        if (context.mounted) {
+          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+            SnackBar(
+              content: Text(
+                gFFI.chatSettingsModel.isMuted(id)
+                    ? translate('Notifications muted for this chat')
+                    : translate('Notifications enabled'),
+              ),
+            ),
+          );
+        }
+        break;
+      case 'block':
+        await gFFI.chatSettingsModel.toggleBlock(id);
+        if (context.mounted) {
+          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+            SnackBar(
+              content: Text(
+                gFFI.chatSettingsModel.isBlocked(id)
+                    ? translate('Contact blocked')
+                    : translate('Contact unblocked'),
+              ),
+            ),
+          );
+        }
         break;
     }
   }
@@ -1200,6 +1240,14 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             ),
             _conversationActionButton(
               context,
+              tooltip: translate('Search Messages'),
+              icon: Icons.search_rounded,
+              onPressed: hasConversation
+                  ? () => model.toggleChatSearch()
+                  : null,
+            ),
+            _conversationActionButton(
+              context,
               tooltip: translate('Remote Desktop'),
               icon: Icons.desktop_windows_outlined,
               onPressed: canStartDirectSession
@@ -1744,6 +1792,12 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   void _openConversation(MapEntry<MessageKey, MessageBody> entry) {
     final peerId = entry.key.peerId.trim();
     if (peerId.isEmpty) return;
+    if (gFFI.chatSettingsModel.isBlocked(peerId)) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text(translate('This contact is blocked'))),
+      );
+      return;
+    }
     final registered = _directChatSessionFor(peerId);
     final active = registered != null && !registered.closed ? registered : null;
     final incoming =
@@ -1985,6 +2039,16 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                       ),
                                     ),
                                     const SizedBox(width: 8),
+                                    if (gFFI.chatSettingsModel.isMuted(peerId))
+                                      Icon(
+                                        Icons.volume_off_rounded,
+                                        size: 14,
+                                        color: selected
+                                            ? Colors.white.withOpacity(0.82)
+                                            : theme.colorScheme.onSurface.withOpacity(0.42),
+                                      ),
+                                    if (gFFI.chatSettingsModel.isMuted(peerId))
+                                      const SizedBox(width: 4),
                                     Text(
                                       _conversationTimeLabel(
                                         _conversationTime(entry),

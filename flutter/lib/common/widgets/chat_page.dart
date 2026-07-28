@@ -146,6 +146,13 @@ class ChatPage extends StatelessWidget implements PageShape {
                   ],
                 ),
               ),
+              ListTile(
+                leading: const Icon(Icons.forward_rounded, size: 22),
+                title: Text(translate('Forward'),
+                    style: const TextStyle(fontSize: 14)),
+                onTap: () => Navigator.pop(sheetContext, 'forward'),
+                dense: true,
+              ),
               if (delivery == 'failed')
                 ListTile(
                   leading: const Icon(Icons.refresh_rounded, size: 22),
@@ -183,6 +190,10 @@ class ChatPage extends StatelessWidget implements PageShape {
       ),
     );
     if (!context.mounted || action == null) return;
+    if (action == 'forward') {
+      await _showForwardPicker(context, message);
+      return;
+    }
     if (action == 'destroy') {
       final confirmed = await showDialog<bool>(
         context: context,
@@ -225,6 +236,48 @@ class ChatPage extends StatelessWidget implements PageShape {
     if (!context.mounted || !changed) return;
     ScaffoldMessenger.maybeOf(context)?.showSnackBar(
       SnackBar(content: Text(translate(successText))),
+    );
+  }
+
+  Future<void> _showForwardPicker(
+    BuildContext context,
+    ChatMessage message,
+  ) async {
+    final peers = gFFI.recentPeersModel.peers.toList();
+    if (peers.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(content: Text(translate('No contacts to forward to'))),
+        );
+      }
+      return;
+    }
+    final currentPeerId = chatModel.currentKey.peerId;
+    final target = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: Text(translate('Forward to')),
+        children: <Widget>[
+          for (final peer in peers)
+            if (peer.id != currentPeerId)
+              SimpleDialogOption(
+                onPressed: () => Navigator.pop(dialogContext, peer.id),
+                child: ListTile(
+                  leading: CircleAvatar(child: Text(peer.id.isNotEmpty ? peer.id[0].toUpperCase() : '?')),
+                  title: Text(peer.id),
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+        ],
+      ),
+    );
+    if (target == null || !context.mounted) return;
+    final forwardText = message.text.trim();
+    if (forwardText.isEmpty) return;
+    chatModel.sendText(forwardText);
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(content: Text(translate('Forwarded'))),
     );
   }
 
@@ -1008,9 +1061,20 @@ class ChatPage extends StatelessWidget implements PageShape {
                   final chat = DashChat(
                     onSend: chatModel.send,
                     currentUser: chatModel.me,
-                    messages: chatModel
-                            .messages[chatModel.currentKey]?.chatMessages ??
-                        [],
+                    messages: (() {
+                      final allMessages = chatModel
+                              .messages[chatModel.currentKey]?.chatMessages ??
+                          <ChatMessage>[];
+                      final searchTextLower =
+                          chatModel.chatSearchText.trim().toLowerCase();
+                      return searchTextLower.isEmpty
+                          ? allMessages
+                          : allMessages.where((m) {
+                              return m.text
+                                  .toLowerCase()
+                                  .contains(searchTextLower);
+                            }).toList();
+                    })(),
                     readOnly: isDesktopHome || readOnly,
                     inputOptions: InputOptions(
                       focusNode: chatModel.inputNode,
@@ -1196,6 +1260,50 @@ class ChatPage extends StatelessWidget implements PageShape {
                     ],
                   );
                 }),
+                if (chatModel.chatSearchVisible)
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: Container(
+                      color: dark ? const Color(0xF22B2D32) : const Color(0xF2FFFFFF),
+                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              autofocus: true,
+                              decoration: InputDecoration(
+                                isDense: true,
+                                hintText: translate('Search messages...'),
+                                prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                                suffixIcon: chatModel.chatSearchText.isNotEmpty
+                                    ? IconButton(
+                                        icon: const Icon(Icons.clear_rounded, size: 18),
+                                        onPressed: () => chatModel.updateChatSearch(''),
+                                      )
+                                    : null,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 8,
+                                ),
+                              ),
+                              onChanged: chatModel.updateChatSearch,
+                              controller: TextEditingController(text: chatModel.chatSearchText),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          IconButton(
+                            icon: const Icon(Icons.close_rounded),
+                            tooltip: translate('Close search'),
+                            onPressed: () => chatModel.toggleChatSearch(),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
               ],
             ).paddingOnly(bottom: isDesktopHome ? 0 : 8);
           },

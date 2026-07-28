@@ -15,6 +15,7 @@ import 'package:luoda_flutter/common/direct_pairing.dart';
 import 'package:luoda_flutter/consts.dart';
 import 'package:luoda_flutter/models/ab_model.dart';
 import 'package:luoda_flutter/models/chat_model.dart';
+import 'package:luoda_flutter/models/chat_settings_model.dart';
 import 'package:luoda_flutter/models/cm_file_model.dart';
 import 'package:luoda_flutter/models/file_model.dart';
 import 'package:luoda_flutter/models/group_model.dart';
@@ -3845,6 +3846,7 @@ class FFI {
   late final Peers recentPeersModel; // global
   late final Peers favoritePeersModel; // global
   late final Peers lanPeersModel; // global
+  late final ChatSettingsModel chatSettingsModel; // global
   bool viewerMode = false;
   String viewerId = '';
   String viewerDisplayName = '';
@@ -3885,6 +3887,7 @@ class FFI {
         getInitPeers: null);
     lanPeersModel = Peers(
         name: PeersModelName.lan, loadEvent: LoadEvent.lan, getInitPeers: null);
+    chatSettingsModel = ChatSettingsModel();
   }
 
   /// Mobile reuse FFI

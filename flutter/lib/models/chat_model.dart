@@ -83,6 +83,21 @@ class ChatModel with ChangeNotifier {
   RxInt mobileUnreadSum = 0.obs;
   MessageKey? latestReceivedKey;
 
+  // Conversation-level search state
+  String chatSearchText = '';
+  bool chatSearchVisible = false;
+
+  void toggleChatSearch() {
+    chatSearchVisible = !chatSearchVisible;
+    chatSearchText = '';
+    notifyListeners();
+  }
+
+  void updateChatSearch(String text) {
+    chatSearchText = text;
+    notifyListeners();
+  }
+
   Offset chatWindowPosition = Offset(20, 80);
 
   void setChatWindowPosition(Offset position) {
