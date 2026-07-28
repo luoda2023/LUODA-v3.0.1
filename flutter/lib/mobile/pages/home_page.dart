@@ -98,6 +98,52 @@ class HomePageState extends State<HomePage> {
                       letterSpacing: 0,
                     ),
                   ),
+                  actions: [
+                    IconButton(
+                      icon: const Icon(Icons.search_rounded),
+                      tooltip: translate('Search Messages'),
+                      onPressed: () {
+                        gFFI.chatModel.toggleChatSearch();
+                      },
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.image_outlined),
+                      tooltip: translate('Send Image'),
+                      onPressed: _sendDirectChatFiles,
+                    ),
+                    PopupMenuButton<String>(
+                      tooltip: translate('More'),
+                      onSelected: (action) {
+                        final peerId = gFFI.chatModel.currentKey.peerId;
+                        if (action == 'mute') {
+                          gFFI.chatSettingsModel.toggleMute(peerId);
+                        } else if (action == 'block') {
+                          gFFI.chatSettingsModel.toggleBlock(peerId);
+                        }
+                      },
+                      itemBuilder: (context) {
+                        final peerId = gFFI.chatModel.currentKey.peerId;
+                        return [
+                          PopupMenuItem(
+                            value: 'mute',
+                            child: Text(
+                              gFFI.chatSettingsModel.isMuted(peerId)
+                                  ? translate('Unmute')
+                                  : translate('Mute'),
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: 'block',
+                            child: Text(
+                              gFFI.chatSettingsModel.isBlocked(peerId)
+                                  ? translate('Unblock')
+                                  : translate('Block'),
+                            ),
+                          ),
+                        ];
+                      },
+                    ),
+                  ],
                 ),
                 body: ChatPage(
                   type: ChatPageType.mobileMain,
@@ -533,13 +579,45 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage> {
     final properties = message.customProperties;
     if (properties?['ldesk_kind'] == 'file') {
       final fileName = (properties?['ldesk_file_name'] ?? '').toString();
-      return fileName.isEmpty
-          ? translate('File Transfer')
-          : '${translate('File Transfer')}: $fileName';
+      return fileName.isEmpty ? translate('File Transfer') : fileName;
     }
     return message.text.trim().isEmpty
         ? translate('Message')
         : message.text.trim();
+  }
+
+  IconData? _fileIconForEntry(MapEntry<MessageKey, MessageBody> entry) {
+    final messages = entry.value.chatMessages;
+    if (messages.isEmpty) return null;
+    final message = messages.reduce(
+      (latest, value) =>
+          value.createdAt.isAfter(latest.createdAt) ? value : latest,
+    );
+    final properties = message.customProperties;
+    if (properties?['ldesk_kind'] != 'file') return null;
+    final fileName = (properties?['ldesk_file_name'] ?? '').toString();
+    if (fileName.isEmpty) return null;
+    final ext = fileName.contains('.')
+        ? fileName.split('.').last.toLowerCase()
+        : '';
+    switch (ext) {
+      case 'jpg': case 'jpeg': case 'png': case 'gif':
+      case 'bmp': case 'webp': case 'svg':
+        return Icons.image_outlined;
+      case 'mp4': case 'avi': case 'mkv': case 'mov':
+      case 'wmv': case 'flv':
+        return Icons.movie_outlined;
+      case 'mp3': case 'wav': case 'flac': case 'aac':
+        return Icons.audiotrack_outlined;
+      case 'pdf': return Icons.picture_as_pdf_outlined;
+      case 'doc': case 'docx': return Icons.description_outlined;
+      case 'xls': case 'xlsx': case 'csv': return Icons.table_chart_outlined;
+      case 'ppt': case 'pptx': return Icons.slideshow_outlined;
+      case 'zip': case 'rar': case '7z': case 'tar': case 'gz':
+        return Icons.folder_zip_outlined;
+      case 'txt': case 'md': case 'log': return Icons.article_outlined;
+      default: return Icons.insert_drive_file_outlined;
+    }
   }
 
   String _timeLabel(DateTime value) {
@@ -684,8 +762,9 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage> {
                                   client.isChat &&
                                   !client.disconnected,
                             );
-                            final muted =
-                                dark ? MyTheme.mutedDark : MyTheme.mutedLight;
+                            final isMuted = gFFI.chatSettingsModel.isMuted(entry.key.peerId);
+                            final isBlocked = gFFI.chatSettingsModel.isBlocked(entry.key.peerId);
+                            final fileIcon = _fileIconForEntry(entry);
                             return Material(
                               color: dark ? MyTheme.surfaceDark : Colors.white,
                               child: ListTile(
@@ -702,13 +781,25 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage> {
                                         name.isEmpty ? entry.key.peerId : name,
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
+                                        style: TextStyle(
                                           fontSize: 16,
                                           fontWeight: FontWeight.w500,
+                                          color: isBlocked
+                                              ? Theme.of(context).colorScheme.error
+                                              : null,
                                         ),
                                       ),
                                     ),
-                                    const SizedBox(width: 8),
+                                    if (isMuted)
+                                      Padding(
+                                        padding: const EdgeInsets.only(right: 4),
+                                        child: Icon(
+                                          Icons.volume_off_rounded,
+                                          size: 14,
+                                          color: muted,
+                                        ),
+                                      ),
+                                    const SizedBox(width: 4),
                                     Text(
                                       _timeLabel(_latestMessageTime(entry)),
                                       style: TextStyle(
@@ -720,18 +811,32 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage> {
                                 ),
                                 subtitle: Row(
                                   children: <Widget>[
-                                    Expanded(
-                                      child: Text(
-                                        _messagePreview(entry),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
+                                    if (fileIcon != null)
+                                      Padding(
+                                        padding: const EdgeInsets.only(right: 5),
+                                        child: Icon(fileIcon, size: 14, color: muted),
+                                      ),
+                                    if (isBlocked)
+                                      Text(
+                                        translate('Blocked'),
                                         style: TextStyle(
                                           fontSize: 13,
-                                          color: muted,
+                                          color: Theme.of(context).colorScheme.error,
+                                        ),
+                                      )
+                                    else
+                                      Expanded(
+                                        child: Text(
+                                          _messagePreview(entry),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            color: muted,
+                                          ),
                                         ),
                                       ),
-                                    ),
-                                    if (client != null)
+                                    if (!isBlocked && client != null)
                                       unreadMessageCountBuilder(
                                         client.unreadChatMessageCount,
                                       ).marginOnly(left: 8),
