@@ -58,7 +58,7 @@ class _FirstRunPermissionWizardState extends State<FirstRunPermissionWizard> {
         : await AndroidPermissionManager.check(kAndroid13Notification);
     final storage =
         await AndroidPermissionManager.check(kManageExternalStorage);
-    final audio = androidVersion < 30 || kIsIOS
+    final audio = androidVersion < 30 || isIOS
         ? true
         : await AndroidPermissionManager.check(kRecordAudio);
     final accessibility = gFFI.serverModel.inputOk;
