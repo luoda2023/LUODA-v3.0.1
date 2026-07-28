@@ -483,7 +483,7 @@ class ChatPage extends StatelessWidget implements PageShape {
     String deliveryLabel;
     switch (delivery) {
       case 'queued':
-        deliveryLabel = translate('Sending...');
+        deliveryLabel = translate('Waiting to send');
         break;
       case 'sent':
         deliveryLabel = translate('Sent');
