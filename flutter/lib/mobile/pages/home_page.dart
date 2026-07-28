@@ -110,7 +110,7 @@ class HomePageState extends State<HomePage> {
                     IconButton(
                       icon: const Icon(Icons.image_outlined),
                       tooltip: translate('Send Image'),
-                      onPressed: _sendDirectChatFiles,
+                      onPressed: _pickImageOrFile,
                     ),
                     PopupMenuButton<String>(
                       tooltip: translate('More'),
@@ -274,6 +274,46 @@ class HomePageState extends State<HomePage> {
     );
   }
 
+  /// Show WeChat-style bottom sheet: Take Photo / Gallery / File
+  Future<void> _pickImageOrFile() async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            ListTile(
+              leading: const Icon(Icons.camera_alt_rounded),
+              title: Text(translate('Take Photo')),
+              onTap: () => Navigator.pop(ctx, 'camera'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_rounded),
+              title: Text(translate('Choose from Gallery')),
+              onTap: () => Navigator.pop(ctx, 'gallery'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.insert_drive_file_rounded),
+              title: Text(translate('Send File')),
+              onTap: () => Navigator.pop(ctx, 'file'),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (action == null || !mounted) return;
+    if (action == 'file') {
+      await _sendDirectChatFiles();
+    } else {
+      final type = action == 'camera' ? FileType.camera : FileType.image;
+      final picked = await FilePicker.platform.pickFiles(type: type, allowMultiple: true);
+      final files = picked?.files.where((f) => f.path != null).toList() ?? [];
+      if (files.isEmpty) return;
+      await _sendPickedFiles(files);
+    }
+  }
+
   Future<void> _sendDirectChatFiles() async {
     final currentKey = gFFI.chatModel.currentKey;
     final peerId = currentKey.peerId.trim();
@@ -296,7 +336,26 @@ class HomePageState extends State<HomePage> {
     final files = picked?.files.where((file) => file.path != null).toList() ??
         <PlatformFile>[];
     if (files.isEmpty || !mounted) return;
+    await _sendPickedFiles(files);
+  }
 
+  Future<void> _sendPickedFiles(List<PlatformFile> files) async {
+    final currentKey = gFFI.chatModel.currentKey;
+    final peerId = currentKey.peerId.trim();
+    final connected = currentKey.isOut
+        ? gFFI.connType == ConnType.chat &&
+            gFFI.ffiModel.pi.isSet.isTrue &&
+            gFFI.ffiModel.direct == true
+        : gFFI.serverModel.clients.any(
+            (client) =>
+                client.id == currentKey.connId &&
+                client.isChat &&
+                !client.disconnected,
+          );
+    if (peerId.isEmpty || !connected) {
+      showToast(translate('Connect to the contact before sending files.'));
+      return;
+    }
     final ffi = await _ensureDirectFileSession(peerId);
     if (ffi == null || !mounted) return;
     final items = SelectedItems(isLocal: true);
