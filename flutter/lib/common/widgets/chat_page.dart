@@ -633,11 +633,23 @@ class ChatPage extends StatelessWidget implements PageShape {
   }
 
   Widget _mediaPlaceholder(DirectChatRecord record, bool dark) {
+    final ext = record.fileName.contains('.')
+        ? record.fileName.split('.').last.toLowerCase()
+        : '';
+    const img = {'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'};
+    final icon = img.contains(ext) ? Icons.image_outlined
+        : ['mp3','wav','ogg','flac','m4a'].contains(ext) ? Icons.audio_file_outlined
+        : ['mp4','avi','mov','mkv'].contains(ext) ? Icons.video_file_outlined
+        : ext == 'pdf' ? Icons.picture_as_pdf_outlined
+        : ['zip','rar','7z','tar','gz'].contains(ext) ? Icons.folder_zip_outlined
+        : ['doc','docx'].contains(ext) ? Icons.description_outlined
+        : ['xls','xlsx'].contains(ext) ? Icons.table_chart_outlined
+        : Icons.insert_drive_file_outlined;
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Icon(
-          fileTypeIcon(record.fileName),
+          icon,
           size: 32,
           color: dark ? const Color(0xFF999CA2) : const Color(0xFF888888),
         ),
