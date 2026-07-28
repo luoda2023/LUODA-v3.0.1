@@ -1840,9 +1840,9 @@ class ChatModel with ChangeNotifier {
   }
 
   /// Set raw option value (bridges bind for external models).
-  void setRawOption({required String key, required String value}) {
+  Future<void> setRawOption({required String key, required String value}) async {
     try {
-      bind.mainSetLocalOption(key: key, value: value);
+      await bind.mainSetLocalOption(key: key, value: value);
     } catch (_) {}
   }
 

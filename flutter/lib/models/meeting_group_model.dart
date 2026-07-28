@@ -146,7 +146,7 @@ class MeetingGroupStore {
   }
 
   /// Public save (bridges to private _save for external callers).
-  static void save() => _save();
+  static Future<void> save() async => _save();
 
   /// Create a new meeting group. Returns the new [MeetingGroup].
   static MeetingGroup create({
