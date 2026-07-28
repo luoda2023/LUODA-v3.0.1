@@ -40,6 +40,9 @@ class DirectChatRecord {
     this.expiresAt,
     this.replyToId = '',
     this.replyToText = '',
+    this.reactions = const {},
+    this.isEdited = false,
+    this.editedAt,
   });
 
   final String id;
@@ -66,6 +69,10 @@ class DirectChatRecord {
   final DateTime? expiresAt;
   final String replyToId;
   final String replyToText;
+  // Reactions: emoji -> list of device IDs who reacted
+  final Map<String, List<String>> reactions;
+  final bool isEdited;
+  final DateTime? editedAt;
 
   bool get isOutgoing => direction == DirectChatDirection.outgoing;
   bool get isExpired =>
@@ -82,6 +89,9 @@ class DirectChatRecord {
     String? inlineBytes,
     String? replyToId,
     String? replyToText,
+    Map<String, List<String>>? reactions,
+    bool? isEdited,
+    DateTime? editedAt,
   }) {
     return DirectChatRecord(
       id: id,
@@ -106,6 +116,9 @@ class DirectChatRecord {
       expiresAt: expiresAt ?? this.expiresAt,
       replyToId: replyToId ?? this.replyToId,
       replyToText: replyToText ?? this.replyToText,
+      reactions: reactions ?? this.reactions,
+      isEdited: isEdited ?? this.isEdited,
+      editedAt: editedAt ?? this.editedAt,
     );
   }
 
@@ -132,6 +145,11 @@ class DirectChatRecord {
           'expires_at': expiresAt!.toUtc().toIso8601String(),
         if (replyToId.isNotEmpty) 'reply_to_id': replyToId,
         if (replyToText.isNotEmpty) 'reply_to_text': replyToText,
+        if (reactions.isNotEmpty)
+          'reactions': reactions.map((k, v) => MapEntry(k, v)),
+        if (isEdited) 'is_edited': true,
+        if (editedAt != null)
+          'edited_at': editedAt!.toUtc().toIso8601String(),
       };
 
   factory DirectChatRecord.fromJson(Map<String, dynamic> json) {
@@ -175,7 +193,23 @@ class DirectChatRecord {
       expiresAt: DateTime.tryParse((json['expires_at'] ?? '').toString()),
       replyToId: (json['reply_to_id'] ?? '').toString(),
       replyToText: (json['reply_to_text'] ?? '').toString(),
+      reactions: _parseReactions(json['reactions']),
+      isEdited: json['is_edited'] == true,
+      editedAt: DateTime.tryParse((json['edited_at'] ?? '').toString()),
     );
+  }
+
+  static Map<String, List<String>> _parseReactions(dynamic raw) {
+    if (raw is! Map) return const {};
+    final result = <String, List<String>>{};
+    for (final entry in (raw as Map).entries) {
+      final emoji = entry.key.toString();
+      final list = entry.value;
+      if (list is List) {
+        result[emoji] = list.map((e) => e.toString()).toList();
+      }
+    }
+    return result;
   }
 }
 
@@ -265,6 +299,28 @@ class DirectChatEnvelope {
 
   static DirectChatEnvelope typing() =>
       DirectChatEnvelope('typing', <String, dynamic>{});
+
+  static DirectChatEnvelope reaction({
+    required String messageId,
+    required String emoji,
+    required String deviceId,
+    required bool add,
+  }) =>
+      DirectChatEnvelope('reaction', <String, dynamic>{
+        'id': messageId,
+        'emoji': emoji,
+        'device_id': deviceId,
+        'add': add,
+      });
+
+  static DirectChatEnvelope edit({
+    required String messageId,
+    required String newText,
+  }) =>
+      DirectChatEnvelope('edit', <String, dynamic>{
+        'id': messageId,
+        'text': newText,
+      });
 }
 
 class DirectChatRepository {
@@ -495,6 +551,78 @@ class DirectChatRepository {
         state.records[id] = record.copyWith(delivery: delivery);
       }
     });
+  }
+
+  /// Toggle a reaction on a message. Returns updated record or null.
+  Future<DirectChatRecord?> toggleReaction(
+    String id,
+    String emoji,
+    String deviceId,
+  ) {
+    return _write((state) async {
+      final record = state.records[id];
+      if (record == null ||
+          record.disposition != DirectChatDisposition.active) {
+        return null;
+      }
+      final reactions =
+          Map<String, List<String>>.from(record.reactions);
+      final users = List<String>.from(reactions[emoji] ?? []);
+      if (users.contains(deviceId)) {
+        users.remove(deviceId);
+        if (users.isEmpty) {
+          reactions.remove(emoji);
+        } else {
+          reactions[emoji] = users;
+        }
+      } else {
+        users.add(deviceId);
+        reactions[emoji] = users;
+      }
+      final updated = record.copyWith(
+        reactions: reactions,
+      );
+      state.records[id] = updated;
+      return updated;
+    });
+  }
+
+  /// Edit the text of an outgoing message.
+  Future<DirectChatRecord?> editText(String id, String newText) {
+    return _write((state) async {
+      final record = state.records[id];
+      if (record == null ||
+          !record.isOutgoing ||
+          record.disposition != DirectChatDisposition.active) {
+        return null;
+      }
+      final updated = record.copyWith(
+        text: newText,
+        isEdited: true,
+        editedAt: DateTime.now().toUtc(),
+        originSequence: state.nextSequence++,
+      );
+      state.records[id] = updated;
+      return updated;
+    });
+  }
+
+  /// Get all media (file/image) records for a conversation.
+  Future<List<DirectChatRecord>> mediaForConversation(
+    String conversationId,
+  ) async {
+    await _pendingWrite;
+    final records = (await _freshState())
+        .records
+        .values
+        .where((r) =>
+            r.conversationId == conversationId &&
+            r.kind == DirectChatKind.file &&
+            r.disposition == DirectChatDisposition.active &&
+            !r.isExpired)
+        .toList();
+    records.sort((a, b) => b.sentAt.compareTo(a.sentAt));
+    return records;
   }
 
   Future<void> markUndeliveredFailed(String conversationId) {

@@ -16,6 +16,11 @@ import '../wechat_ui_tokens.dart';
 import 'file_viewer.dart';
 import 'voice_message_controls.dart';
 
+const _reactionEmojis = [
+  '👍', '❤️', '😂', '😮', '😢', '🙏',
+  '👏', '🎉', '🔥', '💯', '🤔', '👀',
+];
+
 enum ChatPageType {
   mobileMain,
   desktopCM,
@@ -140,6 +145,51 @@ class ChatPage extends StatelessWidget implements PageShape {
                 onTap: () => Navigator.pop(sheetContext, 'reply'),
                 dense: true,
               ),
+              // Reaction emoji picker
+              const Divider(height: 1),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: _reactionEmojis.map((emoji) {
+                    return GestureDetector(
+                      onTap: () {
+                        Navigator.pop(sheetContext);
+                        chatModel.toggleReaction(message, emoji);
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Theme.of(sheetContext).brightness ==
+                                  Brightness.dark
+                              ? const Color(0xFF3A3D43)
+                              : const Color(0xFFF0F0F0),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(emoji, style: const TextStyle(fontSize: 22)),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+              const Divider(height: 1),
+              // Select (enter multi-select mode)
+              ListTile(
+                leading: const Icon(Icons.checklist_rounded, size: 22),
+                title: Text(translate('Select'),
+                    style: const TextStyle(fontSize: 14)),
+                onTap: () => Navigator.pop(sheetContext, 'select'),
+                dense: true,
+              ),
+              // Message info
+              ListTile(
+                leading: const Icon(Icons.info_outline_rounded, size: 22),
+                title: Text(translate('Info'),
+                    style: const TextStyle(fontSize: 14)),
+                onTap: () => Navigator.pop(sheetContext, 'info'),
+                dense: true,
+              ),
               // Delete locally — always available
               ListTile(
                 leading: Icon(Icons.delete_outline_rounded, size: 22,
@@ -151,6 +201,15 @@ class ChatPage extends StatelessWidget implements PageShape {
                 dense: true,
               ),
               if (isOwnMessage) ...[
+                // Edit (own text messages only)
+                if (properties?['ldesk_kind'] == 'text')
+                  ListTile(
+                    leading: const Icon(Icons.edit_rounded, size: 22),
+                    title: Text(translate('Edit'),
+                        style: const TextStyle(fontSize: 14)),
+                    onTap: () => Navigator.pop(sheetContext, 'edit'),
+                    dense: true,
+                  ),
                 const Divider(height: 1),
                 // Primary actions: Recall & Destroy — own messages only
                 Padding(
@@ -263,6 +322,51 @@ class ChatPage extends StatelessWidget implements PageShape {
       }
       return;
     }
+    if (action == 'edit') {
+      if (!context.mounted) return;
+      final controller = TextEditingController(text: message.text);
+      final result = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(translate('Edit message')),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            maxLines: 3,
+            decoration: InputDecoration(
+              hintText: translate('Edit your message...'),
+              border: const OutlineInputBorder(),
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text(translate('Cancel')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, controller.text.trim()),
+              child: Text(translate('Save')),
+            ),
+          ],
+        ),
+      );
+      if (result == null || result.isEmpty || !context.mounted) return;
+      final ok = await chatModel.editMessage(message, result);
+      if (context.mounted && ok) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(content: Text(translate('Message edited'))),
+        );
+      }
+      return;
+    }
+    if (action == 'select') {
+      _enterMultiSelect(message);
+      return;
+    }
+    if (action == 'info') {
+      _showMessageInfo(context, message);
+      return;
+    }
     if (action == 'forward') {
       await _showForwardPicker(context, message);
       return;
@@ -367,6 +471,190 @@ class ChatPage extends StatelessWidget implements PageShape {
     );
   }
 
+  /// Show message delivery info dialog.
+  void _showMessageInfo(BuildContext context, ChatMessage message) {
+    final properties = message.customProperties;
+    final delivery = (properties?['ldesk_delivery'] ?? '').toString();
+    final kind = (properties?['ldesk_kind'] ?? 'text').toString();
+    final isEdited = properties?['ldesk_is_edited'] == true;
+    final editedAt = properties?['ldesk_edited_at'];
+    final reactions = properties?['ldesk_reactions'] as Map<String, dynamic>?;
+    String deliveryLabel;
+    switch (delivery) {
+      case 'queued':
+        deliveryLabel = translate('Sending...');
+        break;
+      case 'sent':
+        deliveryLabel = translate('Sent');
+        break;
+      case 'delivered':
+        deliveryLabel = translate('Delivered');
+        break;
+      case 'failed':
+        deliveryLabel = translate('Failed');
+        break;
+      default:
+        deliveryLabel = delivery;
+    }
+    showDialog(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: Text(translate('Message info')),
+        children: <Widget>[
+          _infoRow(ctx, translate('Status'), deliveryLabel),
+          _infoRow(ctx, translate('Type'), kind == 'voice'
+              ? translate('Voice')
+              : kind == 'file'
+                  ? translate('File')
+                  : translate('Text')),
+          _infoRow(ctx, translate('Time'),
+              '${message.createdAt.month}/${message.createdAt.day} '
+              '${message.createdAt.hour.toString().padLeft(2, '0')}:'
+              '${message.createdAt.minute.toString().padLeft(2, '0')}'),
+          if (isEdited)
+            _infoRow(
+                ctx, translate('Edited'), editedAt?.toString() ?? ''),
+          if (reactions != null && reactions.isNotEmpty)
+            _infoRow(
+              ctx,
+              translate('Reactions'),
+              reactions.entries
+                  .map((e) => '${e.key} ${(e.value as List).length}')
+                  .join('  '),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _infoRow(BuildContext context, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 6),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 80,
+            child: Text(label,
+                style: TextStyle(
+                    color: Theme.of(context)
+                        .textTheme
+                        .bodySmall
+                        ?.color
+                        ?.withOpacity(0.6),
+                    fontSize: 13)),
+          ),
+          Expanded(child: Text(value, style: const TextStyle(fontSize: 13))),
+        ],
+      ),
+    );
+  }
+
+  /// Enter multi-select mode with the given message pre-selected.
+  void _enterMultiSelect(ChatMessage message) {
+    final id = (message.customProperties?['ldesk_id'] ?? '').toString();
+    if (id.isNotEmpty) chatModel.enterMultiSelect(id);
+  }
+
+  /// Show media gallery for the current conversation.
+  Future<void> _showMediaGallery(BuildContext context) async {
+    final records = await chatModel.mediaForConversation();
+    if (!context.mounted || records.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(content: Text(translate('No media in this conversation'))),
+        );
+      }
+      return;
+    }
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (ctx) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.7,
+        maxChildSize: 0.95,
+        minChildSize: 0.3,
+        builder: (_, scrollController) => GridView.builder(
+          controller: scrollController,
+          padding: const EdgeInsets.all(12),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 4,
+            crossAxisSpacing: 8,
+            mainAxisSpacing: 8,
+          ),
+          itemCount: records.length,
+          itemBuilder: (_, index) {
+            final record = records[index];
+            final isImage = record.localPath.isNotEmpty &&
+                ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp']
+                    .contains(record.fileName.split('.').last.toLowerCase());
+            return GestureDetector(
+              onTap: () {
+                Navigator.pop(ctx);
+                if (isImage) {
+                  _showImagePreview(
+                      context, record.localPath, record.fileName);
+                } else {
+                  showFileViewer(
+                    context,
+                    fileName: record.fileName,
+                    fileSize: record.fileSize,
+                    localPath: record.localPath,
+                  );
+                }
+              },
+              child: Container(
+                decoration: BoxDecoration(
+                  color: dark
+                      ? const Color(0xFF2B2D32)
+                      : const Color(0xFFF5F5F5),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: isImage
+                    ? ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.file(
+                          File(record.localPath),
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) =>
+                              _mediaPlaceholder(record, dark),
+                        ),
+                      )
+                    : _mediaPlaceholder(record, dark),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _mediaPlaceholder(DirectChatRecord record, bool dark) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(
+          fileTypeIcon(record.fileName),
+          size: 32,
+          color: dark ? const Color(0xFF999CA2) : const Color(0xFF888888),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          record.fileName,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 10,
+            color: dark ? const Color(0xFF999CA2) : const Color(0xFF888888),
+          ),
+        ),
+      ],
+    );
+  }
+
   /// Show clear history confirmation dialog.
   Future<void> _showClearHistoryDialog(BuildContext context) async {
     final confirmed = await showDialog<bool>(
@@ -397,6 +685,110 @@ class ChatPage extends StatelessWidget implements PageShape {
         SnackBar(content: Text(translate('Chat history cleared'))),
       );
     }
+  }
+
+  /// Multi-select bottom action bar with batch delete.
+  Widget multiSelectBottomBar(BuildContext context, bool dark) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: dark ? const Color(0xFF1F2228) : const Color(0xFFF8F8F8),
+        border: Border(top: BorderSide(
+          color: dark ? const Color(0xFF3A3D43) : const Color(0xFFDDDDDD),
+        )),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 6, offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      child: SafeArea(top: false, child: Row(children: [
+        TextButton(
+          onPressed: () => chatModel.exitMultiSelect(),
+          child: Text(translate('Cancel')),
+        ),
+        const Spacer(),
+        Text(
+          '${chatModel.selectedMessageIds.length} ${translate('selected')}',
+          style: TextStyle(
+            color: dark ? const Color(0xFF999CA2) : const Color(0xFF888888),
+            fontSize: 13,
+          ),
+        ),
+        const SizedBox(width: 12),
+        TextButton(
+          onPressed: () => chatModel.selectAllInConversation(),
+          child: Text(translate('Select all')),
+        ),
+        const SizedBox(width: 8),
+        FilledButton.tonalIcon(
+          onPressed: chatModel.selectedMessageIds.isEmpty ? null : () async {
+            final confirmed = await showDialog<bool>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: Text(translate('Delete messages')),
+                content: Text(translate(
+                    'Delete ${chatModel.selectedMessageIds.length} messages?')),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    child: Text(translate('Cancel')),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Theme.of(ctx).colorScheme.error,
+                    ),
+                    child: Text(translate('Delete')),
+                  ),
+                ],
+              ),
+            );
+            if (confirmed != true || !context.mounted) return;
+            await chatModel.batchDeleteMessages(
+              Set<String>.from(chatModel.selectedMessageIds),
+            );
+            chatModel.exitMultiSelect();
+          },
+          icon: const Icon(Icons.delete_outline, size: 18),
+          label: Text(translate('Delete')),
+        ),
+      ])),
+    );
+  }
+
+  /// Small icon button used in the chat toolbar.
+  Widget _toolbarIconButton(
+    BuildContext context, bool dark, {
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(6),
+        onTap: onTap,
+        child: Tooltip(
+          message: tooltip,
+          child: Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: dark
+                  ? const Color(0x442B2D32)
+                  : const Color(0x44FFFFFF),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Icon(
+              icon,
+              size: 16,
+              color: dark ? const Color(0xFF999CA2) : const Color(0xFF999999),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   /// Build rich text with clickable links.
@@ -908,6 +1300,8 @@ class ChatPage extends StatelessWidget implements PageShape {
                   (properties?['ldesk_local_path'] ?? '').toString();
               final replyToText =
                   (properties?['ldesk_reply_to_text'] ?? '').toString();
+              final reactions = properties?['ldesk_reactions'] as Map<String, dynamic>?;
+              final isEdited = properties?['ldesk_is_edited'] == true;
               return Column(
                 crossAxisAlignment: isOwnMessage
                     ? CrossAxisAlignment.end
@@ -1064,6 +1458,58 @@ class ChatPage extends StatelessWidget implements PageShape {
                     _buildInviteCard(context, message.text.trim(), foreground)
                   else
                     _buildLinkText(message.text, foreground, isDesktopHome),
+                  // Reaction bar
+                  if (reactions != null && reactions.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Wrap(
+                        spacing: 4,
+                        runSpacing: 2,
+                        children: reactions.entries.map((entry) {
+                          final emoji = entry.key;
+                          final users = (entry.value as List<dynamic>)
+                              .map((e) => e.toString())
+                              .toList();
+                          final isActive = users.contains(chatModel.me.id);
+                          return GestureDetector(
+                            onTap: () => chatModel.toggleReaction(message, emoji),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: isActive
+                                    ? kWeChatPrimaryColor.withOpacity(0.15)
+                                    : Colors.black.withOpacity(0.06),
+                                borderRadius: BorderRadius.circular(10),
+                                border: isActive
+                                    ? Border.all(
+                                        color: kWeChatPrimaryColor
+                                            .withOpacity(0.4),
+                                        width: 1)
+                                    : null,
+                              ),
+                              child: Text(
+                                '$emoji ${users.length}',
+                                style: TextStyle(fontSize: 12),
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  // (Edited) marker
+                  if (isEdited && !recalled)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        translate('(edited)'),
+                        style: TextStyle(
+                          color: foreground.withOpacity(0.4),
+                          fontSize: 10,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ),
                   if (includeMetadata)
                     Row(
                       mainAxisSize: MainAxisSize.min,
@@ -1189,7 +1635,39 @@ class ChatPage extends StatelessWidget implements PageShape {
               final avatar = messageAvatar(message.user, null, null);
               final canManage = isOwnMessage &&
                   message.customProperties?['ldesk_disposition'] == 'active';
-              final actionButton = canManage
+              final inMultiSelect = chatModel.isMultiSelectMode;
+              final messageId =
+                  (message.customProperties?['ldesk_id'] ?? '').toString();
+              final isSelected =
+                  chatModel.selectedMessageIds.contains(messageId);
+              // Multi-select checkbox
+              Widget multiSelectCheckbox = const SizedBox.shrink();
+              if (inMultiSelect && messageId.isNotEmpty) {
+                multiSelectCheckbox = GestureDetector(
+                  onTap: () => chatModel.toggleSelection(messageId),
+                  child: Container(
+                    width: 24,
+                    height: 24,
+                    margin: const EdgeInsets.only(right: 8),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isSelected
+                          ? kWeChatPrimaryColor
+                          : Colors.transparent,
+                      border: Border.all(
+                        color: isSelected
+                            ? kWeChatPrimaryColor
+                            : (dark ? const Color(0xFF555A62) : const Color(0xFFCCCCCC)),
+                        width: 2,
+                      ),
+                    ),
+                    child: isSelected
+                        ? const Icon(Icons.check, size: 14, color: Colors.white)
+                        : null,
+                  ),
+                );
+              }
+              final actionButton = canManage && !inMultiSelect
                   ? Row(
                       mainAxisSize: MainAxisSize.min,
                       children: <Widget>[
@@ -1255,6 +1733,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                       : MainAxisAlignment.start,
                   children: isOwnMessage
                       ? <Widget>[
+                          if (inMultiSelect) multiSelectCheckbox,
                           messageColumn,
                           const SizedBox(width: 4),
                           actionButton,
@@ -1263,6 +1742,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                           avatar,
                         ]
                       : <Widget>[
+                          if (inMultiSelect) multiSelectCheckbox,
                           avatar,
                           const SizedBox(width: 11),
                           messageColumn,
@@ -1665,35 +2145,35 @@ class ChatPage extends StatelessWidget implements PageShape {
                     ],
                   );
                 }),
-                // Clear history button (top-right corner)
+                // Toolbar buttons (top-right corner)
                 if (isDesktopHome &&
                     chatModel.currentKey.peerId.isNotEmpty)
                   Positioned(
                     top: 8, right: 8,
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(6),
-                        onTap: () =>
-                            _showClearHistoryDialog(context),
-                        child: Container(
-                          padding: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            color: dark
-                                ? const Color(0x442B2D32)
-                                : const Color(0x44FFFFFF),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Icon(
-                            Icons.delete_sweep_outlined,
-                            size: 16,
-                            color: dark
-                                ? const Color(0xFF999CA2)
-                                : const Color(0xFF999999),
-                          ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _toolbarIconButton(
+                          context, dark,
+                          icon: Icons.perm_media_outlined,
+                          tooltip: translate('Shared media'),
+                          onTap: () => _showMediaGallery(context),
                         ),
-                      ),
+                        const SizedBox(width: 4),
+                        _toolbarIconButton(
+                          context, dark,
+                          icon: Icons.delete_sweep_outlined,
+                          tooltip: translate('Clear chat history'),
+                          onTap: () => _showClearHistoryDialog(context),
+                        ),
+                      ],
                     ),
+                  ),
+                // Multi-select bottom action bar
+                if (chatModel.isMultiSelectMode)
+                  Positioned(
+                    bottom: 0, left: 0, right: 0,
+                    child: multiSelectBottomBar(context, dark),
                   ),
                 if (chatModel.chatSearchVisible)
                   Positioned(

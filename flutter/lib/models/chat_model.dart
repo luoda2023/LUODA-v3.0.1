@@ -101,6 +101,12 @@ class ChatModel with ChangeNotifier {
   bool get isReconnecting => _isReconnecting;
   String get reconnectPeerId => _reconnectPeerId;
 
+  // Multi-select mode
+  bool _multiSelectMode = false;
+  final Set<String> _selectedMessageIds = {};
+  bool get isMultiSelectMode => _multiSelectMode;
+  Set<String> get selectedMessageIds => _selectedMessageIds;
+
   // Typing indicator state (peer → us)
   final Map<String, DateTime> _peerTypingTimestamps = {};
   DateTime _lastTypingSent = DateTime.fromMillisecondsSinceEpoch(0);
@@ -1206,6 +1212,35 @@ class ChatModel with ChangeNotifier {
       case 'typing':
         _onPeerTyping(key.peerId);
         return;
+      case 'reaction':
+        final id = (envelope.data['id'] ?? '').toString();
+        final emoji = (envelope.data['emoji'] ?? '').toString();
+        final deviceId = (envelope.data['device_id'] ?? '').toString();
+        if (id.isEmpty || emoji.isEmpty || deviceId.isEmpty) return;
+        final reacted = await DirectChatRepository.instance.toggleReaction(
+          id, emoji, deviceId,
+        );
+        if (reacted != null) {
+          final user = _messages[key]?.chatUser;
+          if (user != null) {
+            insertMessage(key, _toChatMessage(reacted, user));
+            notifyListeners();
+          }
+        }
+        return;
+      case 'edit':
+        final editId = (envelope.data['id'] ?? '').toString();
+        final newText = (envelope.data['text'] ?? '').toString();
+        if (editId.isEmpty || newText.isEmpty) return;
+        final edited = await DirectChatRepository.instance.editText(
+          editId, newText,
+        );
+        if (edited != null) {
+          final user = _messages[key]?.chatUser ?? me;
+          insertMessage(key, _toChatMessage(edited, user));
+          notifyListeners();
+        }
+        return;
       default:
         return;
     }
@@ -1472,6 +1507,11 @@ class ChatModel with ChangeNotifier {
         if (record.replyToId.isNotEmpty) 'ldesk_reply_to_id': record.replyToId,
         if (record.replyToText.isNotEmpty)
           'ldesk_reply_to_text': record.replyToText,
+        if (record.reactions.isNotEmpty)
+          'ldesk_reactions': Map<String, dynamic>.from(record.reactions),
+        if (record.isEdited) 'ldesk_is_edited': true,
+        if (record.editedAt != null)
+          'ldesk_edited_at': record.editedAt!.toUtc().toIso8601String(),
       },
     );
   }
@@ -1623,6 +1663,207 @@ class ChatModel with ChangeNotifier {
   void clearReconnecting() {
     _isReconnecting = false;
     _reconnectPeerId = '';
+    notifyListeners();
+  }
+
+  /// Toggle reaction on a message and sync to peer.
+  Future<void> toggleReaction(ChatMessage message, String emoji) async {
+    final id = (message.customProperties?['ldesk_id'] ?? '').toString();
+    final key = _currentKey;
+    if (id.isEmpty || key.peerId.isEmpty) return;
+    final deviceId = me.id;
+    final updated = await DirectChatRepository.instance.toggleReaction(
+      id, emoji, deviceId,
+    );
+    if (updated == null) return;
+    insertMessage(key, _toChatMessage(updated, me));
+    _sendWire(
+      key,
+      DirectChatEnvelope.reaction(
+        messageId: id,
+        emoji: emoji,
+        deviceId: deviceId,
+        add: (updated.reactions[emoji] ?? []).contains(deviceId),
+      ).encode(),
+    );
+    notifyListeners();
+  }
+
+  /// Edit a sent message's text.
+  Future<bool> editMessage(ChatMessage message, String newText) async {
+    final trimmed = newText.trim();
+    if (trimmed.isEmpty) return false;
+    final id = (message.customProperties?['ldesk_id'] ?? '').toString();
+    final key = _currentKey;
+    if (id.isEmpty || key.peerId.isEmpty) return false;
+    if (message.user.id != me.id) return false;
+    final updated = await DirectChatRepository.instance.editText(id, trimmed);
+    if (updated == null) return false;
+    insertMessage(key, _toChatMessage(updated, me));
+    _sendWire(key, DirectChatEnvelope.edit(messageId: id, newText: trimmed).encode());
+    notifyListeners();
+    return true;
+  }
+
+  /// Batch delete multiple messages from the current conversation.
+  Future<bool> batchDeleteMessages(Set<String> ids) async {
+    final key = _currentKey;
+    if (key.peerId.isEmpty || ids.isEmpty) return false;
+    for (final id in ids) {
+      await DirectChatRepository.instance.deleteRecord(id, key.peerId);
+    }
+    final body = _messages[key];
+    if (body != null) {
+      body.chatMessages.removeWhere((m) =>
+          ids.contains((m.customProperties?['ldesk_id'] ?? '').toString()));
+    }
+    notifyListeners();
+    return true;
+  }
+
+  /// Get all media files for current conversation.
+  Future<List<DirectChatRecord>> mediaForConversation() async {
+    final peerId = _currentKey.peerId;
+    if (peerId.isEmpty) return [];
+    return DirectChatRepository.instance.mediaForConversation(peerId);
+  }
+
+  /// Pin or unpin a conversation.
+  Future<void> pinConversation(String peerId, bool pinned) async {
+    final pinnedIds = await _loadPinnedConversations();
+    if (pinned) {
+      pinnedIds.add(peerId);
+    } else {
+      pinnedIds.remove(peerId);
+    }
+    try {
+      bind.mainSetLocalOption(
+        key: 'pinned_conversations',
+        value: jsonEncode(pinnedIds.toList()),
+      );
+    } catch (_) {}
+    notifyListeners();
+  }
+
+  /// Get list of pinned conversation peer IDs.
+  Future<Set<String>> _loadPinnedConversations() async {
+    try {
+      final raw = bind.mainGetLocalOption(key: 'pinned_conversations');
+      if (raw.isEmpty) return {};
+      final list = jsonDecode(raw) as List<dynamic>;
+      return list.map((e) => e.toString()).toSet();
+    } catch (_) {
+      return {};
+    }
+  }
+
+  /// Check if a conversation is pinned.
+  Future<bool> isConversationPinned(String peerId) async {
+    final pinned = await _loadPinnedConversations();
+    return pinned.contains(peerId);
+  }
+
+  /// Get pinned conversation list sorted.
+  Future<List<String>> pinnedConversationIds() async {
+    final pinned = await _loadPinnedConversations();
+    final all = await DirectChatRepository.instance.conversationIds();
+    final result = <String>[];
+    for (final id in all) {
+      if (pinned.contains(id)) result.add(id);
+    }
+    for (final id in all) {
+      if (!pinned.contains(id)) result.add(id);
+    }
+    return result;
+  }
+
+  /// Mark a conversation as unread without a new message.
+  Future<void> markConversationUnread(String peerId) async {
+    if (peerId.isEmpty) return;
+    try {
+      final raw = bind.mainGetLocalOption(key: 'marked_unread');
+
+      Set<String> unreadSet;
+      if (raw.isNotEmpty) {
+        unreadSet = (jsonDecode(raw) as List<dynamic>)
+            .map((e) => e.toString())
+            .toSet();
+      } else {
+        unreadSet = {};
+      }
+      unreadSet.add(peerId);
+      bind.mainSetLocalOption(
+        key: 'marked_unread',
+        value: jsonEncode(unreadSet.toList()),
+      );
+    } catch (_) {}
+    mobileUpdateUnreadSum();
+    notifyListeners();
+  }
+
+  /// Check if conversation is marked as unread.
+  bool isConversationMarkedUnread(String peerId) {
+    try {
+      final raw = bind.mainGetLocalOption(key: 'marked_unread');
+      if (raw.isEmpty) return false;
+      final list = jsonDecode(raw) as List<dynamic>;
+      return list.map((e) => e.toString()).contains(peerId);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Clear the marked-unread flag.
+  void clearMarkedUnread(String peerId) {
+    try {
+      final raw = bind.mainGetLocalOption(key: 'marked_unread');
+      if (raw.isEmpty) return;
+      final list = (jsonDecode(raw) as List<dynamic>)
+          .map((e) => e.toString())
+          .toList();
+      list.remove(peerId);
+      bind.mainSetLocalOption(
+        key: 'marked_unread',
+        value: jsonEncode(list),
+      );
+    } catch (_) {}
+    mobileUpdateUnreadSum();
+  }
+
+  // ─── Multi-select ────────────────────────────────────────
+
+  void enterMultiSelect(String firstMessageId) {
+    _multiSelectMode = true;
+    _selectedMessageIds.clear();
+    _selectedMessageIds.add(firstMessageId);
+    notifyListeners();
+  }
+
+  void toggleSelection(String messageId) {
+    if (_selectedMessageIds.contains(messageId)) {
+      _selectedMessageIds.remove(messageId);
+      if (_selectedMessageIds.isEmpty) {
+        _multiSelectMode = false;
+      }
+    } else {
+      _selectedMessageIds.add(messageId);
+    }
+    notifyListeners();
+  }
+
+  void selectAllInConversation() {
+    final body = _messages[_currentKey];
+    if (body == null) return;
+    for (final msg in body.chatMessages) {
+      final id = (msg.customProperties?['ldesk_id'] ?? '').toString();
+      if (id.isNotEmpty) _selectedMessageIds.add(id);
+    }
+    notifyListeners();
+  }
+
+  void exitMultiSelect() {
+    _multiSelectMode = false;
+    _selectedMessageIds.clear();
     notifyListeners();
   }
 
