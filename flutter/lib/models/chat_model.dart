@@ -88,6 +88,19 @@ class ChatModel with ChangeNotifier {
   bool chatSearchVisible = false;
   final TextEditingController chatSearchController = TextEditingController();
 
+  // Draft management: per-conversation unsent text
+  final Map<String, String> _drafts = {};
+
+  // Quote reply state
+  ChatMessage? _replyToMessage;
+  ChatMessage? get replyToMessage => _replyToMessage;
+
+  // Reconnect status
+  bool _isReconnecting = false;
+  String _reconnectPeerId = '';
+  bool get isReconnecting => _isReconnecting;
+  String get reconnectPeerId => _reconnectPeerId;
+
   // Typing indicator state (peer → us)
   final Map<String, DateTime> _peerTypingTimestamps = {};
   DateTime _lastTypingSent = DateTime.fromMillisecondsSinceEpoch(0);
@@ -515,6 +528,13 @@ class ChatModel with ChangeNotifier {
   }
 
   changeCurrentKey(MessageKey key) {
+    // Save draft for current conversation before switching
+    if (_currentKey.peerId.isNotEmpty && textController.text.isNotEmpty) {
+      _drafts[_currentKey.peerId] = textController.text;
+    }
+    _replyToMessage = null;
+    _isReconnecting = false;
+    _reconnectPeerId = '';
     updateConnIdOfKey(key);
     String? peerName;
     String? peerAvatar;
@@ -544,6 +564,13 @@ class ChatModel with ChangeNotifier {
       _messages[key]?.chatUser.profileImage = peerAvatar;
     }
     _currentKey = key;
+    // Restore draft for the new conversation
+    final draft = _drafts[key.peerId];
+    if (draft != null && draft.isNotEmpty) {
+      textController.text = draft;
+    } else {
+      textController.clear();
+    }
     notifyListeners();
     mobileClearClientUnread(key.connId);
     unawaited(_restoreConversation(key));
@@ -722,6 +749,9 @@ class ChatModel with ChangeNotifier {
     final key = _currentKey;
     if (key.peerId.isEmpty) return;
     _touchChatActivity(key.peerId);
+    final replyId =
+        (_replyToMessage?.customProperties?['ldesk_id'] ?? '').toString();
+    final replyText = _replyToMessage?.text ?? '';
     final record = await DirectChatRepository.instance.createOutgoing(
       conversationId: key.peerId,
       kind: DirectChatKind.text,
@@ -729,7 +759,14 @@ class ChatModel with ChangeNotifier {
       senderId: me.id,
       senderName: me.firstName ?? '',
       senderAvatar: '',
+      replyToId: replyId,
+      replyToText: replyText.length > 80
+          ? '${replyText.substring(0, 80)}...'
+          : replyText,
     );
+    _replyToMessage = null;
+    // Clear draft after send
+    _drafts.remove(key.peerId);
     insertMessage(key, _toChatMessage(record, me));
     _scheduleSelfDestruct(key, record, me);
     await _transmitRecord(key, record);
@@ -1432,6 +1469,9 @@ class ChatModel with ChangeNotifier {
         if (record.expiresAt != null)
           'ldesk_expires_at': record.expiresAt!.toUtc().toIso8601String(),
         'ldesk_disposition': record.disposition.name,
+        if (record.replyToId.isNotEmpty) 'ldesk_reply_to_id': record.replyToId,
+        if (record.replyToText.isNotEmpty)
+          'ldesk_reply_to_text': record.replyToText,
       },
     );
   }
@@ -1508,6 +1548,81 @@ class ChatModel with ChangeNotifier {
     if (ids.contains(_currentKey.peerId)) {
       _currentKey = MessageKey('', clientModeID);
     }
+    notifyListeners();
+  }
+
+  /// Copy message text to system clipboard.
+  Future<void> copyMessage(ChatMessage message) async {
+    final text = message.text;
+    if (text.isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: text));
+  }
+
+  /// Delete a message locally (from current conversation only).
+  Future<bool> deleteLocally(ChatMessage message) async {
+    final id = (message.customProperties?['ldesk_id'] ?? '').toString();
+    final key = _currentKey;
+    if (id.isEmpty || key.peerId.isEmpty) return false;
+    await DirectChatRepository.instance.deleteRecord(id, key.peerId);
+    final body = _messages[key];
+    if (body != null) {
+      body.chatMessages.removeWhere((m) =>
+          (m.customProperties?['ldesk_id'] ?? '').toString() == id);
+    }
+    notifyListeners();
+    return true;
+  }
+
+  /// Clear all messages in the current conversation.
+  Future<bool> clearConversation() async {
+    final key = _currentKey;
+    if (key.peerId.isEmpty) return false;
+    final body = _messages[key];
+    if (body != null) {
+      body.clear();
+    }
+    await DirectChatRepository.instance
+        .deleteConversations([key.peerId]);
+    _drafts.remove(key.peerId);
+    notifyListeners();
+    return true;
+  }
+
+  /// Set a message as the reply target for the next sent message.
+  void setReplyTo(ChatMessage message) {
+    _replyToMessage = message;
+    notifyListeners();
+  }
+
+  /// Cancel the current reply target.
+  void cancelReply() {
+    _replyToMessage = null;
+    notifyListeners();
+  }
+
+  /// Save current input as draft for the active conversation.
+  void saveDraftNow() {
+    final peerId = _currentKey.peerId;
+    if (peerId.isEmpty) return;
+    final text = textController.text;
+    if (text.isNotEmpty) {
+      _drafts[peerId] = text;
+    } else {
+      _drafts.remove(peerId);
+    }
+  }
+
+  /// Mark the connection as reconnecting for UI feedback.
+  void setReconnecting(String peerId) {
+    _isReconnecting = true;
+    _reconnectPeerId = peerId;
+    notifyListeners();
+  }
+
+  /// Clear the reconnecting state.
+  void clearReconnecting() {
+    _isReconnecting = false;
+    _reconnectPeerId = '';
     notifyListeners();
   }
 

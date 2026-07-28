@@ -38,6 +38,8 @@ class DirectChatRecord {
     this.voiceDurationMs = 0,
     this.disposition = DirectChatDisposition.active,
     this.expiresAt,
+    this.replyToId = '',
+    this.replyToText = '',
   });
 
   final String id;
@@ -62,6 +64,8 @@ class DirectChatRecord {
   final DirectChatDisposition disposition;
   final int voiceDurationMs;
   final DateTime? expiresAt;
+  final String replyToId;
+  final String replyToText;
 
   bool get isOutgoing => direction == DirectChatDirection.outgoing;
   bool get isExpired =>
@@ -76,6 +80,8 @@ class DirectChatRecord {
     DateTime? expiresAt,
     String? localPath,
     String? inlineBytes,
+    String? replyToId,
+    String? replyToText,
   }) {
     return DirectChatRecord(
       id: id,
@@ -98,6 +104,8 @@ class DirectChatRecord {
       inlineBytes: inlineBytes ?? this.inlineBytes,
       voiceDurationMs: voiceDurationMs,
       expiresAt: expiresAt ?? this.expiresAt,
+      replyToId: replyToId ?? this.replyToId,
+      replyToText: replyToText ?? this.replyToText,
     );
   }
 
@@ -122,6 +130,8 @@ class DirectChatRecord {
         if (voiceDurationMs > 0) 'voice_duration_ms': voiceDurationMs,
         if (expiresAt != null)
           'expires_at': expiresAt!.toUtc().toIso8601String(),
+        if (replyToId.isNotEmpty) 'reply_to_id': replyToId,
+        if (replyToText.isNotEmpty) 'reply_to_text': replyToText,
       };
 
   factory DirectChatRecord.fromJson(Map<String, dynamic> json) {
@@ -163,6 +173,8 @@ class DirectChatRecord {
       localPath: (json['local_path'] ?? '').toString(),
       voiceDurationMs: int.tryParse('${json['voice_duration_ms'] ?? 0}') ?? 0,
       expiresAt: DateTime.tryParse((json['expires_at'] ?? '').toString()),
+      replyToId: (json['reply_to_id'] ?? '').toString(),
+      replyToText: (json['reply_to_text'] ?? '').toString(),
     );
   }
 }
@@ -347,6 +359,8 @@ class DirectChatRepository {
     String localPath = '',
     String inlineBytes = '',
     int voiceDurationMs = 0,
+    String replyToId = '',
+    String replyToText = '',
   }) {
     return _write((state) async {
       final record = DirectChatRecord(
@@ -368,6 +382,8 @@ class DirectChatRepository {
         localPath: localPath,
         inlineBytes: inlineBytes,
         voiceDurationMs: voiceDurationMs,
+        replyToId: replyToId,
+        replyToText: replyToText,
       );
       state.records[record.id] = record;
       return record;
@@ -610,6 +626,15 @@ class DirectChatRepository {
   Future<DirectChatRecord?> find(String id) async {
     await _pendingWrite;
     return (await _freshState()).records[id];
+  }
+
+  Future<void> deleteRecord(String id, String conversationId) {
+    return _write((state) async {
+      final record = state.records[id];
+      if (record != null && record.conversationId == conversationId) {
+        state.records.remove(id);
+      }
+    });
   }
 
   Future<void> deleteConversations(Iterable<String> conversationIds) {

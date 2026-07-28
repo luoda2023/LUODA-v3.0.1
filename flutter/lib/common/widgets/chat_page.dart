@@ -2,10 +2,12 @@ import 'dart:io';
 
 import 'package:dash_chat_2/dash_chat_2.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:luoda_flutter/common.dart';
 import 'package:luoda_flutter/models/chat_model.dart';
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../mobile/pages/home_page.dart';
 import '../../models/meeting_group_model.dart';
@@ -107,11 +109,12 @@ class ChatPage extends StatelessWidget implements PageShape {
     final disposition =
         (properties?['ldesk_disposition'] ?? 'active').toString();
     final delivery = (properties?['ldesk_delivery'] ?? '').toString();
-    if (id.isEmpty ||
-        message.user.id != chatModel.me.id ||
-        disposition != 'active') {
-      return;
-    }
+    final isOwnMessage = message.user.id == chatModel.me.id;
+    if (id.isEmpty) return;
+    // Allow actions on received messages too (copy/delete/reply)
+    if (isOwnMessage && disposition != 'active') return;
+    // For received messages, only allow if active
+    if (!isOwnMessage && disposition != 'active') return;
     final action = await showModalBottomSheet<String>(
       context: context,
       useSafeArea: true,
@@ -121,75 +124,145 @@ class ChatPage extends StatelessWidget implements PageShape {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              // Primary actions: Recall & Destroy — always visible at top
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: _ActionChip(
-                        icon: Icons.undo_rounded,
-                        label: translate('Recall'),
-                        color: Theme.of(sheetContext).colorScheme.primary,
-                        onTap: () => Navigator.pop(sheetContext, 'recall'),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _ActionChip(
-                        icon: Icons.delete_forever_outlined,
-                        label: translate('Destroy'),
-                        color: Theme.of(sheetContext).colorScheme.error,
-                        onTap: () => Navigator.pop(sheetContext, 'destroy'),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              // Copy — always available
               ListTile(
-                leading: const Icon(Icons.forward_rounded, size: 22),
-                title: Text(translate('Forward'),
+                leading: const Icon(Icons.copy_rounded, size: 22),
+                title: Text(translate('Copy'),
                     style: const TextStyle(fontSize: 14)),
-                onTap: () => Navigator.pop(sheetContext, 'forward'),
+                onTap: () => Navigator.pop(sheetContext, 'copy'),
                 dense: true,
               ),
-              if (delivery == 'failed')
+              // Reply (quote) — available for active messages
+              ListTile(
+                leading: const Icon(Icons.reply_rounded, size: 22),
+                title: Text(translate('Reply'),
+                    style: const TextStyle(fontSize: 14)),
+                onTap: () => Navigator.pop(sheetContext, 'reply'),
+                dense: true,
+              ),
+              // Delete locally — always available
+              ListTile(
+                leading: Icon(Icons.delete_outline_rounded, size: 22,
+                    color: Theme.of(sheetContext).colorScheme.error),
+                title: Text(translate('Delete'),
+                    style: TextStyle(fontSize: 14,
+                        color: Theme.of(sheetContext).colorScheme.error)),
+                onTap: () => Navigator.pop(sheetContext, 'delete'),
+                dense: true,
+              ),
+              if (isOwnMessage) ...[
+                const Divider(height: 1),
+                // Primary actions: Recall & Destroy — own messages only
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _ActionChip(
+                          icon: Icons.undo_rounded,
+                          label: translate('Recall'),
+                          color: Theme.of(sheetContext).colorScheme.primary,
+                          onTap: () => Navigator.pop(sheetContext, 'recall'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _ActionChip(
+                          icon: Icons.delete_forever_outlined,
+                          label: translate('Destroy'),
+                          color: Theme.of(sheetContext).colorScheme.error,
+                          onTap: () => Navigator.pop(sheetContext, 'destroy'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
                 ListTile(
-                  leading: const Icon(Icons.refresh_rounded, size: 22),
-                  title: Text(translate('Retry send'),
+                  leading: const Icon(Icons.forward_rounded, size: 22),
+                  title: Text(translate('Forward'),
                       style: const TextStyle(fontSize: 14)),
-                  onTap: () => Navigator.pop(sheetContext, 'retry'),
+                  onTap: () => Navigator.pop(sheetContext, 'forward'),
                   dense: true,
                 ),
-              const Divider(height: 1),
-              // Self-destruct sub-actions
-              ListTile(
-                leading: const Icon(Icons.timer_outlined, size: 22),
-                title: Text(translate('Self-destruct in 1 minute'),
-                    style: const TextStyle(fontSize: 14)),
-                onTap: () => Navigator.pop(sheetContext, 'expire-60'),
-                dense: true,
-              ),
-              ListTile(
-                leading: const Icon(Icons.timer_outlined, size: 22),
-                title: Text(translate('Self-destruct in 5 minutes'),
-                    style: const TextStyle(fontSize: 14)),
-                onTap: () => Navigator.pop(sheetContext, 'expire-300'),
-                dense: true,
-              ),
-              ListTile(
-                leading: const Icon(Icons.timer_outlined, size: 22),
-                title: Text(translate('Self-destruct in 1 hour'),
-                    style: const TextStyle(fontSize: 14)),
-                onTap: () => Navigator.pop(sheetContext, 'expire-3600'),
-                dense: true,
-              ),
+                if (delivery == 'failed')
+                  ListTile(
+                    leading: const Icon(Icons.refresh_rounded, size: 22),
+                    title: Text(translate('Retry send'),
+                        style: const TextStyle(fontSize: 14)),
+                    onTap: () => Navigator.pop(sheetContext, 'retry'),
+                    dense: true,
+                  ),
+                const Divider(height: 1),
+                // Self-destruct sub-actions
+                ListTile(
+                  leading: const Icon(Icons.timer_outlined, size: 22),
+                  title: Text(translate('Self-destruct in 1 minute'),
+                      style: const TextStyle(fontSize: 14)),
+                  onTap: () => Navigator.pop(sheetContext, 'expire-60'),
+                  dense: true,
+                ),
+                ListTile(
+                  leading: const Icon(Icons.timer_outlined, size: 22),
+                  title: Text(translate('Self-destruct in 5 minutes'),
+                      style: const TextStyle(fontSize: 14)),
+                  onTap: () => Navigator.pop(sheetContext, 'expire-300'),
+                  dense: true,
+                ),
+                ListTile(
+                  leading: const Icon(Icons.timer_outlined, size: 22),
+                  title: Text(translate('Self-destruct in 1 hour'),
+                      style: const TextStyle(fontSize: 14)),
+                  onTap: () => Navigator.pop(sheetContext, 'expire-3600'),
+                  dense: true,
+                ),
+              ],
             ],
           ),
         ),
       ),
     );
     if (!context.mounted || action == null) return;
+    if (action == 'copy') {
+      await chatModel.copyMessage(message);
+      if (context.mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(content: Text(translate('Copied to clipboard'))),
+        );
+      }
+      return;
+    }
+    if (action == 'reply') {
+      chatModel.setReplyTo(message);
+      chatModel.inputNode.requestFocus();
+      return;
+    }
+    if (action == 'delete') {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(translate('Delete message')),
+          content: Text(translate('Delete this message locally?')),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: Text(translate('Cancel')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: Text(translate('Delete')),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+      await chatModel.deleteLocally(message);
+      if (context.mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(content: Text(translate('Message deleted'))),
+        );
+      }
+      return;
+    }
     if (action == 'forward') {
       await _showForwardPicker(context, message);
       return;
@@ -282,6 +355,115 @@ class ChatPage extends StatelessWidget implements PageShape {
     chatModel.changeCurrentKey(savedKey);
     ScaffoldMessenger.maybeOf(context)?.showSnackBar(
       SnackBar(content: Text(translate('Forwarded'))),
+    );
+  }
+
+  /// Show full-screen image preview with zoom/pan support.
+  void _showImagePreview(BuildContext context, String path, String title) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => _ImagePreviewPage(imagePath: path, title: title),
+      ),
+    );
+  }
+
+  /// Show clear history confirmation dialog.
+  Future<void> _showClearHistoryDialog(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(translate('Clear chat history')),
+        content:
+            Text(translate('Delete all messages in this conversation?')),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(translate('Cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(dialogContext).colorScheme.error,
+            ),
+            child: Text(translate('Clear')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    await chatModel.clearConversation();
+    if (context.mounted) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text(translate('Chat history cleared'))),
+      );
+    }
+  }
+
+  /// Build rich text with clickable links.
+  Widget _buildLinkText(String text, Color foreground, bool isDesktopHome) {
+    final urlPattern = RegExp(
+      r'(https?:\/\/[^\s]+|www\.[^\s]+\.[^\s]+|[a-zA-Z0-9][-a-zA-Z0-9]*\.[a-zA-Z]{2,}[^\s]*)',
+    );
+    final matches = urlPattern.allMatches(text);
+    if (matches.isEmpty) {
+      return Text(
+        text,
+        style: TextStyle(
+          color: foreground,
+          fontSize: isDesktopHome ? 14 : 15,
+          height: 1.42,
+          letterSpacing: 0,
+        ),
+      );
+    }
+    final spans = <InlineSpan>[];
+    var lastEnd = 0;
+    for (final match in matches) {
+      if (match.start > lastEnd) {
+        spans.add(TextSpan(text: text.substring(lastEnd, match.start)));
+      }
+      final url = match.group(0)!;
+      final displayUrl = url.length > 50 ? '${url.substring(0, 47)}...' : url;
+      spans.add(WidgetSpan(
+        alignment: PlaceholderAlignment.middle,
+        child: GestureDetector(
+          onTap: () async {
+            final uri = Uri.tryParse(
+                url.startsWith('http') ? url : 'https://$url');
+            if (uri != null) {
+              try {
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              } catch (_) {}
+            }
+          },
+          child: Text(
+            displayUrl,
+            style: TextStyle(
+              color: kWeChatPrimaryColor,
+              fontSize: isDesktopHome ? 14 : 15,
+              height: 1.42,
+              decoration: TextDecoration.underline,
+              decorationColor:
+                  kWeChatPrimaryColor.withOpacity(0.5),
+            ),
+          ),
+        ),
+      ));
+      lastEnd = match.end;
+    }
+    if (lastEnd < text.length) {
+      spans.add(TextSpan(text: text.substring(lastEnd)));
+    }
+    return RichText(
+      text: TextSpan(
+        style: TextStyle(
+          color: foreground,
+          fontSize: isDesktopHome ? 14 : 15,
+          height: 1.42,
+          letterSpacing: 0,
+        ),
+        children: spans,
+      ),
     );
   }
 
@@ -724,11 +906,46 @@ class ChatPage extends StatelessWidget implements PageShape {
                   0;
               final localPath =
                   (properties?['ldesk_local_path'] ?? '').toString();
+              final replyToText =
+                  (properties?['ldesk_reply_to_text'] ?? '').toString();
               return Column(
                 crossAxisAlignment: isOwnMessage
                     ? CrossAxisAlignment.end
                     : CrossAxisAlignment.start,
                 children: <Widget>[
+                  // Quote reply indicator
+                  if (replyToText.isNotEmpty)
+                    Container(
+                      constraints: BoxConstraints(
+                          maxWidth: isDesktopHome ? 400 : 300),
+                      margin: const EdgeInsets.only(bottom: 6),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: isOwnMessage
+                            ? Colors.black.withOpacity(0.12)
+                            : Colors.black.withOpacity(0.06),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border(
+                          left: BorderSide(
+                            color: isOwnMessage
+                                ? const Color(0xFF7BDB8A)
+                                : kWeChatPrimaryColor,
+                            width: 3,
+                          ),
+                        ),
+                      ),
+                      child: Text(
+                        replyToText,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: foreground.withOpacity(0.65),
+                          fontSize: 12,
+                          height: 1.3,
+                        ),
+                      ),
+                    ),
                   if (isVoice && messageId.isNotEmpty)
                     VoiceMessageBubble(
                       chatModel: chatModel,
@@ -737,12 +954,24 @@ class ChatPage extends StatelessWidget implements PageShape {
                     )
                   else if (isFile && fileName.isNotEmpty)
                     InkWell(
-                      onTap: () => showFileViewer(
-                        context,
-                        fileName: fileName,
-                        fileSize: fileSize,
-                        localPath: localPath,
-                      ),
+                      onTap: () {
+                        final ext = fileName.contains('.')
+                            ? fileName.split('.').last.toLowerCase()
+                            : '';
+                        const imageExts = {
+                          'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'
+                        };
+                        if (imageExts.contains(ext) && localPath.isNotEmpty) {
+                          _showImagePreview(context, localPath, fileName);
+                        } else {
+                          showFileViewer(
+                            context,
+                            fileName: fileName,
+                            fileSize: fileSize,
+                            localPath: localPath,
+                          );
+                        }
+                      },
                       borderRadius: BorderRadius.circular(8),
                       child: Padding(
                         padding: const EdgeInsets.symmetric(vertical: 2),
@@ -834,15 +1063,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                       message.text.trim().startsWith('luoda://meeting/'))
                     _buildInviteCard(context, message.text.trim(), foreground)
                   else
-                    Text(
-                      message.text,
-                      style: TextStyle(
-                        color: foreground,
-                        fontSize: isDesktopHome ? 14 : 15,
-                        height: 1.42,
-                        letterSpacing: 0,
-                      ),
-                    ),
+                    _buildLinkText(message.text, foreground, isDesktopHome),
                   if (includeMetadata)
                     Row(
                       mainAxisSize: MainAxisSize.min,
@@ -1170,20 +1391,46 @@ class ChatPage extends StatelessWidget implements PageShape {
                     messageListOptions: MessageListOptions(
                       showDateSeparator: useWeChatMessages,
                       separatorFrequency: SeparatorFrequency.hours,
-                      dateSeparatorBuilder: (date) => Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        child: Text(
-                          '${date.hour.toString().padLeft(2, '0')}:'
-                          '${date.minute.toString().padLeft(2, '0')}',
-                          style: TextStyle(
-                            color: dark
-                                ? const Color(0xFF999CA2)
-                                : const Color(0xFF999999),
-                            fontSize: 12,
-                            height: 1.2,
+                      dateSeparatorBuilder: (date) {
+                        final now = DateTime.now();
+                        final today = DateTime(now.year, now.month, now.day);
+                        final yesterday = today.subtract(const Duration(days: 1));
+                        final msgDate = DateTime(date.year, date.month, date.day);
+                        String label;
+                        if (msgDate == today) {
+                          label = '${translate('Today')} '
+                              '${date.hour.toString().padLeft(2, '0')}:'
+                              '${date.minute.toString().padLeft(2, '0')}';
+                        } else if (msgDate == yesterday) {
+                          label = '${translate('Yesterday')} '
+                              '${date.hour.toString().padLeft(2, '0')}:'
+                              '${date.minute.toString().padLeft(2, '0')}';
+                        } else if (date.year == now.year) {
+                          label =
+                              '${date.month}/${date.day} '
+                              '${date.hour.toString().padLeft(2, '0')}:'
+                              '${date.minute.toString().padLeft(2, '0')}';
+                        } else {
+                          label =
+                              '${date.year}/${date.month}/${date.day} '
+                              '${date.hour.toString().padLeft(2, '0')}:'
+                              '${date.minute.toString().padLeft(2, '0')}';
+                        }
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          child: Text(
+                            label,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: dark
+                                  ? const Color(0xFF999CA2)
+                                  : const Color(0xFF999999),
+                              fontSize: 12,
+                              height: 1.2,
+                            ),
                           ),
-                        ),
-                      ),
+                        );
+                      },
                     ),
                     messageOptions: MessageOptions(
                       showCurrentUserAvatar:
@@ -1279,17 +1526,133 @@ class ChatPage extends StatelessWidget implements PageShape {
                       ),
                     );
                   }
+                  // Reply preview bar
+                  final replyMsg = chatModel.replyToMessage;
+                  Widget replyBar = const SizedBox.shrink();
+                  if (replyMsg != null) {
+                    final replyUser =
+                        replyMsg.user.id == chatModel.me.id
+                            ? translate('Me')
+                            : (replyMsg.user.firstName ??
+                                replyMsg.user.id);
+                    replyBar = Container(
+                      padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+                      decoration: BoxDecoration(
+                        color: dark
+                            ? const Color(0xFF1F2228)
+                            : const Color(0xFFF7F7F7),
+                        border: Border(
+                          top: BorderSide(
+                            color: dark
+                                ? const Color(0xFF3A3D43)
+                                : const Color(0xFFE2E2E2),
+                          ),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 3,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              color: kWeChatPrimaryColor,
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment:
+                                  CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  '${translate('Replying to')} $replyUser',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: kWeChatPrimaryColor,
+                                  ),
+                                ),
+                                const SizedBox(height: 1),
+                                Text(
+                                  replyMsg.text,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: dark
+                                        ? const Color(0xFF999CA2)
+                                        : const Color(0xFF888888),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () => chatModel.cancelReply(),
+                            icon: const Icon(Icons.close_rounded,
+                                size: 18),
+                            constraints: const BoxConstraints
+                                .tightFor(width: 32, height: 32),
+                            padding: EdgeInsets.zero,
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+                  // Reconnect banner
+                  Widget reconnectBar = const SizedBox.shrink();
+                  if (chatModel.isReconnecting) {
+                    reconnectBar = Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 8, horizontal: 14),
+                      color: dark
+                          ? const Color(0xFF3A3A1A)
+                          : const Color(0xFFFFF9E6),
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: 14, height: 14,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor:
+                                  AlwaysStoppedAnimation<Color>(
+                                dark ? const Color(0xFFFFD54F)
+                                    : const Color(0xFFF9A825),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Text(
+                            translate('Reconnecting...'),
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: dark
+                                  ? const Color(0xFFFFD54F)
+                                  : const Color(0xFFF9A825),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
                   if (!isDesktopHome) {
                     return Column(
                       children: <Widget>[
+                        reconnectBar,
                         Expanded(child: messageList),
+                        replyBar,
                         typingBar,
                       ],
                     );
                   }
                   return Column(
                     children: <Widget>[
+                      reconnectBar,
                       Expanded(child: messageList),
+                      replyBar,
                       typingBar,
                       _DesktopChatComposer(
                         chatModel: chatModel,
@@ -1302,6 +1665,36 @@ class ChatPage extends StatelessWidget implements PageShape {
                     ],
                   );
                 }),
+                // Clear history button (top-right corner)
+                if (isDesktopHome &&
+                    chatModel.currentKey.peerId.isNotEmpty)
+                  Positioned(
+                    top: 8, right: 8,
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(6),
+                        onTap: () =>
+                            _showClearHistoryDialog(context),
+                        child: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: dark
+                                ? const Color(0x442B2D32)
+                                : const Color(0x44FFFFFF),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Icon(
+                            Icons.delete_sweep_outlined,
+                            size: 16,
+                            color: dark
+                                ? const Color(0xFF999CA2)
+                                : const Color(0xFF999999),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 if (chatModel.chatSearchVisible)
                   Positioned(
                     top: 0,
@@ -1604,6 +1997,66 @@ class _ActionChip extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Full-screen image preview with zoom/pan support.
+class _ImagePreviewPage extends StatelessWidget {
+  const _ImagePreviewPage({
+    required this.imagePath,
+    required this.title,
+  });
+
+  final String imagePath;
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Scaffold(
+      backgroundColor: dark ? Colors.black : const Color(0xFFF0F0F0),
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: Icon(Icons.close_rounded,
+              color: dark ? Colors.white70 : Colors.black87),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        title: Text(
+          title,
+          style: TextStyle(
+            color: dark ? Colors.white70 : Colors.black87,
+            fontSize: 14,
+          ),
+        ),
+      ),
+      body: Center(
+        child: InteractiveViewer(
+          minScale: 0.5,
+          maxScale: 4.0,
+          child: Image.file(
+            File(imagePath),
+            fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) => Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.broken_image_outlined, size: 48,
+                      color: dark ? Colors.white38 : Colors.black38),
+                  const SizedBox(height: 8),
+                  Text(
+                    translate('Failed to load image'),
+                    style: TextStyle(
+                        color: dark ? Colors.white54 : Colors.black54),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),
