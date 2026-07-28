@@ -231,5 +231,5 @@ class MeetingGroupStore {
   }
 
   /// Alias for delete.
-  static void remove(String meetingId) => delete(meetingId);
+  static Future<void> remove(String meetingId) async => delete(meetingId);
 }
