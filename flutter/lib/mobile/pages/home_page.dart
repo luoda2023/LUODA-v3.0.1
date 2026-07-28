@@ -673,8 +673,10 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage> {
     final dark = Theme.of(context).brightness == Brightness.dark;
     return ChangeNotifierProvider.value(
       value: gFFI.chatModel,
-      child: Consumer<ChatModel>(
-        builder: (context, model, _) {
+      child: ListenableBuilder(
+        listenable: Listenable.merge([gFFI.chatModel, gFFI.chatSettingsModel]),
+        builder: (context, _) {
+          final model = gFFI.chatModel;
           final query = _searchController.text.trim().toLowerCase();
           final entries = model.messages.entries.where((entry) {
             if (entry.key.peerId.isEmpty) return false;

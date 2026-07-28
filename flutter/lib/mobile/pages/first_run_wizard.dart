@@ -121,7 +121,9 @@ class _FirstRunPermissionWizardState extends State<FirstRunPermissionWizard> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      translate('first_run_wizard_desc'),
+                      translate('first_run_wizard_desc')
+                          .replaceAll('first_run_wizard_desc',
+                              'Grant these permissions once so LUODA can work smoothly. You will not be asked again.'),
                       textAlign: TextAlign.center,
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: theme.colorScheme.onSurface.withOpacity(0.6),
