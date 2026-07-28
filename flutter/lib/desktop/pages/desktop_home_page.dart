@@ -1243,7 +1243,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               tooltip: translate('Search Messages'),
               icon: Icons.search_rounded,
               onPressed: hasConversation
-                  ? () => model.toggleChatSearch()
+                  ? () => activeModel.toggleChatSearch()
                   : null,
             ),
             _conversationActionButton(

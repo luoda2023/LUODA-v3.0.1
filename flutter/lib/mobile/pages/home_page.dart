@@ -306,7 +306,7 @@ class HomePageState extends State<HomePage> {
     if (action == 'file') {
       await _sendDirectChatFiles();
     } else {
-      final type = action == 'camera' ? FileType.camera : FileType.image;
+      final type = action == 'camera' ? FileType.media : FileType.image;
       final picked = await FilePicker.platform.pickFiles(type: type, allowMultiple: true);
       final files = picked?.files.where((f) => f.path != null).toList() ?? [];
       if (files.isEmpty) return;
@@ -758,6 +758,8 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage> {
         listenable: Listenable.merge([gFFI.chatModel, gFFI.chatSettingsModel]),
         builder: (context, _) {
           final model = gFFI.chatModel;
+          final dark = Theme.of(context).brightness == Brightness.dark;
+          final muted = dark ? MyTheme.mutedDark : MyTheme.mutedLight;
           final query = _searchController.text.trim().toLowerCase();
           final entries = model.messages.entries.where((entry) {
             if (entry.key.peerId.isEmpty) return false;

@@ -52,7 +52,7 @@ class _FirstRunPermissionWizardState extends State<FirstRunPermissionWizard> {
   Future<void> _initChecks() async {
     final floating =
         await AndroidPermissionManager.check(kSystemAlertWindow);
-    final notification = androidVersion < 33 || kIsIOS
+    final notification = androidVersion < 33 || isIOS
         ? true
         : await AndroidPermissionManager.check(kAndroid13Notification);
     final storage =
