@@ -250,6 +250,9 @@ class DirectChatEnvelope {
 
   static DirectChatEnvelope voiceRequest(String messageId) =>
       DirectChatEnvelope('voice_request', <String, dynamic>{'id': messageId});
+
+  static DirectChatEnvelope typing() =>
+      DirectChatEnvelope('typing', <String, dynamic>{});
 }
 
 class DirectChatRepository {

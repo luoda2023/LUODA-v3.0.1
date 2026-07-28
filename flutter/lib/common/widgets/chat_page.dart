@@ -1253,6 +1253,37 @@ class ChatPage extends StatelessWidget implements PageShape {
                   return Column(
                     children: <Widget>[
                       Expanded(child: messageList),
+                      Builder(builder: (ctx) {
+                        final peerId = chatModel.currentKey.peerId;
+                        if (peerId.isEmpty || !chatModel.isPeerTyping(peerId)) {
+                          return const SizedBox.shrink();
+                        }
+                        return Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: 12, height: 12,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    dark ? const Color(0xFF999CA2) : const Color(0xFF999999),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                translate('Typing...'),
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: dark ? const Color(0xFF999CA2) : const Color(0xFF999999),
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
                       _DesktopChatComposer(
                         chatModel: chatModel,
                         enabled: !readOnly,

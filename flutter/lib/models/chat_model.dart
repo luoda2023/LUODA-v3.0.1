@@ -88,10 +88,39 @@ class ChatModel with ChangeNotifier {
   bool chatSearchVisible = false;
   final TextEditingController chatSearchController = TextEditingController();
 
+  // Typing indicator state (peer → us)
+  final Map<String, DateTime> _peerTypingTimestamps = {};
+  DateTime _lastTypingSent = DateTime.fromMillisecondsSinceEpoch(0);
+  static const _typingThrottle = Duration(seconds: 2);
+  static const _typingExpire = Duration(seconds: 5);
+
   void toggleChatSearch() {
     chatSearchVisible = !chatSearchVisible;
     chatSearchText = '';
     chatSearchController.clear();
+    notifyListeners();
+  }
+
+  /// Whether the given peer is currently typing (within expiry window).
+  bool isPeerTyping(String peerId) {
+    final ts = _peerTypingTimestamps[peerId];
+    if (ts == null) return false;
+    return DateTime.now().difference(ts) < _typingExpire;
+  }
+
+  /// Called by the text input onChange to signal that we are typing.
+  Future<void> signalTyping() async {
+    final now = DateTime.now();
+    if (now.difference(_lastTypingSent) < _typingThrottle) return;
+    _lastTypingSent = now;
+    final key = _currentKey;
+    if (key.peerId.isEmpty) return;
+    _sendWire(key, DirectChatEnvelope.typing().encode());
+  }
+
+  /// Handle incoming typing indicator from a peer.
+  void _onPeerTyping(String peerId) {
+    _peerTypingTimestamps[peerId] = DateTime.now();
     notifyListeners();
   }
 
@@ -207,6 +236,11 @@ class ChatModel with ChangeNotifier {
     }));
     _scheduleRecentConversationRestore();
     refreshLocalIdentity();
+    textController.addListener(() {
+      if (textController.text.isNotEmpty) {
+        unawaited(signalTyping());
+      }
+    });
     sessionId = parent.target!.sessionId;
     inputNode = FocusNode(
       onKey: (_, event) {
@@ -1131,6 +1165,9 @@ class ChatModel with ChangeNotifier {
         return;
       case 'voice_chunk':
         await _receiveVoiceChunk(key, envelope);
+        return;
+      case 'typing':
+        _onPeerTyping(key.peerId);
         return;
       default:
         return;
