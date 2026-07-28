@@ -1147,7 +1147,7 @@ class PaddingCard extends StatelessWidget {
                 children: [
                   titleIcon?.marginOnly(right: 10) ?? const SizedBox.shrink(),
                   Expanded(
-                    child: Text(title!,
+                    child: Text(title ?? '',
                         style: Theme.of(context)
                             .textTheme
                             .titleLarge

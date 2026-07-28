@@ -500,6 +500,19 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     _updateOrientation();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!isMobile) return;
+    if (state == AppLifecycleState.resumed) {
+      // App returned to foreground — refresh connections and permissions
+      gFFI.serverModel.checkAndroidPermission();
+      // Refresh chat connections that may have been paused
+      if (gFFI.chatModel.currentKey.peerId.isNotEmpty) {
+        gFFI.chatModel.notifyListeners();
+      }
+    }
+  }
+
   void _updateOrientation() {
     if (isDesktop) return;
 

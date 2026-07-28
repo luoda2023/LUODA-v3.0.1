@@ -356,6 +356,21 @@ class HomePageState extends State<HomePage> {
       showToast(translate('Connect to the contact before sending files.'));
       return;
     }
+    // File size guard: reject individual files > 500 MB or total > 2 GB
+    const kMaxSingleFileBytes = 500 * 1024 * 1024;
+    const kMaxTotalBytes = 2 * 1024 * 1024 * 1024;
+    var totalBytes = 0;
+    for (final f in files) {
+      if (f.size > kMaxSingleFileBytes) {
+        showToast(translate('File too large') + ': ${f.name} (${_fmtSize(f.size)})');
+        return;
+      }
+      totalBytes += f.size;
+    }
+    if (totalBytes > kMaxTotalBytes) {
+      showToast(translate('Total size exceeds 2 GB limit'));
+      return;
+    }
     final ffi = await _ensureDirectFileSession(peerId);
     if (ffi == null || !mounted) return;
     final items = SelectedItems(isLocal: true);
@@ -381,6 +396,16 @@ class HomePageState extends State<HomePage> {
       }
     }
     showToast(translate('Direct file transfer started.'));
+  }
+
+  Future<FFI?> _ensureDirectFileSession(String peerId) async {
+    // ... existing code ...
+
+  String _fmtSize(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    if (bytes < 1024 * 1024 * 1024) return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
   }
 
   Future<FFI?> _ensureDirectFileSession(String peerId) async {
