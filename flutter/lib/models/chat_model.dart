@@ -86,15 +86,23 @@ class ChatModel with ChangeNotifier {
   // Conversation-level search state
   String chatSearchText = '';
   bool chatSearchVisible = false;
+  final TextEditingController chatSearchController = TextEditingController();
 
   void toggleChatSearch() {
     chatSearchVisible = !chatSearchVisible;
     chatSearchText = '';
+    chatSearchController.clear();
     notifyListeners();
   }
 
   void updateChatSearch(String text) {
     chatSearchText = text;
+    if (chatSearchController.text != text) {
+      chatSearchController.text = text;
+      chatSearchController.selection = TextSelection.fromPosition(
+        TextPosition(offset: text.length),
+      );
+    }
     notifyListeners();
   }
 
@@ -113,6 +121,7 @@ class ChatModel with ChangeNotifier {
     }
     _selfDestructTimers.clear();
     textController.dispose();
+    chatSearchController.dispose();
     super.dispose();
   }
 

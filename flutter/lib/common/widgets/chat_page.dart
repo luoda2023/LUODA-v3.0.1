@@ -1295,7 +1295,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                                 ),
                               ),
                               onChanged: chatModel.updateChatSearch,
-                              controller: TextEditingController(text: chatModel.chatSearchText),
+                              controller: chatModel.chatSearchController,
                             ),
                           ),
                           const SizedBox(width: 8),
