@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:luoda_flutter/common.dart';
+import 'package:luoda_flutter/consts.dart';
 import '../../models/platform_model.dart';
 
 /// One-time permission wizard shown on first install.
