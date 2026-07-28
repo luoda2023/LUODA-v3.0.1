@@ -145,6 +145,9 @@ class MeetingGroupStore {
     );
   }
 
+  /// Public save (bridges to private _save for external callers).
+  static void save() => _save();
+
   /// Create a new meeting group. Returns the new [MeetingGroup].
   static MeetingGroup create({
     required String title,

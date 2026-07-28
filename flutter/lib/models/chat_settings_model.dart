@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:luoda_flutter/common.dart';
-import '../main.dart';
+import 'package:luoda_flutter/generated_bridge.dart';
 
 class ChatSettingsModel extends ChangeNotifier {
   static final ChatSettingsModel _instance = ChatSettingsModel._();
