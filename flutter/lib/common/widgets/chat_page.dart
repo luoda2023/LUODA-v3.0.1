@@ -275,7 +275,11 @@ class ChatPage extends StatelessWidget implements PageShape {
     if (target == null || !context.mounted) return;
     final forwardText = message.text.trim();
     if (forwardText.isEmpty) return;
+    // Save current key, switch to target, send, switch back
+    final savedKey = chatModel.currentKey;
+    chatModel.changeCurrentKey(MessageKey(target, ChatModel.clientModeID));
     chatModel.sendText(forwardText);
+    chatModel.changeCurrentKey(savedKey);
     ScaffoldMessenger.maybeOf(context)?.showSnackBar(
       SnackBar(content: Text(translate('Forwarded'))),
     );
