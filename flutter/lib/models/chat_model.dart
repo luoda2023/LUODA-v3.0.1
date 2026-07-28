@@ -1709,13 +1709,15 @@ class ChatModel with ChangeNotifier {
   Future<bool> batchDeleteMessages(Set<String> ids) async {
     final key = _currentKey;
     if (key.peerId.isEmpty || ids.isEmpty) return false;
-    for (final id in ids) {
+    // Shallow copy to guard against concurrent modification of shared set.
+    final idsToDelete = Set<String>.from(ids);
+    for (final id in idsToDelete) {
       await DirectChatRepository.instance.deleteRecord(id, key.peerId);
     }
     final body = _messages[key];
     if (body != null) {
       body.chatMessages.removeWhere((m) =>
-          ids.contains((m.customProperties?['ldesk_id'] ?? '').toString()));
+          idsToDelete.contains((m.customProperties?['ldesk_id'] ?? '').toString()));
     }
     notifyListeners();
     return true;
@@ -1730,6 +1732,7 @@ class ChatModel with ChangeNotifier {
 
   /// Pin or unpin a conversation.
   Future<void> pinConversation(String peerId, bool pinned) async {
+    if (peerId.isEmpty) return;
     final pinnedIds = await _loadPinnedConversations();
     if (pinned) {
       pinnedIds.add(peerId);
@@ -1828,6 +1831,7 @@ class ChatModel with ChangeNotifier {
       );
     } catch (_) {}
     mobileUpdateUnreadSum();
+    notifyListeners();
   }
 
   /// Get raw option value (bridges bind for external models).

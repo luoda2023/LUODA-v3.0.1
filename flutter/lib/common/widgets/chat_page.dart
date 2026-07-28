@@ -325,7 +325,7 @@ class ChatPage extends StatelessWidget implements PageShape {
     }
     if (action == 'edit') {
       if (!context.mounted) return;
-      final controller = TextEditingController(text: message.text);
+      final controller = TextEditingController(text: message.text ?? '');
       final result = await showDialog<String>(
         context: context,
         builder: (dialogContext) => AlertDialog(
@@ -692,10 +692,12 @@ class ChatPage extends StatelessWidget implements PageShape {
       ),
     );
     if (confirmed != true || !context.mounted) return;
-    await chatModel.clearConversation();
+    final ok = await chatModel.clearConversation();
     if (context.mounted) {
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text(translate('Chat history cleared'))),
+        SnackBar(content: Text(translate(
+          ok ? 'Chat history cleared' : 'Failed to clear chat history',
+        ))),
       );
     }
   }
@@ -741,8 +743,7 @@ class ChatPage extends StatelessWidget implements PageShape {
               context: context,
               builder: (ctx) => AlertDialog(
                 title: Text(translate('Delete messages')),
-                content: Text(translate(
-                    'Delete ${chatModel.selectedMessageIds.length} messages?')),
+                content: Text('${translate('Delete')} ${chatModel.selectedMessageIds.length} ${translate('messages')}?'),
                 actions: [
                   TextButton(
                     onPressed: () => Navigator.pop(ctx, false),
@@ -759,10 +760,15 @@ class ChatPage extends StatelessWidget implements PageShape {
               ),
             );
             if (confirmed != true || !context.mounted) return;
-            await chatModel.batchDeleteMessages(
+            final deleted = await chatModel.batchDeleteMessages(
               Set<String>.from(chatModel.selectedMessageIds),
             );
             chatModel.exitMultiSelect();
+            if (context.mounted && !deleted) {
+              ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                SnackBar(content: Text(translate('Failed to delete messages'))),
+              );
+            }
           },
           icon: const Icon(Icons.delete_outline, size: 18),
           label: Text(translate('Delete')),
