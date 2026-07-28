@@ -6,6 +6,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
+import 'package:luoda_flutter/common.dart';
+import 'package:luoda_flutter/models/chat_model.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../common.dart';

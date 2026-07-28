@@ -4,6 +4,7 @@ import 'package:dash_chat_2/dash_chat_2.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:luoda_flutter/common.dart';
+import 'package:luoda_flutter/common/direct_chat.dart';
 import 'package:luoda_flutter/models/chat_model.dart';
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';
