@@ -229,4 +229,7 @@ class MeetingGroupStore {
     _groups.removeWhere((g) => g.meetingId == meetingId);
     _save();
   }
+
+  /// Alias for delete.
+  static void remove(String meetingId) => delete(meetingId);
 }
