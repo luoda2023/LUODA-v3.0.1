@@ -610,6 +610,8 @@ class HomePageState extends State<HomePage> {
   }
 }
 
+}
+
 class _MobileMessagesPage extends StatefulWidget implements PageShape {
   const _MobileMessagesPage({
     required this.onOpenConversation,
