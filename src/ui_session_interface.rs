@@ -813,7 +813,7 @@ impl<T: InvokeUiSession> Session<T> {
             from_id,
             from_name,
             channel: if to_viewer_id.is_empty() {
-                ChatChannel::CHAT_CHANNEL_BROADCAST
+                ChatChannel::CHAT_CHANNEL_PUBLIC
             } else {
                 ChatChannel::CHAT_CHANNEL_PRIVATE
             }
