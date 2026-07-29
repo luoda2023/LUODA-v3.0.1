@@ -297,8 +297,10 @@ class ChatModel with ChangeNotifier {
 
   void _onStoreRevision() {
     // Debounce: store revisions can fire rapidly during batch operations.
-    // Only restore after a short quiet period to avoid cascading full rebuilds.
-    _storeRevisionTimer ??= Timer(const Duration(milliseconds: 300), () {
+    // Cancel any pending timer and restart — only the last revision in a
+    // 300ms window triggers a restore. This prevents cascading full rebuilds.
+    _storeRevisionTimer?.cancel();
+    _storeRevisionTimer = Timer(const Duration(milliseconds: 300), () {
       _storeRevisionTimer = null;
       if (_currentKey.peerId.isNotEmpty) {
         unawaited(_restoreConversation(_currentKey));
@@ -910,6 +912,10 @@ class ChatModel with ChangeNotifier {
           await Process.run('xdg-open', [dir.parent.path]);
         }
       }
+      // Clean up temp directory
+      try {
+        await dir.delete(recursive: true);
+      } catch (_) {}
     } catch (e) {
       debugPrint('Email export failed: $e');
       final body = _messages[key];

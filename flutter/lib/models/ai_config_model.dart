@@ -361,10 +361,10 @@ class AiImageService {
           }
 
           if (bytes != null) {
-            // Save to temp file
+            // Save to a flat temp file (no extra directory).
             final ts = DateTime.now().millisecondsSinceEpoch;
-            final dir = await Directory.systemTemp.createTemp('luoda_ai_img_');
-            final file = File('${dir.path}/ai_generated_$ts.png');
+            final dir = Directory.systemTemp;
+            final file = File('${dir.path}/luoda_ai_img_$ts.png');
             await file.writeAsBytes(bytes);
             return file.path;
           }
