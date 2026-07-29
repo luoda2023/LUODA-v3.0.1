@@ -991,5 +991,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Profile name", "\u914d\u7f6e\u540d\u79f0"),
         ("At least one profile is required", "\u81f3\u5c11\u9700\u8981\u4e00\u4e2a\u914d\u7f6e"),
         ("Please fill endpoint and API key", "\u8bf7\u586b\u5199 API \u5730\u5740\u548c\u5bc6\u94a5"),
+        ("Built-in", "\u5185\u7f6e"),
+        ("Free 100 calls", "\u514d\u8d39 100 \u6b21"),
     ].iter().cloned().collect();
 }

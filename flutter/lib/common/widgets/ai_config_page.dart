@@ -220,8 +220,11 @@ class _AiConfigPageState extends State<AiConfigPage> {
 
   Widget _buildProfileCard(bool dark, int index) {
     final p = _profiles[index];
+    final profiles = AiConfig.current.profiles;
+    final origProfile = index < profiles.length ? profiles[index] : null;
+    final isBuiltIn = origProfile?.builtIn ?? false;
     final isActive = AiConfig.current.activeProfileIndex == index &&
-        index < AiConfig.current.profiles.length;
+        index < profiles.length;
 
     return Card(
       color: dark ? const Color(0xFF2B2D32) : Colors.white,
@@ -242,25 +245,31 @@ class _AiConfigPageState extends State<AiConfigPage> {
               children: [
                 // Profile name
                 Expanded(
-                  child: TextField(
-                    controller: p.nameCtrl,
-                    decoration: InputDecoration(
-                      hintText: translate('Profile name'),
-                      filled: true,
-                      fillColor:
-                          dark ? const Color(0xFF1C1E23) : const Color(0xFFF5F5F5),
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide.none),
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 8),
-                      isDense: true,
-                    ),
+                  child: Text(
+                    p.nameCtrl.text.isNotEmpty
+                        ? p.nameCtrl.text
+                        : translate('Profile name'),
                     style:
-                        const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                        const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                   ),
                 ),
                 const SizedBox(width: 8),
+                // Built-in badge
+                if (isBuiltIn)
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      translate('Built-in'),
+                      style: const TextStyle(
+                          fontSize: 10, color: Colors.grey),
+                    ),
+                  ),
+                if (isBuiltIn) const SizedBox(width: 4),
                 if (isActive)
                   Container(
                     padding:
@@ -277,87 +286,95 @@ class _AiConfigPageState extends State<AiConfigPage> {
                           fontWeight: FontWeight.w600),
                     ),
                   ),
-                const SizedBox(width: 4),
-                // Enable toggle
-                SizedBox(
-                  height: 28,
-                  child: Switch(
-                    value: p.enabled,
-                    onChanged: (v) => setState(() => p.enabled = v),
-                    activeColor: kWeChatPrimaryColor,
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                if (!isBuiltIn) ...[
+                  const SizedBox(width: 4),
+                  SizedBox(
+                    height: 28,
+                    child: Switch(
+                      value: p.enabled,
+                      onChanged: (v) => setState(() => p.enabled = v),
+                      activeColor: kWeChatPrimaryColor,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
-            const SizedBox(height: 8),
 
-            // Endpoint
-            TextField(
-              controller: p.endpointCtrl,
-              decoration: _inputDeco(
-                  dark, 'https://api.openai.com/v1/chat/completions'),
-              style: const TextStyle(fontSize: 12),
-            ),
-            const SizedBox(height: 6),
+            // Built-in profiles: show only a subtitle, no credentials
+            if (isBuiltIn) ...[
+              const SizedBox(height: 6),
+              Text(
+                '${translate("Free 100 calls")} \u2022 hermesAPI',
+                style: TextStyle(
+                    fontSize: 12,
+                    color: dark ? Colors.white38 : Colors.black38),
+              ),
+            ],
 
-            // API Key + Model (side by side)
-            Row(
-              children: [
-                Expanded(
-                  flex: 2,
-                  child: TextField(
-                    controller: p.apiKeyCtrl,
-                    obscureText: true,
-                    decoration: _inputDeco(dark, 'sk-...'),
-                    style: const TextStyle(fontSize: 12),
+            // User profiles: show endpoint/key/model fields
+            if (!isBuiltIn) ...[
+              const SizedBox(height: 8),
+              TextField(
+                controller: p.endpointCtrl,
+                decoration: _inputDeco(
+                    dark, 'https://api.openai.com/v1/chat/completions'),
+                style: const TextStyle(fontSize: 12),
+              ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Expanded(
+                    flex: 2,
+                    child: TextField(
+                      controller: p.apiKeyCtrl,
+                      obscureText: true,
+                      decoration: _inputDeco(dark, 'sk-...'),
+                      style: const TextStyle(fontSize: 12),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextField(
-                    controller: p.modelCtrl,
-                    decoration: _inputDeco(dark, 'gpt-4o-mini'),
-                    style: const TextStyle(fontSize: 12),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: p.modelCtrl,
+                      decoration: _inputDeco(dark, 'gpt-4o-mini'),
+                      style: const TextStyle(fontSize: 12),
+                    ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-
-            // Actions row
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                // Test button
-                TextButton.icon(
-                  onPressed: () => _testProfile(index),
-                  icon: const Icon(Icons.play_arrow_rounded, size: 16),
-                  label: Text(translate('Test'),
-                      style: const TextStyle(fontSize: 12)),
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton.icon(
+                    onPressed: () => _testProfile(index),
+                    icon: const Icon(Icons.play_arrow_rounded, size: 16),
+                    label: Text(translate('Test'),
+                        style: const TextStyle(fontSize: 12)),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 4),
-                // Delete button
-                TextButton.icon(
-                  onPressed: () => _removeProfile(index),
-                  icon: Icon(Icons.delete_outline_rounded,
-                      size: 16, color: Colors.redAccent),
-                  label: Text(translate('Remove'),
-                      style:
-                          TextStyle(fontSize: 12, color: Colors.redAccent)),
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  const SizedBox(width: 4),
+                  TextButton.icon(
+                    onPressed: () => _removeProfile(index),
+                    icon: Icon(Icons.delete_outline_rounded,
+                        size: 16, color: Colors.redAccent),
+                    label: Text(translate('Remove'),
+                        style:
+                            TextStyle(fontSize: 12, color: Colors.redAccent)),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              ),
+            ],
           ],
         ),
       ),

@@ -14,21 +14,29 @@ class AiProfile {
   final String model;
   final bool enabled;
 
+  /// Built-in profiles (e.g. hermesAPI) don't expose credentials in the UI
+  /// and are auto-added on every load — they are not persisted.
+  final bool builtIn;
+
   const AiProfile({
     this.name = '',
     this.endpoint = '',
     this.apiKey = '',
     this.model = 'gpt-4o-mini',
     this.enabled = true,
+    this.builtIn = false,
   });
 
-  Map<String, dynamic> toJson() => {
-        'name': name,
-        'endpoint': endpoint,
-        'api_key': apiKey,
-        'model': model,
-        'enabled': enabled,
-      };
+  /// Only non-built-in profiles are serialised to local storage.
+  Map<String, dynamic> toJson() => builtIn
+      ? {}
+      : {
+          'name': name,
+          'endpoint': endpoint,
+          'api_key': apiKey,
+          'model': model,
+          'enabled': enabled,
+        };
 
   factory AiProfile.fromJson(Map<String, dynamic> json) => AiProfile(
         name: (json['name'] ?? '').toString(),
@@ -56,6 +64,20 @@ class AiConfig {
     this.email = '',
   });
 
+  /// Built-in hermesAPI proxy — free for 100 calls.
+  /// Endpoint/key are hidden from the UI; only the name is shown.
+  static const builtInProfiles = [
+    AiProfile(
+      builtIn: true,
+      name: 'hermesAPI',
+      endpoint: 'http://47.114.75.115:40000/v1',
+      apiKey:
+          'sk-proxy-local-51f5bd4b9797f2620bc55460946802711cf7312b38c24794',
+      model: 'hermesAPI',
+      enabled: true,
+    ),
+  ];
+
   /// The currently active profile, or a default fallback.
   AiProfile get currentProfile =>
       activeProfileIndex >= 0 && activeProfileIndex < profiles.length
@@ -73,65 +95,99 @@ class AiConfig {
 
   static AiProfile get currentProfile => _cached.currentProfile;
 
+  /// Migrate old single-profile storage, parse user profiles,
+  /// then merge with built-in profiles.
   static void load() {
     try {
       final raw = bind.mainGetLocalOption(key: _storageKey);
-      if (raw.isEmpty) return;
-      final json = jsonDecode(raw) as Map<String, dynamic>;
-
-      final profiles = <AiProfile>[];
-      final rawProfiles = json['profiles'];
-      if (rawProfiles is List) {
-        for (final p in rawProfiles) {
-          if (p is Map<String, dynamic>) {
-            profiles.add(AiProfile.fromJson(p));
+      final userProfiles = <AiProfile>[];
+      if (raw.isNotEmpty) {
+        try {
+          final json = jsonDecode(raw) as Map<String, dynamic>;
+          final rawProfiles = json['profiles'];
+          if (rawProfiles is List) {
+            for (final p in rawProfiles) {
+              if (p is Map<String, dynamic>) {
+                userProfiles.add(AiProfile.fromJson(p));
+              }
+            }
           }
-        }
+          // Migration: old single-profile format
+          if (userProfiles.isEmpty) {
+            final oldEndpoint = (json['endpoint'] ?? '').toString();
+            if (oldEndpoint.isNotEmpty) {
+              userProfiles.add(AiProfile(
+                name: 'Default',
+                endpoint: oldEndpoint,
+                apiKey: (json['api_key'] ?? '').toString(),
+                model: (json['model'] ?? 'gpt-4o-mini').toString(),
+                enabled: json['enabled'] == true,
+              ));
+            }
+          }
+        } catch (_) {}
       }
 
-      // Migration: old single-profile format → convert to profiles list
-      if (profiles.isEmpty) {
-        final oldEndpoint = (json['endpoint'] ?? '').toString();
-        if (oldEndpoint.isNotEmpty) {
-          profiles.add(AiProfile(
-            name: 'Default',
-            endpoint: oldEndpoint,
-            apiKey: (json['api_key'] ?? '').toString(),
-            model: (json['model'] ?? 'gpt-4o-mini').toString(),
-            enabled: json['enabled'] == true,
-          ));
+      // Built-in profiles come first, then user profiles
+      final allProfiles = <AiProfile>[...builtInProfiles, ...userProfiles];
+      final savedIdx = (() {
+        try {
+          final json = jsonDecode(raw) as Map<String, dynamic>;
+          return (json['active_profile_index'] as int?) ?? 0;
+        } catch (_) {
+          return 0;
         }
-      }
+      })();
 
       _cached = AiConfig(
-        profiles: profiles,
+        profiles: allProfiles,
         activeProfileIndex:
-            ((json['active_profile_index'] as int?) ?? 0).clamp(0, profiles.length - 1),
-        email: (json['email'] ?? '').toString(),
+            savedIdx.clamp(0, allProfiles.length - 1),
+        email: (() {
+          try {
+            final json = jsonDecode(raw) as Map<String, dynamic>;
+            return (json['email'] ?? '').toString();
+          } catch (_) {
+            return '';
+          }
+        })(),
       );
     } catch (_) {
-      // keep defaults
+      // Fallback: built-in only
+      _cached = AiConfig(
+        profiles: [...builtInProfiles],
+        activeProfileIndex: 0,
+      );
     }
   }
 
+  /// Persist only user-defined profiles (built-in are auto-added on load).
   static Future<void> save(AiConfig config) async {
-    _cached = config;
+    final userProfiles =
+        config.profiles.where((p) => !p.builtIn).toList();
+    _cached = AiConfig(
+      profiles: [...builtInProfiles, ...userProfiles],
+      activeProfileIndex: config.activeProfileIndex,
+      email: config.email,
+    );
     await bind.mainSetLocalOption(
       key: _storageKey,
       value: jsonEncode({
-        'profiles': config.profiles.map((p) => p.toJson()).toList(),
-        'active_profile_index': config.activeProfileIndex,
+        'profiles': userProfiles.map((p) => p.toJson()).toList(),
+        'active_profile_index': _cached.activeProfileIndex,
         'email': config.email,
       }),
     );
   }
 
-  /// Switch to a different profile by index.
+  /// Switch to a different profile by index (in the combined list).
   static Future<void> setActiveProfile(int index) async {
     final cfg = _cached;
     if (index < 0 || index >= cfg.profiles.length) return;
+    // Persist the index into the saved config — build-in profiles always
+    // occupy the first slots so the index is stable across sessions.
     await save(AiConfig(
-      profiles: cfg.profiles,
+      profiles: cfg.profiles.where((p) => !p.builtIn).toList(),
       activeProfileIndex: index,
       email: cfg.email,
     ));
