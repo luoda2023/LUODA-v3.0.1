@@ -374,5 +374,9 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("No content to send", "No content to send"),
         ("Unable to open email client", "Unable to open email client"),
         ("Chat message", "Chat message"),
+        ("Send 20 recent to email", "Send 20 recent to email"),
+        ("No messages to send", "No messages to send"),
+        ("Chat messages", "Chat messages"),
+        ("File", "File"),
     ].iter().cloned().collect();
 }

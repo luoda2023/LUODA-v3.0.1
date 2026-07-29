@@ -977,5 +977,9 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("No content to send", "\u6ca1\u6709\u53ef\u53d1\u9001\u7684\u5185\u5bb9"),
         ("Unable to open email client", "\u65e0\u6cd5\u6253\u5f00\u90ae\u4ef6\u5ba2\u6237\u7aef"),
         ("Chat message", "\u804a\u5929\u6d88\u606f"),
+        ("Send 20 recent to email", "\u53d1\u9001\u6700\u8fd120\u6761\u5230\u90ae\u7bb1"),
+        ("No messages to send", "\u6ca1\u6709\u53ef\u53d1\u9001\u7684\u6d88\u606f"),
+        ("Chat messages", "\u804a\u5929\u6d88\u606f"),
+        ("File", "\u6587\u4ef6"),
     ].iter().cloned().collect();
 }

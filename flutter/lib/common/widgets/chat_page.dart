@@ -194,6 +194,7 @@ class ChatPage extends StatelessWidget implements PageShape {
         RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(AiConfig.current.email)) {
       items.add(const PopupMenuDivider(height: 1));
       addItem('send-email', Icons.email_outlined, translate('Send to email'));
+      addItem('send-email-batch', Icons.email_rounded, translate('Send 20 recent to email'));
     }
 
     if (isOwnMessage) {
@@ -488,6 +489,59 @@ class ChatPage extends StatelessWidget implements PageShape {
             SnackBar(content: Text(translate('Unable to open email client'))),
           );
         }
+      }
+      return;
+    }
+    if (action == 'send-email-batch') {
+      final email = AiConfig.current.email;
+      final allMessages = chatModel.messages[chatModel.currentKey]?.chatMessages ?? [];
+      if (allMessages.isEmpty) {
+        if (context.mounted) {
+          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+            SnackBar(content: Text(translate('No messages to send'))),
+          );
+        }
+        return;
+      }
+      // Find the clicked message index (newest first: index 0 = newest)
+      final msgId = (message.customProperties?['ldesk_id'] ?? '').toString();
+      int clickedIdx = 0;
+      if (msgId.isNotEmpty) {
+        clickedIdx = allMessages.indexWhere((m) =>
+            (m.customProperties?['ldesk_id'] ?? '').toString() == msgId);
+        if (clickedIdx < 0) clickedIdx = 0;
+      }
+      // Collect 20 messages starting from clicked, going older
+      final endIdx = (clickedIdx + 20 > allMessages.length)
+          ? allMessages.length
+          : clickedIdx + 20;
+      final selected = allMessages.sublist(clickedIdx, endIdx);
+      // Format: oldest first, newest last for readability
+      final reversed = selected.reversed.toList();
+      final buf = StringBuffer();
+      for (final m in reversed) {
+        final who = m.user.firstName ?? m.user.id;
+        final time = m.createdAt.toLocal().toString().substring(0, 19);
+        final text = m.text ?? '';
+        final fname = (m.customProperties?['ldesk_file_name'] ?? '').toString();
+        if (fname.isNotEmpty) {
+          buf.writeln('[$time] $who: [${translate("File")}] $fname');
+          if (text.isNotEmpty) buf.writeln('  $text');
+        } else {
+          buf.writeln('[$time] $who: $text');
+        }
+        buf.writeln('');
+      }
+      final body = Uri.encodeComponent(buf.toString());
+      final subject = Uri.encodeComponent(
+          '${translate("Chat messages")} (${selected.length})');
+      final uri = Uri.parse('mailto:$email?subject=$subject&body=$body');
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri);
+      } else if (context.mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(content: Text(translate('Unable to open email client'))),
+        );
       }
       return;
     }
