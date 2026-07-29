@@ -194,7 +194,7 @@ class ChatPage extends StatelessWidget implements PageShape {
         RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(AiConfig.current.email)) {
       items.add(const PopupMenuDivider(height: 1));
       addItem('send-email', Icons.email_outlined, translate('Send to email'));
-      addItem('send-email-batch', Icons.email_rounded, translate('Send 20 recent to email'));
+      addItem('send-email-batch', Icons.archive_outlined, translate('Export 20 recent (ZIP)'));
     }
 
     if (isOwnMessage) {
@@ -493,7 +493,6 @@ class ChatPage extends StatelessWidget implements PageShape {
       return;
     }
     if (action == 'send-email-batch') {
-      final email = AiConfig.current.email;
       final allMessages = chatModel.messages[chatModel.currentKey]?.chatMessages ?? [];
       if (allMessages.isEmpty) {
         if (context.mounted) {
@@ -516,32 +515,68 @@ class ChatPage extends StatelessWidget implements PageShape {
           ? allMessages.length
           : clickedIdx + 20;
       final selected = allMessages.sublist(clickedIdx, endIdx);
-      // Format: oldest first, newest last for readability
       final reversed = selected.reversed.toList();
-      final buf = StringBuffer();
-      for (final m in reversed) {
-        final who = m.user.firstName ?? m.user.id;
-        final time = m.createdAt.toLocal().toString().substring(0, 19);
-        final text = m.text ?? '';
-        final fname = (m.customProperties?['ldesk_file_name'] ?? '').toString();
-        if (fname.isNotEmpty) {
-          buf.writeln('[$time] $who: [${translate("File")}] $fname');
-          if (text.isNotEmpty) buf.writeln('  $text');
-        } else {
-          buf.writeln('[$time] $who: $text');
+
+      // Build a temp directory with export content
+      try {
+        final dir = await Directory.systemTemp.createTemp('luoda_chat_export_');
+        final chatFile = File('${dir.path}/chat_log.txt');
+        final chatBuf = StringBuffer();
+        for (final m in reversed) {
+          final who = m.user.firstName ?? m.user.id;
+          final time = m.createdAt.toLocal().toString().substring(0, 19);
+          final text = m.text ?? '';
+          final fname = (m.customProperties?['ldesk_file_name'] ?? '').toString();
+          final localPath = (m.customProperties?['ldesk_local_path'] ?? '').toString();
+          chatBuf.writeln('[$time] $who: ${fname.isNotEmpty ? "[${translate("File")}] $fname" : text}');
+          if (text.isNotEmpty && fname.isNotEmpty) chatBuf.writeln('  $text');
+          chatBuf.writeln('');
+          // Copy attachment file if available (images, docs)
+          if (localPath.isNotEmpty) {
+            final src = File(localPath);
+            if (await src.exists()) {
+              try {
+                await src.copy('${dir.path}/$fname');
+              } catch (_) {}
+            }
+          }
         }
-        buf.writeln('');
-      }
-      final body = Uri.encodeComponent(buf.toString());
-      final subject = Uri.encodeComponent(
-          '${translate("Chat messages")} (${selected.length})');
-      final uri = Uri.parse('mailto:$email?subject=$subject&body=$body');
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri);
-      } else if (context.mounted) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          SnackBar(content: Text(translate('Unable to open email client'))),
-        );
+        await chatFile.writeAsString(chatBuf.toString());
+
+        // Create ZIP via system command
+        final zipPath = '${dir.path}.zip';
+        if (isWindows) {
+          await Process.run('powershell', [
+            '-NoProfile', '-Command',
+            'Compress-Archive', '-Path', dir.path, '-DestinationPath', zipPath, '-Force',
+          ]);
+        } else {
+          await Process.run('zip', ['-rj', zipPath, dir.path]);
+        }
+
+        // Open the folder containing the ZIP
+        final zipFile = File(zipPath);
+        if (await zipFile.exists()) {
+          if (isWindows) {
+            await Process.run('explorer', ['/select,', zipPath]);
+          } else if (isMacOS) {
+            await Process.run('open', ['-R', zipPath]);
+          } else {
+            await Process.run('xdg-open', [dir.parent.path]);
+          }
+          if (context.mounted) {
+            ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+              SnackBar(content: Text('${translate("Exported")}: $zipPath')),
+            );
+          }
+        }
+      } catch (e) {
+        debugPrint('Export failed: $e');
+        if (context.mounted) {
+          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+            SnackBar(content: Text('${translate("Export failed")}: $e')),
+          );
+        }
       }
       return;
     }

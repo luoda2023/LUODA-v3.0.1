@@ -375,8 +375,11 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Unable to open email client", "Unable to open email client"),
         ("Chat message", "Chat message"),
         ("Send 20 recent to email", "Send 20 recent to email"),
+        ("Export 20 recent (ZIP)", "Export 20 recent (ZIP)"),
         ("No messages to send", "No messages to send"),
         ("Chat messages", "Chat messages"),
         ("File", "File"),
+        ("Exported", "Exported"),
+        ("Export failed", "Export failed"),
     ].iter().cloned().collect();
 }
