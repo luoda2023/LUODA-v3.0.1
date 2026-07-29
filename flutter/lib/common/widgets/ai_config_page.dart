@@ -305,7 +305,7 @@ class _AiConfigPageState extends State<AiConfigPage> {
             if (isBuiltIn) ...[
               const SizedBox(height: 6),
               Text(
-                '${translate("Free 100 calls")} \u2022 hermesAPI',
+                '${translate("Free 100 calls")} \u2022 ${origProfile?.name ?? ""}',
                 style: TextStyle(
                     fontSize: 12,
                     color: dark ? Colors.white38 : Colors.black38),
