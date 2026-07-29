@@ -1,12 +1,16 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../common.dart';
 
-/// A single AI provider profile (endpoint + key + model + name + enabled).
+/// AI profile type.
+enum AiProfileType { text, image }
+
+/// A single AI provider profile (endpoint + key + model + name + enabled + type).
 class AiProfile {
   final String name;
   final String endpoint;
@@ -18,6 +22,9 @@ class AiProfile {
   /// and are auto-added on every load — they are not persisted.
   final bool builtIn;
 
+  /// Profile type: text (chat/translation) or image (generation).
+  final AiProfileType profileType;
+
   const AiProfile({
     this.name = '',
     this.endpoint = '',
@@ -25,6 +32,7 @@ class AiProfile {
     this.model = 'gpt-4o-mini',
     this.enabled = true,
     this.builtIn = false,
+    this.profileType = AiProfileType.text,
   });
 
   /// Only non-built-in profiles are serialised to local storage.
@@ -36,6 +44,7 @@ class AiProfile {
           'api_key': apiKey,
           'model': model,
           'enabled': enabled,
+          'profile_type': profileType.name,
         };
 
   factory AiProfile.fromJson(Map<String, dynamic> json) => AiProfile(
@@ -44,6 +53,9 @@ class AiProfile {
         apiKey: (json['api_key'] ?? '').toString(),
         model: (json['model'] ?? 'gpt-4o-mini').toString(),
         enabled: json['enabled'] != false,
+        profileType: (json['profile_type'] as String?) == 'image'
+            ? AiProfileType.image
+            : AiProfileType.text,
       );
 
   /// Display label shown in the input box selector.
@@ -64,7 +76,7 @@ class AiConfig {
     this.email = '',
   });
 
-  /// Built-in hermesAPI proxy — free for 100 calls.
+  /// Built-in hermesAPI proxy — free for 100 calls (text).
   /// Endpoint/key are hidden from the UI; only the name is shown.
   static const builtInProfiles = [
     AiProfile(
@@ -75,6 +87,16 @@ class AiConfig {
           'sk-proxy-local-51f5bd4b9797f2620bc55460946802711cf7312b38c24794',
       model: 'hermesAPI',
       enabled: true,
+      profileType: AiProfileType.text,
+    ),
+    AiProfile(
+      builtIn: true,
+      name: 'ImageAI',
+      endpoint: 'https://apihub.agnes-ai.com/v1',
+      apiKey: 'sk-WqlzOkaKLh0QFcfvPfJTnYdPqaj3X6ZJ7wUaVlX3KAiqNcPV',
+      model: 'agnes-image-2.1-flash',
+      enabled: true,
+      profileType: AiProfileType.image,
     ),
   ];
 
@@ -86,6 +108,16 @@ class AiConfig {
 
   /// Shorthand for consumers that just need 'enabled'.
   bool get enabled => currentProfile.enabled;
+
+  /// Find the first enabled profile of the given type.
+  /// Falls back to the active profile if none of the requested type exists.
+  AiProfile getProfileByType(AiProfileType type) {
+    final match = profiles.cast<AiProfile?>().firstWhere(
+          (p) => p!.enabled && p.profileType == type,
+          orElse: () => null,
+        );
+    return match ?? currentProfile;
+  }
 
   static const _storageKey = 'luoda_ai_config';
 
@@ -268,5 +300,82 @@ class AiService {
         'naturally in the same language as the user message.\n\n'
         '$message';
     return _callAi(profile, prompt, temperature: 0.7);
+  }
+}
+
+/// AI image generation service.
+/// Calls the image AI profile via OpenAI-compatible /v1/images/generations.
+/// Downloads the generated image and saves it to a temp path.
+class AiImageService {
+  static Future<String?> generate(
+    String prompt, {
+    String size = '1024x1024',
+  }) async {
+    final profile = AiConfig.current.getProfileByType(AiProfileType.image);
+    if (!profile.enabled ||
+        profile.endpoint.isEmpty ||
+        profile.apiKey.isEmpty) {
+      debugPrint('Image AI not configured');
+      return null;
+    }
+
+    try {
+      // Construct the image generation URL (append /images/generations)
+      var base = profile.endpoint;
+      if (!base.endsWith('/')) base += '/';
+      final uri = Uri.parse('${base}images/generations');
+
+      final response = await http
+          .post(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${profile.apiKey}',
+        },
+        body: jsonEncode({
+          'model': profile.model,
+          'prompt': prompt,
+          'n': 1,
+          'size': size,
+          'response_format': 'b64_json',
+        }),
+      ).timeout(const Duration(seconds: 60));
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
+        final dataList = body['data'] as List?;
+        if (dataList != null && dataList.isNotEmpty) {
+          final data = dataList[0] as Map<String, dynamic>;
+          final b64 = data['b64_json'] as String?;
+          final url = data['url'] as String?;
+
+          Uint8List? bytes;
+          if (b64 != null && b64.isNotEmpty) {
+            bytes = base64Decode(b64);
+          } else if (url != null && url.isNotEmpty) {
+            // Download from URL
+            final imgResp = await http.get(Uri.parse(url));
+            if (imgResp.statusCode == 200) {
+              bytes = imgResp.bodyBytes;
+            }
+          }
+
+          if (bytes != null) {
+            // Save to temp file
+            final ts = DateTime.now().millisecondsSinceEpoch;
+            final dir = await Directory.systemTemp.createTemp('luoda_ai_img_');
+            final file = File('${dir.path}/ai_generated_$ts.png');
+            await file.writeAsBytes(bytes);
+            return file.path;
+          }
+        }
+      } else {
+        debugPrint(
+            'Image gen failed: HTTP ${response.statusCode} ${response.body}');
+      }
+    } catch (e) {
+      debugPrint('Image gen error: $e');
+    }
+    return null;
   }
 }

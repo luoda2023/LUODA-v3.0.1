@@ -759,6 +759,70 @@ class ChatModel with ChangeNotifier {
     unawaited(_sendMessage(message));
   }
 
+  /// Handle "#" image generation intent — call AI image service and send result.
+  Future<void> _handleImageGeneration(String query) async {
+    final key = _currentKey;
+
+    // Step 1: show "generating..." message
+    final step1 = ChatMessage(
+      text: '🎨 ${translate("Generating image")}...',
+      user: me,
+      createdAt: DateTime.now(),
+      customProperties: {'ldesk_ai_reply': 'true', 'ldesk_ai_system': 'true'},
+    );
+    insertMessage(key, step1);
+    notifyListeners();
+
+    try {
+      final localPath = await AiImageService.generate(query);
+      if (localPath == null || localPath.isEmpty) {
+        throw Exception('No image returned');
+      }
+
+      // Remove progress message
+      final body = _messages[key];
+      if (body != null) {
+        body.chatMessages.removeWhere(
+            (m) => m.customProperties?['ldesk_ai_reply'] == 'true' &&
+                   m.customProperties?['ldesk_ai_system'] == 'true');
+      }
+
+      // Insert generated image as a file message
+      final fileName = 'ai_${DateTime.now().millisecondsSinceEpoch}.png';
+      final fileSize = File(localPath).lengthSync();
+      final record = await DirectChatRepository.instance.createOutgoing(
+        conversationId: key.peerId,
+        kind: DirectChatKind.file,
+        text: query,
+        senderId: me.id,
+        senderName: me.firstName ?? '',
+        senderAvatar: '',
+        fileName: fileName,
+        fileSize: fileSize,
+        localPath: localPath,
+        fileSha256: '',
+      );
+      insertMessage(key, _toChatMessage(record, me));
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Image generation failed: $e');
+      final body = _messages[key];
+      if (body != null) {
+        body.chatMessages.removeWhere(
+            (m) => m.customProperties?['ldesk_ai_reply'] == 'true' &&
+                   m.customProperties?['ldesk_ai_system'] == 'true');
+      }
+      final failMsg = ChatMessage(
+        text: '${translate("Image generation failed")}: $e',
+        user: me,
+        createdAt: DateTime.now(),
+        customProperties: {'ldesk_ai_reply': 'true', 'ldesk_ai_system': 'true'},
+      );
+      insertMessage(key, failMsg);
+      notifyListeners();
+    }
+  }
+
   /// Handle "#" email export intent — collect 20 messages, zip, open folder.
   Future<void> _handleEmailExport(String query) async {
     final email = AiConfig.current.email;
@@ -871,10 +935,20 @@ class ChatModel with ChangeNotifier {
       return;
     }
 
-    // # command: AI chat or email export
+    // # command: AI image, email export, or normal AI chat
     if (rawText.startsWith('#')) {
       final aiQuery = rawText.substring(1).trim();
       if (aiQuery.isNotEmpty) {
+        // --- AI Image generation intent ---
+        const imageKeywords = ['画', '图片', '图像', '生成图片', '绘',
+                               'draw', 'image', 'picture', 'generate', 'create'];
+        final isImageIntent = imageKeywords.any((kw) => aiQuery.toLowerCase().contains(kw));
+        if (isImageIntent) {
+          unawaited(_handleImageGeneration(aiQuery));
+          inputNode.requestFocus();
+          return;
+        }
+
         // --- Email export intent detection ---
         final email = AiConfig.current.email;
         final hasValidEmail = email.isNotEmpty &&

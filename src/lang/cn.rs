@@ -993,5 +993,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Please fill endpoint and API key", "\u8bf7\u586b\u5199 API \u5730\u5740\u548c\u5bc6\u94a5"),
         ("Built-in", "\u5185\u7f6e"),
         ("Free 100 calls", "\u514d\u8d39 100 \u6b21"),
+        ("Generating image", "\u6b63\u5728\u751f\u6210\u56fe\u7247"),
+        ("Image generation failed", "\u56fe\u7247\u751f\u6210\u5931\u8d25"),
     ].iter().cloned().collect();
 }
