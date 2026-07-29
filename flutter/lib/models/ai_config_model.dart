@@ -101,22 +101,31 @@ class AiConfig {
   ];
 
   /// The currently active profile, or a default fallback.
-  AiProfile get currentProfile =>
-      activeProfileIndex >= 0 && activeProfileIndex < profiles.length
-          ? profiles[activeProfileIndex]
-          : const AiProfile(enabled: false);
+  /// NOTE: This is instance-level but has the SAME name as the static
+  /// getter below. dart2js/web rejects duplicate names in the same scope.
+  /// Consumers should use AiConfig.currentProfile (static) instead.
+  // (Instance getter removed to avoid 'already declared' compile error.)
 
-  /// Shorthand for consumers that just need 'enabled'.
-  bool get enabled => currentProfile.enabled;
+  /// Shorthand — delegates to the static currentProfile.
+  bool get enabled => _cached.profiles.isNotEmpty &&
+      _cached.activeProfileIndex < _cached.profiles.length
+      ? _cached.profiles[_cached.activeProfileIndex].enabled
+      : false;
 
   /// Find the first enabled profile of the given type.
-  /// Falls back to the active profile if none of the requested type exists.
   AiProfile getProfileByType(AiProfileType type) {
     final match = profiles.cast<AiProfile?>().firstWhere(
           (p) => p!.enabled && p.profileType == type,
           orElse: () => null,
         );
-    return match ?? currentProfile;
+    return match ?? _currentActiveProfile();
+  }
+
+  AiProfile _currentActiveProfile() {
+    if (activeProfileIndex >= 0 && activeProfileIndex < profiles.length) {
+      return profiles[activeProfileIndex];
+    }
+    return const AiProfile(enabled: false);
   }
 
   static const _storageKey = 'luoda_ai_config';
@@ -125,7 +134,13 @@ class AiConfig {
 
   static AiConfig get current => _cached;
 
-  static AiProfile get currentProfile => _cached.currentProfile;
+  static AiProfile get currentProfile {
+    final cfg = _cached;
+    if (cfg.activeProfileIndex >= 0 && cfg.activeProfileIndex < cfg.profiles.length) {
+      return cfg.profiles[cfg.activeProfileIndex];
+    }
+    return const AiProfile(enabled: false);
+  }
 
   /// Migrate old single-profile storage, parse user profiles,
   /// then merge with built-in profiles.
