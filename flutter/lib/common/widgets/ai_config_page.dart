@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/ai_config_model.dart';
 import '../wechat_ui_tokens.dart';
-import '../common.dart';
+import 'package:luoda_flutter/common.dart';
 
 /// AI configuration page — manage multiple AI profiles + email binding.
 class AiConfigPage extends StatefulWidget {
