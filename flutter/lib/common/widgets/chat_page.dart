@@ -2932,6 +2932,20 @@ class _AiModelSelectorState extends State<_AiModelSelector> {
   ChatModel get chatModel => widget.chatModel;
   bool get dark => widget.dark;
 
+  @override
+  void initState() {
+    super.initState();
+    AiConfig.onChange = () {
+      if (mounted) setState(() {});
+    };
+  }
+
+  @override
+  void dispose() {
+    AiConfig.clearOnChange();
+    super.dispose();
+  }
+
   void _showModelPicker() {
     final profiles = AiConfig.current.profiles;
     if (profiles.length <= 1) return;

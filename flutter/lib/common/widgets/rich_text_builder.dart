@@ -29,12 +29,31 @@ class RichChatText extends StatelessWidget {
     this.defaultSize = 14,
   });
 
+  /// Small LRU cache: maps text → parsed block list.
+  /// Prevents re-parsing the same message text on every rebuild.
+  static const int _maxCache = 100;
+  static final Map<String, List<Object>> _cache = {};
+  static final List<String> _cacheOrder = [];
+
+  static List<Object> _cachedBlocks(String text) {
+    final cached = _cache[text];
+    if (cached != null) return cached;
+    final blocks = _extractBlocks(text);
+    if (_cacheOrder.length >= _maxCache) {
+      final oldest = _cacheOrder.removeAt(0);
+      _cache.remove(oldest);
+    }
+    _cache[text] = blocks;
+    _cacheOrder.add(text);
+    return blocks;
+  }
+
   @override
   Widget build(BuildContext context) {
     if (text.isEmpty) return const SizedBox.shrink();
 
-    // Split text into block-level elements
-    final blocks = _extractBlocks(text);
+    // Use cached block extraction
+    final blocks = _cachedBlocks(text);
     if (blocks.isEmpty) return const SizedBox.shrink();
 
     return Column(

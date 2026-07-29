@@ -134,6 +134,12 @@ class AiConfig {
 
   static AiConfig get current => _cached;
 
+  // ---- Change notification (for UI widgets that need to react) ----
+  static void Function()? _onChanged;
+  static void set onChange(void Function() callback) => _onChanged = callback;
+  static void clearOnChange() => _onChanged = null;
+  static void _notifyChanged() => _onChanged?.call();
+
   static AiProfile get currentProfile {
     final cfg = _cached;
     if (cfg.activeProfileIndex >= 0 && cfg.activeProfileIndex < cfg.profiles.length) {
@@ -225,6 +231,7 @@ class AiConfig {
         'email': config.email,
       }),
     );
+    _notifyChanged();
   }
 
   /// Switch to a different profile by index (in the combined list).
@@ -238,6 +245,7 @@ class AiConfig {
       activeProfileIndex: index,
       email: cfg.email,
     ));
+    _notifyChanged();
   }
 }
 

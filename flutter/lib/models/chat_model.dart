@@ -893,15 +893,16 @@ class ChatModel with ChangeNotifier {
       }
       await chatFile.writeAsString(chatBuf.toString());
 
-      // Create ZIP
+      // Create ZIP with 30s timeout
       final zipPath = '${dir.path}.zip';
       if (isWindows) {
         await Process.run('powershell', [
           '-NoProfile', '-Command',
           'Compress-Archive', '-Path', dir.path, '-DestinationPath', zipPath, '-Force',
-        ]);
+        ]).timeout(const Duration(seconds: 30));
       } else {
-        await Process.run('zip', ['-rj', zipPath, dir.path]);
+        await Process.run('zip', ['-rj', zipPath, dir.path])
+            .timeout(const Duration(seconds: 30));
       }
 
       // Remove old progress message
