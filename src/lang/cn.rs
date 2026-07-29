@@ -969,7 +969,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Testing...", "\u{6d4b}\u{8bd5}\u{4e2d}\u{002e}\u{002e}\u{002e}"),
         ("Connection failed", "\u{8fde}\u{63a5}\u{5931}\u{8d25}"),
         ("Configuration saved", "\u{914d}\u{7f6e}\u{5df2}\u{4fdd}\u{5b58}"),
-        ("AI auto-reply", "\u0041\u0049\u0020\u81ea\u52a8\u56de\u590d"),
+        ("AI auto-reply", "\u7531\u0041\u0049\u81ea\u52a8\u751f\u6210\u56de\u590d"),
         ("AI thinking", "\u0041\u0049\u0020\u601d\u8003\u4e2d"),
     ].iter().cloned().collect();
 }
