@@ -15,6 +15,7 @@ import '../../models/meeting_group_model.dart';
 import 'package:luoda_flutter/common/direct_viewer_invite.dart';
 import '../wechat_ui_tokens.dart';
 import 'file_viewer.dart';
+import 'rich_text_builder.dart';
 import 'voice_message_controls.dart';
 import '../../models/ai_config_model.dart';
 
@@ -988,71 +989,13 @@ class ChatPage extends StatelessWidget implements PageShape {
     );
   }
 
-  /// Build rich text with clickable links.
-  Widget _buildLinkText(String text, Color foreground, bool isDesktopHome) {
-    final urlPattern = RegExp(
-      r'(https?:\/\/[^\s]+|www\.[^\s]+\.[^\s]+|[a-zA-Z0-9][-a-zA-Z0-9]*\.[a-zA-Z]{2,}[^\s]*)',
-    );
-    final matches = urlPattern.allMatches(text);
-    if (matches.isEmpty) {
-      return Text(
-        text,
-        style: TextStyle(
-          color: foreground,
-          fontSize: isDesktopHome ? 14 : 15,
-          height: 1.42,
-          letterSpacing: 0,
-        ),
-      );
-    }
-    final spans = <InlineSpan>[];
-    var lastEnd = 0;
-    for (final match in matches) {
-      if (match.start > lastEnd) {
-        spans.add(TextSpan(text: text.substring(lastEnd, match.start)));
-      }
-      final url = match.group(0)!;
-      final displayUrl = url.length > 50 ? '${url.substring(0, 47)}...' : url;
-      spans.add(WidgetSpan(
-        alignment: PlaceholderAlignment.middle,
-        child: GestureDetector(
-          onTap: () async {
-            final uri = Uri.tryParse(
-                url.startsWith('http') ? url : 'https://$url');
-            if (uri != null) {
-              try {
-                await launchUrl(uri, mode: LaunchMode.externalApplication);
-              } catch (_) {}
-            }
-          },
-          child: Text(
-            displayUrl,
-            style: TextStyle(
-              color: kWeChatPrimaryColor,
-              fontSize: isDesktopHome ? 14 : 15,
-              height: 1.42,
-              decoration: TextDecoration.underline,
-              decorationColor:
-                  kWeChatPrimaryColor.withOpacity(0.5),
-            ),
-          ),
-        ),
-      ));
-      lastEnd = match.end;
-    }
-    if (lastEnd < text.length) {
-      spans.add(TextSpan(text: text.substring(lastEnd)));
-    }
-    return RichText(
-      text: TextSpan(
-        style: TextStyle(
-          color: foreground,
-          fontSize: isDesktopHome ? 14 : 15,
-          height: 1.42,
-          letterSpacing: 0,
-        ),
-        children: spans,
-      ),
+  /// Rich text renderer — supports **bold**, *italic*, `code`,
+  /// [color=red]text[/color], [size=20]text[/size], markdown tables, and URLs.
+  Widget _buildRichText(String text, Color foreground, bool isDesktopHome) {
+    return RichChatText(
+      text: text,
+      foreground: foreground,
+      defaultSize: isDesktopHome ? 14 : 15,
     );
   }
 
@@ -1667,7 +1610,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                       message.text.trim().startsWith('luoda://meeting/'))
                     _buildInviteCard(context, message.text.trim(), foreground)
                   else
-                    _buildLinkText(message.text, foreground, isDesktopHome),
+                    _buildRichText(message.text, foreground, isDesktopHome),
                   // Reaction bar
                   if (reactions != null && reactions.isNotEmpty)
                     Padding(
