@@ -204,6 +204,17 @@ class MeetingGroupStore {
     _save();
   }
 
+  /// Remove a member from an existing group. No-op if not found.
+  static void removeMember(String meetingId, String peerId) {
+    final group = find(meetingId);
+    if (group == null) return;
+    if (group.members == null || group.members!.isEmpty) return;
+    group.members!.removeWhere((m) => m.peerId == peerId);
+    final idx = _groups.indexWhere((g) => g.meetingId == meetingId);
+    if (idx >= 0) _groups[idx] = group;
+    _save();
+  }
+
   /// Update the active session endpoint (host starts sharing).
   static void setSessionEndpoint(String meetingId, String endpoint) {
     final group = find(meetingId);

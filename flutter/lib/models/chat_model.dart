@@ -164,6 +164,7 @@ class ChatModel with ChangeNotifier {
   @override
   void dispose() {
     DirectChatRepository.instance.revision.removeListener(_onStoreRevision);
+    _storeRevisionTimer?.cancel();
     for (final timer in _selfDestructTimers.values) {
       timer.cancel();
     }
@@ -176,6 +177,12 @@ class ChatModel with ChangeNotifier {
   late final ChatUser me;
 
   late final Map<MessageKey, MessageBody> _messages = {};
+  /// Max messages to display per conversation. Older messages can be loaded
+  /// on demand when the user scrolls to the top.
+  static const int _kInitialMessageLimit = 100;
+  static const int _kPageSize = 50;
+  /// Caches full record lists per conversation for "load older" pagination.
+  final Map<String, List<DirectChatRecord>> _conversationRecords = {};
   final Map<int, String> _activeCompanionSecrets = <int, String>{};
   final Map<String, _IncomingVoiceTransfer> _incomingVoiceTransfers =
       <String, _IncomingVoiceTransfer>{};
@@ -288,12 +295,16 @@ class ChatModel with ChangeNotifier {
   }
 
   void _onStoreRevision() {
-    if (identical(this, gFFI.chatModel)) {
-      _scheduleRecentConversationRestore();
-    } else if (_currentKey.peerId.isNotEmpty) {
-      unawaited(_restoreConversation(_currentKey));
-    }
+    // Debounce: store revisions can fire rapidly during batch operations.
+    // Only restore after a short quiet period to avoid cascading full rebuilds.
+    _storeRevisionTimer ??= Timer(const Duration(milliseconds: 300), () {
+      _storeRevisionTimer = null;
+      if (_currentKey.peerId.isNotEmpty) {
+        unawaited(_restoreConversation(_currentKey));
+      }
+    });
   }
+  Timer? _storeRevisionTimer;
 
   void _scheduleRecentConversationRestore() {
     if (_recentRestoreTask != null) {
@@ -1419,7 +1430,12 @@ class ChatModel with ChangeNotifier {
     try {
       final deviceId = await DirectChatRepository.instance.deviceId;
       me.id = deviceId;
-      records = await DirectChatRepository.instance.forConversation(key.peerId);
+      records = await DirectChatRepository.instance.forConversation(
+        key.peerId,
+        // Load slightly more than the initial limit to support
+        // "load older" without another DB read on the first scroll.
+        limit: _kInitialMessageLimit + _kPageSize,
+      );
     } catch (error) {
       debugPrint('Failed to restore direct chat conversation: $error');
       return;
@@ -1440,6 +1456,9 @@ class ChatModel with ChangeNotifier {
         <ChatMessage>[],
       ),
     );
+    // Cache full record list for "load older" pagination.
+    _conversationRecords[key.peerId] = records;
+
     final incoming = records.firstWhereOrNull((record) => !record.isOutgoing);
     if (incoming != null) {
       if (incoming.senderName.isNotEmpty) {
@@ -1449,7 +1468,13 @@ class ChatModel with ChangeNotifier {
         body.chatUser.profileImage = incoming.senderAvatar;
       }
     }
+    // Only convert the latest N records to ChatMessage objects.
+    // Older messages are loaded on demand via loadOlderMessages().
+    final initialCount = records.length > _kInitialMessageLimit
+        ? _kInitialMessageLimit
+        : records.length;
     body.chatMessages = records
+        .sublist(0, initialCount)
         .map((record) => _toChatMessage(
               record,
               record.isOutgoing ? me : body.chatUser,
@@ -1463,6 +1488,39 @@ class ChatModel with ChangeNotifier {
       );
     }
     if (_currentKey == key) notifyListeners();
+  }
+
+  /// Returns true if [key]'s conversation has older messages not yet loaded.
+  bool hasOlderMessages(MessageKey key) {
+    final records = _conversationRecords[key.peerId];
+    if (records == null) return false;
+    final body = _messages[key];
+    if (body == null) return false;
+    return records.length > body.chatMessages.length;
+  }
+
+  /// Loads the next page of older messages for [key] and prepends them
+  /// to the existing message list. Returns the number of newly loaded messages.
+  Future<int> loadOlderMessages(MessageKey key) async {
+    final records = _conversationRecords[key.peerId];
+    final body = _messages[key];
+    if (records == null || body == null) return 0;
+    final loaded = body.chatMessages.length;
+    if (loaded >= records.length) return 0;
+    final end = loaded + _kPageSize;
+    final batchEnd = end > records.length ? records.length : end;
+    final batch = records.sublist(loaded, batchEnd);
+    if (batch.isEmpty) return 0;
+    final newMessages = batch.map((record) => _toChatMessage(
+          record,
+          record.isOutgoing ? me : body.chatUser,
+        )).toList();
+    // Append: older messages go after the already-loaded ones (end of list),
+    // because DashChat displays index 0 (newest) at the bottom and
+    // index N-1 (oldest) at the top when scrolling up.
+    body.chatMessages.addAll(newMessages);
+    if (_currentKey == key) notifyListeners();
+    return newMessages.length;
   }
 
   ChatMessage _toChatMessage(DirectChatRecord record, ChatUser user) {
@@ -1584,6 +1642,7 @@ class ChatModel with ChangeNotifier {
   Future<void> deleteConversations(Iterable<String> peerIds) async {
     final ids = peerIds.toSet();
     _messages.removeWhere((key, _) => ids.contains(key.peerId));
+    _conversationRecords.removeWhere((peerId, _) => ids.contains(peerId));
     await DirectChatRepository.instance.deleteConversations(ids);
     if (ids.contains(_currentKey.peerId)) {
       _currentKey = MessageKey('', clientModeID);
@@ -1623,6 +1682,7 @@ class ChatModel with ChangeNotifier {
     }
     await DirectChatRepository.instance
         .deleteConversations([key.peerId]);
+    _conversationRecords.remove(key.peerId);
     _drafts.remove(key.peerId);
     notifyListeners();
     return true;

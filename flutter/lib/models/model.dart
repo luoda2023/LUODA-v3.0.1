@@ -2374,6 +2374,10 @@ class CanvasModel with ChangeNotifier {
   bool _bumpMouseIsWorking = true;
   ViewStyle _lastViewStyle = ViewStyle.defaultViewStyle();
 
+  // When true, updateSizeFromWidget() has provided the correct layout-context size
+  // and updateSize() (which uses ui.window) should NOT overwrite it.
+  bool _widgetSizeProvided = false;
+
   Timer? _timerMobileFocusCanvasCursor;
   Timer? _timerMobileRestoreCanvasOffset;
   Offset? _offsetBeforeMobileSoftKeyboard;
@@ -2484,6 +2488,7 @@ class CanvasModel with ChangeNotifier {
   /// not from ui.window. This avoids toolbar/status bar height offset.
   void updateSizeFromWidget(Size widgetSize) {
     _size = widgetSize;
+    _widgetSizeProvided = true;
   }
 
   updateViewStyle({refreshMousePos = true, notify = true}) async {
@@ -2492,7 +2497,13 @@ class CanvasModel with ChangeNotifier {
       return;
     }
 
-    updateSize();
+    // LUODA: skip updateSize() when a widget-provided size is already set via
+    // updateSizeFromWidget() — avoids overwriting LayoutBuilder-derived size
+    // (which accounts for toolbar/status bar) with ui.window-based calculation
+    // (which does not, causing mouse coordinate drift).
+    if (!_widgetSizeProvided) {
+      updateSize();
+    }
     final displayWidth = getDisplayWidth();
     final displayHeight = getDisplayHeight();
     final viewStyle = ViewStyle(

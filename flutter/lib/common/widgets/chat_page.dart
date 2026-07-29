@@ -106,182 +106,184 @@ class ChatPage extends StatelessWidget implements PageShape {
         })
   ];
 
-  Future<void> _showMessageActions(
+  /// WeChat PC style floating context menu — positioned near the message,
+  /// with rounded corners, icon + text items, and clean dividers.
+  /// Replaces the old bottom sheet that looked nothing like WeChat.
+  Future<String?> _showWeChatContextMenu(
     BuildContext context,
-    ChatMessage message,
-  ) async {
+    ChatMessage message, {
+    required Offset position,
+  }) async {
     final properties = message.customProperties;
     final id = (properties?['ldesk_id'] ?? '').toString();
     final disposition =
         (properties?['ldesk_disposition'] ?? 'active').toString();
     final delivery = (properties?['ldesk_delivery'] ?? '').toString();
     final isOwnMessage = message.user.id == chatModel.me.id;
-    if (id.isEmpty) return;
-    // Allow actions on received messages too (copy/delete/reply)
-    if (isOwnMessage && disposition != 'active') return;
-    // For received messages, only allow if active
-    if (!isOwnMessage && disposition != 'active') return;
-    final action = await showModalBottomSheet<String>(
-      context: context,
-      useSafeArea: true,
-      builder: (sheetContext) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: Column(
+    if (id.isEmpty) return null;
+    if (isOwnMessage && disposition != 'active') return null;
+    if (!isOwnMessage && disposition != 'active') return null;
+
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    final localPos = overlay.globalToLocal(position);
+    final anchor = RelativeRect.fromRect(
+      localPos & const Size(1, 1),
+      Offset.zero & overlay.size,
+    );
+
+    // Build menu items — keep it clean like WeChat PC
+    final items = <PopupMenuEntry<String>>[];
+    void addItem(String value, IconData icon, String label, {Color? color}) {
+      items.add(PopupMenuItem<String>(
+        value: value,
+        height: 34,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: Row(
+          children: [
+            Icon(icon, size: 18, color: color),
+            const SizedBox(width: 10),
+            Text(label, style: TextStyle(fontSize: 13, color: color)),
+          ],
+        ),
+      ));
+    }
+
+    addItem('copy', Icons.copy_rounded, translate('Copy'));
+    addItem('reply', Icons.reply_rounded, translate('Reply'));
+    items.add(const PopupMenuDivider(height: 1));
+
+    // Reactions inline — compact row of emojis
+    items.add(
+      PopupMenuItem<String>(
+        enabled: false,
+        height: 40,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
             mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              // Copy — always available
-              ListTile(
-                leading: const Icon(Icons.copy_rounded, size: 22),
-                title: Text(translate('Copy'),
-                    style: const TextStyle(fontSize: 14)),
-                onTap: () => Navigator.pop(sheetContext, 'copy'),
-                dense: true,
-              ),
-              // Reply (quote) — available for active messages
-              ListTile(
-                leading: const Icon(Icons.reply_rounded, size: 22),
-                title: Text(translate('Reply'),
-                    style: const TextStyle(fontSize: 14)),
-                onTap: () => Navigator.pop(sheetContext, 'reply'),
-                dense: true,
-              ),
-              // Reaction emoji picker
-              const Divider(height: 1),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 6,
-                  children: _reactionEmojis.map((emoji) {
-                    return GestureDetector(
-                      onTap: () {
-                        Navigator.pop(sheetContext);
-                        chatModel.toggleReaction(message, emoji);
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Theme.of(sheetContext).brightness ==
-                                  Brightness.dark
-                              ? const Color(0xFF3A3D43)
-                              : const Color(0xFFF0F0F0),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(emoji, style: const TextStyle(fontSize: 22)),
-                      ),
-                    );
-                  }).toList(),
+            children: _reactionEmojis.map((emoji) {
+              return GestureDetector(
+                onTap: () => Navigator.pop(context, 'react:$emoji'),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Text(emoji, style: const TextStyle(fontSize: 22)),
                 ),
-              ),
-              const Divider(height: 1),
-              // Select (enter multi-select mode)
-              ListTile(
-                leading: const Icon(Icons.checklist_rounded, size: 22),
-                title: Text(translate('Select'),
-                    style: const TextStyle(fontSize: 14)),
-                onTap: () => Navigator.pop(sheetContext, 'select'),
-                dense: true,
-              ),
-              // Message info
-              ListTile(
-                leading: const Icon(Icons.info_outline_rounded, size: 22),
-                title: Text(translate('Info'),
-                    style: const TextStyle(fontSize: 14)),
-                onTap: () => Navigator.pop(sheetContext, 'info'),
-                dense: true,
-              ),
-              // Delete locally — always available
-              ListTile(
-                leading: Icon(Icons.delete_outline_rounded, size: 22,
-                    color: Theme.of(sheetContext).colorScheme.error),
-                title: Text(translate('Delete'),
-                    style: TextStyle(fontSize: 14,
-                        color: Theme.of(sheetContext).colorScheme.error)),
-                onTap: () => Navigator.pop(sheetContext, 'delete'),
-                dense: true,
-              ),
-              if (isOwnMessage) ...[
-                // Edit (own text messages only)
-                if (properties?['ldesk_kind'] == 'text')
-                  ListTile(
-                    leading: const Icon(Icons.edit_rounded, size: 22),
-                    title: Text(translate('Edit'),
-                        style: const TextStyle(fontSize: 14)),
-                    onTap: () => Navigator.pop(sheetContext, 'edit'),
-                    dense: true,
-                  ),
-                const Divider(height: 1),
-                // Primary actions: Recall & Destroy — own messages only
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: _ActionChip(
-                          icon: Icons.undo_rounded,
-                          label: translate('Recall'),
-                          color: Theme.of(sheetContext).colorScheme.primary,
-                          onTap: () => Navigator.pop(sheetContext, 'recall'),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _ActionChip(
-                          icon: Icons.delete_forever_outlined,
-                          label: translate('Destroy'),
-                          color: Theme.of(sheetContext).colorScheme.error,
-                          onTap: () => Navigator.pop(sheetContext, 'destroy'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.forward_rounded, size: 22),
-                  title: Text(translate('Forward'),
-                      style: const TextStyle(fontSize: 14)),
-                  onTap: () => Navigator.pop(sheetContext, 'forward'),
-                  dense: true,
-                ),
-                if (delivery == 'failed')
-                  ListTile(
-                    leading: const Icon(Icons.refresh_rounded, size: 22),
-                    title: Text(translate('Retry send'),
-                        style: const TextStyle(fontSize: 14)),
-                    onTap: () => Navigator.pop(sheetContext, 'retry'),
-                    dense: true,
-                  ),
-                const Divider(height: 1),
-                // Self-destruct sub-actions
-                ListTile(
-                  leading: const Icon(Icons.timer_outlined, size: 22),
-                  title: Text(translate('Self-destruct in 1 minute'),
-                      style: const TextStyle(fontSize: 14)),
-                  onTap: () => Navigator.pop(sheetContext, 'expire-60'),
-                  dense: true,
-                ),
-                ListTile(
-                  leading: const Icon(Icons.timer_outlined, size: 22),
-                  title: Text(translate('Self-destruct in 5 minutes'),
-                      style: const TextStyle(fontSize: 14)),
-                  onTap: () => Navigator.pop(sheetContext, 'expire-300'),
-                  dense: true,
-                ),
-                ListTile(
-                  leading: const Icon(Icons.timer_outlined, size: 22),
-                  title: Text(translate('Self-destruct in 1 hour'),
-                      style: const TextStyle(fontSize: 14)),
-                  onTap: () => Navigator.pop(sheetContext, 'expire-3600'),
-                  dense: true,
-                ),
-              ],
-            ],
+              );
+            }).toList(),
           ),
         ),
       ),
     );
-    if (!context.mounted || action == null) return;
+    items.add(const PopupMenuDivider(height: 1));
+
+    addItem('select', Icons.checklist_rounded, translate('Select'));
+    addItem('info', Icons.info_outline_rounded, translate('Info'));
+
+    if (isOwnMessage) {
+      items.add(const PopupMenuDivider(height: 1));
+      if (properties?['ldesk_kind'] == 'text') {
+        addItem('edit', Icons.edit_rounded, translate('Edit'));
+      }
+      addItem('recall', Icons.undo_rounded, translate('Recall'));
+      addItem('destroy', Icons.delete_forever_outlined,
+          translate('Destroy'),
+          color: Colors.redAccent);
+      addItem('forward', Icons.forward_rounded, translate('Forward'));
+      if (delivery == 'failed') {
+        addItem('retry', Icons.refresh_rounded, translate('Retry send'));
+      }
+      items.add(const PopupMenuDivider(height: 1));
+      addItem('expire-60', Icons.timer_outlined,
+          translate('Self-destruct in 1 minute'));
+      addItem('expire-300', Icons.timer_outlined,
+          translate('Self-destruct in 5 minutes'));
+      addItem('expire-3600', Icons.timer_outlined,
+          translate('Self-destruct in 1 hour'));
+    }
+
+    items.add(const PopupMenuDivider(height: 1));
+    addItem('delete', Icons.delete_outline_rounded,
+        translate('Delete'),
+        color: Colors.redAccent);
+
+    return showMenu<String>(
+      context: context,
+      position: anchor,
+      items: items,
+      elevation: 4,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      color: Theme.of(context).brightness == Brightness.dark
+          ? const Color(0xFF2B2D32)
+          : Colors.white,
+    );
+  }
+
+  /// WeChat PC clean delete confirmation — minimal, no heavy icon decorations.
+  Future<bool> _showWeChatConfirm(
+    BuildContext context, {
+    required String title,
+    required String message,
+    required String confirmLabel,
+    Color? confirmColor,
+  }) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        titlePadding: const EdgeInsets.fromLTRB(24, 22, 24, 0),
+        contentPadding: const EdgeInsets.fromLTRB(24, 14, 24, 6),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 6, 16, 14),
+        title: Text(title,
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+        content: Text(message,
+            style: const TextStyle(fontSize: 13),
+            textAlign: TextAlign.center),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            style: TextButton.styleFrom(
+              minimumSize: const Size(80, 36),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8)),
+            ),
+            child: Text(translate('Cancel'),
+                style: const TextStyle(fontSize: 13)),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size(80, 36),
+              backgroundColor: confirmColor ?? kWeChatPrimaryColor,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8)),
+            ),
+            child: Text(confirmLabel,
+                style:
+                    const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+          ),
+        ],
+      ),
+    );
+    return result == true;
+  }
+
+  /// Handle the result from the WeChat-style context menu above.
+  Future<void> _handleWeChatContextAction(
+    BuildContext context,
+    String? action,
+    ChatMessage message,
+  ) async {
+    if (action == null) return;
+    if (action.startsWith('react:')) {
+      final emoji = action.substring('react:'.length);
+      chatModel.toggleReaction(message, emoji);
+      return;
+    }
+    final properties = message.customProperties;
+    final id = (properties?['ldesk_id'] ?? '').toString();
+    final isOwnMessage = message.user.id == chatModel.me.id;
+
     if (action == 'copy') {
       await chatModel.copyMessage(message);
       if (context.mounted) {
@@ -297,24 +299,14 @@ class ChatPage extends StatelessWidget implements PageShape {
       return;
     }
     if (action == 'delete') {
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: Text(translate('Delete message')),
-          content: Text(translate('Delete this message locally?')),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: Text(translate('Cancel')),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              child: Text(translate('Delete')),
-            ),
-          ],
-        ),
+      final confirmed = await _showWeChatConfirm(
+        context,
+        title: translate('Delete message'),
+        message: translate('Delete this message locally?'),
+        confirmLabel: translate('Delete'),
+        confirmColor: Colors.redAccent,
       );
-      if (confirmed != true) return;
+      if (!confirmed) return;
       await chatModel.deleteLocally(message);
       if (context.mounted) {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
@@ -329,24 +321,46 @@ class ChatPage extends StatelessWidget implements PageShape {
       final result = await showDialog<String>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: Text(translate('Edit message')),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          titlePadding: const EdgeInsets.fromLTRB(24, 22, 24, 0),
+          contentPadding: const EdgeInsets.fromLTRB(24, 14, 24, 6),
+          actionsPadding: const EdgeInsets.fromLTRB(16, 6, 16, 14),
+          title: Text(translate('Edit message'),
+              style: const TextStyle(
+                  fontSize: 15, fontWeight: FontWeight.w600)),
           content: TextField(
             controller: controller,
             autofocus: true,
             maxLines: 3,
             decoration: InputDecoration(
               hintText: translate('Edit your message...'),
-              border: const OutlineInputBorder(),
+              border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8)),
+              contentPadding: const EdgeInsets.all(12),
+              isDense: true,
             ),
           ),
           actions: <Widget>[
             TextButton(
               onPressed: () => Navigator.pop(dialogContext),
-              child: Text(translate('Cancel')),
+              style: TextButton.styleFrom(
+                minimumSize: const Size(80, 36),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
+              ),
+              child: Text(translate('Cancel'),
+                  style: const TextStyle(fontSize: 13)),
             ),
             FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, controller.text.trim()),
-              child: Text(translate('Save')),
+              onPressed: () =>
+                  Navigator.pop(dialogContext, controller.text.trim()),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size(80, 36),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
+              ),
+              child: Text(translate('Save'),
+                  style: const TextStyle(fontSize: 13)),
             ),
           ],
         ),
@@ -373,24 +387,14 @@ class ChatPage extends StatelessWidget implements PageShape {
       return;
     }
     if (action == 'destroy') {
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: Text(translate('Destroy message')),
-          content: Text(translate('Destroy message on both devices?')),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: Text(translate('Cancel')),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              child: Text(translate('Destroy')),
-            ),
-          ],
-        ),
+      final confirmed = await _showWeChatConfirm(
+        context,
+        title: translate('Destroy message'),
+        message: translate('Destroy message on both devices?'),
+        confirmLabel: translate('Destroy'),
+        confirmColor: Colors.redAccent,
       );
-      if (confirmed != true) return;
+      if (!confirmed) return;
     }
     late final bool changed;
     late final String successText;
@@ -463,14 +467,9 @@ class ChatPage extends StatelessWidget implements PageShape {
     );
   }
 
-  /// Show full-screen image preview with zoom/pan support.
-  void _showImagePreview(BuildContext context, String path, String title) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => _ImagePreviewPage(imagePath: path, title: title),
-      ),
-    );
-  }
+  /// Open file preview in an independent OS window.
+  /// All file types (image/audio/text/other) are handled by FilePreviewPage.
+  /// Legacy _showImagePreview removed — use showFileViewer() instead.
 
   /// Show message delivery info dialog.
   void _showMessageInfo(BuildContext context, ChatMessage message) {
@@ -594,17 +593,12 @@ class ChatPage extends StatelessWidget implements PageShape {
             return GestureDetector(
               onTap: () {
                 Navigator.pop(ctx);
-                if (isImage) {
-                  _showImagePreview(
-                      context, record.localPath, record.fileName);
-                } else {
-                  showFileViewer(
-                    context,
-                    fileName: record.fileName,
-                    fileSize: record.fileSize,
-                    localPath: record.localPath,
-                  );
-                }
+                showFileViewer(
+                  context,
+                  fileName: record.fileName,
+                  fileSize: record.fileSize,
+                  localPath: record.localPath,
+                );
               },
               child: Container(
                 decoration: BoxDecoration(
@@ -668,30 +662,16 @@ class ChatPage extends StatelessWidget implements PageShape {
     );
   }
 
-  /// Show clear history confirmation dialog.
+  /// Show clear history confirmation dialog — WeChat PC clean style.
   Future<void> _showClearHistoryDialog(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(translate('Clear chat history')),
-        content:
-            Text(translate('Delete all messages in this conversation?')),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: Text(translate('Cancel')),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(dialogContext).colorScheme.error,
-            ),
-            child: Text(translate('Clear')),
-          ),
-        ],
-      ),
+    final confirmed = await _showWeChatConfirm(
+      context,
+      title: translate('Clear chat history'),
+      message: translate('Delete all messages in this conversation?'),
+      confirmLabel: translate('Clear'),
+      confirmColor: Colors.redAccent,
     );
-    if (confirmed != true || !context.mounted) return;
+    if (!confirmed || !context.mounted) return;
     final ok = await chatModel.clearConversation();
     if (context.mounted) {
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
@@ -1375,7 +1355,12 @@ class ChatPage extends StatelessWidget implements PageShape {
                           'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'
                         };
                         if (imageExts.contains(ext) && localPath.isNotEmpty) {
-                          _showImagePreview(context, localPath, fileName);
+                          showFileViewer(
+                            context,
+                            fileName: fileName,
+                            fileSize: fileSize,
+                            localPath: localPath,
+                          );
                         } else {
                           showFileViewer(
                             context,
@@ -1690,7 +1675,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                   ? Row(
                       mainAxisSize: MainAxisSize.min,
                       children: <Widget>[
-                        // LUODA FIX: prominent one-tap Recall button.
+                        // Left-click recall button
                         IconButton(
                           onPressed: () async {
                             final changed = await chatModel.recallMessage(message);
@@ -1721,7 +1706,16 @@ class ChatPage extends StatelessWidget implements PageShape {
                         ),
                         const SizedBox(width: 2),
                         IconButton(
-                          onPressed: () => _showMessageActions(context, message),
+                          onPressed: () async {
+                            final action = await _showWeChatContextMenu(
+                              context, message,
+                              position: Offset.zero,
+                            );
+                            if (context.mounted) {
+                              await _handleWeChatContextAction(
+                                  context, action, message);
+                            }
+                          },
                           tooltip: translate('Message actions'),
                           visualDensity: VisualDensity.compact,
                           constraints:
@@ -1937,8 +1931,16 @@ class ChatPage extends StatelessWidget implements PageShape {
                       showOtherUsersAvatar:
                           isDesktopHome || type == ChatPageType.mobileMain,
                       showOtherUsersName: false,
-                      onLongPressMessage: (message) =>
-                          _showMessageActions(context, message),
+                      onLongPressMessage: (message) async {
+                        final action = await _showWeChatContextMenu(
+                          context, message,
+                          position: Offset.zero,
+                        );
+                        if (context.mounted) {
+                          await _handleWeChatContextAction(
+                              context, action, message);
+                        }
+                      },
                       avatarBuilder:
                           isDesktopHome || type == ChatPageType.mobileMain
                               ? messageAvatar
@@ -2137,10 +2139,49 @@ class ChatPage extends StatelessWidget implements PageShape {
                       ),
                     );
                   }
+                  // "Load older messages" banner — shown at the top when
+                  // the conversation has more history beyond the initial load.
+                  Widget loadOlderBar = const SizedBox.shrink();
+                  if (chatModel.hasOlderMessages(chatModel.currentKey) &&
+                      chatModel.messages[chatModel.currentKey]
+                              ?.chatMessages.isNotEmpty ==
+                          true) {
+                    loadOlderBar = GestureDetector(
+                      onTap: () =>
+                          chatModel.loadOlderMessages(chatModel.currentKey),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        color: Colors.transparent,
+                        child: Center(
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.unfold_more_rounded,
+                                  size: 16,
+                                  color: dark
+                                      ? const Color(0xFF999CA2)
+                                      : const Color(0xFF999999)),
+                              const SizedBox(width: 6),
+                              Text(
+                                translate('Load older messages'),
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: dark
+                                      ? const Color(0xFF999CA2)
+                                      : const Color(0xFF999999),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  }
                   if (!isDesktopHome) {
                     return Column(
                       children: <Widget>[
                         reconnectBar,
+                        loadOlderBar,
                         Expanded(child: messageList),
                         replyBar,
                         typingBar,
@@ -2150,6 +2191,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                   return Column(
                     children: <Widget>[
                       reconnectBar,
+                      loadOlderBar,
                       Expanded(child: messageList),
                       replyBar,
                       typingBar,
@@ -2503,62 +2545,4 @@ class _ActionChip extends StatelessWidget {
   }
 }
 
-/// Full-screen image preview with zoom/pan support.
-class _ImagePreviewPage extends StatelessWidget {
-  const _ImagePreviewPage({
-    required this.imagePath,
-    required this.title,
-  });
 
-  final String imagePath;
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    return Scaffold(
-      backgroundColor: dark ? Colors.black : const Color(0xFFF0F0F0),
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: Icon(Icons.close_rounded,
-              color: dark ? Colors.white70 : Colors.black87),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: Text(
-          title,
-          style: TextStyle(
-            color: dark ? Colors.white70 : Colors.black87,
-            fontSize: 14,
-          ),
-        ),
-      ),
-      body: Center(
-        child: InteractiveViewer(
-          minScale: 0.5,
-          maxScale: 4.0,
-          child: Image.file(
-            File(imagePath),
-            fit: BoxFit.contain,
-            errorBuilder: (_, __, ___) => Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.broken_image_outlined, size: 48,
-                      color: dark ? Colors.white38 : Colors.black38),
-                  const SizedBox(height: 8),
-                  Text(
-                    translate('Failed to load image'),
-                    style: TextStyle(
-                        color: dark ? Colors.white54 : Colors.black54),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}

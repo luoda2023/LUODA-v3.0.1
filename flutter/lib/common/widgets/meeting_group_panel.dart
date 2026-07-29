@@ -84,16 +84,10 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
         : peer?.username.isNotEmpty == true
             ? peer!.username
             : trimmed;
-    _group.members ??= [];
-    _group.members!.add(MeetingMember(
-      peerId: trimmed,
-      displayName: displayName,
-      joinedAt: DateTime.now().toUtc(),
-    ));
-    await MeetingGroupStore.save();
+    MeetingGroupStore.addMember(_group.meetingId, trimmed, displayName);
     _addPeerCtrl.clear();
     setState(() {});
-    // Also send a system message in the group chat
+    // Non-blocking system message — don't wait for broken chat send
     final chatModel = _activeGroupChatModel();
     if (chatModel != null) {
       final key = chatModel.currentKey;
@@ -119,8 +113,7 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
       ),
     );
     if (confirm != true) return;
-    _group.members!.removeWhere((m) => m.peerId == member.peerId);
-    await MeetingGroupStore.save();
+    MeetingGroupStore.removeMember(_group.meetingId, member.peerId);
     setState(() {});
   }
 

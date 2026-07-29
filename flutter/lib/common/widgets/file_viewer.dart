@@ -102,16 +102,15 @@ Future<String?> resolveReceivedFilePath(String fileName, int fileSize) async {
   return fallback;
 }
 
-/// Opens a full-screen preview for a chat file. [localPath] is the sender's
-/// local path (reliable for outgoing files); when it is missing or invalid we
-/// attempt to locate a received copy on disk.
-/// Open file preview — images get an independent OS window,
-/// other files open via the system default app.
+  /// Open file preview in an independent OS window with zoom (images),
+  /// audio playback, text display, and prev/next navigation via [siblingPaths].
+  /// Falls back to system app when the window cannot be created.
 Future<void> showFileViewer(
   BuildContext context, {
   required String fileName,
   required int fileSize,
   String? localPath,
+  List<String>? siblingPaths,
 }) async {
   String? path = localPath?.isNotEmpty == true ? localPath : null;
   if (path == null || !(await File(path).exists())) {
@@ -120,7 +119,7 @@ Future<void> showFileViewer(
   final resolved = path != null && await File(path).exists();
 
   if (!resolved) {
-    // File not found locally — show a simple dialog.
+    // File not found locally — show a simple dialog in-app.
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         fullscreenDialog: true,
@@ -134,25 +133,25 @@ Future<void> showFileViewer(
     return;
   }
 
-  if (_isImage(fileName)) {
-    // LUODA: open image in an independent OS window with zoom + prev/next.
+  // Always open in a separate OS window (supports all file types).
+  try {
     final windowController = await DesktopMultiWindow.createWindow(
       jsonEncode({
         'type': kAppTypeDesktopFilePreview,
         'file_path': path!,
         'file_name': fileName,
+        if (siblingPaths != null) 'sibling_paths': siblingPaths,
       }),
     );
     windowController
-      ..setFrame(const Offset(0, 0) & const Size(800, 600))
+      ..setFrame(const Offset(0, 0) & const Size(960, 720))
       ..center()
       ..setTitle(fileName)
       ..show();
-    return;
+  } catch (_) {
+    // Fallback: open with system app
+    await OpenFilex.open(path!);
   }
-
-  // For non-image files, open with system app.
-  await OpenFilex.open(path!);
 }
 
 class _FileViewerPage extends StatelessWidget {
@@ -185,12 +184,12 @@ class _FileViewerPage extends StatelessWidget {
         actions: <Widget>[
           if (canOpen)
             IconButton(
-              tooltip: 'Open with system app',
+              tooltip: translate('Open with system app'),
               icon: const Icon(Icons.open_in_new_rounded),
               onPressed: () => OpenFilex.open(path!),
             ),
           IconButton(
-            tooltip: 'Close',
+            tooltip: translate('Close'),
             icon: const Icon(Icons.close_rounded),
             onPressed: () => Navigator.of(context).pop(),
           ),

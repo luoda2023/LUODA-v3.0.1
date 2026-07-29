@@ -665,7 +665,12 @@ class DirectChatRepository {
     });
   }
 
-  Future<List<DirectChatRecord>> forConversation(String conversationId) async {
+  /// Returns records for a conversation, newest first.
+  /// If [limit] is set, only the newest [limit] records are returned.
+  Future<List<DirectChatRecord>> forConversation(
+    String conversationId, {
+    int? limit,
+  }) async {
     await _pendingWrite;
     final records = (await _freshState())
         .records
@@ -676,6 +681,9 @@ class DirectChatRepository {
             !record.isExpired)
         .toList();
     records.sort((a, b) => b.sentAt.compareTo(a.sentAt));
+    if (limit != null && limit > 0 && records.length > limit) {
+      return records.sublist(0, limit);
+    }
     return records;
   }
 
