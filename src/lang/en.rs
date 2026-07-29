@@ -383,5 +383,13 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Export failed", "Export failed"),
         ("Compressing and preparing to send...", "Compressing and preparing to send..."),
         ("Sent successfully to", "Sent successfully to"),
+        ("Active", "Active"),
+        ("AI Models", "AI Models"),
+        ("Add", "Add"),
+        ("Remove", "Remove"),
+        ("Test", "Test"),
+        ("Profile name", "Profile name"),
+        ("At least one profile is required", "At least one profile is required"),
+        ("Please fill endpoint and API key", "Please fill endpoint and API key"),
     ].iter().cloned().collect();
 }

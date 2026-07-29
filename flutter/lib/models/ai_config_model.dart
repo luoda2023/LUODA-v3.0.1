@@ -6,22 +6,64 @@ import 'package:http/http.dart' as http;
 
 import '../common.dart';
 
-/// AI service configuration.
-/// Stored as JSON in local options.
-class AiConfig {
+/// A single AI provider profile (endpoint + key + model + name + enabled).
+class AiProfile {
+  final String name;
   final String endpoint;
   final String apiKey;
   final String model;
   final bool enabled;
-  final String email;
 
-  const AiConfig({
+  const AiProfile({
+    this.name = '',
     this.endpoint = '',
     this.apiKey = '',
     this.model = 'gpt-4o-mini',
-    this.enabled = false,
+    this.enabled = true,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'endpoint': endpoint,
+        'api_key': apiKey,
+        'model': model,
+        'enabled': enabled,
+      };
+
+  factory AiProfile.fromJson(Map<String, dynamic> json) => AiProfile(
+        name: (json['name'] ?? '').toString(),
+        endpoint: (json['endpoint'] ?? '').toString(),
+        apiKey: (json['api_key'] ?? '').toString(),
+        model: (json['model'] ?? 'gpt-4o-mini').toString(),
+        enabled: json['enabled'] != false,
+      );
+
+  /// Display label shown in the input box selector.
+  String get displayLabel =>
+      name.isNotEmpty ? name : (model.isNotEmpty ? model : 'AI');
+}
+
+/// AI service configuration — multiple profiles.
+/// Stored as JSON in local options.
+class AiConfig {
+  final List<AiProfile> profiles;
+  final int activeProfileIndex;
+  final String email;
+
+  const AiConfig({
+    this.profiles = const [],
+    this.activeProfileIndex = 0,
     this.email = '',
   });
+
+  /// The currently active profile, or a default fallback.
+  AiProfile get currentProfile =>
+      activeProfileIndex >= 0 && activeProfileIndex < profiles.length
+          ? profiles[activeProfileIndex]
+          : const AiProfile(enabled: false);
+
+  /// Shorthand for consumers that just need 'enabled'.
+  bool get enabled => currentProfile.enabled;
 
   static const _storageKey = 'luoda_ai_config';
 
@@ -29,16 +71,42 @@ class AiConfig {
 
   static AiConfig get current => _cached;
 
+  static AiProfile get currentProfile => _cached.currentProfile;
+
   static void load() {
     try {
       final raw = bind.mainGetLocalOption(key: _storageKey);
       if (raw.isEmpty) return;
       final json = jsonDecode(raw) as Map<String, dynamic>;
+
+      final profiles = <AiProfile>[];
+      final rawProfiles = json['profiles'];
+      if (rawProfiles is List) {
+        for (final p in rawProfiles) {
+          if (p is Map<String, dynamic>) {
+            profiles.add(AiProfile.fromJson(p));
+          }
+        }
+      }
+
+      // Migration: old single-profile format → convert to profiles list
+      if (profiles.isEmpty) {
+        final oldEndpoint = (json['endpoint'] ?? '').toString();
+        if (oldEndpoint.isNotEmpty) {
+          profiles.add(AiProfile(
+            name: 'Default',
+            endpoint: oldEndpoint,
+            apiKey: (json['api_key'] ?? '').toString(),
+            model: (json['model'] ?? 'gpt-4o-mini').toString(),
+            enabled: json['enabled'] == true,
+          ));
+        }
+      }
+
       _cached = AiConfig(
-        endpoint: (json['endpoint'] ?? '').toString(),
-        apiKey: (json['api_key'] ?? '').toString(),
-        model: (json['model'] ?? 'gpt-4o-mini').toString(),
-        enabled: json['enabled'] == true,
+        profiles: profiles,
+        activeProfileIndex:
+            ((json['active_profile_index'] as int?) ?? 0).clamp(0, profiles.length - 1),
         email: (json['email'] ?? '').toString(),
       );
     } catch (_) {
@@ -51,49 +119,45 @@ class AiConfig {
     await bind.mainSetLocalOption(
       key: _storageKey,
       value: jsonEncode({
-        'endpoint': config.endpoint,
-        'api_key': config.apiKey,
-        'model': config.model,
-        'enabled': config.enabled,
+        'profiles': config.profiles.map((p) => p.toJson()).toList(),
+        'active_profile_index': config.activeProfileIndex,
         'email': config.email,
       }),
     );
   }
 
-  Map<String, dynamic> toJson() => {
-        'endpoint': endpoint,
-        'api_key': apiKey,
-        'model': model,
-        'enabled': enabled,
-        'email': email,
-      };
+  /// Switch to a different profile by index.
+  static Future<void> setActiveProfile(int index) async {
+    final cfg = _cached;
+    if (index < 0 || index >= cfg.profiles.length) return;
+    await save(AiConfig(
+      profiles: cfg.profiles,
+      activeProfileIndex: index,
+      email: cfg.email,
+    ));
+  }
 }
 
 /// Shared AI API caller — returns raw response content from any prompt.
-String? _callAiSync(String prompt, {double temperature = 0.7}) {
-  // This is called synchronously inside a compute isolate stub;
-  // for simplicity we use the actual HTTP call inline.
-  // In production, consider moving to a background isolate.
-  return _callAi(prompt, temperature: temperature);
-}
-
-Future<String?> _callAi(String prompt, {double temperature = 0.7}) async {
-  final config = AiConfig.current;
-  if (!config.enabled || config.endpoint.isEmpty || config.apiKey.isEmpty) {
+Future<String?> _callAi(AiProfile profile, String prompt,
+    {double temperature = 0.7}) async {
+  if (!profile.enabled ||
+      profile.endpoint.isEmpty ||
+      profile.apiKey.isEmpty) {
     return null;
   }
   try {
-    final uri = Uri.parse(config.endpoint);
+    final uri = Uri.parse(profile.endpoint);
     final response = await http
         .post(
       uri,
       headers: {
         'Content-Type': 'application/json',
-        if (config.apiKey.isNotEmpty)
-          'Authorization': 'Bearer ${config.apiKey}',
+        if (profile.apiKey.isNotEmpty)
+          'Authorization': 'Bearer ${profile.apiKey}',
       },
       body: jsonEncode({
-        'model': config.model,
+        'model': profile.model,
         'messages': [
           {'role': 'user', 'content': prompt},
         ],
@@ -127,24 +191,26 @@ Future<String?> _callAi(String prompt, {double temperature = 0.7}) async {
 
 /// AI-powered services: translation + chat.
 class AiService {
-  /// Translate [text] between Chinese and English.
+  /// Translate [text] between Chinese and English using the active profile.
   static Future<String?> translate(String text) async {
+    final profile = AiConfig.currentProfile;
+    if (!profile.enabled) return null;
     final hasChinese = RegExp(r'[\u4e00-\u9fff]').hasMatch(text);
     final sourceLang = hasChinese ? 'Chinese' : 'English';
     final targetLang = hasChinese ? 'English' : 'Chinese';
-
     final prompt = 'Translate the following $sourceLang text to $targetLang. '
         'Reply with ONLY the translated text, no explanations, no quotes.\n\n'
         '$text';
-    return _callAi(prompt, temperature: 0.1);
+    return _callAi(profile, prompt, temperature: 0.1);
   }
 
   /// Chat: generate a reply for a user message (used for "#" prefixed messages).
-  /// Returns the AI-generated reply text.
   static Future<String?> chat(String message) async {
+    final profile = AiConfig.currentProfile;
+    if (!profile.enabled) return null;
     final prompt = 'You are a helpful assistant. Reply concisely and '
         'naturally in the same language as the user message.\n\n'
         '$message';
-    return _callAi(prompt, temperature: 0.7);
+    return _callAi(profile, prompt, temperature: 0.7);
   }
 }

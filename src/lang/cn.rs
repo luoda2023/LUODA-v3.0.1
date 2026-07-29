@@ -986,5 +986,10 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Export failed", "\u5bfc\u51fa\u5931\u8d25"),
         ("Compressing and preparing to send...", "\u6b63\u5728\u538b\u7f29\u53d1\u9001\u8fc7\u7a0b\u4e2d\u002e\u002e\u002e"),
         ("Sent successfully to", "\u5df2\u53d1\u9001\u6210\u529f\u81f3"),
+        ("Active", "\u5f53\u524d"),
+        ("AI Models", "AI \u6a21\u578b"),
+        ("Profile name", "\u914d\u7f6e\u540d\u79f0"),
+        ("At least one profile is required", "\u81f3\u5c11\u9700\u8981\u4e00\u4e2a\u914d\u7f6e"),
+        ("Please fill endpoint and API key", "\u8bf7\u586b\u5199 API \u5730\u5740\u548c\u5bc6\u94a5"),
     ].iter().cloned().collect();
 }

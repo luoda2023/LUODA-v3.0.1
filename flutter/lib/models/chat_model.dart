@@ -839,7 +839,7 @@ class ChatModel with ChangeNotifier {
       final zipFile = File(zipPath);
       if (await zipFile.exists()) {
         if (isWindows) {
-          await Process.run('explorer', ['/select,', zipPath]);
+          await Process.run('explorer', ['/select,${zipPath}']);
         } else if (isMacOS) {
           await Process.run('open', ['-R', zipPath]);
         } else {

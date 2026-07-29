@@ -2421,6 +2421,11 @@ class ChatPage extends StatelessWidget implements PageShape {
                         onRemoteAssist: onRemoteAssist,
                         onPasteImage: onPasteImage,
                       ),
+                      if (AiConfig.current.profiles.isNotEmpty)
+                        _AiModelSelector(
+                          dark: dark,
+                          chatModel: chatModel,
+                        ),
                     ],
                   );
                 }),
@@ -2946,4 +2951,161 @@ class _ActionChip extends StatelessWidget {
   }
 }
 
+/// AI model selector badge — shows current model below the chat input.
+/// Tap to switch to another configured model.
+class _AiModelSelector extends StatefulWidget {
+  final bool dark;
+  final ChatModel chatModel;
 
+  const _AiModelSelector({
+    required this.dark,
+    required this.chatModel,
+  });
+
+  @override
+  State<_AiModelSelector> createState() => _AiModelSelectorState();
+}
+
+class _AiModelSelectorState extends State<_AiModelSelector> {
+  bool _updating = false;
+
+  ChatModel get chatModel => widget.chatModel;
+  bool get dark => widget.dark;
+
+  void _showModelPicker() {
+    final profiles = AiConfig.current.profiles;
+    if (profiles.length <= 1) return;
+
+    final activeIdx = AiConfig.current.activeProfileIndex;
+    final renderBox = context.findRenderObject() as RenderBox;
+    final position = renderBox.localToGlobal(Offset.zero);
+
+    showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        position.dx,
+        position.dy - profiles.length * 44.0 - 16,
+        position.dx + 240,
+        position.dy,
+      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      elevation: 4,
+      items: List.generate(profiles.length, (i) {
+        final p = profiles[i];
+        final isActive = i == activeIdx;
+        return PopupMenuItem<String>(
+          enabled: !isActive && !_updating,
+          height: 44,
+          child: Row(
+            children: [
+              Icon(
+                isActive ? Icons.check_circle : Icons.circle_outlined,
+                size: 18,
+                color: isActive ? kWeChatPrimaryColor : null,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      p.displayLabel,
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                    Text(
+                      p.model,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: dark ? Colors.white38 : Colors.black38,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (isActive)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: kWeChatPrimaryColor.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    translate('Active'),
+                    style: const TextStyle(
+                      fontSize: 10,
+                      color: kWeChatPrimaryColor,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          onTap: () async {
+            setState(() => _updating = true);
+            await AiConfig.setActiveProfile(i);
+            if (mounted) {
+              setState(() => _updating = false);
+            }
+          },
+        );
+      }),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final profiles = AiConfig.current.profiles;
+    if (profiles.isEmpty) return const SizedBox.shrink();
+
+    final active = AiConfig.currentProfile;
+    final multiple = profiles.length > 1;
+    final foreground = dark ? const Color(0xFF888B91) : const Color(0xFF888888);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+      child: GestureDetector(
+        onTap: multiple ? _showModelPicker : null,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.auto_awesome_rounded,
+              size: 13,
+              color: active.enabled
+                  ? kWeChatPrimaryColor
+                  : foreground.withOpacity(0.5),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              active.displayLabel,
+              style: TextStyle(
+                fontSize: 12,
+                color: foreground,
+                fontWeight: FontWeight.w400,
+              ),
+            ),
+            if (multiple) ...[
+              const SizedBox(width: 3),
+              Icon(
+                Icons.arrow_drop_down,
+                size: 16,
+                color: foreground,
+              ),
+            ],
+            if (_updating) ...[
+              const SizedBox(width: 6),
+              SizedBox(
+                width: 12,
+                height: 12,
+                child: CircularProgressIndicator(
+                  strokeWidth: 1.5,
+                  color: foreground,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
