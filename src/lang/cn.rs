@@ -958,7 +958,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Translating...", "\u{6b63}\u{5728}\u{7ffb}\u{8bd1}\u{002e}\u{002e}\u{002e}"),
         ("Translation failed", "\u{7ffb}\u{8bd1}\u{5931}\u{8d25}"),
         ("No text to translate", "\u{6ca1}\u{6709}\u{53ef}\u{7ffb}\u{8bd1}\u{7684}\u{6587}\u{672c}"),
-        ("AI Translation Settings", "\u{0041}\u{0049}\u{0020}\u{7ffb}\u{8bd1}\u{8bbe}\u{7f6e}"),
+        ("AI Settings", "\u{0041}\u{0049}\u{0020}\u{8bbe}\u{7f6e}"),
         ("Enable AI Translation", "\u{542f}\u{7528}\u{0020}\u{0041}\u{0049}\u{0020}\u{7ffb}\u{8bd1}"),
         ("Translate messages via AI when right-clicking", "\u{53f3}\u{952e}\u{6d88}\u{606f}\u{65f6}\u{901a}\u{8fc7}\u{0020}\u{0041}\u{0049}\u{0020}\u{7ffb}\u{8bd1}"),
         ("API Endpoint", "\u{0041}\u{0050}\u{0049}\u{0020}\u{5730}\u{5740}"),

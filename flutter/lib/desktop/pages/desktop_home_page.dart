@@ -3584,7 +3584,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                               ),
                             ),
                             icon: const Icon(Icons.auto_awesome_outlined, size: 19),
-                            label: Text(translate('AI Translation Settings')),
+                            label: Text(translate('AI Settings')),
                           ),
                         ),
                         const SizedBox(height: 14),

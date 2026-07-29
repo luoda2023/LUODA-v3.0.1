@@ -98,7 +98,7 @@ class _AiConfigPageState extends State<AiConfigPage> {
         backgroundColor: dark ? const Color(0xFF25272C) : Colors.white,
         foregroundColor: dark ? Colors.white : Colors.black87,
         elevation: 0,
-        title: Text(translate('AI Translation Settings'),
+        title: Text(translate('AI Settings'),
             style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
         actions: [
           TextButton(

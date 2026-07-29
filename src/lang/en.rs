@@ -354,7 +354,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Translating...", "Translating..."),
         ("Translation failed", "Translation failed"),
         ("No text to translate", "No text to translate"),
-        ("AI Translation Settings", "AI Translation Settings"),
+        ("AI Settings", "AI Settings"),
         ("Enable AI Translation", "Enable AI Translation"),
         ("Translate messages via AI when right-clicking",
             "Translate messages via AI when right-clicking"),
