@@ -189,6 +189,13 @@ class ChatPage extends StatelessWidget implements PageShape {
       addItem('translate', Icons.translate_rounded, translate('Translate'));
     }
 
+    // Send to email — only if email is configured
+    if (AiConfig.current.email.isNotEmpty &&
+        RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(AiConfig.current.email)) {
+      items.add(const PopupMenuDivider(height: 1));
+      addItem('send-email', Icons.email_outlined, translate('Send to email'));
+    }
+
     if (isOwnMessage) {
       items.add(const PopupMenuDivider(height: 1));
       if (properties?['ldesk_kind'] == 'text') {
@@ -450,6 +457,35 @@ class ChatPage extends StatelessWidget implements PageShape {
         if (context.mounted) {
           ScaffoldMessenger.maybeOf(context)?.showSnackBar(
             SnackBar(content: Text(translate('Translation failed'))),
+          );
+        }
+      }
+      return;
+    }
+    if (action == 'send-email') {
+      final text = message.text ?? '';
+      final fileName = (message.customProperties?['ldesk_file_name'] ?? '').toString();
+      final content = fileName.isNotEmpty ? '$fileName\n\n$text' : text;
+      if (content.trim().isEmpty) {
+        if (context.mounted) {
+          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+            SnackBar(content: Text(translate('No content to send'))),
+          );
+        }
+        return;
+      }
+      // Use mailto: to open system email client
+      final email = AiConfig.current.email;
+      final subject = Uri.encodeComponent(
+          '${translate("Chat message")} - ${message.user.firstName ?? ''}');
+      final body = Uri.encodeComponent(content);
+      final uri = Uri.parse('mailto:$email?subject=$subject&body=$body');
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri);
+      } else {
+        if (context.mounted) {
+          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+            SnackBar(content: Text(translate('Unable to open email client'))),
           );
         }
       }

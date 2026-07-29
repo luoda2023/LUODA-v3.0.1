@@ -971,5 +971,11 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Configuration saved", "\u{914d}\u{7f6e}\u{5df2}\u{4fdd}\u{5b58}"),
         ("AI auto-reply", "\u7531\u0041\u0049\u81ea\u52a8\u751f\u6210\u56de\u590d"),
         ("AI thinking", "\u0041\u0049\u0020\u601d\u8003\u4e2d"),
+        ("Bind Email", "\u7ed1\u5b9a\u90ae\u7bb1"),
+        ("Send chat content to this email", "\u5c06\u804a\u5929\u5185\u5bb9\u53d1\u9001\u5230\u6b64\u90ae\u7bb1"),
+        ("Send to email", "\u53d1\u9001\u5230\u90ae\u7bb1"),
+        ("No content to send", "\u6ca1\u6709\u53ef\u53d1\u9001\u7684\u5185\u5bb9"),
+        ("Unable to open email client", "\u65e0\u6cd5\u6253\u5f00\u90ae\u4ef6\u5ba2\u6237\u7aef"),
+        ("Chat message", "\u804a\u5929\u6d88\u606f"),
     ].iter().cloned().collect();
 }

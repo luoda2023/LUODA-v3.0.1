@@ -16,6 +16,7 @@ class _AiConfigPageState extends State<AiConfigPage> {
   late TextEditingController _endpointCtrl;
   late TextEditingController _apiKeyCtrl;
   late TextEditingController _modelCtrl;
+  late TextEditingController _emailCtrl;
   bool _enabled = false;
   bool _saving = false;
   bool _testing = false;
@@ -28,6 +29,7 @@ class _AiConfigPageState extends State<AiConfigPage> {
     _endpointCtrl = TextEditingController(text: cfg.endpoint);
     _apiKeyCtrl = TextEditingController(text: cfg.apiKey);
     _modelCtrl = TextEditingController(text: cfg.model);
+    _emailCtrl = TextEditingController(text: cfg.email);
     _enabled = cfg.enabled;
   }
 
@@ -36,6 +38,7 @@ class _AiConfigPageState extends State<AiConfigPage> {
     _endpointCtrl.dispose();
     _apiKeyCtrl.dispose();
     _modelCtrl.dispose();
+    _emailCtrl.dispose();
     super.dispose();
   }
 
@@ -48,6 +51,7 @@ class _AiConfigPageState extends State<AiConfigPage> {
           ? _modelCtrl.text.trim()
           : 'gpt-4o-mini',
       enabled: _enabled,
+      email: _emailCtrl.text.trim(),
     ));
     setState(() => _saving = false);
     if (mounted) {
@@ -185,6 +189,28 @@ class _AiConfigPageState extends State<AiConfigPage> {
               controller: _modelCtrl,
               decoration: InputDecoration(
                 hintText: 'gpt-4o-mini',
+                filled: true,
+                fillColor: dark ? const Color(0xFF1C1E23) : const Color(0xFFF5F5F5),
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide.none),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                isDense: true,
+              ),
+              style: const TextStyle(fontSize: 13),
+            ),
+          ]),
+          const SizedBox(height: 16),
+
+          // Email binding
+          _buildSection(dark, translate('Bind Email'),
+              translate('Send chat content to this email'), [
+            TextField(
+              controller: _emailCtrl,
+              keyboardType: TextInputType.emailAddress,
+              decoration: InputDecoration(
+                hintText: 'you@example.com',
                 filled: true,
                 fillColor: dark ? const Color(0xFF1C1E23) : const Color(0xFFF5F5F5),
                 border: OutlineInputBorder(

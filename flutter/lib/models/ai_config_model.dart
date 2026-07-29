@@ -13,12 +13,14 @@ class AiConfig {
   final String apiKey;
   final String model;
   final bool enabled;
+  final String email;
 
   const AiConfig({
     this.endpoint = '',
     this.apiKey = '',
     this.model = 'gpt-4o-mini',
     this.enabled = false,
+    this.email = '',
   });
 
   static const _storageKey = 'luoda_ai_config';
@@ -37,6 +39,7 @@ class AiConfig {
         apiKey: (json['api_key'] ?? '').toString(),
         model: (json['model'] ?? 'gpt-4o-mini').toString(),
         enabled: json['enabled'] == true,
+        email: (json['email'] ?? '').toString(),
       );
     } catch (_) {
       // keep defaults
@@ -52,6 +55,7 @@ class AiConfig {
         'api_key': config.apiKey,
         'model': config.model,
         'enabled': config.enabled,
+        'email': config.email,
       }),
     );
   }
@@ -61,6 +65,7 @@ class AiConfig {
         'api_key': apiKey,
         'model': model,
         'enabled': enabled,
+        'email': email,
       };
 }
 

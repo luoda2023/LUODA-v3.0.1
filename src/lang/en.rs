@@ -368,5 +368,11 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Configuration saved", "Configuration saved"),
         ("AI auto-reply", "AI auto-reply"),
         ("AI thinking", "AI thinking"),
+        ("Bind Email", "Bind Email"),
+        ("Send chat content to this email", "Send chat content to this email"),
+        ("Send to email", "Send to email"),
+        ("No content to send", "No content to send"),
+        ("Unable to open email client", "Unable to open email client"),
+        ("Chat message", "Chat message"),
     ].iter().cloned().collect();
 }
