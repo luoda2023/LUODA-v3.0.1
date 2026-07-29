@@ -16,6 +16,7 @@ import 'package:luoda_flutter/common/direct_viewer_invite.dart';
 import '../wechat_ui_tokens.dart';
 import 'file_viewer.dart';
 import 'voice_message_controls.dart';
+import '../../models/ai_config_model.dart';
 
 const _reactionEmojis = [
   '👍', '❤️', '😂', '😮', '😢', '🙏',
@@ -179,6 +180,14 @@ class ChatPage extends StatelessWidget implements PageShape {
 
     addItem('select', Icons.checklist_rounded, translate('Select'));
     addItem('info', Icons.info_outline_rounded, translate('Info'));
+
+    // AI Translate — only if configured and message is text
+    if (AiConfig.current.enabled &&
+        (message.text?.isNotEmpty == true ||
+            (properties?['ldesk_kind'] == 'text'))) {
+      items.add(const PopupMenuDivider(height: 1));
+      addItem('translate', Icons.translate_rounded, translate('Translate'));
+    }
 
     if (isOwnMessage) {
       items.add(const PopupMenuDivider(height: 1));
@@ -380,6 +389,70 @@ class ChatPage extends StatelessWidget implements PageShape {
     }
     if (action == 'info') {
       _showMessageInfo(context, message);
+      return;
+    }
+    if (action == 'translate') {
+      final text = message.text ?? '';
+      if (text.isEmpty) {
+        if (context.mounted) {
+          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+            SnackBar(content: Text(translate('No text to translate'))),
+          );
+        }
+        return;
+      }
+      // Show a loading indicator in a snackbar
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const SizedBox(
+                width: 18, height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+              ),
+              const SizedBox(width: 12),
+              Text(translate('Translating...')),
+            ],
+          ),
+          duration: const Duration(seconds: 30),
+        ),
+      );
+      final translated = await AiTranslateService.translate(text);
+      if (!context.mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
+      if (translated != null) {
+        // Show translated text in a dialog
+        await showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            titlePadding: const EdgeInsets.fromLTRB(24, 22, 24, 0),
+            contentPadding: const EdgeInsets.fromLTRB(24, 14, 24, 6),
+            actionsPadding: const EdgeInsets.fromLTRB(16, 6, 16, 14),
+            title: Text(translate('Translation'),
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+            content: SelectableText(translated,
+                style: const TextStyle(fontSize: 14, height: 1.5)),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                style: TextButton.styleFrom(
+                  minimumSize: const Size(80, 36),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                child: Text(translate('Close'),
+                    style: const TextStyle(fontSize: 13)),
+              ),
+            ],
+          ),
+        );
+      } else {
+        if (context.mounted) {
+          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+            SnackBar(content: Text(translate('Translation failed'))),
+          );
+        }
+      }
       return;
     }
     if (action == 'forward') {

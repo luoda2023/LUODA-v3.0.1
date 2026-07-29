@@ -8,6 +8,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:luoda_flutter/common.dart';
 import 'package:luoda_flutter/common/widgets/animated_rotation_widget.dart';
+import 'package:luoda_flutter/common/widgets/ai_config_page.dart';
+import 'package:luoda_flutter/models/ai_config_model.dart';
 import 'package:luoda_flutter/common/widgets/chat_page.dart';
 import 'package:luoda_flutter/common/widgets/join_viewer_page.dart';
 import 'package:luoda_flutter/common/widgets/custom_password.dart';
@@ -3569,6 +3571,20 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                             ),
                             icon: const Icon(Icons.security_outlined, size: 19),
                             label: Text(translate('Security settings')),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 42,
+                          child: OutlinedButton.icon(
+                            onPressed: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => const AiConfigPage(),
+                              ),
+                            ),
+                            icon: const Icon(Icons.auto_awesome_outlined, size: 19),
+                            label: Text(translate('AI Translation Settings')),
                           ),
                         ),
                         const SizedBox(height: 14),

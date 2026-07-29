@@ -19,6 +19,7 @@ import 'package:luoda_flutter/desktop/screen/desktop_terminal_screen.dart';
 import 'package:luoda_flutter/desktop/pages/file_preview_page.dart';
 import 'package:luoda_flutter/desktop/widgets/refresh_wrapper.dart';
 import 'package:luoda_flutter/models/state_model.dart';
+import 'package:luoda_flutter/models/ai_config_model.dart';
 import 'package:luoda_flutter/utils/multi_window_manager.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:get/get.dart';
@@ -487,6 +488,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     };
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) => _updateOrientation());
+    AiConfig.load();
   }
 
   @override
