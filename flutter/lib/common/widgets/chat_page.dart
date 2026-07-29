@@ -2382,7 +2382,7 @@ class ChatPage extends StatelessWidget implements PageShape {
   }
 }
 
-class _DesktopChatComposer extends StatelessWidget {
+class _DesktopChatComposer extends StatefulWidget {
   const _DesktopChatComposer({
     required this.chatModel,
     required this.enabled,
@@ -2391,6 +2391,126 @@ class _DesktopChatComposer extends StatelessWidget {
     this.onRemoteAssist,
     this.onPasteImage,
   });
+
+  final ChatModel chatModel;
+  final bool enabled;
+  final bool dark;
+  final VoidCallback? onAttachFile;
+  final VoidCallback? onRemoteAssist;
+  final VoidCallback? onPasteImage;
+
+  @override
+  State<_DesktopChatComposer> createState() => _DesktopChatComposerState();
+}
+
+class _DesktopChatComposerState extends State<_DesktopChatComposer> {
+  bool _atOverlayVisible = false;
+  List<MeetingMember> _atCandidates = [];
+  int _atCursorPos = -1;
+  final LayerLink _layerLink = LayerLink();
+
+  ChatModel get chatModel => widget.chatModel;
+  bool get enabled => widget.enabled;
+  bool get dark => widget.dark;
+  VoidCallback? get onAttachFile => widget.onAttachFile;
+  VoidCallback? get onRemoteAssist => widget.onRemoteAssist;
+  VoidCallback? get onPasteImage => widget.onPasteImage;
+
+  @override
+  void initState() {
+    super.initState();
+    chatModel.textController.addListener(_onTextChanged);
+  }
+
+  @override
+  void dispose() {
+    chatModel.textController.removeListener(_onTextChanged);
+    super.dispose();
+  }
+
+  void _onTextChanged() {
+    final text = chatModel.textController.text;
+    final sel = chatModel.textController.selection;
+    if (!sel.isValid || sel.baseOffset != sel.extentOffset) {
+      setState(() => _atOverlayVisible = false);
+      return;
+    }
+    final cursor = sel.baseOffset;
+    if (cursor <= 0 || text.isEmpty) {
+      setState(() => _atOverlayVisible = false);
+      return;
+    }
+    // Check if we just typed '@' or are inside an '@...' sequence
+    final charBefore = text[cursor - 1];
+    if (charBefore == '@') {
+      _showAtPicker();
+      return;
+    }
+    if (_atOverlayVisible) {
+      // Check if we are still inside an '@...' sequence
+      final before = text.substring(0, cursor);
+      final atIdx = before.lastIndexOf('@');
+      if (atIdx >= 0 && atIdx < cursor) {
+        final afterAt = before.substring(atIdx + 1);
+        // Allow alphanumeric, Chinese chars, no spaces
+        if (afterAt.isNotEmpty && !afterAt.contains(' ')) {
+          _filterCandidates(afterAt);
+          return;
+        }
+      }
+      setState(() => _atOverlayVisible = false);
+    }
+  }
+
+  void _showAtPicker() {
+    final peerId = chatModel.currentKey.peerId;
+    if (!peerId.startsWith('meeting:')) return; // not a group chat
+    final meetingId = peerId.substring('meeting:'.length);
+    final group = MeetingGroupStore.find(meetingId);
+    if (group == null || group.members == null || group.members!.isEmpty) {
+      return;
+    }
+    setState(() {
+      _atCandidates = group.members!
+          .where((m) => m.peerId != chatModel.me.id)
+          .toList();
+      _atOverlayVisible = true;
+      _atCursorPos = chatModel.textController.selection.baseOffset;
+    });
+  }
+
+  void _filterCandidates(String query) {
+    final peerId = chatModel.currentKey.peerId;
+    if (!peerId.startsWith('meeting:')) return;
+    final meetingId = peerId.substring('meeting:'.length);
+    final group = MeetingGroupStore.find(meetingId);
+    if (group == null || group.members == null) return;
+    final lower = query.toLowerCase();
+    setState(() {
+      _atCandidates = group.members!
+          .where((m) =>
+              m.peerId != chatModel.me.id &&
+              (m.displayName.toLowerCase().contains(lower) ||
+                  m.peerId.toLowerCase().contains(lower)))
+          .toList();
+    });
+  }
+
+  void _selectMember(MeetingMember member) {
+    final text = chatModel.textController.text;
+    final sel = chatModel.textController.selection;
+    final cursor = sel.baseOffset;
+    // Find the start of the @ sequence
+    final before = text.substring(0, cursor);
+    final atIdx = before.lastIndexOf('@');
+    if (atIdx < 0) return;
+    final newText = '${text.substring(0, atIdx)}@${member.displayName} ${text.substring(cursor)}';
+    chatModel.textController.text = newText;
+    chatModel.textController.selection = TextSelection.collapsed(
+      offset: atIdx + member.displayName.length + 2, // @Name<space>
+    );
+    setState(() => _atOverlayVisible = false);
+  }
 
   final ChatModel chatModel;
   final bool enabled;
@@ -2412,7 +2532,7 @@ class _DesktopChatComposer extends StatelessWidget {
     final border = dark ? const Color(0xFF3A3D43) : const Color(0xFFE2E2E2);
     final foreground = dark ? const Color(0xFFF2F2F2) : const Color(0xFF222222);
     final muted = dark ? const Color(0xFF999CA2) : const Color(0xFF777777);
-    return Container(
+    final composer = Container(
       height: 118,
       margin: const EdgeInsets.fromLTRB(8, 2, 8, 8),
       decoration: BoxDecoration(
@@ -2524,6 +2644,69 @@ class _DesktopChatComposer extends StatelessWidget {
           ),
         ],
       ),
+    );
+    if (!_atOverlayVisible) return composer;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        composer,
+        if (_atOverlayVisible && _atCandidates.isNotEmpty)
+          Positioned(
+            bottom: composer.constrainHeight() + 4,
+            left: 16,
+            right: 16,
+            child: Material(
+              elevation: 6,
+              borderRadius: BorderRadius.circular(10),
+              color: dark ? const Color(0xFF2B2D32) : Colors.white,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 200),
+                child: ListView.separated(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  shrinkWrap: true,
+                  itemCount: _atCandidates.length,
+                  separatorBuilder: (_, __) => Divider(
+                    height: 1,
+                    indent: 52,
+                    color: dark ? const Color(0xFF3A3D43) : const Color(0xFFEEEEEE),
+                  ),
+                  itemBuilder: (_, i) {
+                    final m = _atCandidates[i];
+                    return InkWell(
+                      onTap: () => _selectMember(m),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 10),
+                        child: Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 16,
+                              backgroundColor: kWeChatPrimaryColor,
+                              child: Text(
+                                m.displayName.isNotEmpty
+                                    ? m.displayName[0].toUpperCase()
+                                    : '?',
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 13),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Text(
+                              m.displayName,
+                              style: const TextStyle(fontSize: 14),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
