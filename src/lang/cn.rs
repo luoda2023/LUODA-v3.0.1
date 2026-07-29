@@ -984,5 +984,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("File", "\u6587\u4ef6"),
         ("Exported", "\u5df2\u5bfc\u51fa"),
         ("Export failed", "\u5bfc\u51fa\u5931\u8d25"),
+        ("Compressing and preparing to send...", "\u6b63\u5728\u538b\u7f29\u53d1\u9001\u8fc7\u7a0b\u4e2d\u002e\u002e\u002e"),
+        ("Sent successfully to", "\u5df2\u53d1\u9001\u6210\u529f\u81f3"),
     ].iter().cloned().collect();
 }

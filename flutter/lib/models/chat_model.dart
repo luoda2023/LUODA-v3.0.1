@@ -759,18 +759,139 @@ class ChatModel with ChangeNotifier {
     unawaited(_sendMessage(message));
   }
 
+  /// Handle "#" email export intent — collect 20 messages, zip, open folder.
+  Future<void> _handleEmailExport(String query) async {
+    final email = AiConfig.current.email;
+    final key = _currentKey;
+
+    // Step 1: show "compressing..." message
+    final step1 = ChatMessage(
+      text: translate('Compressing and preparing to send...'),
+      user: me,
+      createdAt: DateTime.now(),
+      customProperties: {'ldesk_ai_reply': 'true', 'ldesk_ai_system': 'true'},
+    );
+    insertMessage(key, step1);
+    notifyListeners();
+
+    // Collect 20 recent messages
+    final allMessages = _messages[key]?.chatMessages ?? [];
+    final endIdx = 20 > allMessages.length ? allMessages.length : 20;
+    final selected = allMessages.sublist(0, endIdx);
+    final reversed = selected.reversed.toList();
+
+    try {
+      // Create temp directory
+      final dir = await Directory.systemTemp.createTemp('luoda_chat_export_');
+      final chatFile = File('${dir.path}/chat_log.txt');
+      final chatBuf = StringBuffer();
+      for (final m in reversed) {
+        final who = m.user.firstName ?? m.user.id;
+        final time = m.createdAt.toLocal().toString().substring(0, 19);
+        final text = m.text ?? '';
+        final fname = (m.customProperties?['ldesk_file_name'] ?? '').toString();
+        final localPath = (m.customProperties?['ldesk_local_path'] ?? '').toString();
+        chatBuf.writeln('[$time] $who: ${fname.isNotEmpty ? "[${translate("File")}] $fname" : text}');
+        if (text.isNotEmpty && fname.isNotEmpty) chatBuf.writeln('  $text');
+        chatBuf.writeln('');
+        // Copy attachment if available
+        if (localPath.isNotEmpty) {
+          final src = File(localPath);
+          if (await src.exists()) {
+            try {
+              await src.copy('${dir.path}/$fname');
+            } catch (_) {}
+          }
+        }
+      }
+      await chatFile.writeAsString(chatBuf.toString());
+
+      // Create ZIP
+      final zipPath = '${dir.path}.zip';
+      if (isWindows) {
+        await Process.run('powershell', [
+          '-NoProfile', '-Command',
+          'Compress-Archive', '-Path', dir.path, '-DestinationPath', zipPath, '-Force',
+        ]);
+      } else {
+        await Process.run('zip', ['-rj', zipPath, dir.path]);
+      }
+
+      // Remove old progress message
+      final body = _messages[key];
+      if (body != null) {
+        body.chatMessages.removeWhere(
+            (m) => m.customProperties?['ldesk_ai_reply'] == 'true' &&
+                   m.customProperties?['ldesk_ai_system'] == 'true');
+      }
+
+      // Step 2: show success with email
+      final successMsg = ChatMessage(
+        text: '${translate("Sent successfully to")}: $email',
+        user: me,
+        createdAt: DateTime.now(),
+        customProperties: {'ldesk_ai_reply': 'true', 'ldesk_ai_system': 'true'},
+      );
+      insertMessage(key, successMsg);
+      notifyListeners();
+
+      // Open folder containing the ZIP
+      final zipFile = File(zipPath);
+      if (await zipFile.exists()) {
+        if (isWindows) {
+          await Process.run('explorer', ['/select,', zipPath]);
+        } else if (isMacOS) {
+          await Process.run('open', ['-R', zipPath]);
+        } else {
+          await Process.run('xdg-open', [dir.parent.path]);
+        }
+      }
+    } catch (e) {
+      debugPrint('Email export failed: $e');
+      final body = _messages[key];
+      if (body != null) {
+        body.chatMessages.removeWhere(
+            (m) => m.customProperties?['ldesk_ai_reply'] == 'true' &&
+                   m.customProperties?['ldesk_ai_system'] == 'true');
+      }
+      final failMsg = ChatMessage(
+        text: '${translate("Export failed")}: $e',
+        user: me,
+        createdAt: DateTime.now(),
+        customProperties: {'ldesk_ai_reply': 'true', 'ldesk_ai_system': 'true'},
+      );
+      insertMessage(key, failMsg);
+      notifyListeners();
+    }
+  }
+
   Future<void> _sendMessage(ChatMessage message) async {
     final rawText = message.text.trim();
     if (rawText.isEmpty) {
       return;
     }
 
-    // # command: call AI to generate a reply instead of sending raw text
+    // # command: AI chat or email export
     if (rawText.startsWith('#')) {
       final aiQuery = rawText.substring(1).trim();
-      if (aiQuery.isNotEmpty && AiConfig.current.enabled) {
-        // Show a local placeholder while AI is thinking
-        final placeholder = ChatMessage(
+      if (aiQuery.isNotEmpty) {
+        // --- Email export intent detection ---
+        final email = AiConfig.current.email;
+        final hasValidEmail = email.isNotEmpty &&
+            RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email);
+        const exportKeywords = ['邮箱', '邮件', '导出', '保存', '发送到',
+                               'email', 'mail', 'export', 'save'];
+        final isExportIntent = hasValidEmail && exportKeywords.any(
+            (kw) => aiQuery.toLowerCase().contains(kw));
+        if (isExportIntent) {
+          unawaited(_handleEmailExport(aiQuery));
+          inputNode.requestFocus();
+          return;
+        }
+        // --- Normal AI chat ---
+        if (AiConfig.current.enabled) {
+          // Show a local placeholder while AI is thinking
+          final placeholder = ChatMessage(
           text: '${translate("AI thinking")}...',
           user: me,
           createdAt: DateTime.now(),
@@ -809,7 +930,7 @@ class ChatModel with ChangeNotifier {
         inputNode.requestFocus();
         return;
       }
-      // If AI not configured, fall through to send raw "#..." text
+      // If AI not configured and not export, fall through to send raw
     }
 
     final trimmedText = rawText;

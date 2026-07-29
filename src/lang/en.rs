@@ -381,5 +381,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("File", "File"),
         ("Exported", "Exported"),
         ("Export failed", "Export failed"),
+        ("Compressing and preparing to send...", "Compressing and preparing to send..."),
+        ("Sent successfully to", "Sent successfully to"),
     ].iter().cloned().collect();
 }
