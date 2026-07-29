@@ -1091,6 +1091,13 @@ class ChatPage extends StatelessWidget implements PageShape {
               return '';
             }
 
+            /// Connection source label: "via IP" for IP-originated messages.
+            String _connSourceLabel(ChatMessage message) {
+              final source = message.customProperties?['ldesk_conn_source']?.toString();
+              if (source == 'ip') return 'via IP';
+              return '';
+            }
+
             Widget deliveryWidget(ChatMessage message) {
               final d = (message.customProperties?['ldesk_delivery'] ?? '').toString();
               if (d.isEmpty) return const SizedBox.shrink();
@@ -1790,6 +1797,16 @@ class ChatPage extends StatelessWidget implements PageShape {
                                       color: kWeChatPrimaryColor,
                                       fontWeight: FontWeight.w500,
                                     )),
+                              // Connection source badge (IP/ID)
+                              if (_connSourceLabel(message).isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(left: 4),
+                                  child: Text(_connSourceLabel(message),
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: dark ? const Color(0xFF777A80) : const Color(0xFFAAAAAA),
+                                      )),
+                                ),
                             ],
                           ),
                         ),

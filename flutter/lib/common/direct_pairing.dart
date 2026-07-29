@@ -120,6 +120,17 @@ class DirectPairingStore {
 
   static DirectPairing? find(String peerId) => load()[peerId.trim()];
 
+  /// Find a pairing whose LAN or public endpoint contains [ipOrEndpoint].
+  /// Used to merge IP-originated conversations into the paired device's chat.
+  static DirectPairing? findByEndpoint(String ipOrEndpoint) {
+    final target = ipOrEndpoint.trim().toLowerCase();
+    return load().values.firstWhereOrNull(
+      (p) =>
+          p.lanEndpoint.toLowerCase().contains(target) ||
+          p.publicEndpoint.toLowerCase().contains(target),
+    );
+  }
+
   static DirectPairing? latest() {
     final values = load().values.toList()
       ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));

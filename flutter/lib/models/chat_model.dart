@@ -548,6 +548,15 @@ class ChatModel with ChangeNotifier {
   }
 
   changeCurrentKey(MessageKey key) {
+    // Auto-map IP address to paired device ID, so IP and ID sessions
+    // share the same conversation.
+    if (key.peerId.isNotEmpty &&
+        RegExp(r'^\d+\.\d+\.\d+\.\d+').hasMatch(key.peerId)) {
+      final pairing = DirectPairingStore.findByEndpoint(key.peerId);
+      if (pairing != null) {
+        key = MessageKey(pairing.peerId, key.connId);
+      }
+    }
     // Save draft for current conversation before switching
     if (_currentKey.peerId.isNotEmpty && textController.text.isNotEmpty) {
       _drafts[_currentKey.peerId] = textController.text;
@@ -616,6 +625,16 @@ class ChatModel with ChangeNotifier {
     }
     if (peerId == null || peerId == me.id) {
       return; // self-message: already displayed by send()
+    }
+
+    // Auto-map IP address to paired device ID so IP and ID sessions
+    // share the same conversation.
+    final wasIpSource = RegExp(r'^\d+\.\d+\.\d+\.\d+').hasMatch(peerId);
+    if (wasIpSource) {
+      final pairing = DirectPairingStore.findByEndpoint(peerId);
+      if (pairing != null) {
+        peerId = pairing.peerId;
+      }
     }
     _touchChatActivity(peerId);
 
@@ -691,7 +710,8 @@ class ChatModel with ChangeNotifier {
     }
 
     if (record.disposition == DirectChatDisposition.destroyed) {
-      insertMessage(messagekey, _toChatMessage(record, chatUser));
+      insertMessage(messagekey,
+          _taggedChatMessage(record, chatUser, wasIpSource: wasIpSource));
       notifyListeners();
       return;
     }
@@ -746,7 +766,8 @@ class ChatModel with ChangeNotifier {
         }
       }
     }
-    insertMessage(messagekey, _toChatMessage(record, chatUser));
+    insertMessage(messagekey,
+        _taggedChatMessage(record, chatUser, wasIpSource: wasIpSource));
     _scheduleSelfDestruct(messagekey, record, chatUser);
     if (id == clientModeID || _currentKey.peerId.isEmpty) {
       // client or invalid
@@ -1823,6 +1844,17 @@ class ChatModel with ChangeNotifier {
           'ldesk_edited_at': record.editedAt!.toUtc().toIso8601String(),
       },
     );
+  }
+
+  /// Same as _toChatMessage but tags the message with connection source info.
+  ChatMessage _taggedChatMessage(DirectChatRecord record, ChatUser user,
+      {bool wasIpSource = false}) {
+    final msg = _toChatMessage(record, user);
+    if (wasIpSource) {
+      msg.customProperties ??= <String, dynamic>{};
+      msg.customProperties!['ldesk_conn_source'] = 'ip';
+    }
+    return msg;
   }
 
   insertMessage(MessageKey key, ChatMessage message) {
