@@ -296,8 +296,21 @@ class AiService {
   static Future<String?> chat(String message) async {
     final profile = AiConfig.currentProfile;
     if (!profile.enabled) return null;
-    final prompt = 'You are a helpful assistant. Reply concisely and '
-        'naturally in the same language as the user message.\n\n'
+    final prompt = 'You are a helpful assistant integrated into a chat app. '
+        'Reply concisely and naturally in the same language as the user message.\n'
+        'You MAY use the following formatting syntax in your reply when appropriate:\n'
+        '- **bold** for emphasis\n'
+        '- *italic* for subtle emphasis\n'
+        '- `code` for code snippets or commands\n'
+        '- ~~strikethrough~~ \n'
+        '- # Heading at start of line for titles\n'
+        '- ## Subheading for sections\n'
+        '- [color=red]text[/color] for colored text (red, green, blue, orange, purple, gray)\n'
+        '- [size=20]text[/size] to change font size\n'
+        '- | col1 | col2 |\\n| --- | --- |\\n| val1 | val2 | for tables\n'
+        '- > quote for blockquotes\n'
+        '- --- for horizontal rules\n\n'
+        'Format naturally — only use formatting when it improves readability.\n\n'
         '$message';
     return _callAi(profile, prompt, temperature: 0.7);
   }

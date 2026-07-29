@@ -34,69 +34,139 @@ class RichChatText extends StatelessWidget {
   Widget build(BuildContext context) {
     if (text.isEmpty) return const SizedBox.shrink();
 
-    // First check for tables (block-level)
-    final tableSections = _extractTables(text);
-    if (tableSections.isNotEmpty) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: tableSections
-            .map((section) => section is TableData
-                ? _buildTable(section)
-                : _buildInline(section as String, foreground, defaultSize))
-            .toList(),
-      );
-    }
+    // Split text into block-level elements
+    final blocks = _extractBlocks(text);
+    if (blocks.isEmpty) return const SizedBox.shrink();
 
-    // No tables, just inline text
-    return _buildInline(text, foreground, defaultSize);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: blocks.map((block) {
+        if (block is TableData) return _buildTable(block);
+        if (block is _HeadingData) return _buildHeading(block);
+        if (block is _QuoteData) return _buildQuote(block);
+        if (block is _ListData) return _buildList(block);
+        if (block is _HorizontalRule) return _buildHR();
+        // String → inline rendered text
+        return _buildInline(block as String, foreground, defaultSize);
+      }).toList(),
+    );
   }
 
   // ------------------------------------------------------------------
-  // Table extraction
+  // Block extraction: tables, headings, quotes, HR, lists
   // ------------------------------------------------------------------
-  static List<Object> _extractTables(String text) {
-    // Pattern: lines starting/ending with |
+  static List<Object> _extractBlocks(String text) {
     final parts = <Object>[];
     final lines = text.split('\n');
     int i = 0;
+
+    // Accumulator for consecutive list items
+    List<String>? pendingList;
+
+    void flushList() {
+      if (pendingList != null && pendingList!.isNotEmpty) {
+        parts.add(_ListData(pendingList!));
+        pendingList = null;
+      }
+    }
+
     while (i < lines.length) {
-      final trimmed = lines[i].trim();
+      final raw = lines[i];
+      final trimmed = raw.trim();
+
+      // ---- Table ----
       if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
-        // Check if next line is a separator row
-        final headerRow = _parseTableRow(trimmed);
-        if (headerRow.isEmpty) {
-          parts.add(lines[i]);
-          i++;
+        flushList();
+        final result = _tryExtractTable(lines, i);
+        if (result != null) {
+          parts.add(result.item1);
+          i += result.item2;
           continue;
         }
-        if (i + 1 < lines.length) {
-          final sepLine = lines[i + 1].trim();
-          final sepCells = _parseTableRow(sepLine);
-          if (sepCells.length == headerRow.length &&
-              sepCells.every((c) => c.startsWith('---') || c.startsWith(':'))) {
-            // This is a table
-            final rows = <List<String>>[headerRow];
-            i += 2;
-            while (i < lines.length) {
-              final rowLine = lines[i].trim();
-              if (!rowLine.startsWith('|') || !rowLine.endsWith('|')) break;
-              final rowCells = _parseTableRow(rowLine);
-              if (rowCells.isEmpty) break;
-              // Pad or trim to match header count
-              final padded = List<String>.from(rowCells);
-              while (padded.length < headerRow.length) padded.add('');
-              rows.add(padded);
-              i++;
-            }
-            parts.add(TableData(headerRow, rows));
-            continue;
-          }
-        }
+        parts.add(raw);
+        i++;
+        continue;
       }
-      parts.add(lines[i]);
+
+      // ---- Heading # or ## ----
+      if (trimmed.startsWith('## ') && trimmed.length > 3) {
+        flushList();
+        parts.add(_HeadingData(trimmed.substring(3).trim(), 2));
+        i++;
+        continue;
+      }
+      if (trimmed.startsWith('# ') && trimmed.length > 2) {
+        flushList();
+        parts.add(_HeadingData(trimmed.substring(2).trim(), 1));
+        i++;
+        continue;
+      }
+
+      // ---- Horizontal rule --- (at least 3 dashes, only dashes)
+      if (RegExp(r'^-{3,}$').hasMatch(trimmed)) {
+        flushList();
+        parts.add(_HorizontalRule());
+        i++;
+        continue;
+      }
+
+      // ---- Blockquote > ----
+      if (trimmed.startsWith('> ')) {
+        flushList();
+        final quoteLines = <String>[trimmed.substring(2).trim()];
+        i++;
+        while (i < lines.length && lines[i].trim().startsWith('> ')) {
+          quoteLines.add(lines[i].trim().substring(2).trim());
+          i++;
+        }
+        parts.add(_QuoteData(quoteLines.join('\n')));
+        continue;
+      }
+
+      // ---- Bullet list - or * ----
+      if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+        final content = trimmed.startsWith('- ')
+            ? trimmed.substring(2).trim()
+            : trimmed.substring(2).trim();
+        pendingList ??= [];
+        pendingList!.add(content);
+        i++;
+        continue;
+      }
+
+      // ---- Plain text ----
+      flushList();
+      parts.add(raw);
       i++;
     }
+
+    flushList();
     return parts;
+  }
+
+  /// Try to parse a table starting at line [i]. Returns (TableData, lineCount) or null.
+  static _TableResult? _tryExtractTable(List<String> lines, int i) {
+    final headerRow = _parseTableRow(lines[i].trim());
+    if (headerRow.isEmpty) return null;
+    if (i + 1 >= lines.length) return null;
+    final sepLine = lines[i + 1].trim();
+    final sepCells = _parseTableRow(sepLine);
+    if (sepCells.length != headerRow.length) return null;
+    if (!sepCells.every((c) => c.startsWith('---') || c.startsWith(':'))) return null;
+
+    final rows = <List<String>>[headerRow];
+    i += 2;
+    while (i < lines.length) {
+      final rowLine = lines[i].trim();
+      if (!rowLine.startsWith('|') || !rowLine.endsWith('|')) break;
+      final rowCells = _parseTableRow(rowLine);
+      if (rowCells.isEmpty) break;
+      final padded = List<String>.from(rowCells);
+      while (padded.length < headerRow.length) padded.add('');
+      rows.add(padded);
+      i++;
+    }
+    return _TableResult(TableData(headerRow, rows), i - (rows.length + 1));
   }
 
   static List<String> _parseTableRow(String line) {
@@ -472,5 +542,108 @@ class _Token {
           ),
         ];
     }
+  }
+}
+
+// ------------------------------------------------------------------
+// Block element data classes + builders
+// ------------------------------------------------------------------
+class _HeadingData {
+  final String text;
+  final int level; // 1 = ##, 2 = #
+  _HeadingData(this.text, this.level);
+}
+
+class _QuoteData {
+  final String text;
+  _QuoteData(this.text);
+}
+
+class _ListData {
+  final List<String> items;
+  _ListData(this.items);
+}
+
+class _HorizontalRule {}
+
+/// Helper tuple for table extraction.
+class _TableResult {
+  final TableData item1;
+  final int item2;
+  _TableResult(this.item1, this.item2);
+}
+
+extension _RichChatBuilders on RichChatText {
+  Widget _buildHeading(_HeadingData h) {
+    final size = h.level == 1 ? defaultSize + 6 : defaultSize + 3;
+    return Padding(
+      padding: const EdgeInsets.only(top: 6, bottom: 2),
+      child: Text(
+        h.text,
+        style: TextStyle(
+          fontWeight: FontWeight.w700,
+          fontSize: size,
+          color: foreground,
+          height: 1.3,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQuote(_QuoteData q) {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.fromLTRB(10, 4, 8, 4),
+      decoration: BoxDecoration(
+        border: Border(
+          left: BorderSide(
+            color: foreground.withOpacity(0.3),
+            width: 3,
+          ),
+        ),
+      ),
+      child: Text(
+        q.text,
+        style: TextStyle(
+          color: foreground.withOpacity(0.75),
+          fontSize: defaultSize - 1,
+          height: 1.4,
+          fontStyle: FontStyle.italic,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildList(_ListData list) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: list.items.map((item) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 1),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('•  ', style: TextStyle(fontSize: defaultSize, color: foreground)),
+                Expanded(
+                  child: _buildInline(item, foreground, defaultSize),
+                ),
+              ],
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildHR() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Container(
+        height: 1,
+        color: foreground.withOpacity(0.15),
+      ),
+    );
   }
 }
