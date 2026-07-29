@@ -417,7 +417,7 @@ class ChatPage extends StatelessWidget implements PageShape {
           duration: const Duration(seconds: 30),
         ),
       );
-      final translated = await AiTranslateService.translate(text);
+      final translated = await AiService.translate(text);
       if (!context.mounted) return;
       ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
       if (translated != null) {
@@ -1013,6 +1013,14 @@ class ChatPage extends StatelessWidget implements PageShape {
             bool hasDelivery(ChatMessage message) {
               final d = (message.customProperties?['ldesk_delivery'] ?? '').toString();
               return d == 'queued' || d == 'sent' || d == 'delivered' || d == 'failed';
+            }
+
+            String aiReplyLabel(ChatMessage message) {
+              final aiReply = message.customProperties?['ldesk_ai_reply'] == 'true';
+              final isLoading = message.customProperties?['ldesk_ai_loading'] == 'true';
+              if (isLoading) return '${translate("AI thinking")}...';
+              if (aiReply) return translate('AI auto-reply');
+              return '';
             }
 
             Widget deliveryWidget(ChatMessage message) {
@@ -1695,13 +1703,25 @@ class ChatPage extends StatelessWidget implements PageShape {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               if (hasDelivery(message)) deliveryWidget(message),
-                              if (hasDelivery(message) && selfDestructLabel(message).isNotEmpty)
+                              if (hasDelivery(message) && (selfDestructLabel(message).isNotEmpty || aiReplyLabel(message).isNotEmpty))
                                 const Padding(
                                   padding: EdgeInsets.symmetric(horizontal: 4),
                                   child: Text('·'),
                                 ),
                               if (selfDestructLabel(message).isNotEmpty)
                                 Text(selfDestructLabel(message)),
+                              if (selfDestructLabel(message).isNotEmpty && aiReplyLabel(message).isNotEmpty)
+                                const Padding(
+                                  padding: EdgeInsets.symmetric(horizontal: 4),
+                                  child: Text('·'),
+                                ),
+                              if (aiReplyLabel(message).isNotEmpty)
+                                Text(aiReplyLabel(message),
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: kWeChatPrimaryColor,
+                                      fontWeight: FontWeight.w500,
+                                    )),
                             ],
                           ),
                         ),

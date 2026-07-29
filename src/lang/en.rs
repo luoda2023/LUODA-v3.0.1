@@ -366,5 +366,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Testing...", "Testing..."),
         ("Connection failed", "Connection failed"),
         ("Configuration saved", "Configuration saved"),
+        ("AI auto-reply", "AI auto-reply"),
+        ("AI thinking", "AI thinking"),
     ].iter().cloned().collect();
 }

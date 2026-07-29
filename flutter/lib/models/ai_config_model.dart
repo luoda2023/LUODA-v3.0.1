@@ -6,7 +6,7 @@ import 'package:http/http.dart' as http;
 
 import '../common.dart';
 
-/// AI service configuration for chat translation.
+/// AI service configuration.
 /// Stored as JSON in local options.
 class AiConfig {
   final String endpoint;
@@ -64,17 +64,66 @@ class AiConfig {
       };
 }
 
-/// AI-powered translation service.
-class AiTranslateService {
-  /// Translate [text] between Chinese and English using the configured AI API.
-  /// Returns the translated text, or null on failure.
-  static Future<String?> translate(String text) async {
-    final config = AiConfig.current;
-    if (!config.enabled || config.endpoint.isEmpty || config.apiKey.isEmpty) {
-      return null;
-    }
+/// Shared AI API caller — returns raw response content from any prompt.
+String? _callAiSync(String prompt, {double temperature = 0.7}) {
+  // This is called synchronously inside a compute isolate stub;
+  // for simplicity we use the actual HTTP call inline.
+  // In production, consider moving to a background isolate.
+  return _callAi(prompt, temperature: temperature);
+}
 
-    // Detect direction: if text contains Chinese chars, translate to English
+Future<String?> _callAi(String prompt, {double temperature = 0.7}) async {
+  final config = AiConfig.current;
+  if (!config.enabled || config.endpoint.isEmpty || config.apiKey.isEmpty) {
+    return null;
+  }
+  try {
+    final uri = Uri.parse(config.endpoint);
+    final response = await http
+        .post(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        if (config.apiKey.isNotEmpty)
+          'Authorization': 'Bearer ${config.apiKey}',
+      },
+      body: jsonEncode({
+        'model': config.model,
+        'messages': [
+          {'role': 'user', 'content': prompt},
+        ],
+        'max_tokens': 2048,
+        'temperature': temperature,
+      }),
+    )
+        .timeout(const Duration(seconds: 30));
+
+    if (response.statusCode == 200) {
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      final choices = body['choices'] as List?;
+      if (choices != null && choices.isNotEmpty) {
+        final content =
+            (choices[0] as Map<String, dynamic>)['message']?['content']
+                ?.toString()
+                .trim();
+        if (content != null && content.isNotEmpty) {
+          return content;
+        }
+      }
+    } else {
+      debugPrint(
+          'AI call failed: HTTP ${response.statusCode} ${response.body}');
+    }
+  } catch (e) {
+    debugPrint('AI call error: $e');
+  }
+  return null;
+}
+
+/// AI-powered services: translation + chat.
+class AiService {
+  /// Translate [text] between Chinese and English.
+  static Future<String?> translate(String text) async {
     final hasChinese = RegExp(r'[\u4e00-\u9fff]').hasMatch(text);
     final sourceLang = hasChinese ? 'Chinese' : 'English';
     final targetLang = hasChinese ? 'English' : 'Chinese';
@@ -82,47 +131,15 @@ class AiTranslateService {
     final prompt = 'Translate the following $sourceLang text to $targetLang. '
         'Reply with ONLY the translated text, no explanations, no quotes.\n\n'
         '$text';
+    return _callAi(prompt, temperature: 0.1);
+  }
 
-    try {
-      final uri = Uri.parse(config.endpoint);
-      final response = await http
-          .post(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          if (config.apiKey.isNotEmpty)
-            'Authorization': 'Bearer ${config.apiKey}',
-        },
-        body: jsonEncode({
-          'model': config.model,
-          'messages': [
-            {'role': 'user', 'content': prompt},
-          ],
-          'max_tokens': 2048,
-          'temperature': 0.1,
-        }),
-      )
-          .timeout(const Duration(seconds: 30));
-
-      if (response.statusCode == 200) {
-        final body = jsonDecode(response.body) as Map<String, dynamic>;
-        final choices = body['choices'] as List?;
-        if (choices != null && choices.isNotEmpty) {
-          final content =
-              (choices[0] as Map<String, dynamic>)['message']?['content']
-                  ?.toString()
-                  .trim();
-          if (content != null && content.isNotEmpty) {
-            return content;
-          }
-        }
-      } else {
-        debugPrint(
-            'AI translate failed: HTTP ${response.statusCode} ${response.body}');
-      }
-    } catch (e) {
-      debugPrint('AI translate error: $e');
-    }
-    return null;
+  /// Chat: generate a reply for a user message (used for "#" prefixed messages).
+  /// Returns the AI-generated reply text.
+  static Future<String?> chat(String message) async {
+    final prompt = 'You are a helpful assistant. Reply concisely and '
+        'naturally in the same language as the user message.\n\n'
+        '$message';
+    return _callAi(prompt, temperature: 0.7);
   }
 }

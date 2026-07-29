@@ -13,6 +13,7 @@ import 'package:luoda_flutter/common/shared_state.dart';
 import 'package:luoda_flutter/desktop/widgets/tabbar_widget.dart';
 import 'package:luoda_flutter/mobile/pages/home_page.dart';
 import 'package:luoda_flutter/models/platform_model.dart';
+import 'package:luoda_flutter/models/ai_config_model.dart';
 import 'package:luoda_flutter/models/server_model.dart';
 import 'package:luoda_flutter/models/state_model.dart';
 import 'package:get/get.dart';
@@ -759,10 +760,59 @@ class ChatModel with ChangeNotifier {
   }
 
   Future<void> _sendMessage(ChatMessage message) async {
-    final trimmedText = message.text.trim();
-    if (trimmedText.isEmpty) {
+    final rawText = message.text.trim();
+    if (rawText.isEmpty) {
       return;
     }
+
+    // # command: call AI to generate a reply instead of sending raw text
+    if (rawText.startsWith('#')) {
+      final aiQuery = rawText.substring(1).trim();
+      if (aiQuery.isNotEmpty && AiConfig.current.enabled) {
+        // Show a local placeholder while AI is thinking
+        final placeholder = ChatMessage(
+          text: '${translate("AI thinking")}...',
+          user: me,
+          createdAt: DateTime.now(),
+          customProperties: {'ldesk_ai_reply': 'true', 'ldesk_ai_loading': 'true'},
+        );
+        insertMessage(_currentKey, placeholder);
+        notifyListeners();
+
+        final reply = await AiService.chat(aiQuery);
+        if (reply != null && reply.isNotEmpty) {
+          // Replace placeholder with actual AI reply
+          final record = await DirectChatRepository.instance.createOutgoing(
+            conversationId: _currentKey.peerId,
+            kind: DirectChatKind.text,
+            text: reply,
+            senderId: me.id,
+            senderName: me.firstName ?? '',
+            senderAvatar: '',
+          );
+          // Create chat message with AI reply marker
+          var aiMsg = _toChatMessage(record, me);
+          aiMsg.customProperties ??= <String, dynamic>{};
+          aiMsg.customProperties!['ldesk_ai_reply'] = 'true';
+          insertMessage(_currentKey, aiMsg);
+          await _transmitRecord(_currentKey, record);
+          notifyListeners();
+        } else {
+          // AI failed; remove placeholder
+          final body = _messages[_currentKey];
+          if (body != null) {
+            body.chatMessages.removeWhere(
+                (m) => m.customProperties?['ldesk_ai_loading'] == 'true');
+          }
+          notifyListeners();
+        }
+        inputNode.requestFocus();
+        return;
+      }
+      // If AI not configured, fall through to send raw "#..." text
+    }
+
+    final trimmedText = rawText;
     final key = _currentKey;
     if (key.peerId.isEmpty) return;
     _touchChatActivity(key.peerId);
