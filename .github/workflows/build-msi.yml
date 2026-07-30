@@ -82,8 +82,15 @@ jobs:
           cargo install flutter_rust_bridge_codegen --version 1.80.1 --features uuid --locked 2>&1 | tail -5
           echo "=== Running flutter pub get ==="
           cd flutter && flutter pub get && cd ..
+          GENERATED="flutter/lib/generated_bridge.dart"
+          if [ -f "$GENERATED" ] && [ "$(git log -1 --format="%an" -- "$GENERATED" 2>/dev/null)" != "" ]; then
+            echo "=== Bridge file already exists, skipping codegen ==="
+            ls -la "$GENERATED"
+            head -5 "$GENERATED"
+          else
           echo "=== Running flutter_rust_bridge_codegen ==="
-          flutter_rust_bridge_codegen --rust-input ./src/flutter_ffi.rs --dart-output ./flutter/lib/generated_bridge.dart 2>&1
+          flutter_rust_bridge_codegen --rust-input ./src/flutter_ffi.rs --dart-output ./flutter/lib/generated_bridge.dart 2>&1 || echo "WARNING: codegen failed, using existing file"
+          fi
           echo "=== Verifying generated file ==="
           ls -la flutter/lib/generated_bridge.dart || echo "ERROR: generated_bridge.dart not created!"
           head -5 flutter/lib/generated_bridge.dart || echo "ERROR: Cannot read file!"

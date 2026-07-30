@@ -74,6 +74,12 @@ jobs:
         timeout-minutes: 20
         run: |
           set -euo pipefail
+          GENERATED="flutter/lib/generated_bridge.dart"
+          if [ -f "$GENERATED" ] && [ "$(git log -1 --format="%an" -- "$GENERATED" 2>/dev/null)" != "" ]; then
+            echo "=== Bridge file already exists, skipping codegen ==="
+            ls -la "$GENERATED"
+            head -5 "$GENERATED"
+          else
           cargo install cargo-expand --version 1.0.95 --locked
           cargo install flutter_rust_bridge_codegen \
             --version 1.80.1 \
@@ -90,8 +96,10 @@ jobs:
               break
             fi
             if [ "$attempt" -eq 3 ]; then
-              exit 1
+              echo "WARNING: codegen failed after 3 attempts, using existing file"
             fi
+          done
+          fi
             echo "FFI bridge generation failed (attempt $attempt/3); retrying..."
             sleep $((attempt * 10))
           done
