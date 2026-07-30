@@ -2284,6 +2284,9 @@ class ChatModel with ChangeNotifier {
   }
 }
 
+// ChatModel end
+}
+
 class _IncomingVoiceTransfer {
   _IncomingVoiceTransfer({
     required this.total,

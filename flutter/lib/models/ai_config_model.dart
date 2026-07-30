@@ -390,10 +390,15 @@ class AiImageService {
           if (b64 != null && b64.isNotEmpty) {
             bytes = base64Decode(b64);
           } else if (url != null && url.isNotEmpty) {
-            // Download from URL
-            final imgResp = await http.get(Uri.parse(url));
-            if (imgResp.statusCode == 200) {
-              bytes = imgResp.bodyBytes;
+            // Download from URL with 15s timeout
+            try {
+              final imgResp = await http.get(Uri.parse(url))
+                  .timeout(const Duration(seconds: 15));
+              if (imgResp.statusCode == 200) {
+                bytes = imgResp.bodyBytes;
+              }
+            } catch (_) {
+              debugPrint('Image download failed: $url');
             }
           }
 
