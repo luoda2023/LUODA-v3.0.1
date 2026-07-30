@@ -263,7 +263,7 @@ class RichChatText extends StatelessWidget {
     final spans = _parseInline(text, fg, size);
     if (spans.isEmpty) return const SizedBox.shrink();
     return SelectableText.rich(
-      text: TextSpan(children: spans),
+      TextSpan(children: spans),
       style: TextStyle(
         color: fg,
         fontSize: size,
@@ -281,7 +281,7 @@ class RichChatText extends StatelessWidget {
 
     final result = <InlineSpan>[];
     final urlRe = RegExp(
-        r'https?:\/\/[^\s<>\'\"\[\]]+|www\.[^\s<>\'\"\[\]]+\.[a-zA-Z]{2,}[^\s<>\'\"\[\]]*');
+        r"https?:\/\/[^\s<>\[\]]+|www\.[^\s<>\[\]]+\.[a-zA-Z]{2,}[^\s<>\[\]]*");
     final boldRe = RegExp(r'\*\*(.+?)\*\*');
     final italicRe = RegExp(r'\*(.+?)\*');
     final codeRe = RegExp(r'`(.+?)`');
@@ -430,10 +430,11 @@ class TableData {
   TableData(this.columns, this.rows);
 }
 
-class _Token {
-  enum Type { plain, bold, italic, code, strike, colored, url }
+/// Token types for inline formatting.
+enum _TokenType { plain, bold, italic, code, strike, colored, url }
 
-  final Type type;
+class _Token {
+  final _TokenType type;
   final String text;
   final Color color;
   final double size;
@@ -447,58 +448,58 @@ class _Token {
 
   int get length {
     switch (type) {
-      case Type.bold:
+      case _TokenType.bold:
         return text.length + 4; // **text**
-      case Type.italic:
+      case _TokenType.italic:
         return text.length + 2; // *text*
-      case Type.code:
+      case _TokenType.code:
         return text.length + 2; // `text`
-      case Type.strike:
+      case _TokenType.strike:
         return text.length + 4; // ~~text~~
-      case Type.colored:
+      case _TokenType.colored:
         // [color=xxx]text[/color] — approximate, ok for offset
         return text.length + 14;
-      case Type.url:
+      case _TokenType.url:
         return text.length;
-      case Type.plain:
+      case _TokenType.plain:
         return text.length;
     }
   }
 
   factory _Token.text(String t, Color c, double s) =>
-      _Token._(type: Type.plain, text: t, color: c, size: s);
+      _Token._(type: _TokenType.plain, text: t, color: c, size: s);
   factory _Token.bold(String t, Color c, double s) =>
-      _Token._(type: Type.bold, text: t, color: c, size: s);
+      _Token._(type: _TokenType.bold, text: t, color: c, size: s);
   factory _Token.italic(String t, Color c, double s) =>
-      _Token._(type: Type.italic, text: t, color: c, size: s);
+      _Token._(type: _TokenType.italic, text: t, color: c, size: s);
   factory _Token.code(String t, Color c, double s) =>
-      _Token._(type: Type.code, text: t, color: c, size: s);
+      _Token._(type: _TokenType.code, text: t, color: c, size: s);
   factory _Token.strike(String t, Color c, double s) =>
-      _Token._(type: Type.strike, text: t, color: c, size: s);
+      _Token._(type: _TokenType.strike, text: t, color: c, size: s);
   factory _Token.colored(String t, Color c, double s) =>
-      _Token._(type: Type.colored, text: t, color: c, size: s);
+      _Token._(type: _TokenType.colored, text: t, color: c, size: s);
   factory _Token.url(String t, Color c, double s, double defaultSize) =>
-      _Token._(type: Type.url, text: t, color: c, size: s);
+      _Token._(type: _TokenType.url, text: t, color: c, size: s);
 
   List<InlineSpan> toSpans() {
     switch (type) {
-      case Type.plain:
+      case _TokenType.plain:
         return [TextSpan(text: text)];
-      case Type.bold:
+      case _TokenType.bold:
         return [
           TextSpan(
             text: text,
             style: TextStyle(fontWeight: FontWeight.w700),
           ),
         ];
-      case Type.italic:
+      case _TokenType.italic:
         return [
           TextSpan(
             text: text,
             style: TextStyle(fontStyle: FontStyle.italic),
           ),
         ];
-      case Type.code:
+      case _TokenType.code:
         return [
           WidgetSpan(
             alignment: PlaceholderAlignment.middle,
@@ -519,21 +520,21 @@ class _Token {
             ),
           ),
         ];
-      case Type.strike:
+      case _TokenType.strike:
         return [
           TextSpan(
             text: text,
             style: TextStyle(decoration: TextDecoration.lineThrough),
           ),
         ];
-      case Type.colored:
+      case _TokenType.colored:
         return [
           TextSpan(
             text: text,
             style: TextStyle(color: color),
           ),
         ];
-      case Type.url:
+      case _TokenType.url:
         return [
           WidgetSpan(
             alignment: PlaceholderAlignment.middle,

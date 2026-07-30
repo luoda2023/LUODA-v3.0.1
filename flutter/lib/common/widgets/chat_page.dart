@@ -2602,13 +2602,6 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
     setState(() => _atOverlayVisible = false);
   }
 
-  final ChatModel chatModel;
-  final bool enabled;
-  final bool dark;
-  final VoidCallback? onAttachFile;
-  final VoidCallback? onRemoteAssist;
-  final VoidCallback? onPasteImage;
-
   void _send() {
     final text = chatModel.textController.text.trim();
     if (!enabled || text.isEmpty) return;
@@ -2742,7 +2735,7 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
         composer,
         if (_atOverlayVisible && _atCandidates.isNotEmpty)
           Positioned(
-            bottom: composer.constrainHeight() + 4,
+            bottom: 122,
             left: 16,
             right: 16,
             child: Material(

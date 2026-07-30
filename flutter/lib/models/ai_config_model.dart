@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../common.dart';
+import 'platform_model.dart';
 
 /// AI profile type.
 enum AiProfileType { text, image }
