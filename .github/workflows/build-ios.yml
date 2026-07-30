@@ -104,9 +104,6 @@ jobs:
           # Reset error state for set -e after the retry loop
           true
           fi
-            echo "FFI bridge generation failed (attempt $attempt/3); retrying..."
-            sleep $((attempt * 10))
-          done
 
       - name: Generate iOS app icons
         run: |
