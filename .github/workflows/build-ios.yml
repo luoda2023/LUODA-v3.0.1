@@ -97,8 +97,12 @@ jobs:
             fi
             if [ "$attempt" -eq 3 ]; then
               echo "WARNING: codegen failed after 3 attempts, using existing file"
+            else
+              echo "Retrying..."
             fi
           done
+          # Reset error state for set -e after the retry loop
+          true
           fi
             echo "FFI bridge generation failed (attempt $attempt/3); retrying..."
             sleep $((attempt * 10))
