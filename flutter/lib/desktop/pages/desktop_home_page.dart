@@ -104,6 +104,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   final Map<String, bool> _knownPeerOnline = <String, bool>{};
   final Set<String> _notifiedChatConnections = <String>{};
   int? _lastNetworkStatus;
+  DateTime? _lastNetworkNoticeAt;
   Timer? _workspaceNoticeTimer;
   String? _workspaceNotice;
   _WorkspaceNoticeTone _workspaceNoticeTone = _WorkspaceNoticeTone.info;
@@ -5281,15 +5282,25 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     }
 
     final networkStatus = gFFI.serverModel.connectStatus;
+    final now = DateTime.now();
     if (_lastNetworkStatus != null &&
         _lastNetworkStatus != networkStatus &&
         networkStatus <= 0) {
-      _showConversationNotice(
-        '${translate('Network')}: ${networkStatus == 0 ? translate('Connecting') : translate('Offline')}',
-        tone: networkStatus == 0
-            ? _WorkspaceNoticeTone.warning
-            : _WorkspaceNoticeTone.error,
-      );
+      // Throttle network-state notifications: avoid spamming the popup
+      // when the service flips between connecting <-> offline repeatedly.
+      final shown = _lastNetworkNoticeAt;
+      final cooldown = networkStatus == 0
+          ? const Duration(seconds: 30)
+          : const Duration(seconds: 10);
+      if (shown == null || now.difference(shown) > cooldown) {
+        _showConversationNotice(
+          '${translate('Network')}: ${networkStatus == 0 ? translate('Connecting') : translate('Offline')}',
+          tone: networkStatus == 0
+              ? _WorkspaceNoticeTone.warning
+              : _WorkspaceNoticeTone.error,
+        );
+        _lastNetworkNoticeAt = now;
+      }
     }
     _lastNetworkStatus = networkStatus;
 
