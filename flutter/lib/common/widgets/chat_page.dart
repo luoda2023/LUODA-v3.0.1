@@ -2406,11 +2406,6 @@ class ChatPage extends StatelessWidget implements PageShape {
                         onRemoteAssist: onRemoteAssist,
                         onPasteImage: onPasteImage,
                       ),
-                      if (AiConfig.current.profiles.isNotEmpty)
-                        _AiModelSelector(
-                          dark: dark,
-                          chatModel: chatModel,
-                        ),
                     ],
                   );
                 }),
@@ -2732,6 +2727,11 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
                     chatModel: chatModel,
                     enabled: enabled,
                   ),
+                  if (AiConfig.current.profiles.isNotEmpty)
+                    _AiModelSelector(
+                      dark: dark,
+                      chatModel: chatModel,
+                    ),
                   const Spacer(),
                   ValueListenableBuilder<TextEditingValue>(
                     valueListenable: chatModel.textController,
@@ -3081,6 +3081,7 @@ class _AiModelSelectorState extends State<_AiModelSelector> {
     final active = AiConfig.currentProfile;
     final multiple = profiles.length > 1;
     final foreground = dark ? const Color(0xFF888B91) : const Color(0xFF888888);
+    final remaining = AiConfig.current.remainingFor(active);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
@@ -3105,6 +3106,27 @@ class _AiModelSelectorState extends State<_AiModelSelector> {
                 fontWeight: FontWeight.w400,
               ),
             ),
+            if (remaining >= 0) ...[
+              const SizedBox(width: 4),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                decoration: BoxDecoration(
+                  color: remaining == 0
+                      ? Colors.red.withOpacity(0.15)
+                      : kWeChatPrimaryColor.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  remaining == 0 ? '已用完' : '剩余 $remaining',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: remaining == 0
+                        ? Colors.red
+                        : kWeChatPrimaryColor,
+                  ),
+                ),
+              ),
+            ],
             if (multiple) ...[
               const SizedBox(width: 3),
               Icon(

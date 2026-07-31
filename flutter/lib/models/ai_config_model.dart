@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -26,6 +27,10 @@ class AiProfile {
   /// Profile type: text (chat/translation) or image (generation).
   final AiProfileType profileType;
 
+  /// Free-tier quota for built-in profiles (e.g. hermesAPI = 100 calls).
+  /// 0 means unlimited (used for user-configured profiles).
+  final int freeQuota;
+
   const AiProfile({
     this.name = '',
     this.endpoint = '',
@@ -34,6 +39,7 @@ class AiProfile {
     this.enabled = true,
     this.builtIn = false,
     this.profileType = AiProfileType.text,
+    this.freeQuota = 0,
   });
 
   /// Only non-built-in profiles are serialised to local storage.
@@ -70,12 +76,35 @@ class AiConfig {
   final List<AiProfile> profiles;
   final int activeProfileIndex;
   final String email;
+  final Map<String, int> usageByProfile;
 
   const AiConfig({
     this.profiles = const [],
     this.activeProfileIndex = 0,
     this.email = '',
+    this.usageByProfile = const {},
   });
+
+  /// Get remaining free calls for a profile. Returns -1 for unlimited (user-configured).
+  int remainingFor(AiProfile profile) {
+    if (profile.freeQuota <= 0) return -1;
+    final used = usageByProfile[profile.name] ?? 0;
+    final remaining = profile.freeQuota - used;
+    return remaining < 0 ? 0 : remaining;
+  }
+
+  /// Increment usage count for a profile name; persists to storage.
+  Future<void> incrementUsage(String profileName) async {
+    final newMap = Map<String, int>.from(usageByProfile);
+    newMap[profileName] = (newMap[profileName] ?? 0) + 1;
+    final updated = AiConfig(
+      profiles: profiles,
+      activeProfileIndex: activeProfileIndex,
+      email: email,
+      usageByProfile: newMap,
+    );
+    await save(updated);
+  }
 
   /// Built-in hermesAPI proxy — free for 100 calls (text).
   /// Endpoint/key are hidden from the UI; only the name is shown.
@@ -89,6 +118,7 @@ class AiConfig {
       model: 'hermesAPI',
       enabled: true,
       profileType: AiProfileType.text,
+      freeQuota: 100,
     ),
     AiProfile(
       builtIn: true,
@@ -193,6 +223,17 @@ class AiConfig {
         }
       })();
 
+      final usage = <String, int>{};
+      try {
+        final json = jsonDecode(raw) as Map<String, dynamic>;
+        final rawUsage = json['usage'];
+        if (rawUsage is Map) {
+          rawUsage.forEach((k, v) {
+            if (v is int) usage[k.toString()] = v;
+          });
+        }
+      } catch (_) {}
+
       _cached = AiConfig(
         profiles: allProfiles,
         activeProfileIndex:
@@ -205,6 +246,7 @@ class AiConfig {
             return '';
           }
         })(),
+        usageByProfile: usage,
       );
     } catch (_) {
       // Fallback: built-in only
@@ -223,6 +265,7 @@ class AiConfig {
       profiles: [...builtInProfiles, ...userProfiles],
       activeProfileIndex: config.activeProfileIndex,
       email: config.email,
+      usageByProfile: config.usageByProfile,
     );
     await bind.mainSetLocalOption(
       key: _storageKey,
@@ -230,6 +273,7 @@ class AiConfig {
         'profiles': userProfiles.map((p) => p.toJson()).toList(),
         'active_profile_index': _cached.activeProfileIndex,
         'email': config.email,
+        'usage': config.usageByProfile,
       }),
     );
     _notifyChanged();
@@ -288,6 +332,10 @@ Future<String?> _callAi(AiProfile profile, String prompt,
                 ?.toString()
                 .trim();
         if (content != null && content.isNotEmpty) {
+          // Track usage count for built-in profiles with quotas.
+          if (profile.builtIn && profile.freeQuota > 0) {
+            unawaited(AiConfig.current.incrementUsage(profile.name));
+          }
           return content;
         }
       }
