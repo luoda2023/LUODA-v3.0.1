@@ -115,6 +115,7 @@ class ChatPage extends StatelessWidget implements PageShape {
     BuildContext context,
     ChatMessage message, {
     required Offset position,
+    bool alignToAvatarLeft = false,
   }) async {
     final properties = message.customProperties;
     final id = (properties?['ldesk_id'] ?? '').toString();
@@ -128,10 +129,21 @@ class ChatPage extends StatelessWidget implements PageShape {
 
     final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
     final localPos = overlay.globalToLocal(position);
-    final anchor = RelativeRect.fromRect(
-      localPos & const Size(1, 1),
-      Offset.zero & overlay.size,
-    );
+    final overlaySize = overlay.size;
+    // WeChat PC alignment: for own messages, the menu anchors its
+    // top-right corner to the avatar's top-left. Position the menu so it
+    // appears above and to the left of the avatar (mirrors WeChat PC).
+    final anchor = alignToAvatarLeft
+        ? RelativeRect.fromLTRB(
+            localPos.dx - 36, // start ~36px to the left of icon (avatar width)
+            localPos.dy,
+            localPos.dx + 1,
+            overlaySize.height - localPos.dy,
+          )
+        : RelativeRect.fromRect(
+            localPos & const Size(1, 1),
+            Offset.zero & overlaySize,
+          );
 
     // Build menu items — keep it clean like WeChat PC
     final items = <PopupMenuEntry<String>>[];
@@ -1840,6 +1852,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                 ),
               );
               final avatar = messageAvatar(message.user, null, null);
+              final avatarKey = GlobalKey();
               final canManage = isOwnMessage &&
                   message.customProperties?['ldesk_disposition'] == 'active';
               final inMultiSelect = chatModel.isMultiSelectMode;
@@ -1910,9 +1923,16 @@ class ChatPage extends StatelessWidget implements PageShape {
                         const SizedBox(width: 2),
                         IconButton(
                           onPressed: () async {
+                            final renderObj = avatarKey.currentContext
+                                ?.findRenderObject() as RenderBox?;
+                            final avatarPos = renderObj?.localToGlobal(
+                                  Offset.zero,
+                                ) ??
+                                Offset.zero;
                             final action = await _showWeChatContextMenu(
                               context, message,
-                              position: Offset.zero,
+                              position: avatarPos,
+                              alignToAvatarLeft: true,
                             );
                             if (context.mounted) {
                               await _handleWeChatContextAction(
@@ -1955,7 +1975,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                           actionButton,
                           const SizedBox(width: 4),
                           const SizedBox(width: 11),
-                          avatar,
+                          KeyedSubtree(key: avatarKey, child: avatar),
                         ]
                       : <Widget>[
                           if (inMultiSelect) multiSelectCheckbox,
