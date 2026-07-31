@@ -487,11 +487,21 @@ impl PrivacyMode for PrivacyModeImpl {
         let primary_display_name = guard.set_primary_display()?;
         guard.disable_physical_displays()?;
         Self::commit_change_display(CDS_RESET)?;
-        // Explicitly set the resolution(virtual display) to 1920x1080.
+        // Read configured virtual display resolution, default 1920x1080.
+        let (vw, vh) = if let Some(res_str) = Config::get_option("virtual-display-resolution") {
+            let parts: Vec<&str> = res_str.split('x').collect();
+            if parts.len() == 2 {
+                if let (Ok(w), Ok(h)) = (parts[0].parse::<usize>(), parts[1].parse::<usize>()) {
+                    if w > 0 && h > 0 {
+                        (w, h)
+                    } else { (1920, 1080) }
+                } else { (1920, 1080) }
+            } else { (1920, 1080) }
+        } else { (1920, 1080) };
         allow_err!(crate::platform::change_resolution(
             &primary_display_name,
-            1920,
-            1080
+            vw,
+            vh
         ));
         let reg_connectivity_2 = reg_display_settings::read_reg_connectivity()?;
 

@@ -2993,6 +2993,7 @@ pub mod keys {
     pub const OPTION_PROXY_URL: &str = "proxy-url";
     pub const OPTION_PROXY_USERNAME: &str = "proxy-username";
     pub const OPTION_PROXY_PASSWORD: &str = "proxy-password";
+    pub const OPTION_VIRTUAL_DISPLAY_RESOLUTION: &str = "virtual-display-resolution";
 
     // DEFAULT_DISPLAY_SETTINGS, OVERWRITE_DISPLAY_SETTINGS
     pub const KEYS_DISPLAY_SETTINGS: &[&str] = &[

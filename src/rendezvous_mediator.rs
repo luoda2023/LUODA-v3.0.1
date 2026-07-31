@@ -28,6 +28,9 @@ use hbb_common::{
     AddrMangle, IntoTargetAddr, ResultType, Stream, TargetAddr,
 };
 
+// Shorter registration interval for reconnection recovery (5s vs 15s).
+const REG_INTERVAL_RECOVERY: i64 = 5_000;
+
 use crate::{
     check_port,
     server::{check_zombie, new as new_server, ServerPtr},
@@ -296,6 +299,10 @@ impl RendezvousMediator {
                     }
                     let now = Some(Instant::now());
                     let expired = last_register_resp.map(|x| x.elapsed().as_millis() as i64 >= REG_INTERVAL).unwrap_or(true);
+                    // Use shorter interval when re-registering after disconnect
+                    let expired = last_register_resp
+                        .map(|x| x.elapsed().as_millis() as i64 >= REG_INTERVAL_RECOVERY)
+                        .unwrap_or(true);
                     let timeout = last_register_sent.map(|x| x.elapsed().as_millis() as i64 >= reg_timeout).unwrap_or(false);
                     // temporarily disable exponential backoff for android before we add wakeup trigger to force connect in android
                     #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -467,7 +474,7 @@ impl RendezvousMediator {
                             host, rz.keep_alive as u64 * 3 / 2);
                         bail!("Rendezvous connection is timeout");
                     }
-                    if last_register_sent.map(|x| x.elapsed().as_millis() as i64).unwrap_or(REG_INTERVAL) >= REG_INTERVAL {
+                    if last_register_sent.map(|x| x.elapsed().as_millis() as i64).unwrap_or(REG_INTERVAL_RECOVERY) >= REG_INTERVAL_RECOVERY {
                         let key_confirmed = Config::get_key_confirmed();
                         let host_key_confirmed = Config::get_host_key_confirmed(&rz.host_prefix);
                         if !key_confirmed || !host_key_confirmed {
@@ -610,7 +617,13 @@ impl RendezvousMediator {
             )
             .await;
         }
-        if is_ipv4(&self.addr) && !relay && !config::is_disable_tcp_listen() {
+        let is_private_ipv4 = match &self.addr {
+            TargetAddr::Ip(addr) => addr.ip().is_private(),
+            _ => false,
+        };
+        if is_ipv4(&self.addr) && !relay
+            && (!config::is_disable_tcp_listen() || is_private_ipv4)
+        {
             if let Err(err) = self
                 .handle_intranet_(
                     fla.clone(),
@@ -824,16 +837,19 @@ impl RendezvousMediator {
         drop(solving);
         if !Config::get_key_confirmed() || !Config::get_host_key_confirmed(&self.host_prefix) {
             log::info!(
-                "register_pk of {} due to key not confirmed",
-                self.host_prefix
+                "SEND RegisterPk (handshake only, ID NOT registered yet): host={}, key_confirmed={}, host_key_confirmed={}",
+                self.host_prefix,
+                Config::get_key_confirmed(),
+                Config::get_host_key_confirmed(&self.host_prefix)
             );
             return self.register_pk(socket).await;
         }
         let id = Config::get_id();
-        log::trace!(
-            "Register my id {:?} to rendezvous server {:?}",
+        log::info!(
+            "SEND RegisterPeer (ID registered in online table): id={:?}, server={:?}, host={}",
             id,
             self.addr,
+            self.host_prefix,
         );
         let mut msg_out = Message::new();
         let serial = Config::get_serial();

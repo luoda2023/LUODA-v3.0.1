@@ -1,4 +1,4 @@
-use hbb_common::{bail, platform::windows::is_windows_version_or_greater, ResultType};
+use hbb_common::{bail, config::{Config, keys}, platform::windows::is_windows_version_or_greater, ResultType};
 
 // This string is defined here.
 //  https://github.com/luoda-org/LUODAIddDriver/blob/b370aad3f50028b039aad211df60c8051c4a64d6/LUODAIddDriver/LUODAIddDriver.inf#LL73C1-L73C40
@@ -621,8 +621,9 @@ pub mod amyuni_idd {
         }
         // Workaround for the issue that we can't set the default the resolution.
         if let Ok(old_connectivity_old) = reg_connectivity_old {
+            let (vw, vh) = get_virtual_display_resolution();
             std::thread::spawn(move || {
-                try_reset_resolution_on_first_plug_in(old_connectivity_old.len(), 1920, 1080);
+                try_reset_resolution_on_first_plug_in(old_connectivity_old.len(), vw, vh);
             });
         }
 
@@ -647,6 +648,21 @@ pub mod amyuni_idd {
                 }
             }
         }
+    }
+
+    /// Read configured virtual display resolution, default 1920x1080.
+    fn get_virtual_display_resolution() -> (usize, usize) {
+        if let Some(res_str) = Config::get_option(keys::OPTION_VIRTUAL_DISPLAY_RESOLUTION) {
+            let parts: Vec<&str> = res_str.split('x').collect();
+            if parts.len() == 2 {
+                if let (Ok(w), Ok(h)) = (parts[0].parse::<usize>(), parts[1].parse::<usize>()) {
+                    if w > 0 && h > 0 {
+                        return (w, h);
+                    }
+                }
+            }
+        }
+        (1920, 1080) // default
     }
 
     pub fn plug_in_headless() -> ResultType<()> {

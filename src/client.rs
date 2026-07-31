@@ -831,7 +831,14 @@ impl Client {
                             }
                             match ph.failure.enum_value() {
                                 Ok(punch_hole_response::Failure::ID_NOT_EXIST) => {
-                                    bail!("ID does not exist");
+                                    let my_id = Config::get_id();
+                                    let server = Config::get_rendezvous_server();
+                                    bail!(
+                                        "ID does not exist (your ID: {}, rendezvous server: {}). \
+                                         Check that the remote peer is registered to the same server \
+                                         and that both sides use the same rendezvous address.",
+                                        my_id, server
+                                    );
                                 }
                                 Ok(punch_hole_response::Failure::OFFLINE) => {
                                     bail!("Remote desktop is offline");

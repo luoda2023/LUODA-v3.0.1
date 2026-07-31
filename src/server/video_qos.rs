@@ -37,10 +37,10 @@ pub const INIT_FPS: u32 = 15;
 const BR_MAX: f32 = 40.0; // 2000 * 2 / 100
 const BR_MIN: f32 = 0.2;
 const BR_MIN_HIGH_RESOLUTION: f32 = 0.1; // For high resolution, BR_MIN is still too high, so we set a lower limit
-const MAX_BR_MULTIPLE: f32 = 1.0;
+const MAX_BR_MULTIPLE: f32 = 1.5;
 
 const HISTORY_DELAY_LEN: usize = 2;
-const ADJUST_RATIO_INTERVAL: usize = 3; // Adjust quality ratio every 3 seconds
+const ADJUST_RATIO_INTERVAL: usize = 2; // Adjust quality ratio every 2 seconds
 const DYNAMIC_SCREEN_THRESHOLD: usize = 2; // Allow increase quality ratio if encode more than 2 times in one second
 const DELAY_THRESHOLD_150MS: u32 = 150; // 150ms is the threshold for good network condition
 
@@ -435,9 +435,9 @@ impl VideoQoS {
             None
         };
 
-        // Calculate ratio for adding 150kbps bandwidth
-        let ratio_add_150kbps = if current_bitrate > 0 {
-            Some((current_bitrate + 150) as f32 * current_ratio / current_bitrate as f32)
+        // Calculate ratio for adding 300kbps bandwidth (faster ramp-up)
+        let ratio_add_300kbps = if current_bitrate > 0 {
+            Some((current_bitrate + 300) as f32 * current_ratio / current_bitrate as f32)
         } else {
             None
         };
@@ -494,12 +494,12 @@ impl VideoQoS {
         }
 
         // Limit quality increase rate for better stability
-        if let Some(ratio_add_150kbps) = ratio_add_150kbps {
-            if v > ratio_add_150kbps
-                && ratio_add_150kbps > current_ratio
+        if let Some(ratio_add_300kbps) = ratio_add_300kbps {
+            if v > ratio_add_300kbps
+                && ratio_add_300kbps > current_ratio
                 && current_ratio >= BR_SPEED
             {
-                v = ratio_add_150kbps;
+                v = ratio_add_300kbps;
             }
         }
 
