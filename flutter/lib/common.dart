@@ -2207,7 +2207,7 @@ Future _saveSessionWindowPosition(
   }
 }
 
-const kCustomClientWindowSize = Size(380, 500);
+const kCustomClientWindowSize = Size(280, 320);
 
 Future<Size> _adjustRestoreMainWindowSize(double? width, double? height) async {
   const double minWidth = 1;

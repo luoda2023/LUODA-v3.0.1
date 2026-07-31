@@ -5063,11 +5063,19 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_refreshDirectSessions());
     });
-    _directChatKeepAliveTimer = Timer.periodic(
-      const Duration(seconds: 5),
-      (_) => unawaited(_refreshDirectSessions()),
-    );
-    _updateTimer = periodic_immediate(const Duration(seconds: 1), () async {
+    // Direct-chat keep-alive is irrelevant in incoming-only client mode.
+    if (!bind.isIncomingOnly()) {
+      _directChatKeepAliveTimer = Timer.periodic(
+        const Duration(seconds: 5),
+        (_) => unawaited(_refreshDirectSessions()),
+      );
+    }
+    // Incoming-only client mode uses a slower polling interval since
+    // the displayed info is mostly static; full desktop mode stays at 1s.
+    final pollInterval = bind.isIncomingOnly()
+        ? const Duration(seconds: 10)
+        : const Duration(seconds: 1);
+    _updateTimer = periodic_immediate(pollInterval, () async {
       await gFFI.serverModel.fetchID();
       final error = await bind.mainGetError();
       if (systemError != error) {

@@ -60,7 +60,13 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
   @override
   void initState() {
     super.initState();
-    _updateTimer = periodic_immediate(Duration(seconds: 1), () async {
+    // Incoming-only client mode: poll less aggressively (5s) since the
+    // displayed info (ID, IPs, password) is mostly static and we don't
+    // want heavy IPC traffic dragging the lightweight client window.
+    final interval = bind.isIncomingOnly()
+        ? const Duration(seconds: 5)
+        : const Duration(seconds: 1);
+    _updateTimer = periodic_immediate(interval, () async {
       updateStatus();
     });
   }
