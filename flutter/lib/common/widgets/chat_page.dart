@@ -2519,6 +2519,7 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
   int _atCursorPos = -1;
   final LayerLink _layerLink = LayerLink();
   bool _inputFocused = false;
+  bool _showEmojiPicker = false;
 
   ChatModel get chatModel => widget.chatModel;
   bool get enabled => widget.enabled;
@@ -2526,6 +2527,32 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
   VoidCallback? get onAttachFile => widget.onAttachFile;
   VoidCallback? get onRemoteAssist => widget.onRemoteAssist;
   VoidCallback? get onPasteImage => widget.onPasteImage;
+
+  /// Free Unicode emoji pack — commonly used chat faces and symbols.
+  static const _emojiList = <String>[
+    '😀', '😂', '🤣', '😊', '😍', '🥰', '😘', '😜', '🤔', '😎',
+    '😢', '😭', '😤', '😡', '🥺', '😱', '🤯', '😴', '🤤', '😷',
+    '👍', '👎', '👏', '🙏', '💪', '✌️', '🤝', '👋', '🖐️', '🤞',
+    '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '💔', '💯',
+    '🔥', '⭐', '🎉', '🎊', '🥇', '✅', '❌', '💡', '📌', '🎯',
+    '🍕', '🍔', '☕', '🍺', '🎂', '🌈', '🌹', '🌸', '☀️', '🌙',
+    '🐶', '🐱', '🦊', '🐼', '🐧', '🦄', '🐝', '🐙', '🐳', '🦋',
+    '😅', '🙃', '😏', '😌', '🤗', '🤩', '😇', '🤐', '🥱', '😈',
+  ];
+
+  void _insertEmoji(String emoji) {
+    final controller = chatModel.textController;
+    final text = controller.text;
+    final sel = controller.selection;
+    final start = sel.isValid ? sel.start : text.length;
+    final end = sel.isValid ? sel.end : text.length;
+    final newText = text.replaceRange(start, end, emoji);
+    controller.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: start + emoji.length),
+    );
+    setState(() => _showEmojiPicker = false);
+  }
 
   @override
   void initState() {
@@ -2629,6 +2656,36 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
     setState(() => _atOverlayVisible = false);
   }
 
+  Widget _buildEmojiPanel() {
+    final bg = dark ? const Color(0xFF1E2024) : const Color(0xFFF5F5F5);
+    final border = dark ? const Color(0xFF3A3D43) : const Color(0xFFE2E2E2);
+    return Container(
+      height: 180,
+      margin: const EdgeInsets.fromLTRB(8, 0, 8, 2),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
+        border: Border.all(color: border),
+      ),
+      child: GridView.builder(
+        padding: const EdgeInsets.all(6),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 10,
+          mainAxisSpacing: 2,
+          crossAxisSpacing: 2,
+        ),
+        itemCount: _emojiList.length,
+        itemBuilder: (_, i) => InkWell(
+          borderRadius: BorderRadius.circular(6),
+          onTap: () => _insertEmoji(_emojiList[i]),
+          child: Center(
+            child: Text(_emojiList[i], style: const TextStyle(fontSize: 22)),
+          ),
+        ),
+      ),
+    );
+  }
+
   void _send() {
     final text = chatModel.textController.text.trim();
     if (!enabled || text.isEmpty) return;
@@ -2723,6 +2780,13 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
                       enabled: enabled,
                       onPressed: onRemoteAssist,
                     ),
+                  _ComposerToolButton(
+                    icon: Icons.emoji_emotions_outlined,
+                    tooltip: translate('Emoji'),
+                    enabled: enabled,
+                    onPressed: () =>
+                        setState(() => _showEmojiPicker = !_showEmojiPicker),
+                  ),
                   VoiceMessageRecorderButton(
                     chatModel: chatModel,
                     enabled: enabled,
@@ -2782,11 +2846,18 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
         ],
       ),
     );
-    if (!_atOverlayVisible) return composer;
+    final withEmoji = Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (_showEmojiPicker) _buildEmojiPanel(),
+        composer,
+      ],
+    );
+    if (!_atOverlayVisible) return withEmoji;
     return Stack(
       clipBehavior: Clip.none,
       children: [
-        composer,
+        withEmoji,
         if (_atOverlayVisible && _atCandidates.isNotEmpty)
           Positioned(
             bottom: 122,

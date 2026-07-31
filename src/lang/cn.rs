@@ -825,6 +825,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("File Transfer", "文件传输"),
         ("Remote Desktop", "远程协助"),
         ("Send Image", "发送图片"),
+        ("Emoji", "表情"),
         ("No image selected", "未选择图片"),
         ("Image sent.", "图片已发送。"),
         ("Display name", "显示名称"),
