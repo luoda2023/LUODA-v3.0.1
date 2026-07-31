@@ -1,5 +1,4 @@
-use hbb_common::{bail, config, platform::windows::is_windows_version_or_greater, ResultType};
-use hbb_common::config::{Config, keys};
+use hbb_common::{bail, platform::windows::is_windows_version_or_greater, ResultType};
 
 // This string is defined here.
 //  https://github.com/luoda-org/LUODAIddDriver/blob/b370aad3f50028b039aad211df60c8051c4a64d6/LUODAIddDriver/LUODAIddDriver.inf#LL73C1-L73C40
@@ -653,7 +652,8 @@ pub mod amyuni_idd {
 
     /// Read configured virtual display resolution, default 1920x1080.
     fn get_virtual_display_resolution() -> (usize, usize) {
-        let res_str = Config::get_option(keys::OPTION_VIRTUAL_DISPLAY_RESOLUTION);
+        let res_str = hbb_common::config::Config::get_option(
+            hbb_common::config::keys::OPTION_VIRTUAL_DISPLAY_RESOLUTION);
         if !res_str.is_empty() {
             let parts: Vec<&str> = res_str.split('x').collect();
             if parts.len() == 2 {
