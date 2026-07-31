@@ -18,6 +18,7 @@ import 'file_viewer.dart';
 import 'rich_text_builder.dart';
 import 'voice_message_controls.dart';
 import '../../models/ai_config_model.dart';
+import 'ai_config_page.dart';
 
 const _reactionEmojis = [
   '👍', '❤️', '😂', '😮', '😢', '🙏',
@@ -3216,6 +3217,28 @@ class _AiModelSelectorState extends State<_AiModelSelector> {
                         : kWeChatPrimaryColor,
                   ),
                 ),
+              ),
+            ],
+            if (multiple) ...[
+              const SizedBox(width: 3),
+              IconButton(
+                icon: Icon(
+                  Icons.settings_outlined,
+                  size: 15,
+                  color: foreground,
+                ),
+                constraints: const BoxConstraints.tightFor(
+                  width: 20,
+                  height: 20,
+                ),
+                padding: EdgeInsets.zero,
+                splashRadius: 10,
+                tooltip: translate('AI Settings'),
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const AiConfigPage()),
+                  );
+                },
               ),
             ],
             if (multiple) ...[
