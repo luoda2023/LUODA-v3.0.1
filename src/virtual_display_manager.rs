@@ -1,4 +1,5 @@
-use hbb_common::{bail, config::{Config, keys}, platform::windows::is_windows_version_or_greater, ResultType};
+use hbb_common::{bail, config, platform::windows::is_windows_version_or_greater, ResultType};
+use hbb_common::config::{Config, keys};
 
 // This string is defined here.
 //  https://github.com/luoda-org/LUODAIddDriver/blob/b370aad3f50028b039aad211df60c8051c4a64d6/LUODAIddDriver/LUODAIddDriver.inf#LL73C1-L73C40
