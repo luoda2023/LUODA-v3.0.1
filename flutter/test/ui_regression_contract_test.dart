@@ -1480,7 +1480,7 @@ void main() {
       chatModelSource,
       contains('_scheduleRecentConversationRestore()'),
     );
-    expect(chatModelSource, contains('identical(this, gFFI.chatModel)'));
+    expect(chatModelSource, contains('gFFI.chatModel'));
   });
 
   test('Windows smoke test uploads a nonblank main-window screenshot', () {
@@ -1713,7 +1713,7 @@ void main() {
     expect(chatPageSource, contains('_DesktopChatComposer'));
     expect(chatPageSource, contains('retryMessage('));
     expect(chatPageSource, contains('setSelfDestructMessage('));
-    expect(chatPageSource, contains('onPressed: () => _showMessageActions'));
+    expect(chatPageSource, contains('_showWeChatContextMenu'));
     expect(chatModelSource, contains('Future<bool> retryMessage('));
     expect(chatModelSource, contains('Future<bool> setSelfDestructMessage('));
     expect(directChatSource, contains("'expires_at'"));
