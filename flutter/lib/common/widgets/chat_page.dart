@@ -2498,6 +2498,7 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
   List<MeetingMember> _atCandidates = [];
   int _atCursorPos = -1;
   final LayerLink _layerLink = LayerLink();
+  bool _inputFocused = false;
 
   ChatModel get chatModel => widget.chatModel;
   bool get enabled => widget.enabled;
@@ -2510,12 +2511,18 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
   void initState() {
     super.initState();
     chatModel.textController.addListener(_onTextChanged);
+    chatModel.inputNode.addListener(_onFocusChanged);
   }
 
   @override
   void dispose() {
     chatModel.textController.removeListener(_onTextChanged);
+    chatModel.inputNode.removeListener(_onFocusChanged);
     super.dispose();
+  }
+
+  void _onFocusChanged() {
+    setState(() => _inputFocused = chatModel.inputNode.hasFocus);
   }
 
   void _onTextChanged() {
@@ -2613,15 +2620,32 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
   @override
   Widget build(BuildContext context) {
     final border = dark ? const Color(0xFF3A3D43) : const Color(0xFFE2E2E2);
+    final focusedBorder = dark
+        ? const Color(0xFF4CAF50)
+        : const Color(0xFF07C160);
     final foreground = dark ? const Color(0xFFF2F2F2) : const Color(0xFF222222);
     final muted = dark ? const Color(0xFF999CA2) : const Color(0xFF777777);
-    final composer = Container(
+    final composer = AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
       height: 118,
       margin: const EdgeInsets.fromLTRB(8, 2, 8, 8),
       decoration: BoxDecoration(
         color: dark ? const Color(0xFF25272C) : kWeChatCanvasColor,
-        border: Border.all(color: border),
-        borderRadius: BorderRadius.circular(9),
+        border: Border.all(
+          color: _inputFocused ? focusedBorder : border,
+          width: _inputFocused ? 1.5 : 1.0,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: _inputFocused
+            ? [
+                BoxShadow(
+                  color: focusedBorder.withOpacity(0.15),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ]
+            : null,
       ),
       child: Column(
         children: <Widget>[
@@ -2691,11 +2715,11 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
                       return TextButton(
                         onPressed: canSend ? _send : null,
                         style: TextButton.styleFrom(
-                          fixedSize: const Size(68, 30),
-                          minimumSize: const Size(68, 30),
+                          fixedSize: const Size(72, 32),
+                          minimumSize: const Size(72, 32),
                           padding: EdgeInsets.zero,
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(6),
+                            borderRadius: BorderRadius.circular(8),
                           ),
                           backgroundColor: canSend
                               ? kWeChatPrimaryColor
@@ -2710,12 +2734,17 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
                           disabledForegroundColor: dark
                               ? const Color(0xFF777A80)
                               : const Color(0xFFB5B5B5),
+                          elevation: canSend ? 1 : 0,
+                          shadowColor: canSend
+                              ? kWeChatPrimaryColor.withOpacity(0.4)
+                              : Colors.transparent,
                         ),
                         child: Text(
                           translate('Send'),
                           style: const TextStyle(
                             fontSize: 13,
-                            fontWeight: FontWeight.w500,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 0.3,
                           ),
                         ),
                       );

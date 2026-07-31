@@ -102,9 +102,9 @@ Future<String?> resolveReceivedFilePath(String fileName, int fileSize) async {
   return fallback;
 }
 
-  /// Open file preview in an independent OS window with zoom (images),
-  /// audio playback, text display, and prev/next navigation via [siblingPaths].
-  /// Falls back to system app when the window cannot be created.
+  /// Open file preview in an independent OS window (desktop) or in-app page
+  /// (mobile). Supports image zoom, audio playback, text display, and
+  /// prev/next navigation via [siblingPaths].
 Future<void> showFileViewer(
   BuildContext context, {
   required String fileName,
@@ -119,7 +119,7 @@ Future<void> showFileViewer(
   final resolved = path != null && await File(path).exists();
 
   if (!resolved) {
-    // File not found locally — show a simple dialog in-app.
+    // File not found locally — show info dialog in-app.
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         fullscreenDialog: true,
@@ -133,7 +133,23 @@ Future<void> showFileViewer(
     return;
   }
 
-  // Always open in a separate OS window (supports all file types).
+  // Mobile: use in-app viewer for all types.
+  // Web falls through to desktop path (DesktopMultiWindow or system app).
+  if (isMobile) {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => _FileViewerPage(
+          fileName: fileName,
+          fileSize: fileSize,
+          path: path!,
+        ),
+      ),
+    );
+    return;
+  }
+
+  // Desktop: open in a separate OS window.
   try {
     final windowController = await DesktopMultiWindow.createWindow(
       jsonEncode({
@@ -149,7 +165,7 @@ Future<void> showFileViewer(
       ..setTitle(fileName)
       ..show();
   } catch (_) {
-    // Fallback: open with system app
+    // Last resort: open with system app
     await OpenFilex.open(path!);
   }
 }
@@ -204,7 +220,34 @@ class _FileViewerPage extends StatelessWidget {
   Widget _buildPreview(BuildContext context) {
     if (_isImage(fileName)) {
       return InteractiveViewer(
-        child: Center(child: Image.file(File(path!))),
+        minScale: 0.1,
+        maxScale: 10.0,
+        child: Center(
+          child: Image.file(
+            File(path!),
+            fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) => Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Icon(Icons.broken_image_outlined,
+                    size: 64,
+                    color: Theme.of(context).brightness == Brightness.dark
+                        ? Colors.white38
+                        : Colors.black26),
+                const SizedBox(height: 12),
+                Text(
+                  translate('Cannot preview this image'),
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Theme.of(context).brightness == Brightness.dark
+                        ? Colors.white54
+                        : Colors.black45,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       );
     }
     if (_isAudio(fileName)) return _AudioPreview(path!, fileName);
@@ -320,32 +363,50 @@ class _AudioPreviewState extends State<_AudioPreview> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            Icon(Icons.audiotrack_rounded,
-                size: 72, color: dark ? Colors.white70 : Colors.black45),
+            // Animated audio icon
+            Icon(
+              _playing ? Icons.graphic_eq_rounded : Icons.audiotrack_rounded,
+              size: 72,
+              color: dark ? const Color(0xFF4CAF50) : const Color(0xFF07C160),
+            ),
             const SizedBox(height: 18),
             Text(
               widget.fileName,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 15),
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w500,
+                color: dark ? Colors.white : Colors.black87,
+              ),
             ),
-            const SizedBox(height: 18),
-            Slider(
-              value: _duration.inMilliseconds == 0
-                  ? 0
-                  : _position.inMilliseconds
-                      .clamp(0, _duration.inMilliseconds)
-                      .toDouble(),
-              max: _duration.inMilliseconds.toDouble(),
-              onChanged: (v) => _player.seek(Duration(milliseconds: v.toInt())),
-            ),
+            const SizedBox(height: 20),
+            // Progress bar with track
+              Slider(
+                value: _duration.inMilliseconds == 0
+                    ? 0
+                    : _position.inMilliseconds
+                        .clamp(0, _duration.inMilliseconds)
+                        .toDouble(),
+                max: _duration.inMilliseconds.toDouble(),
+                activeColor: dark ? const Color(0xFF4CAF50) : const Color(0xFF07C160),
+                onChanged: (v) => _player.seek(Duration(milliseconds: v.toInt())),
+              ),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: <Widget>[
-                Text(_clock(_position)),
+                Text(
+                  _clock(_position),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                    color: dark ? Colors.white54 : Colors.black45,
+                  ),
+                ),
                 IconButton(
-                  icon: Icon(_playing ? Icons.pause_circle : Icons.play_circle),
-                  iconSize: 44,
+                  icon: Icon(_playing ? Icons.pause_circle_filled : Icons.play_circle_filled),
+                  iconSize: 48,
+                  color: dark ? const Color(0xFF4CAF50) : const Color(0xFF07C160),
                   onPressed: () {
                     if (_playing) {
                       _player.pause();
@@ -355,9 +416,24 @@ class _AudioPreviewState extends State<_AudioPreview> {
                     }
                   },
                 ),
-                Text(_clock(_duration)),
+                Text(
+                  _clock(_duration),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                    color: dark ? Colors.white54 : Colors.black45,
+                  ),
+                ),
               ],
             ),
+            if (_errored)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Text(
+                  translate('Cannot play this audio file'),
+                  style: TextStyle(fontSize: 13, color: Colors.redAccent),
+                ),
+              ),
           ],
         ),
       ),
@@ -379,17 +455,51 @@ class _TextPreview extends StatelessWidget {
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
+        final lines = snapshot.data!.split('\n');
         return Container(
-          color: dark ? const Color(0xFF15171B) : Colors.white,
-          padding: const EdgeInsets.all(16),
+          color: dark ? const Color(0xFF15171B) : const Color(0xFFFAFAFA),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
           child: SingleChildScrollView(
-            child: SelectableText(
-              snapshot.data!,
-              style: TextStyle(
-                fontSize: 13,
-                height: 1.5,
-                fontFamily: 'monospace',
-                color: dark ? Colors.white70 : Colors.black87,
+            child: SelectionArea(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: List.generate(lines.length, (i) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 0.5),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        SizedBox(
+                          width: 44,
+                          child: Text(
+                            '${i + 1}',
+                            textAlign: TextAlign.right,
+                            style: TextStyle(
+                              fontSize: 12,
+                              height: 1.5,
+                              fontFamily: 'monospace',
+                              color: dark
+                                  ? const Color(0xFF4A4D53)
+                                  : const Color(0xFFB0B0B0),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            lines[i],
+                            style: TextStyle(
+                              fontSize: 13,
+                              height: 1.5,
+                              fontFamily: 'monospace',
+                              color: dark ? Colors.white70 : Colors.black87,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
               ),
             ),
           ),
@@ -408,20 +518,55 @@ class _OtherPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
+    final ext = fileName.contains('.')
+        ? fileName.split('.').last.toUpperCase()
+        : 'FILE';
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 28),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            Icon(Icons.insert_drive_file_outlined,
-                size: 72, color: dark ? Colors.white70 : Colors.black45),
-            const SizedBox(height: 18),
+            // File type badge with colored background
+            Container(
+              width: 96,
+              height: 96,
+              decoration: BoxDecoration(
+                color: dark
+                    ? const Color(0xFF2A2D33)
+                    : const Color(0xFFF0F0F2),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              alignment: Alignment.center,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: <Widget>[
+                  Icon(Icons.insert_drive_file_outlined,
+                      size: 36,
+                      color: dark ? Colors.white60 : Colors.black38),
+                  const SizedBox(height: 4),
+                  Text(
+                    ext,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.5,
+                      color: dark ? Colors.white60 : Colors.black38,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
             Text(
               fileName,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 15),
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w500,
+                color: dark ? Colors.white : Colors.black87,
+              ),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 6),
@@ -432,10 +577,16 @@ class _OtherPreview extends StatelessWidget {
                 color: dark ? Colors.white54 : Colors.black45,
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 24),
             FilledButton.icon(
-              icon: const Icon(Icons.open_in_new_rounded),
+              icon: const Icon(Icons.open_in_new_rounded, size: 18),
               label: Text(translate('Open with system app')),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
               onPressed: () => OpenFilex.open(path),
             ),
           ],

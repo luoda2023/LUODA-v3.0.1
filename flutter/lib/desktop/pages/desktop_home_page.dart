@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:auto_size_text/auto_size_text.dart';
 import 'package:file_picker/file_picker.dart';
@@ -378,6 +379,26 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                     : 360,
                 child: _buildWorkspaceNotice(context),
               ),
+              // Incoming voice call overlay
+              Obx(() {
+                final status = gFFI.chatModel.voiceCallStatus.value;
+                if (status == VoiceCallStatus.incoming) {
+                  final caller = gFFI.serverModel.clients
+                      .firstWhereOrNull((c) => c.incomingVoiceCall && !c.disconnected);
+                  return Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: _IncomingVoiceCallOverlay(
+                      callerName: caller?.name ?? '',
+                      onAccept: () => _handleIncomingVoiceCall(true),
+                      onReject: () => _handleIncomingVoiceCall(false),
+                    ),
+                  );
+                }
+                return const SizedBox.shrink();
+              }),
             ],
           ),
         );
@@ -2858,10 +2879,118 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     );
   }
 
-  /// Pick an image file and send it as a file in the chat.
-  /// (Standard Flutter cannot read raw image bytes from the clipboard, so we
-  /// use a file picker filtered to images.)
+  /// Try to read an image from the system clipboard, returning a temp file
+  /// path / name / size on success, or null if clipboard has no image.
+  /// Falls back to file picker when clipboard access is unavailable.
+  Future<Map<String, dynamic>?> _readClipboardImage() async {
+    try {
+      String? filePath;
+      String ext = 'png';
+      final tempDir = Directory.systemTemp;
+      final stamp = DateTime.now().millisecondsSinceEpoch;
+
+      if (Platform.isWindows) {
+        final tempFile = File('${tempDir.path}${Platform.pathSeparator}luoda_clipboard_$stamp.$ext');
+        final script = File('${tempDir.path}${Platform.pathSeparator}luoda_clip_$stamp.ps1');
+        final safePath = tempFile.path.replaceAll('\\', '\\\\');
+        await script.writeAsString(
+          'Add-Type -AssemblyName System.Windows.Forms;\n'
+          'if (-not [System.Windows.Forms.Clipboard]::ContainsImage()) { exit 1 }\n'
+          '\$img = [System.Windows.Forms.Clipboard]::GetImage();\n'
+          '\$img.Save("$safePath", [System.Drawing.Imaging.ImageFormat]::Png);\n'
+          '\$img.Dispose()\n',
+        );
+        final result = await Process.run(
+          'powershell',
+          ['-NoProfile', '-NonInteractive', '-File', script.path],
+        );
+        try { await script.delete(); } catch (_) {}
+        if (result.exitCode == 0 && await tempFile.exists()) {
+          filePath = tempFile.path;
+        }
+      } else if (Platform.isMacOS) {
+        final tempFile = File('${tempDir.path}${Platform.pathSeparator}luoda_clipboard_$stamp.$ext');
+        final result = await Process.run('osascript', [
+          '-e',
+          'try\n'
+              'set f to (open for access POSIX file "${tempFile.path}" with write permission)\n'
+              'set eof f to 0\n'
+              'write (the clipboard as «class PNGf») to f\n'
+              'close access f\n'
+              'return "ok"\n'
+              'on error errMsg\n'
+              'return "NO_IMAGE"\n'
+              'end try',
+        ]);
+        final out = (result.stdout as String).trim();
+        if (out == 'ok' && await tempFile.exists()) {
+          filePath = tempFile.path;
+        }
+      } else if (Platform.isLinux) {
+        final result = await Process.run('xclip', [
+          '-selection',
+          'clipboard',
+          '-t',
+          'image/png',
+          '-o',
+        ]);
+        if (result.exitCode == 0) {
+          final stdout = result.stdout;
+          Uint8List bytes;
+          if (stdout is Uint8List) {
+            bytes = stdout;
+          } else {
+            bytes = Uint8List.fromList(
+              (stdout as String).codeUnits,
+            );
+          }
+          if (bytes.isNotEmpty) {
+            final tempFile = File(
+              '${tempDir.path}${Platform.pathSeparator}luoda_clipboard_$stamp.$ext',
+            );
+            await tempFile.writeAsBytes(bytes);
+            if (await tempFile.exists()) {
+              filePath = tempFile.path;
+            }
+          }
+        }
+      }
+
+      if (filePath == null) return null;
+
+      final file = File(filePath);
+      final bytes = await file.readAsBytes();
+      if (bytes.isEmpty) return null;
+
+      return {
+        'path': filePath,
+        'name': 'clipboard_image_$stamp.$ext',
+        'size': bytes.length,
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Send an image from clipboard (preferred) or file picker (fallback).
   Future<void> _pasteImageToConversation(String peerId) async {
+    // 1. Try clipboard image first (desktop platforms)
+    final clipboard = await _readClipboardImage();
+    if (clipboard != null) {
+      final clipPath = clipboard['path']! as String;
+      final ffi = await _ensureDirectFileSession(peerId);
+      if (ffi == null || !mounted) {
+        // Clean up temp file if send was aborted
+        try { await File(clipPath).delete(); } catch (_) {}
+        return;
+      }
+      await _sendImageFile(peerId, clipPath, clipboard['name']! as String, clipboard['size']! as int);
+      // Clean up clipboard temp file after successful send
+      try { await File(clipPath).delete(); } catch (_) {}
+      return;
+    }
+
+    // 2. Fall back to file picker
     final picked = await FilePicker.platform.pickFiles(
       type: FileType.image,
       allowMultiple: false,
@@ -2874,6 +3003,11 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       );
       return;
     }
+    await _sendImageFile(peerId, file.path!, file.name, file.size);
+  }
+
+  /// Common send-image-to-peer routine extracted from _pasteImageToConversation.
+  Future<void> _sendImageFile(String peerId, String path, String name, int size) async {
     final ffi = await _ensureDirectFileSession(peerId);
     if (ffi == null || !mounted) return;
     final chatFfi = _directChatSessionFor(peerId);
@@ -2885,9 +3019,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final items = SelectedItems(isLocal: true);
     items.add(
       Entry()
-        ..path = file.path!
-        ..name = file.name
-        ..size = file.size,
+        ..path = path
+        ..name = name
+        ..size = size,
     );
     await ffi.fileModel.localController.sendFiles(
       items,
@@ -2903,9 +3037,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       ),
     );
     await chatModel.sendFileRecord(
-      fileName: file.name,
-      fileSize: file.size,
-      localPath: file.path!,
+      fileName: name,
+      fileSize: size,
+      localPath: path,
     );
     _showConversationNotice(
       translate('Image sent.'),
@@ -3098,6 +3232,18 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _showJoinViewerPage(context, invite: invite);
     });
+  }
+
+  /// Handle incoming voice call — accept or reject.
+  void _handleIncomingVoiceCall(bool accept) {
+    final caller = gFFI.serverModel.clients
+        .firstWhereOrNull((c) => c.incomingVoiceCall && !c.disconnected);
+    if (caller == null) return;
+    if (accept) {
+      bind.cmHandleIncomingVoiceCall(id: caller.id, accept: true);
+    } else {
+      bind.cmCloseVoiceCall(id: caller.id);
+    }
   }
 
   Future<void> _showPairingQrDialog(BuildContext context) async {
@@ -5234,6 +5380,234 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             return entry.value;
           }),
         ],
+      ),
+    );
+  }
+}
+
+/// Full-screen overlay shown when a remote peer requests a voice call.
+/// Displays caller name with accept / reject buttons + pulse animation.
+class _IncomingVoiceCallOverlay extends StatefulWidget {
+  const _IncomingVoiceCallOverlay({
+    required this.callerName,
+    required this.onAccept,
+    required this.onReject,
+  });
+
+  final String callerName;
+  final VoidCallback onAccept;
+  final VoidCallback onReject;
+
+  @override
+  State<_IncomingVoiceCallOverlay> createState() => _IncomingVoiceCallOverlayState();
+}
+
+class _IncomingVoiceCallOverlayState extends State<_IncomingVoiceCallOverlay>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulseController;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final displayName = widget.callerName.isNotEmpty
+        ? widget.callerName
+        : translate('Unknown peer');
+    return Container(
+      color: Colors.black54,
+      alignment: Alignment.center,
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 48),
+        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 28),
+        decoration: BoxDecoration(
+          color: dark ? const Color(0xFF2B2D32) : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.3),
+              blurRadius: 40,
+              offset: const Offset(0, 12),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            // Pulsing avatar with ring animation
+            AnimatedBuilder(
+              animation: _pulseController,
+              builder: (_, child) {
+                final scale = 1.0 + _pulseController.value * 0.15;
+                final opacity = 1.0 - _pulseController.value * 0.6;
+                return Stack(
+                  alignment: Alignment.center,
+                  children: <Widget>[
+                    Transform.scale(
+                      scale: scale * 1.4,
+                      child: Container(
+                        width: 64,
+                        height: 64,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF4CAF50).withOpacity(opacity * 0.3),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                    Transform.scale(
+                      scale: scale * 1.15,
+                      child: Container(
+                        width: 64,
+                        height: 64,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF4CAF50).withOpacity(opacity * 0.15),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                    child!,
+                  ],
+                );
+              },
+              child: Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  color: dark
+                      ? const Color(0xFF3D8C40)
+                      : const Color(0xFF4CAF50),
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF4CAF50).withOpacity(0.4),
+                      blurRadius: 20,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: const Icon(Icons.call_rounded,
+                    size: 32, color: Colors.white),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              translate('Incoming voice call'),
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: dark ? Colors.white : Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              displayName,
+              style: TextStyle(
+                fontSize: 14,
+                color: dark ? Colors.white60 : Colors.black45,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 30),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                _CallActionButton(
+                  icon: Icons.phone_disabled_rounded,
+                  label: translate('Decline'),
+                  color: Colors.red,
+                  onPressed: widget.onReject,
+                ),
+                const SizedBox(width: 32),
+                _CallActionButton(
+                  icon: Icons.call_rounded,
+                  label: translate('Accept'),
+                  color: const Color(0xFF4CAF50),
+                  onPressed: widget.onAccept,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CallActionButton extends StatefulWidget {
+  const _CallActionButton({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onPressed;
+
+  @override
+  State<_CallActionButton> createState() => _CallActionButtonState();
+}
+
+class _CallActionButtonState extends State<_CallActionButton> {
+  bool _hovering = false;
+  bool _pressing = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final scale = _pressing ? 0.92 : (_hovering ? 1.08 : 1.0);
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovering = true),
+      onExit: (_) => setState(() => _hovering = false),
+      child: GestureDetector(
+        onTapDown: (_) => setState(() => _pressing = true),
+        onTapUp: (_) {
+          setState(() => _pressing = false);
+          widget.onPressed();
+        },
+        onTapCancel: () => setState(() => _pressing = false),
+        child: AnimatedScale(
+          scale: scale,
+          duration: const Duration(milliseconds: 120),
+          curve: Curves.easeOutCubic,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Material(
+                color: widget.color,
+                shape: const CircleBorder(),
+                clipBehavior: Clip.antiAlias,
+                elevation: _hovering ? 6 : 2,
+                child: Container(
+                  width: 56,
+                  height: 56,
+                  alignment: Alignment.center,
+                  child: Icon(widget.icon, color: Colors.white, size: 26),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                widget.label,
+                style: const TextStyle(fontSize: 12),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
