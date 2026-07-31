@@ -298,7 +298,6 @@ impl RendezvousMediator {
                         break;
                     }
                     let now = Some(Instant::now());
-                    let expired = last_register_resp.map(|x| x.elapsed().as_millis() as i64 >= REG_INTERVAL).unwrap_or(true);
                     // Use shorter interval when re-registering after disconnect
                     let expired = last_register_resp
                         .map(|x| x.elapsed().as_millis() as i64 >= REG_INTERVAL_RECOVERY)
@@ -618,7 +617,10 @@ impl RendezvousMediator {
             .await;
         }
         let is_private_ipv4 = match &self.addr {
-            TargetAddr::Ip(addr) => addr.ip().is_private(),
+            TargetAddr::Ip(addr) => match addr.ip() {
+                std::net::IpAddr::V4(v4) => v4.is_private(),
+                _ => false,
+            },
             _ => false,
         };
         if is_ipv4(&self.addr) && !relay

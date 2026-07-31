@@ -488,7 +488,8 @@ impl PrivacyMode for PrivacyModeImpl {
         guard.disable_physical_displays()?;
         Self::commit_change_display(CDS_RESET)?;
         // Read configured virtual display resolution, default 1920x1080.
-        let (vw, vh) = if let Some(res_str) = Config::get_option("virtual-display-resolution") {
+        let res_str = Config::get_option("virtual-display-resolution");
+        let (vw, vh) = if !res_str.is_empty() {
             let parts: Vec<&str> = res_str.split('x').collect();
             if parts.len() == 2 {
                 if let (Ok(w), Ok(h)) = (parts[0].parse::<usize>(), parts[1].parse::<usize>()) {

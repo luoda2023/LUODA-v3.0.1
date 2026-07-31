@@ -652,7 +652,8 @@ pub mod amyuni_idd {
 
     /// Read configured virtual display resolution, default 1920x1080.
     fn get_virtual_display_resolution() -> (usize, usize) {
-        if let Some(res_str) = Config::get_option(keys::OPTION_VIRTUAL_DISPLAY_RESOLUTION) {
+        let res_str = Config::get_option(keys::OPTION_VIRTUAL_DISPLAY_RESOLUTION);
+        if !res_str.is_empty() {
             let parts: Vec<&str> = res_str.split('x').collect();
             if parts.len() == 2 {
                 if let (Ok(w), Ok(h)) = (parts[0].parse::<usize>(), parts[1].parse::<usize>()) {
