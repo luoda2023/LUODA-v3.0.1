@@ -1698,6 +1698,9 @@ class ChatPage extends StatelessWidget implements PageShape {
               double maxBubbleWidth,
             ) {
               final isOwnMessage = message.user.id == chatModel.me.id;
+              final isAiReply = !isOwnMessage &&
+                  (message.customProperties?['ldesk_ai_reply'] == 'true' ||
+                   message.customProperties?['ldesk_ai_loading'] == 'true');
               final bubbleColor = isOwnMessage
                   ? dark
                       ? const Color(0xFF3B7F55)
@@ -1706,7 +1709,21 @@ class ChatPage extends StatelessWidget implements PageShape {
                       ? const Color(0xFF2B2D32)
                       : kWeChatIncomingBubbleColor;
               final name = (message.user.firstName ?? '').trim();
-              final bubble = Stack(
+              final content = messageBody(
+                message,
+                isOwnMessage: isOwnMessage,
+                includeMetadata: false,
+              );
+              final bubble = isAiReply
+                  ? Container(
+                      constraints: BoxConstraints(maxWidth: maxBubbleWidth),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 9,
+                      ),
+                      child: content,
+                    )
+                  : Stack(
                 clipBehavior: Clip.none,
                 children: <Widget>[
                   Container(
@@ -1719,11 +1736,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                       color: bubbleColor,
                       borderRadius: BorderRadius.circular(5),
                     ),
-                    child: messageBody(
-                      message,
-                      isOwnMessage: isOwnMessage,
-                      includeMetadata: false,
-                    ),
+                    child: content,
                   ),
                   Positioned(
                     top: 11,
@@ -1763,6 +1776,18 @@ class ChatPage extends StatelessWidget implements PageShape {
                       ),
                     ],
                     bubble,
+                    if (isAiReply && aiReplyLabel(message).isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4, left: 2),
+                        child: Text(
+                          aiReplyLabel(message),
+                          style: TextStyle(
+                            fontSize: 11,
+                            height: 1.2,
+                            color: dark ? const Color(0xFF999CA2) : const Color(0xFF999999),
+                          ),
+                        ),
+                      ),
                     if (isOwnMessage &&
                         (hasDelivery(message) ||
                             selfDestructLabel(message).isNotEmpty))
