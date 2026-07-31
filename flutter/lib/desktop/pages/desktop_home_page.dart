@@ -2445,10 +2445,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   (String, Color) _directDeliveryStatus(String peerId, {Peer? contact}) {
     final ffi = _directChatSessionFor(peerId);
     final incoming = _incomingDirectChatClientFor(peerId);
-    if ((ffi != null &&
-            !ffi.closed &&
-            ffi.ffiModel.pi.isSet.isTrue &&
-            ffi.ffiModel.direct == true) ||
+    // Session alive and authorized: ready for chat.
+    if ((ffi != null && !ffi.closed &&
+         (ffi.ffiModel.pi.isSet.isTrue || ffi.connType == ConnType.chat)) ||
         incoming != null) {
       return ('Messages allowed', const Color(0xFF238A57));
     }
