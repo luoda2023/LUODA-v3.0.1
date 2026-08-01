@@ -2780,10 +2780,12 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
 
   @override
   Widget build(BuildContext context) {
-    final border = dark ? const Color(0xFF3A3D43) : const Color(0xFFE2E2E2);
+    final border = dark
+        ? const Color(0x473A3D43) // 28% opacity
+        : const Color(0x47E2E2E2); // 28% opacity
     final focusedBorder = dark
-        ? const Color(0xFF4CAF50)
-        : const Color(0xFF07C160);
+        ? const Color(0x4D4CAF50) // 30% opacity (slightly more visible when focused)
+        : const Color(0x4707C160); // 28% opacity
     final foreground = dark ? const Color(0xFFF2F2F2) : const Color(0xFF222222);
     final muted = dark ? const Color(0xFF999CA2) : const Color(0xFF777777);
     final composer = AnimatedContainer(
