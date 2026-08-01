@@ -45,6 +45,8 @@
 	<string>Record the sound from microphone for the purpose of the remote desktop.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>LDesk uses the local network for direct IP chat, file transfer, and remote assistance.</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>LDesk needs screen recording permission to share your screen with remote peers during remote assistance sessions.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
     <key>LSUIElement</key>
