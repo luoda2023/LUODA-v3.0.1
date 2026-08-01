@@ -829,6 +829,7 @@ class ChatModel with ChangeNotifier {
         fileSha256: '',
       );
       insertMessage(key, _toChatMessage(record, me));
+      await _transmitRecord(key, record);
       notifyListeners();
     } catch (e) {
       debugPrint('Image generation failed: $e');
@@ -1068,7 +1069,11 @@ class ChatModel with ChangeNotifier {
         }
         // If AI not configured and not export, fall through to send raw
       }
+    }
 
+    // Normal message send — both for non-# text AND #-prefixed
+    // text that wasn't handled by the AI/image/export paths above.
+    {
       final trimmedText = rawText;
       final key = _currentKey;
       if (key.peerId.isEmpty) return;
