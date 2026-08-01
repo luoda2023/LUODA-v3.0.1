@@ -2562,6 +2562,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       return;
     }
     final pairing = DirectPairingStore.find(requestedId);
+    final peerId = pairing?.peerId ?? requestedId;
     final endpoint = DirectPairingStore.resolveConnectionTarget(requestedId);
     if (endpoint == null) {
       _showConversationNotice(
@@ -2571,7 +2572,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       );
       return;
     }
-    final peerId = pairing?.peerId ?? requestedId;
     final contact = _findContact(peerId);
     final existing = _directChatSessionFor(peerId);
     if (existing != null && !existing.closed) {
