@@ -60,6 +60,14 @@ fn normalize_transport_options() {
         }
         return;
     }
+    // Enable the direct IP listener by default on ALL platforms so that
+    // LAN peers can establish chat and file-transfer connections without
+    // needing the rendezvous server to punch holes. Users who don't want
+    // this can set direct-server to "N" explicitly in the UI settings.
+    if Config::get_option(OPTION_DIRECT_SERVER).is_empty() {
+        Config::set_option(OPTION_DIRECT_SERVER.to_owned(), "Y".to_owned());
+        log::info!("Auto-enabled direct-server listener for LAN peer access");
+    }
     if use_ws() && crate::is_udp_disabled() {
         Config::set_option(OPTION_ALLOW_WEBSOCKET.to_owned(), "N".to_owned());
         log::warn!("Disable UDP and WebSocket were both enabled; keeping raw TCP registration");
