@@ -1765,7 +1765,19 @@ class ChatPage extends StatelessWidget implements PageShape {
                   ),
                 ],
               );
-              final messageColumn = Flexible(
+              final messageColumn = GestureDetector(
+                onSecondaryTapUp: (details) async {
+                  final action = await _showWeChatContextMenu(
+                    context, message,
+                    position: details.globalPosition,
+                    alignToAvatarLeft: isOwnMessage,
+                  );
+                  if (context.mounted) {
+                    await _handleWeChatContextAction(
+                        context, action, message);
+                  }
+                },
+                child: Flexible(
                 child: Column(
                   crossAxisAlignment: isOwnMessage
                       ? CrossAxisAlignment.end
@@ -1851,7 +1863,8 @@ class ChatPage extends StatelessWidget implements PageShape {
                       ),
                   ],
                 ),
-              );
+              ), // Flexible
+              ); // GestureDetector
               final avatar = messageAvatar(message.user, null, null);
               final avatarKey = GlobalKey();
               final canManage = isOwnMessage &&
@@ -1919,38 +1932,6 @@ class ChatPage extends StatelessWidget implements PageShape {
                             color: dark
                                 ? const Color(0xFFFF8A8A)
                                 : const Color(0xFFE5484D),
-                          ),
-                        ),
-                        const SizedBox(width: 2),
-                        IconButton(
-                          onPressed: () async {
-                            final renderObj = avatarKey.currentContext
-                                ?.findRenderObject() as RenderBox?;
-                            final avatarPos = renderObj?.localToGlobal(
-                                  Offset.zero,
-                                ) ??
-                                Offset.zero;
-                            final action = await _showWeChatContextMenu(
-                              context, message,
-                              position: avatarPos,
-                              alignToAvatarLeft: true,
-                            );
-                            if (context.mounted) {
-                              await _handleWeChatContextAction(
-                                  context, action, message);
-                            }
-                          },
-                          tooltip: translate('Message actions'),
-                          visualDensity: VisualDensity.compact,
-                          constraints:
-                              const BoxConstraints.tightFor(width: 30, height: 30),
-                          padding: EdgeInsets.zero,
-                          icon: Icon(
-                            Icons.more_horiz_rounded,
-                            size: 18,
-                            color: dark
-                                ? const Color(0xFF999CA2)
-                                : const Color(0xFF7B7B7B),
                           ),
                         ),
                       ],
