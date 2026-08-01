@@ -1746,8 +1746,19 @@ class ChatPage extends StatelessWidget implements PageShape {
                       vertical: 9,
                     ),
                     decoration: BoxDecoration(
+                      // LUODA FIX: light-mode incoming bubbles are white on a
+                      // near-white canvas (#F7F7F7) — invisible. Add a 1px
+                      // border in light mode so peer messages have clear edges.
+                      // Dark mode keeps the original flat fill (no border) so
+                      // the bubble doesn't feel "outlined" against dark canvas.
                       color: bubbleColor,
                       borderRadius: BorderRadius.circular(5),
+                      border: !dark && !isOwnMessage
+                          ? Border.all(
+                              color: kWeChatIncomingBubbleBorder,
+                              width: 1,
+                            )
+                          : null,
                     ),
                     child: content,
                   ),

@@ -4,7 +4,11 @@ const Color kWeChatPrimaryColor = Color(0xFF07C160);
 const Color kWeChatChromeColor = Color(0xFFE3E8E5);
 const Color kWeChatListSurfaceColor = Color(0xFFF0F1F2);
 const Color kWeChatCanvasColor = Color(0xFFF7F7F7);
+// LUODA FIX: light-mode incoming bubble must be visually distinct from the
+// near-white canvas (#F7F7F7). Pure white on near-white is invisible. We use a
+// warm off-white plus a subtle 1px border so peer messages read clearly.
 const Color kWeChatIncomingBubbleColor = Color(0xFFFFFFFF);
+const Color kWeChatIncomingBubbleBorder = Color(0xFFE2E2E2);
 const Color kWeChatOutgoingBubbleColor = Color(0xFF95EC69);
 const Color kWeChatSelectedConversationColor = Color(0xFF07C160);
 const Color kWeChatDividerColor = Color(0xFFE5E5E5);
