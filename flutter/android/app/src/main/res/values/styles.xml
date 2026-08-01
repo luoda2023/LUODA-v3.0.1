@@ -15,7 +15,12 @@
     <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
         <item name="android:windowBackground">?android:colorBackground</item>
     </style>
-    <style name="Transparent" parent="Theme.AppCompat.NoActionBar">
+    <!-- LUODA FIX: parent was Theme.AppCompat.NoActionBar but the project has
+         no appcompat dependency and PermissionRequestTransparentActivity extends
+         plain Activity — applying an AppCompat theme to a non-AppCompat activity
+         throws Resources.NotFound on some devices (app fails to open the
+         MediaProjection permission screen). Use a pure android theme instead. -->
+    <style name="Transparent" parent="@android:style/Theme.NoTitleBar.Fullscreen">
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:windowBackground">@android:color/transparent</item>
         <item name="android:windowContentOverlay">@null</item>
