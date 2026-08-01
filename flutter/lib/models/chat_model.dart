@@ -1090,7 +1090,6 @@ class ChatModel with ChangeNotifier {
           (_replyToMessage?.customProperties?['ldesk_id'] ?? '').toString();
       final replyText = _replyToMessage?.text ?? '';
       DirectChatRecord? record;
-      bool transmitOk = false;
       try {
         record = await DirectChatRepository.instance.createOutgoing(
           conversationId: key.peerId,
@@ -1114,7 +1113,7 @@ class ChatModel with ChangeNotifier {
         insertMessage(key, _toChatMessage(record, me));
         _scheduleSelfDestruct(key, record, me);
         try {
-          transmitOk = await _transmitRecord(key, record);
+          await _transmitRecord(key, record);
         } catch (e, st) {
           debugPrint('Failed to transmit outgoing chat message: $e\n$st');
         }
@@ -1147,12 +1146,6 @@ class ChatModel with ChangeNotifier {
       // persistence / transmission failure.
       notifyListeners();
       inputNode.requestFocus();
-
-      if (record != null && !transmitOk) {
-        debugPrint(
-          'Outgoing chat message ${record.id} not transmitted (no live session).',
-        );
-      }
     }
   }
 
