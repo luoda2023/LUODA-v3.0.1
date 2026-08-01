@@ -197,7 +197,15 @@ class ServerModel with ChangeNotifier {
           await timerCallback();
         }
       });
-      Timer.periodic(Duration(milliseconds: 500), (timer) async {
+      // LUODA 3.1.1 performance fix: poll at 2s on desktop (was 500ms) and 5s
+      // on mobile. The old 500ms interval fired 2 IPC round-trips (connect
+      // status + client length) plus 4-5 more in updatePasswordModel() every
+      // tick — tens of IPC calls per second that kept CPU busy and made the
+      // whole PC feel sluggish. 2s is plenty: connect-status changes are
+      // event-driven elsewhere, and the password only rotates every few
+      // minutes.
+      final pollMs = isMobile ? 5000 : 2000;
+      Timer.periodic(Duration(milliseconds: pollMs), (timer) async {
         await timerCallback();
       });
     }

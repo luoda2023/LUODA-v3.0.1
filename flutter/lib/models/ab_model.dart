@@ -82,7 +82,10 @@ class AbModel {
         getInitPeers: () => currentAbPeers,
         loadEvent: LoadEvent.addressBook);
     if (desktopType == DesktopType.main) {
-      Timer.periodic(Duration(milliseconds: 500), (timer) async {
+      // LUODA 3.1.1 performance fix: 2s interval (was 500ms). The tick only
+      // syncs every 6th fire, so this still syncs every 12s — unchanged
+      // behaviour, but the timer itself no longer wakes the event loop 2x/s.
+      Timer.periodic(Duration(milliseconds: 2000), (timer) async {
         if (_timerCounter++ % 6 == 0) {
           if (!gFFI.userModel.isLogin) return;
           if (!listInitialized) return;

@@ -5070,11 +5070,15 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         (_) => unawaited(_refreshDirectSessions()),
       );
     }
-    // Incoming-only client mode uses a slower polling interval since
-    // the displayed info is mostly static; full desktop mode stays at 1s.
+    // LUODA 3.1.1 performance fix: desktop full mode polled at 1s, firing
+    // several synchronous IPC reads (fetchID, mainGetError, stop-service,
+    // public-ip, lan-ip, direct-access-port) on the UI thread every second.
+    // Synchronous IPC blocks the Flutter isolate until Rust replies, which is
+    // what made the whole PC feel sluggish. 5s is plenty — IP/port changes are
+    // rare (network switch) and the values are re-read on any reconnect.
     final pollInterval = bind.isIncomingOnly()
         ? const Duration(seconds: 10)
-        : const Duration(seconds: 1);
+        : const Duration(seconds: 5);
     _updateTimer = periodic_immediate(pollInterval, () async {
       await gFFI.serverModel.fetchID();
       final error = await bind.mainGetError();
