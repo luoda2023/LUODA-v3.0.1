@@ -1926,13 +1926,14 @@ impl Connection {
         if !self.direct_chat_identity_matches(peer_id) {
             return false;
         }
-        if LocalConfig::get_option("direct-chat-always-on") != "Y" {
+        // Default: direct-chat-always-on is considered "Y" unless explicitly set to "N".
+        if LocalConfig::get_option("direct-chat-always-on") == "N" {
             return false;
         }
         match self.direct_chat_policy(peer_id).as_str() {
             "allow" => true,
             "deny" => false,
-            _ => LocalConfig::get_option("direct-chat-trusted-only") == "N",
+            _ => LocalConfig::get_option("direct-chat-trusted-only") != "Y",
         }
     }
 
