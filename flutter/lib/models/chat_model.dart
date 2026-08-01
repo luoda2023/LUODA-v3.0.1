@@ -277,7 +277,7 @@ class ChatModel with ChangeNotifier {
         bool isEnterPressed = event.isKeyPressed(LogicalKeyboardKey.enter);
 
         // don't send empty messages
-        if (isEnterPressed && isEnterPressed && textController.text.isEmpty) {
+        if (isEnterPressed && !isShiftPressed && textController.text.isEmpty) {
           return KeyEventResult.handled;
         }
 
@@ -800,7 +800,15 @@ class ChatModel with ChangeNotifier {
     notifyListeners();
 
     try {
-      final localPath = await AiImageService.generate(query);
+      // Strip trigger keywords so the image prompt is clean
+      const imageTriggers = ['画', '图片', '图像', '生成图片', '绘', 'draw', 'image', 'picture', 'generate', 'create', '生成'];
+      var cleanQuery = query;
+      for (final kw in imageTriggers) {
+        cleanQuery = cleanQuery.replaceAll(RegExp(r'\b' + RegExp.escape(kw) + r'\s*\b', caseSensitive: false), '');
+      }
+      cleanQuery = cleanQuery.trim();
+      if (cleanQuery.isEmpty) cleanQuery = query; // fallback
+      final localPath = await AiImageService.generate(cleanQuery);
       if (localPath == null || localPath.isEmpty) {
         throw Exception('No image returned');
       }

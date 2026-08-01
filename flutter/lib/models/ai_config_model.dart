@@ -334,7 +334,9 @@ Future<String?> _callAi(AiProfile profile, String prompt,
         if (content != null && content.isNotEmpty) {
           // Track usage count for built-in profiles with quotas.
           if (profile.builtIn && profile.freeQuota > 0) {
-            unawaited(AiConfig.current.incrementUsage(profile.name));
+            // Use unawaited to not block the response, but capture the future
+            // so it won't be lost if the app closes mid-call.
+            AiConfig.current.incrementUsage(profile.name).catchError((_) {});
           }
           return content;
         }
