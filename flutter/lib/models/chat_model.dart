@@ -1742,8 +1742,8 @@ class ChatModel with ChangeNotifier {
       }
       bind.cmSendChat(connId: key.connId, msg: value);
       return true;
-    } catch (error) {
-      debugPrint('Failed to send direct chat message: $error');
+    } catch (error, stackTrace) {
+      debugPrint('Failed to send direct chat message: $error\n$stackTrace');
       return false;
     }
   }
