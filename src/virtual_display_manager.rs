@@ -1,4 +1,4 @@
-use hbb_common::{bail, platform::windows::is_windows_version_or_greater, ResultType};
+use hbb_common::{bail, log, platform::windows::is_windows_version_or_greater, ResultType};
 
 // This string is defined here.
 //  https://github.com/luoda-org/LUODAIddDriver/blob/b370aad3f50028b039aad211df60c8051c4a64d6/LUODAIddDriver/LUODAIddDriver.inf#LL73C1-L73C40
@@ -47,6 +47,79 @@ pub fn is_virtual_display_supported() -> bool {
     {
         false
     }
+}
+
+/// Count of currently ACTIVE physical displays (excluding mirroring drivers and
+/// our own virtual/IDD monitors). Used to detect headless VPS/remote machines:
+/// if zero physical displays are active, we can automatically plug in a virtual
+/// display so remote control sessions have something to render.
+#[cfg(target_os = "windows")]
+pub fn active_physical_display_count() -> usize {
+    use winapi::um::wingdi::{
+        DISPLAY_DEVICEW, DISPLAY_DEVICE_ACTIVE, DISPLAY_DEVICE_MIRRORING_DRIVER,
+    };
+    use winapi::um::winuser::EnumDisplayDevicesW;
+    let mut count = 0usize;
+    let mut dd: DISPLAY_DEVICEW = unsafe { std::mem::zeroed() };
+    dd.cb = std::mem::size_of::<DISPLAY_DEVICEW>() as u32;
+    let mut i = 0u32;
+    loop {
+        let result = unsafe { EnumDisplayDevicesW(std::ptr::null_mut(), i, &mut dd, 0) };
+        if result == 0 {
+            break;
+        }
+        i += 1;
+        if 0 == (dd.StateFlags & DISPLAY_DEVICE_ACTIVE)
+            || (dd.StateFlags & DISPLAY_DEVICE_MIRRORING_DRIVER) > 0
+        {
+            continue;
+        }
+        if let Ok(device_string) = String::from_utf16(&dd.DeviceString) {
+            // Skip our own virtual displays — they are not physical.
+            if device_string.contains("LUODAIddDriver")
+                || device_string.contains("USB Mobile Monitor")
+                || device_string.contains("Virtual Display")
+                || device_string.contains("Virtual Monitor")
+            {
+                continue;
+            }
+        }
+        count += 1;
+    }
+    count
+}
+
+/// Automatically ensure a headless Windows machine (VPS / remote server without
+/// any physical display attached) has a virtual display available. Returns true
+/// if a virtual display was plugged in or already present.
+#[cfg(target_os = "windows")]
+pub fn auto_plug_headless_if_needed() -> bool {
+    if !is_virtual_display_supported() {
+        return false;
+    }
+    if active_physical_display_count() > 0 {
+        return false; // has a physical display — nothing to do
+    }
+    match plug_in_headless() {
+        Ok(()) => {
+            log::info!("Headless machine detected: virtual display plugged in automatically.");
+            true
+        }
+        Err(e) => {
+            log::warn!("Headless machine detected but failed to plug virtual display: {}", e);
+            false
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn active_physical_display_count() -> usize {
+    0
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn auto_plug_headless_if_needed() -> bool {
+    false
 }
 
 pub fn plug_in_headless() -> ResultType<()> {

@@ -899,7 +899,7 @@ class ChatPage extends StatelessWidget implements PageShape {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
-        color: dark ? const Color(0xFF1F2228) : const Color(0xFFF8F8F8),
+        color: dark ? kWeChatCanvasColorDark : const Color(0xFFF8F8F8),
         border: Border(top: BorderSide(
           color: dark ? const Color(0xFF3A3D43) : const Color(0xFFDDDDDD),
         )),
@@ -1019,11 +1019,11 @@ class ChatPage extends StatelessWidget implements PageShape {
       child: Container(
         color: type == ChatPageType.desktopHome
             ? Theme.of(context).brightness == Brightness.dark
-                ? const Color(0xFF1C1E23)
+                ? kWeChatCanvasColorDark
                 : kWeChatCanvasColor
             : type == ChatPageType.mobileMain
                 ? Theme.of(context).brightness == Brightness.dark
-                    ? const Color(0xFF1F2228)
+                    ? kWeChatCanvasColorDark
                     : const Color(0xFFEDEDED)
                 : Theme.of(context).scaffoldBackgroundColor,
         child: Consumer<ChatModel>(
@@ -1716,10 +1716,10 @@ class ChatPage extends StatelessWidget implements PageShape {
                    message.customProperties?['ldesk_ai_loading'] == 'true');
               final bubbleColor = isOwnMessage
                   ? dark
-                      ? const Color(0xFF3B7F55)
+                      ? kWeChatOutgoingBubbleColorDark
                       : kWeChatOutgoingBubbleColor
                   : dark
-                      ? const Color(0xFF2B2D32)
+                      ? kWeChatIncomingBubbleColorDark
                       : kWeChatIncomingBubbleColor;
               final name = (message.user.firstName ?? '').trim();
               final content = messageBody(
@@ -2179,17 +2179,17 @@ class ChatPage extends StatelessWidget implements PageShape {
                         final bubbleColor = isDesktopHome
                             ? isOwnMessage
                                 ? dark
-                                    ? const Color(0xFF3B7F55)
+                                    ? kWeChatOutgoingBubbleColorDark
                                     : const Color(0xFF95EC69)
                                 : dark
-                                    ? const Color(0xFF2B2D32)
+                                    ? kWeChatIncomingBubbleColorDark
                                     : Colors.white
                             : isOwnMessage
                                 ? dark
-                                    ? const Color(0xFF3B7F55)
+                                    ? kWeChatOutgoingBubbleColorDark
                                     : const Color(0xFF95EC69)
                                 : dark
-                                    ? const Color(0xFF2B2D32)
+                                    ? kWeChatIncomingBubbleColorDark
                                     : Colors.white;
                         return defaultMessageDecoration(
                           color: bubbleColor,
@@ -2245,7 +2245,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                       padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
                       decoration: BoxDecoration(
                         color: dark
-                            ? const Color(0xFF1F2228)
+                            ? kWeChatCanvasColorDark
                             : const Color(0xFFF7F7F7),
                         border: Border(
                           top: BorderSide(
@@ -2387,7 +2387,13 @@ class ChatPage extends StatelessWidget implements PageShape {
                       children: <Widget>[
                         reconnectBar,
                         loadOlderBar,
-                        Expanded(child: messageList),
+                        Expanded(child: _buildMessageArea(
+                          context: context,
+                          dark: dark,
+                          messageList: messageList,
+                          chatModel: chatModel,
+                          isDesktopHome: isDesktopHome,
+                        )),
                         replyBar,
                         typingBar,
                       ],
@@ -2397,7 +2403,13 @@ class ChatPage extends StatelessWidget implements PageShape {
                     children: <Widget>[
                       reconnectBar,
                       loadOlderBar,
-                      Expanded(child: messageList),
+                      Expanded(child: _buildMessageArea(
+                        context: context,
+                        dark: dark,
+                        messageList: messageList,
+                        chatModel: chatModel,
+                        isDesktopHome: isDesktopHome,
+                      )),
                       replyBar,
                       typingBar,
                       _DesktopChatComposer(
@@ -2490,6 +2502,65 @@ class ChatPage extends StatelessWidget implements PageShape {
           },
         ),
       ),
+    );
+  }
+
+  /// Wraps the DashChat message list with a friendly empty-state overlay so
+  /// users never see a bare canvas when there are no messages yet. This is
+  /// critical for the desktop home view, where DashChat would otherwise just
+  /// paint the canvas color and look like "the code was deleted".
+  Widget _buildMessageArea({
+    required BuildContext context,
+    required bool dark,
+    required Widget messageList,
+    required ChatModel chatModel,
+    required bool isDesktopHome,
+  }) {
+    final messages = chatModel.messages[chatModel.currentKey]?.chatMessages;
+    final hasMessages = messages != null && messages.isNotEmpty;
+    if (hasMessages) {
+      return messageList;
+    }
+    // Show empty state hint always (when no messages in current conversation).
+    final hintColor = dark
+        ? const Color(0xFF888C93)
+        : const Color(0xFF8E8E93);
+    final label = chatModel.currentKey.peerId.isEmpty
+        ? translate('Select a conversation to start chatting')
+        : translate('No messages yet — send the first one');
+    return Stack(
+      children: [
+        Positioned.fill(child: messageList),
+        Positioned.fill(
+          child: IgnorePointer(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.forum_rounded,
+                      size: 48,
+                      color: hintColor.withOpacity(0.6),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      label,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: hintColor,
+                        fontSize: 13,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

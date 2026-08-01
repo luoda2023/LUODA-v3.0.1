@@ -10,6 +10,7 @@ use crate::{
     common::get_default_sound_input,
     ui_session_interface::{InvokeUiSession, Session},
 };
+use crate::{LOGIN_MSG_VERSION_MISMATCH, MIN_PEER_VERSION};
 #[cfg(feature = "unix-file-copy-paste")]
 use crate::{clipboard::try_empty_clipboard_files, clipboard_file::unix_file_clip};
 #[cfg(any(
@@ -1362,6 +1363,23 @@ impl<T: InvokeUiSession> Remote<T> {
                         let peer_version = pi.version.clone();
                         let peer_platform = pi.platform.clone();
                         self.set_peer_info(&pi);
+                        // LUODA 3.x protocol isolation: refuse to talk to any server
+                        // below MIN_PEER_VERSION. Bail out before opening audio/
+                        // clipboard/permission flows so the user sees a clear error.
+                        if !peer_version.is_empty()
+                            && hbb_common::get_version_number(&peer_version)
+                                < hbb_common::get_version_number(MIN_PEER_VERSION)
+                        {
+                            log::warn!(
+                                "Server version {} is below required {}; aborting connection",
+                                peer_version,
+                                MIN_PEER_VERSION
+                            );
+                            if !self.handler.handle_login_error(LOGIN_MSG_VERSION_MISMATCH) {
+                                return false;
+                            }
+                            return false;
+                        }
                         if self.handler.is_view_camera() {
                             if !self.check_view_camera_support(&peer_version, &peer_platform) {
                                 self.handler.lc.write().unwrap().handle_peer_info(&pi);

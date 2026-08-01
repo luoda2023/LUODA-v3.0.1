@@ -1089,27 +1089,70 @@ class ChatModel with ChangeNotifier {
       final replyId =
           (_replyToMessage?.customProperties?['ldesk_id'] ?? '').toString();
       final replyText = _replyToMessage?.text ?? '';
-      final record = await DirectChatRepository.instance.createOutgoing(
-        conversationId: key.peerId,
-        kind: DirectChatKind.text,
-        text: trimmedText,
-        senderId: me.id,
-        senderName: me.firstName ?? '',
-        senderAvatar: '',
-        replyToId: replyId,
-        replyToText: replyText.length > 80
-            ? '${replyText.substring(0, 80)}...'
-            : replyText,
-      );
+      DirectChatRecord? record;
+      bool transmitOk = false;
+      try {
+        record = await DirectChatRepository.instance.createOutgoing(
+          conversationId: key.peerId,
+          kind: DirectChatKind.text,
+          text: trimmedText,
+          senderId: me.id,
+          senderName: me.firstName ?? '',
+          senderAvatar: '',
+          replyToId: replyId,
+          replyToText: replyText.length > 80
+              ? '${replyText.substring(0, 80)}...'
+              : replyText,
+        );
+      } catch (e, st) {
+        debugPrint('Failed to persist outgoing chat message: $e\n$st');
+      }
       _replyToMessage = null;
       // Clear draft after send
       _drafts.remove(key.peerId);
-      insertMessage(key, _toChatMessage(record, me));
-      _scheduleSelfDestruct(key, record, me);
-      await _transmitRecord(key, record);
+      if (record != null) {
+        insertMessage(key, _toChatMessage(record, me));
+        _scheduleSelfDestruct(key, record, me);
+        try {
+          transmitOk = await _transmitRecord(key, record);
+        } catch (e, st) {
+          debugPrint('Failed to transmit outgoing chat message: $e\n$st');
+        }
+      } else {
+        // Persistence failed — synthesize a transient queued record so the
+        // message still shows up locally with a failed delivery state. The
+        // user can then see they sent it and decide to retry.
+        final tmp = DirectChatRecord(
+          id: 'local-${DateTime.now().microsecondsSinceEpoch}',
+          conversationId: key.peerId,
+          originDeviceId: me.id,
+          originSequence: 0,
+          direction: DirectChatDirection.outgoing,
+          kind: DirectChatKind.text,
+          text: trimmedText,
+          senderId: me.id,
+          senderName: me.firstName ?? '',
+          senderAvatar: '',
+          sentAt: DateTime.now().toUtc(),
+          delivery: DirectChatDelivery.failed,
+          replyToId: replyId,
+          replyToText: replyText.length > 80
+              ? '${replyText.substring(0, 80)}...'
+              : replyText,
+        );
+        insertMessage(key, _toChatMessage(tmp, me));
+      }
 
+      // Always notify so the UI rebuilds and shows the bubble, even on
+      // persistence / transmission failure.
       notifyListeners();
       inputNode.requestFocus();
+
+      if (record != null && !transmitOk) {
+        debugPrint(
+          'Outgoing chat message ${record.id} not transmitted (no live session).',
+        );
+      }
     }
   }
 

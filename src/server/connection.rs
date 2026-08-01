@@ -51,6 +51,7 @@ use crate::{
     },
     display_service, ipc, privacy_mode, video_service, VERSION,
 };
+use crate::{LOGIN_MSG_VERSION_MISMATCH, MIN_PEER_VERSION};
 #[cfg(any(target_os = "android", target_os = "ios"))]
 use crate::{common::DEVICE_NAME, flutter::connection_manager::start_channel};
 use cidr_utils::cidr::IpCidr;
@@ -2104,6 +2105,22 @@ impl Connection {
             #[cfg(feature = "flutter")]
             crate::flutter_ffi::main_load_recent_peers();
         }
+        // LUODA LAN/IP-direct fast path: if the controlling peer connected via a
+        // private-network address (or an explicit IP endpoint), mark the global
+        // QoS controller as LAN so it ramps quality/FPS aggressively. This gives
+        // IP-direct and same-LAN sessions crisp 4K video quickly without waiting
+        // for the conservative WAN ramp-up ladder.
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        if !self.chat_only && !self.file_transfer.is_some() && !self.view_camera && !self.terminal {
+            let lan = crate::common::is_lan_ip(&self.ip);
+            if lan {
+                log::info!(
+                    "LAN/IP-direct session from {} — enabling aggressive video QoS",
+                    self.ip
+                );
+                video_service::VIDEO_QOS.lock().unwrap().set_lan(true);
+            }
+        }
         self.send_to_cm(ipc::Data::Login {
             id: self.inner.id(),
             is_file_transfer: self.file_transfer.is_some(),
@@ -2499,6 +2516,25 @@ impl Connection {
         }
         // After handling CloseReason messages, proceed to process other message types
         if let Some(message::Union::LoginRequest(lr)) = msg.union {
+            // LUODA 3.x protocol isolation: reject any peer below MIN_PEER_VERSION
+            // FIRST — before handle_login_request_without_validation (which may
+            // auto-authorize via 2FA/trusted devices and early-return) and before
+            // the auth flow runs. Old clients never trigger the "access your
+            // device" popup or any other side effects.
+            if !lr.version.is_empty()
+                && hbb_common::get_version_number(&lr.version)
+                    < hbb_common::get_version_number(MIN_PEER_VERSION)
+            {
+                log::warn!(
+                    "Rejecting peer {}: version {} is below required {}",
+                    lr.my_id,
+                    lr.version,
+                    MIN_PEER_VERSION
+                );
+                self.send_login_error(LOGIN_MSG_VERSION_MISMATCH).await;
+                sleep(1.).await;
+                return false;
+            }
             self.handle_login_request_without_validation(&lr).await;
             if self.authorized {
                 return true;

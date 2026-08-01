@@ -799,9 +799,27 @@ class _ServerAddressWidgetState extends State<_ServerAddressWidget> {
   }
 
   void _loadServer() {
+    // LUODA FIX: show the server that is actually being used, not just the
+    // custom-rendezvous-server option. The effective server may come from the
+    // EXE filename, the CONFIG2 latency cache, or the canonical constant —
+    // displaying only the custom option misleads (e.g. VPS shows "IP:port 已连接"
+    // while the app is actually registered to rev.dicad.cn, or vice versa).
+    String effective = '';
     final custom = bind.mainGetLocalOption(key: 'custom-rendezvous-server');
     if (custom.isNotEmpty) {
-      _server = custom;
+      effective = custom;
+    } else {
+      // Fall back to the canonical rendezvous constant (same value the Rust
+      // side uses when no custom/EXE override exists).
+      final fromEnv = bind.mainGetLocalOption(key: 'rendezvous-servers');
+      if (fromEnv.isNotEmpty) {
+        effective = fromEnv.split(',').first.trim();
+      }
+    }
+    if (effective.isNotEmpty) {
+      _server = effective;
+    } else {
+      _server = 'rev.dicad.cn';
     }
     if (mounted) setState(() {});
   }

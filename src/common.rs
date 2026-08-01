@@ -907,6 +907,20 @@ pub fn check_port<T: std::string::ToString>(host: T, port: i32) -> String {
     hbb_common::socket_client::check_port(host, port)
 }
 
+/// Whether a peer address string is on the local network: loopback, RFC1918
+/// private IPv4, or link-local IPv6. Used to enable aggressive LAN QoS and
+/// skip relay when possible.
+pub fn is_lan_ip(ip: &str) -> bool {
+    let ip = ip.split('%').next().unwrap_or(ip).trim();
+    match ip.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(v4)) => v4.is_loopback() || v4.is_private() || v4.is_link_local(),
+        Ok(std::net::IpAddr::V6(v6)) => {
+            v6.is_loopback() || v6.is_unicast_link_local()
+        }
+        Err(_) => false,
+    }
+}
+
 #[inline]
 pub fn increase_port<T: std::string::ToString>(host: T, offset: i32) -> String {
     hbb_common::socket_client::increase_port(host, offset)

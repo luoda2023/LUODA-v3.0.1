@@ -111,6 +111,10 @@ pub struct VideoQoS {
     adjust_ratio_instant: Instant,
     abr_config: bool,
     new_user_instant: Instant,
+    /// LUODA: set when the controlling peer is on a LAN/private network or an
+    /// explicit IP direct connection. LAN links have huge bandwidth headroom,
+    /// so we start with a higher quality ratio and let FPS/bitrate climb faster.
+    is_lan: bool,
 }
 
 impl Default for VideoQoS {
@@ -124,12 +128,30 @@ impl Default for VideoQoS {
             adjust_ratio_instant: Instant::now(),
             abr_config: true,
             new_user_instant: Instant::now(),
+            is_lan: false,
         }
     }
 }
 
 // Basic functionality
 impl VideoQoS {
+    /// Mark this QoS controller as serving a LAN / direct-IP connection.
+    /// LAN connections get an aggressive quality ramp-up because local
+    /// bandwidth is effectively unlimited compared to relayed WAN links.
+    pub fn set_lan(&mut self, lan: bool) {
+        self.is_lan = lan;
+        if lan {
+            // Kick off from a higher ratio so the very first frames are sharp.
+            if self.ratio < BR_BALANCED {
+                self.ratio = BR_BALANCED;
+            }
+            self.bitrate_store = self.bitrate_store.max(16_000); // 16 Mbps baseline
+        }
+    }
+
+    pub fn is_lan(&self) -> bool {
+        self.is_lan
+    }
     // Calculate seconds per frame based on current FPS
     pub fn spf(&self) -> Duration {
         Duration::from_secs_f32(1. / (self.fps() as f32))
@@ -470,8 +492,22 @@ impl VideoQoS {
 
         let mut v = current_ratio;
 
-        // Adjust ratio based on network delay thresholds
-        if max_delay < 50 {
+        // LUODA LAN fast-path: on local networks the delay thresholds are
+        // meaningless (sub-ms RTT), so aggressively ramp the quality ratio up
+        // instead of waiting for the conservative WAN ladder.
+        if self.is_lan {
+            if max_delay < 150 {
+                let boost = if dynamic_screen { 1.3 } else { 1.15 };
+                v = current_ratio * boost;
+                // LAN has huge headroom — allow ratio to reach the max cap.
+                v = v.min(max);
+            } else if max_delay < 300 {
+                v = current_ratio * 1.1;
+            } else {
+                // Still fall back to the normal reduction ladder if LAN is congested.
+                v = current_ratio * 0.95;
+            }
+        } else if max_delay < 50 {
             if dynamic_screen {
                 v = current_ratio * 1.15;
             }
@@ -499,7 +535,20 @@ impl VideoQoS {
                 && ratio_add_300kbps > current_ratio
                 && current_ratio >= BR_SPEED
             {
-                v = ratio_add_300kbps;
+                // LUODA LAN fast-path: allow +600kbps per step on local links
+                // so 4K LAN sessions converge to crisp quality quickly.
+                if self.is_lan {
+                    let lan_step = if self.is_lan { 600.0 } else { 300.0 };
+                    let ratio_add_lan =
+                        Some((current_bitrate + lan_step as u32) as f32 * current_ratio / current_bitrate as f32);
+                    if let Some(ratio_add_lan) = ratio_add_lan {
+                        if v > ratio_add_lan && ratio_add_lan > current_ratio {
+                            v = ratio_add_lan;
+                        }
+                    }
+                } else {
+                    v = ratio_add_300kbps;
+                }
             }
         }
 
@@ -524,8 +573,9 @@ impl VideoQoS {
             }
         }
 
-        // For new connections (within 1 second), cap fps to INIT_FPS to ensure stability
-        if self.new_user_instant.elapsed().as_secs() < 1 {
+        // For new connections (within 1 second), cap fps to INIT_FPS to ensure stability.
+        // LUODA LAN fast-path: local links can start at full FPS immediately.
+        if self.new_user_instant.elapsed().as_secs() < 1 && !self.is_lan {
             if fps > INIT_FPS {
                 fps = INIT_FPS;
             }

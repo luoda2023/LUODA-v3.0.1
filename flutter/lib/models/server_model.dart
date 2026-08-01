@@ -602,10 +602,25 @@ class ServerModel with ChangeNotifier {
         }
         _clients.add(client);
       }
-      // 桌面端所有连接类型自动授权，不弹授权窗口（ID 连接 / IP 直连 / 聊天等）
+      // LUODA 3.1.1: split connections into TWO categories —
+      //   1. Chat/message connections (client.isChat): always auto-approved,
+      //      zero popups (no "access your device" prompt, no password box).
+      //   2. Remote control / file transfer / camera / terminal connections:
+      //      only auto-approved on desktop when the login came from the same
+      //      machine's own control flow (peer already authorized by Rust-side
+      //      password/approval). Otherwise the standard authorization window
+      //      (password / click-to-approve) applies.
       if (!client.authorized && !isAndroid) {
-        client.authorized = true;
-        sendLoginResponse(client, true);
+        if (client.isChat) {
+          // Chat is a messaging channel — approve silently, never prompt.
+          client.authorized = true;
+          sendLoginResponse(client, true);
+        } else {
+          // Control-class connections: only silently approve when the Rust
+          // side already sent authorized=true (password verified upstream).
+          // When authorized=false the client stays pending and the CM UI
+          // shows the authorization/approval dialog for the user to accept.
+        }
       }
       _addTab(client);
       if (client.authorized && client.isChat) {

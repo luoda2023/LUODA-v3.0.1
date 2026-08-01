@@ -914,7 +914,24 @@ impl Config {
             rendezvous_server = PROD_RENDEZVOUS_SERVER.read().unwrap().clone();
         }
         if rendezvous_server.is_empty() {
-            rendezvous_server = CONFIG2.read().unwrap().rendezvous_server.clone();
+            let cached = CONFIG2.read().unwrap().rendezvous_server.clone();
+            // LUODA FIX: only trust a persisted CONFIG2 server if it is in the
+            // canonical list or matches the configured custom server. A stale
+            // IP/direct endpoint would otherwise be used for registration and
+            // cause "ID_NOT_EXIST" against the official server.
+            let canonical = RENDEZVOUS_SERVERS
+                .iter()
+                .any(|candidate| cached.eq_ignore_ascii_case(candidate));
+            let custom = Self::get_option("custom-rendezvous-server");
+            let is_configured = !custom.is_empty() && cached.eq_ignore_ascii_case(&custom);
+            if canonical || is_configured {
+                rendezvous_server = cached;
+            } else if !cached.is_empty() {
+                log::warn!(
+                    "Ignoring non-canonical persisted rendezvous server: {}",
+                    cached
+                );
+            }
         }
         if rendezvous_server.is_empty() {
             rendezvous_server = Self::get_rendezvous_servers()
@@ -970,6 +987,24 @@ impl Config {
             }
         }
         if !host.is_empty() {
+            // LUODA FIX: never persist a rendezvous server that is not in the
+            // canonical list (RENDEZVOUS_SERVERS) or the explicitly configured
+            // custom server. Otherwise a one-off IP/direct endpoint that was
+            // probed earlier can poison `Config2.rendezvous_server` and make the
+            // client silently register to the wrong server (ID_NOT_EXIST on the
+            // official server, "IP:port 已连接" in the UI).
+            let canonical = RENDEZVOUS_SERVERS
+                .iter()
+                .any(|candidate| host.eq_ignore_ascii_case(candidate));
+            let custom = Self::get_option("custom-rendezvous-server");
+            let is_configured = !custom.is_empty() && host.eq_ignore_ascii_case(&custom);
+            if !canonical && !is_configured {
+                log::debug!(
+                    "Skip persisting non-canonical rendezvous server to Config2: {}",
+                    host
+                );
+                return;
+            }
             let mut config = CONFIG2.write().unwrap();
             if host != config.rendezvous_server {
                 log::debug!("Update rendezvous_server in config to {}", host);

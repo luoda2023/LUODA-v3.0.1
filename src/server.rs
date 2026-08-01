@@ -648,6 +648,18 @@ pub async fn start_server(is_server: bool, no_server: bool) {
 
     if is_server {
         crate::common::set_server_running(true);
+        // LUODA 3.1.1: headless auto virtual display. When this machine is a
+        // VPS / remote server with no physical display attached, automatically
+        // plug in a virtual display so remote-control sessions have something
+        // to render. Runs on the server process only (not the controller).
+        #[cfg(target_os = "windows")]
+        {
+            if crate::virtual_display_manager::is_virtual_display_supported()
+                && crate::virtual_display_manager::active_physical_display_count() == 0
+            {
+                let _ = crate::virtual_display_manager::auto_plug_headless_if_needed();
+            }
+        }
         std::thread::spawn(move || {
             // Retry IPC start up to 3 times before giving up.
             // A common failure reason is that an old `--server` process
