@@ -54,6 +54,13 @@ fn link_vcpkg(mut path: PathBuf, name: &str) -> PathBuf {
     if target_arch == "x86" {
         target = target.replace("x64", "x86");
     }
+    // Android 32-bit ARM (armeabi-v7a): the vcpkg triplet is
+    // "arm-neon-android", not "arm-android" (which does not exist).
+    // CARGO_CFG_TARGET_ARCH is "armv7" here, which maps to "arm" above,
+    // producing "arm-android" — remap it so the linker finds the packages.
+    if target == "arm-android" {
+        target = "arm-neon-android".to_owned();
+    }
     println!("cargo:info={}", target);
     if let Ok(vcpkg_root) = std::env::var("VCPKG_INSTALLED_ROOT") {
         path = vcpkg_root.into();
