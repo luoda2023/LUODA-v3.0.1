@@ -203,7 +203,7 @@ jobs:
                 ;;
               armeabi-v7a)
                 RUST_TARGET=armv7-linux-androideabi
-                VCPKG_TRIPLET=arm-android
+                VCPKG_TRIPLET=arm-neon-android
                 ;;
               x86_64)
                 RUST_TARGET=x86_64-linux-android
