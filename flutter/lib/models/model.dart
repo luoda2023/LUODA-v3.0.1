@@ -1016,9 +1016,14 @@ class FfiModel with ChangeNotifier {
         type == 'error' ||
         type == 'restarting' ||
         (type is String && type.contains('error'))) {
-      // 环境/基础设施问题（如被控端无物理显示器）对所有连接类型直接忽略，
-      // 不触发弹窗/重连/UI 变更，避免循环弹框卡死。
-      if (_isEnvironmentError(text?.toString() ?? '')) {
+      // Chat can work without a remote display, so host display/session errors
+      // should not interrupt the conversation or start a reconnect loop.
+      if (parent.target?.connType == ConnType.chat &&
+          _isEnvironmentError(text?.toString() ?? '')) {
+        final chatModel = parent.target?.chatModel;
+        if (chatModel != null) {
+          unawaited(chatModel.markCurrentUndeliveredQueued());
+        }
         return;
       }
       parent.target?.inputModel.setRelativeMouseMode(false);

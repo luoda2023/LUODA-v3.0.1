@@ -160,7 +160,7 @@ impl Registry {
         for (_host_id, bucket_arc) in outer.iter() {
             let mut b = bucket_arc.lock().unwrap();
             if let Some(inv) = b.invites.get(token).cloned() {
-                if inv.one_shot || inv.expires_at > SystemTime::now() {
+                if inv.expires_at > SystemTime::now() {
                     if inv.one_shot {
                         b.invites.remove(token);
                         if !inv.short_code.is_empty() {
@@ -191,7 +191,7 @@ impl Registry {
             let b = bucket_arc.lock().unwrap();
             if let Some(token) = b.short_codes.get(&canonical) {
                 if let Some(inv) = b.invites.get(token) {
-                    if inv.one_shot || inv.expires_at > SystemTime::now() {
+                    if inv.expires_at > SystemTime::now() {
                         return Some(token.clone());
                     }
                 }
@@ -293,7 +293,7 @@ impl Registry {
             let survivors: Vec<Token> = b
                 .invites
                 .iter()
-                .filter(|(_, inv)| inv.one_shot || inv.expires_at > now)
+                .filter(|(_, inv)| inv.expires_at > now)
                 .map(|(k, _)| k.clone())
                 .collect();
             let to_drop: Vec<Token> = b

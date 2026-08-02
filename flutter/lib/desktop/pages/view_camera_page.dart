@@ -43,9 +43,7 @@ class ViewCameraPage extends StatefulWidget {
     this.connToken,
     this.forceRelay,
     this.isSharedPassword,
-  }) : super(key: key) {
-    initSharedStates(id);
-  }
+  }) : super(key: key);
 
   final String id;
   final SessionID? sessionId;
@@ -64,7 +62,7 @@ class ViewCameraPage extends StatefulWidget {
 
   @override
   State<ViewCameraPage> createState() {
-    final state = _ViewCameraPageState(id);
+    final state = _ViewCameraPageState();
     _lastState.value = state;
     return state;
   }
@@ -91,15 +89,10 @@ class _ViewCameraPageState extends State<ViewCameraPage>
 
   SessionID get sessionId => _ffi.sessionId;
 
-  _ViewCameraPageState(String id) {
-    _initStates(id);
-  }
-
-  void _initStates(String id) {}
-
   @override
   void initState() {
     super.initState();
+    initSharedStates(widget.id);
     _ffi = FFI(widget.sessionId);
     Get.put<FFI>(_ffi, tag: widget.id);
     _ffi.imageModel.addCallbackOnFirstImage((String peerId) {
@@ -216,11 +209,9 @@ class _ViewCameraPageState extends State<ViewCameraPage>
   }
 
   @override
-  Future<void> dispose() async {
+  void dispose() {
     final closeSession = closeSessionOnDispose.remove(widget.id) ?? true;
 
-    // https://github.com/flutter/flutter/issues/64935
-    super.dispose();
     debugPrint("VIEW CAMERA PAGE dispose session $sessionId ${widget.id}");
     _ffi.textureModel.onViewCameraPageDispose(closeSession);
     if (closeSession) {
@@ -232,16 +223,31 @@ class _ViewCameraPageState extends State<ViewCameraPage>
     _ffi.imageModel.disposeImage();
     _ffi.cursorModel.disposeImages();
     _rawKeyFocusNode.dispose();
-    await _ffi.close(closeSession: closeSession);
-    _timer?.cancel();
-    _ffi.dialogManager.dismissAll();
-    if (closeSession) {
-      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
-          overlays: SystemUiOverlay.values);
+    unawaited(_finishDispose(closeSession));
+    // https://github.com/flutter/flutter/issues/64935
+    super.dispose();
+  }
+
+  Future<void> _finishDispose(bool closeSession) async {
+    try {
+      await _ffi
+          .close(closeSession: closeSession)
+          .timeout(const Duration(seconds: 5));
+    } catch (error) {
+      debugPrint('VIEW CAMERA PAGE close timed out or failed: $error');
+    } finally {
+      _timer?.cancel();
+      _ffi.dialogManager.dismissAll();
+      if (closeSession) {
+        await SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
+            overlays: SystemUiOverlay.values);
+      }
+      WakelockManager.disable(_uniqueKey);
+      if (Get.isRegistered<FFI>(tag: widget.id)) {
+        await Get.delete<FFI>(tag: widget.id);
+      }
+      removeSharedStates(widget.id);
     }
-    WakelockManager.disable(_uniqueKey);
-    await Get.delete<FFI>(tag: widget.id);
-    removeSharedStates(widget.id);
   }
 
   Widget emptyOverlay() => BlockableOverlay(

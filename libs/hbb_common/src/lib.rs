@@ -432,11 +432,12 @@ pub fn init_log(_is_async: bool, _name: &str) -> Option<flexi_logger::LoggerHand
     INIT.call_once(|| {
         #[cfg(debug_assertions)]
         {
-            use env_logger::*;
-            init_from_env(Env::default().filter_or(
+            use env_logger::{Builder, Env, DEFAULT_FILTER_ENV};
+            let _ = Builder::from_env(Env::default().filter_or(
                 DEFAULT_FILTER_ENV,
                 "info,reqwest=warn,rustls=warn,webrtc-sctp=warn,webrtc=warn",
-            ));
+            ))
+            .try_init();
         }
         #[cfg(not(debug_assertions))]
         {

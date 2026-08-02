@@ -1778,20 +1778,20 @@ class ChatPage extends StatelessWidget implements PageShape {
                   ),
                 ],
               );
-              final messageColumn = GestureDetector(
-                onSecondaryTapUp: (details) async {
-                  final action = await _showWeChatContextMenu(
-                    context, message,
-                    position: details.globalPosition,
-                    alignToAvatarLeft: isOwnMessage,
-                  );
-                  if (context.mounted) {
-                    await _handleWeChatContextAction(
-                        context, action, message);
-                  }
-                },
-                child: Flexible(
-                child: Column(
+              final messageColumn = Flexible(
+                child: GestureDetector(
+                  onSecondaryTapUp: (details) async {
+                    final action = await _showWeChatContextMenu(
+                      context, message,
+                      position: details.globalPosition,
+                      alignToAvatarLeft: isOwnMessage,
+                    );
+                    if (context.mounted) {
+                      await _handleWeChatContextAction(
+                          context, action, message);
+                    }
+                  },
+                  child: Column(
                   crossAxisAlignment: isOwnMessage
                       ? CrossAxisAlignment.end
                       : CrossAxisAlignment.start,
@@ -1876,8 +1876,8 @@ class ChatPage extends StatelessWidget implements PageShape {
                       ),
                   ],
                 ),
-              ), // Flexible
-              ); // GestureDetector
+                ),
+              );
               final avatar = messageAvatar(message.user, null, null);
               final avatarKey = GlobalKey();
               final canManage = isOwnMessage &&

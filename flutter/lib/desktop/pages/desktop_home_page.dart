@@ -1861,7 +1861,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         final query = _contactSearchController.text.trim().toLowerCase();
         final entries = gFFI.chatModel.messages.entries.where((entry) {
           final peerId = entry.key.peerId.trim();
-          if (peerId.isEmpty) return false;
+          if (peerId.isEmpty || peerId == gFFI.chatModel.me.id) return false;
           if (query.isEmpty) return true;
           final name = (entry.value.chatUser.firstName ?? '').toLowerCase();
           return peerId.toLowerCase().contains(query) ||

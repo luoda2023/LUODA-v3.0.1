@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Resize the branded master icon for Android mipmap directories.
+Resize the padded branded icon for Android mipmap directories.
 Run this BEFORE the Flutter build step in CI.
 
 Usage: python3 res/resize_for_apk.py
@@ -30,7 +30,7 @@ def main():
     repo_root = os.path.dirname(base_dir)  # res/ -> repo root
     apk_res = os.path.join(repo_root, "flutter", "android", "app", "src", "main", "res")
 
-    src_path = os.path.join(repo_root, "Images", "icon-master-1056.png")
+    src_path = os.path.join(repo_root, "res", "icon_padded.png")
     dst_dir = apk_res
 
     if not os.path.exists(src_path):

@@ -2287,11 +2287,15 @@ pub fn main_stop_service() {
 }
 
 pub fn main_start_service() {
-    #[cfg(target_os = "android")]
+    config::Config::set_option("stop-service".into(), "".into());
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
-        config::Config::set_option("stop-service".into(), "".into());
-        crate::rendezvous_mediator::RendezvousMediator::restart();
+        if crate::platform::is_installed() {
+            crate::ipc::set_option("stop-service", "");
+        }
     }
+    #[cfg(not(target_os = "ios"))]
+    crate::rendezvous_mediator::RendezvousMediator::restart();
 }
 
 pub fn main_update_temporary_password() {

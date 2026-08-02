@@ -20,8 +20,6 @@ class PrivacyModeState {
     final key = tag(id);
     if (Get.isRegistered<RxString>(tag: key)) {
       Get.delete<RxString>(tag: key);
-    } else {
-      Get.find<RxString>(tag: key).value = '';
     }
   }
 
@@ -347,7 +345,13 @@ class UnreadChatCountState {
   static RxInt find(String id) => Get.find<RxInt>(tag: tag(id));
 }
 
-initSharedStates(String id) {
+final Map<String, int> _sharedStateReferenceCounts = <String, int>{};
+
+void initSharedStates(String id) {
+  final count = _sharedStateReferenceCounts[id] ?? 0;
+  _sharedStateReferenceCounts[id] = count + 1;
+  if (count > 0) return;
+
   PrivacyModeState.init(id);
   BlockInputState.init(id);
   CurrentDisplayState.init(id);
@@ -361,7 +365,15 @@ initSharedStates(String id) {
   if (isMobile) ConnectionTypeState.init(id); // desktop in other places
 }
 
-removeSharedStates(String id) {
+void removeSharedStates(String id) {
+  final count = _sharedStateReferenceCounts[id] ?? 0;
+  if (count <= 0) return;
+  if (count > 1) {
+    _sharedStateReferenceCounts[id] = count - 1;
+    return;
+  }
+  _sharedStateReferenceCounts.remove(id);
+
   PrivacyModeState.delete(id);
   BlockInputState.delete(id);
   CurrentDisplayState.delete(id);

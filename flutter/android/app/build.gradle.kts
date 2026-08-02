@@ -24,6 +24,29 @@ if (localPropertiesFile.exists()) {
 
 val flutterVersionCode = localProperties.getProperty("flutter.versionCode") ?: "1"
 val flutterVersionName = localProperties.getProperty("flutter.versionName") ?: "2.0"
+val requiredLuodaAbis = listOf("arm64-v8a", "armeabi-v7a")
+val luodaJniLibsDir = file("src/main/jniLibs")
+
+val verifyLuodaNativeLibraries by tasks.registering {
+    group = "verification"
+    description = "Verifies that every packaged Android ABI contains libluoda.so."
+    val requiredLibraries = requiredLuodaAbis.map { abi ->
+        luodaJniLibsDir.resolve("$abi/libluoda.so")
+    }
+    inputs.files(requiredLibraries)
+    doLast {
+        val missingLibraries = requiredLibraries.filter { library ->
+            !library.isFile || library.length() == 0L
+        }
+        if (missingLibraries.isNotEmpty()) {
+            throw GradleException(
+                "Missing required LUODA native libraries:\n" +
+                    missingLibraries.joinToString("\n") { " - ${it.absolutePath}" } +
+                    "\nRun flutter/build_android.ps1 (Windows) or flutter/build_android.sh (Linux/macOS) before packaging."
+            )
+        }
+    }
+}
 
 fun findRustlsPlatformVerifierMavenDir(): String? {
     try {
@@ -96,6 +119,7 @@ android {
     sourceSets {
         getByName("main") {
             java.srcDirs("src/main/kotlin")
+            jniLibs.srcDirs(luodaJniLibsDir)
         }
     }
 
@@ -114,6 +138,9 @@ android {
         targetSdkVersion(33)
         versionCode = flutterVersionCode.toInt()
         versionName = flutterVersionName
+        ndk {
+            abiFilters += requiredLuodaAbis
+        }
     }
 
     signingConfigs {
@@ -142,6 +169,12 @@ android {
                 "proguard-rules"
             )
         }
+    }
+}
+
+tasks.configureEach {
+    if (name.startsWith("merge") && name.endsWith("NativeLibs")) {
+        dependsOn(verifyLuodaNativeLibraries)
     }
 }
 
