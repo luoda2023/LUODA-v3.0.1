@@ -115,7 +115,7 @@ void main() {
     expect(
       newSession,
       contains(
-          "translate('This is the current device. You cannot connect to or message yourself.')"),
+          "'This is the current device. You cannot connect to or message yourself.'"),
     );
     expect(newSession, contains('return MultiWindowCallResult(-1, false);'));
   });
