@@ -909,6 +909,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Copy device ID", "\u{590d}\u{5236}\u{8bbe}\u{5907} ID"),
         ("Security settings", "\u{5b89}\u{5168}\u{8bbe}\u{7f6e}"),
         ("Cannot connect to this device.", "\u{4e0d}\u{80fd}\u{8fde}\u{63a5}\u{5f53}\u{524d}\u{8bbe}\u{5907}\u{3002}"),
+        ("This is the current device. You cannot connect to or message yourself.", "\u{8fd9}\u{662f}\u{5f53}\u{524d}\u{8bbe}\u{5907}\u{3002}\u{4f60}\u{65e0}\u{6cd5}\u{8fde}\u{63a5}\u{81ea}\u{5df1}\u{6216}\u{7ed9}\u{81ea}\u{5df1}\u{53d1}\u{9001}\u{6d88}\u{606f}\u{3002}"),
         ("Recall", "\u{64a4}\u{56de}"),
         ("Destroy", "\u{9500}\u{6bc1}"),
         ("Destroy message", "\u{9500}\u{6bc1}\u{6d88}\u{606f}"),

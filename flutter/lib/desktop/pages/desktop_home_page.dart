@@ -2557,7 +2557,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     if (requestedId.isEmpty) return;
     if (await DirectPairingStore.isSelfTarget(requestedId)) {
       _showConversationNotice(
-        translate('Cannot connect to this device.'),
+        translate(
+            'This is the current device. You cannot connect to or message yourself.'),
         tone: _WorkspaceNoticeTone.error,
       );
       return;
@@ -3354,7 +3355,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   }) async {
     if (await DirectPairingStore.isSelfTarget(peerIdOrEndpoint)) {
       _showConversationNotice(
-        translate('Cannot connect to this device.'),
+        translate(
+            'This is the current device. You cannot connect to or message yourself.'),
         tone: _WorkspaceNoticeTone.error,
       );
       return;

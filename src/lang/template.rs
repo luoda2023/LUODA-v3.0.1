@@ -778,6 +778,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Copy device ID", ""),
         ("Security settings", ""),
         ("Cannot connect to this device.", ""),
+        ("This is the current device. You cannot connect to or message yourself.", ""),
         ("Recall", ""),
         ("Destroy", ""),
         ("Destroy message", ""),

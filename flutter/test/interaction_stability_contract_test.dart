@@ -112,7 +112,11 @@ void main() {
     final probe = newSession.indexOf('for (final windowId');
     expect(guard, greaterThanOrEqualTo(0));
     expect(probe, greaterThan(guard));
-    expect(newSession, contains("translate('Cannot connect to this device.')"));
+    expect(
+      newSession,
+      contains(
+          "translate('This is the current device. You cannot connect to or message yourself.')"),
+    );
     expect(newSession, contains('return MultiWindowCallResult(-1, false);'));
   });
 }

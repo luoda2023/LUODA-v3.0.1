@@ -249,7 +249,8 @@ class LUODAMultiWindowManager {
     String? viewerDisplayName,
   }) async {
     if (await DirectPairingStore.isSelfTarget(remoteId)) {
-      showToast(translate('Cannot connect to this device.'));
+      showToast(translate(
+          'This is the current device. You cannot connect to or message yourself.'));
       return MultiWindowCallResult(-1, false);
     }
     var params = {
