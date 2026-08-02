@@ -4379,10 +4379,32 @@ bool isUnlockPinDisabled() =>
 
 bool? _isCustomClient;
 bool get isCustomClient {
-  _isCustomClient ??=
+  if (_isCustomClient != null) return _isCustomClient!;
+  // First check: the compile-time flag + Rust's own judgement. The Rust side
+  // reads APP_NAME which is mutated by load_custom_client(), so it can
+  // legitimately return false during the first call if custom.txt has not
+  // been read yet (e.g. when widget construction eagerly touches this getter
+  // before bind.mainInit finishes).
+  var result =
       const bool.fromEnvironment('CLIENT_ONLY', defaultValue: false) ||
-      bind.isCustomClient();
-  return _isCustomClient!;
+          bind.isCustomClient();
+  // Fallback: ask Rust for the actual app name. When the user has dropped
+  // a custom.txt next to portable-x64.exe that sets a non-default app-name,
+  // APP_NAME will be something other than "LUODA" — that is the canonical
+  // signal that this is a custom client build. This avoids caching a
+  // false-negative during widget tree construction.
+  if (!result) {
+    try {
+      final appName = bind.mainGetAppNameSync();
+      if (appName.isNotEmpty && appName != 'LUODA' && appName != 'LDesk') {
+        result = true;
+      }
+    } catch (_) {
+      // bind may not be initialised yet; safe to ignore.
+    }
+  }
+  _isCustomClient = result;
+  return result;
 }
 
 get defaultOptionLang => isCustomClient ? 'default' : '';
