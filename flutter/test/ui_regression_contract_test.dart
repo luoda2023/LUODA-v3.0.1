@@ -1191,10 +1191,10 @@ void main() {
     }
   });
 
-  test('custom desktop client consistently uses a 380 by 500 window', () {
+  test('custom desktop client consistently uses a 470 by 660 window', () {
     expect(
       flutterCommonSource,
-      contains('const kCustomClientWindowSize = Size(280, 320)'),
+      contains('const kCustomClientWindowSize = Size(470, 660)'),
     );
     expect(
       flutterCommonSource,

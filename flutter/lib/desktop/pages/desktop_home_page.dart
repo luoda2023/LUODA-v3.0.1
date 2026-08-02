@@ -1173,6 +1173,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                           ? ChatPage(
                               chatModel: model,
                               type: ChatPageType.desktopHome,
+                              peerOffline: _selectedContact?.online != true,
                               onAttachFile: () =>
                                   _sendFilesFromConversation(peerId),
                               onRemoteAssist: () =>

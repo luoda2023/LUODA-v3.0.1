@@ -37,6 +37,7 @@ class ChatPage extends StatelessWidget implements PageShape {
   final VoidCallback? onAttachFile;
   final VoidCallback? onRemoteAssist;
   final VoidCallback? onPasteImage;
+  final bool peerOffline;
 
   ChatPage({
     ChatModel? chatModel,
@@ -44,6 +45,7 @@ class ChatPage extends StatelessWidget implements PageShape {
     this.onAttachFile,
     this.onRemoteAssist,
     this.onPasteImage,
+    this.peerOffline = false,
   }) {
     this.chatModel = chatModel ?? gFFI.chatModel;
     this.chatModel.refreshLocalIdentity();
@@ -2355,6 +2357,43 @@ class ChatPage extends StatelessWidget implements PageShape {
                       ),
                     );
                   }
+                  // Offline banner — shown when the peer is offline so the
+                  // user understands why messages can't be sent.
+                  Widget offlineBar = const SizedBox.shrink();
+                  if (peerOffline && chatModel.currentKey.peerId.isNotEmpty) {
+                    offlineBar = Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 8, horizontal: 14),
+                      color: dark
+                          ? const Color(0xFF3A2D1A)
+                          : const Color(0xFFFFF4E5),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.cloud_off_rounded,
+                            size: 16,
+                            color: dark
+                                ? const Color(0xFFFFB74D)
+                                : const Color(0xFFEF6C00),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              translate(
+                                  'Peer is offline — messages will be kept locally and sent when they reconnect'),
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: dark
+                                    ? const Color(0xFFFFB74D)
+                                    : const Color(0xFFB05600),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
                   // "Load older messages" banner — shown at the top when
                   // the conversation has more history beyond the initial load.
                   Widget loadOlderBar = const SizedBox.shrink();
@@ -2397,6 +2436,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                     return Column(
                       children: <Widget>[
                         reconnectBar,
+                        offlineBar,
                         loadOlderBar,
                         Expanded(child: _buildMessageArea(
                           context: context,
@@ -2413,6 +2453,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                   return Column(
                     children: <Widget>[
                       reconnectBar,
+                      offlineBar,
                       loadOlderBar,
                       Expanded(child: _buildMessageArea(
                         context: context,
@@ -2534,8 +2575,11 @@ class ChatPage extends StatelessWidget implements PageShape {
     }
     // Show empty state hint always (when no messages in current conversation).
     final hintColor = dark
-        ? const Color(0xFF888C93)
-        : const Color(0xFF8E8E93);
+        ? const Color(0xFFB8BCC4)
+        : const Color(0xFF6E7178);
+    final iconColor = dark
+        ? const Color(0xFFB8BCC4)
+        : const Color(0xFF6E7178);
     final label = chatModel.currentKey.peerId.isEmpty
         ? translate('Select a conversation to start chatting')
         : translate('No messages yet — send the first one');
@@ -2547,25 +2591,42 @@ class ChatPage extends StatelessWidget implements PageShape {
             child: Center(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 32),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.forum_rounded,
-                      size: 48,
-                      color: hintColor.withOpacity(0.6),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 22, vertical: 18),
+                  decoration: BoxDecoration(
+                    color: dark
+                        ? const Color(0xFF2A2D33)
+                        : const Color(0xFFEAECEF),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: dark
+                          ? const Color(0xFF3A3D43)
+                          : const Color(0xFFD6D8DC),
+                      width: 1,
                     ),
-                    const SizedBox(height: 12),
-                    Text(
-                      label,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: hintColor,
-                        fontSize: 13,
-                        height: 1.4,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.forum_rounded,
+                        size: 44,
+                        color: iconColor,
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 12),
+                      Text(
+                        label,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: hintColor,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
