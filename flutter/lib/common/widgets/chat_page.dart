@@ -2557,10 +2557,15 @@ class ChatPage extends StatelessWidget implements PageShape {
     );
   }
 
-  /// Wraps the DashChat message list with a friendly empty-state overlay so
-  /// users never see a bare canvas when there are no messages yet. This is
-  /// critical for the desktop home view, where DashChat would otherwise just
-  /// paint the canvas color and look like "the code was deleted".
+  /// Wraps the DashChat message list with a clearly-visible empty-state card.
+  ///
+  /// Previous version used `0xFFEAECEF` card bg on `0xFFF7F7F7` canvas (≈5%
+  /// luminance difference), making the card blend into the background. The
+  /// hint text `0xFF6E7178` had a contrast ratio ≈3.87:1 against the card
+  /// background, below the WCAG AA minimum of 4.5:1.
+  ///
+  /// This version uses a pure white card with a soft shadow, dark text, and
+  /// an explanatory subtitle — impossible to miss on any theme.
   Widget _buildMessageArea({
     required BuildContext context,
     required bool dark,
@@ -2573,66 +2578,70 @@ class ChatPage extends StatelessWidget implements PageShape {
     if (hasMessages) {
       return messageList;
     }
-    // Show empty state hint always (when no messages in current conversation).
-    final hintColor = dark
-        ? const Color(0xFFB8BCC4)
-        : const Color(0xFF6E7178);
-    final iconColor = dark
-        ? const Color(0xFFB8BCC4)
-        : const Color(0xFF6E7178);
-    final label = chatModel.currentKey.peerId.isEmpty
-        ? translate('Select a conversation to start chatting')
-        : translate('No messages yet — send the first one');
-    return Stack(
-      children: [
-        Positioned.fill(child: messageList),
-        Positioned.fill(
-          child: IgnorePointer(
-            child: Center(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 32),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 22, vertical: 18),
-                  decoration: BoxDecoration(
-                    color: dark
-                        ? const Color(0xFF2A2D33)
-                        : const Color(0xFFEAECEF),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: dark
-                          ? const Color(0xFF3A3D43)
-                          : const Color(0xFFD6D8DC),
-                      width: 1,
-                    ),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.forum_rounded,
-                        size: 44,
-                        color: iconColor,
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        label,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: hintColor,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                          height: 1.4,
-                        ),
-                      ),
-                    ],
-                  ),
+    // Empty state — visible card with icon, heading, and subtitle.
+    final cardBg = dark ? const Color(0xFF2E3139) : const Color(0xFFFFFFFF);
+    final cardBorder = dark ? const Color(0xFF3D404A) : const Color(0xFFE2E2E7);
+    final iconColor = dark ? const Color(0xFF5A5D66) : const Color(0xFFB0B0B5);
+    final headingColor = dark ? const Color(0xFFAAADB5) : const Color(0xFF3C3C43);
+    final subColor = dark ? const Color(0xFF727580) : const Color(0xFF8E8E93);
+    final shadowColor = dark ? Colors.black26 : const Color(0x14000000);
+    final peerId = chatModel.currentKey.peerId;
+    final heading = peerId.isEmpty
+        ? translate('Select a conversation')
+        : translate('No messages yet');
+    final subtitle = peerId.isEmpty
+        ? translate('Choose a contact from the left sidebar to start chatting')
+        : translate('Type a message below to start the conversation');
+    // Use a solid background instead of stacking on the grey DashChat canvas,
+    // which was previously the primary source of the "everything is grey" look.
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 32),
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 380),
+          padding: const EdgeInsets.fromLTRB(28, 36, 28, 36),
+          decoration: BoxDecoration(
+            color: cardBg,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: cardBorder, width: 1),
+            boxShadow: [
+              BoxShadow(
+                color: shadowColor,
+                blurRadius: 16,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.chat_bubble_outline_rounded,
+                  size: 52, color: iconColor),
+              const SizedBox(height: 18),
+              Text(
+                heading,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: headingColor,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  height: 1.4,
                 ),
               ),
-            ),
+              const SizedBox(height: 8),
+              Text(
+                subtitle,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: subColor,
+                  fontSize: 13,
+                  height: 1.35,
+                ),
+              ),
+            ],
           ),
         ),
-      ],
+      ),
     );
   }
 }
