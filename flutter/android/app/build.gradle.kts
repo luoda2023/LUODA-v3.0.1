@@ -138,9 +138,6 @@ android {
         targetSdkVersion(33)
         versionCode = flutterVersionCode.toInt()
         versionName = flutterVersionName
-        ndk {
-            abiFilters += requiredLuodaAbis
-        }
     }
 
     signingConfigs {

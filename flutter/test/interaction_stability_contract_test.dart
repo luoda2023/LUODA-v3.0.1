@@ -229,6 +229,7 @@ void main() {
     expect(androidBuildSource, contains('verifyLuodaNativeLibraries'));
     expect(androidBuildSource, contains('libluoda.so'));
     expect(androidBuildSource, contains('dependsOn(verifyLuodaNativeLibraries)'));
+    expect(androidBuildSource, isNot(contains('abiFilters += requiredLuodaAbis')));
   });
 
   test('launcher icons use the padded LUODA artwork on every platform', () {
