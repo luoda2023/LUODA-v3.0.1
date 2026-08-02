@@ -21,6 +21,8 @@ void main() {
       File('lib/mobile/pages/home_page.dart').readAsStringSync();
   final scanSource = File('lib/mobile/pages/scan_page.dart').readAsStringSync();
   final modelSource = File('lib/models/model.dart').readAsStringSync();
+  final nativeModelSource =
+      File('lib/models/native_model.dart').readAsStringSync();
   final chatPageSource =
       File('lib/common/widgets/chat_page.dart').readAsStringSync();
   final sharedStateSource =
@@ -81,6 +83,17 @@ void main() {
     );
     expect(initLog, contains('.try_init()'));
     expect(initLog, isNot(contains('init_from_env(')));
+  });
+
+  test('desktop startup survives package version metadata failures', () {
+    final getVersion = methodBody(
+      nativeModelSource,
+      'static Future<String> getVersion() async',
+      'bool registerEventHandler(',
+    );
+    expect(getVersion, contains('PackageInfo.fromPlatform()'));
+    expect(getVersion, contains('catch (error, stackTrace)'));
+    expect(getVersion, contains('instance._ffiBind.mainGetVersion()'));
   });
 
   test('desktop direct chat connects without a blocking dialog', () {

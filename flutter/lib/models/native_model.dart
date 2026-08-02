@@ -55,8 +55,18 @@ class PlatformFFI {
   static void setByName(String name, [String value = '']) {}
 
   static Future<String> getVersion() async {
-    PackageInfo packageInfo = await PackageInfo.fromPlatform();
-    return packageInfo.version;
+    try {
+      final packageInfo = await PackageInfo.fromPlatform();
+      if (packageInfo.version.trim().isNotEmpty) {
+        return packageInfo.version;
+      }
+    } catch (error, stackTrace) {
+      debugPrintStack(
+        label: 'Failed to read package version, using Rust version: $error',
+        stackTrace: stackTrace,
+      );
+    }
+    return instance._ffiBind.mainGetVersion();
   }
 
   bool registerEventHandler(
