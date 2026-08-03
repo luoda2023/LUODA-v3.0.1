@@ -116,7 +116,7 @@ jobs:
           from PIL import Image
 
           root = Path.cwd()
-          source = Image.open(root / "Images/icon-master-1056.png").convert("RGBA")
+          source = Image.open(root / "res/icon_ios.png").convert("RGBA")
           flattened = Image.new("RGBA", source.size, "#FFFFFF")
           flattened.alpha_composite(source)
           flattened = flattened.convert("RGB")

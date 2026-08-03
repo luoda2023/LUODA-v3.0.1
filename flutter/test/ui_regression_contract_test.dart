@@ -1534,6 +1534,10 @@ void main() {
     expect(androidCenter.g, greaterThan(240));
     expect(androidCenter.b, greaterThan(240));
     expect(
+      iosWorkflowSource,
+      contains('source = Image.open(root / "res/icon_ios.png")'),
+    );
+    expect(
       macosWorkflowSource,
       contains('SOURCE="\$GITHUB_WORKSPACE/res/icon_padded.png"'),
     );
