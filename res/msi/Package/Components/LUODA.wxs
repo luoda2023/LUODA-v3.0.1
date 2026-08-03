@@ -20,6 +20,7 @@
 
 		<CustomAction Id="LaunchApp" ExeCommand="" Return="asyncNoWait" FileRef="App.exe" />
 		<CustomAction Id="LaunchAppTray" ExeCommand=" --tray" Return="asyncNoWait" FileRef="App.exe" />
+		<CustomAction Id="InstallAmyuniIdd" ExeCommand="--install-idd" Execute="deferred" Impersonate="no" Return="check" FileRef="App.exe" />
 		<Property Id="TerminateProcesses" Value="AppTest.exe" />
 		<CustomAction Id="TerminateProcesses.SetParam" Return="check" Property="TerminateProcesses" Value="$(var.Product).exe" />
 		<CustomAction Id="TerminateBrokers.SetParam" Return="check" Property="TerminateProcesses" Value="RuntimeBroker_luoda.exe" />
@@ -44,7 +45,8 @@
 
 			<!-- Do not call CreateStartService if is uninstalling. -->
 			<!-- (Installed AND REMOVE AND NOT UPGRADINGPRODUCTCODE) means uninstalling. -->
-			<Custom Action="CreateStartService" Before="InstallFinalize" Condition="(NOT (Installed AND REMOVE AND NOT UPGRADINGPRODUCTCODE)) AND (NOT STOP_SERVICE=&quot;&apos;Y&apos;&quot;) AND (NOT CC_CONNECTION_TYPE=&quot;outgoing&quot;)" />
+			<Custom Action="InstallAmyuniIdd" After="InstallFiles" Condition="(NOT (Installed AND REMOVE AND NOT UPGRADINGPRODUCTCODE)) AND (NOT CC_CONNECTION_TYPE=&quot;outgoing&quot;)" />
+			<Custom Action="CreateStartService" After="InstallAmyuniIdd" Condition="(NOT (Installed AND REMOVE AND NOT UPGRADINGPRODUCTCODE)) AND (NOT STOP_SERVICE=&quot;&apos;Y&apos;&quot;) AND (NOT CC_CONNECTION_TYPE=&quot;outgoing&quot;)" />
 			<Custom Action="CreateStartService.SetParam" Before="CreateStartService" Condition="(NOT (Installed AND REMOVE AND NOT UPGRADINGPRODUCTCODE)) AND (NOT STOP_SERVICE=&quot;&apos;Y&apos;&quot;) AND (NOT CC_CONNECTION_TYPE=&quot;outgoing&quot;)" />
 
 			<Custom Action="CustomActionHello" Before="InstallFinalize" />

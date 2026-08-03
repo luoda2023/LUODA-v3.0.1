@@ -182,6 +182,9 @@ void main() {
   final rendezvousRustSource =
       File('../src/rendezvous_mediator.rs').readAsStringSync();
   final coreMainSource = File('../src/core_main.rs').readAsStringSync();
+  final platformWindowsSource = File(
+    '../src/platform/windows.rs',
+  ).readAsStringSync();
   final flutterFfiSource = File('../src/flutter_ffi.rs').readAsStringSync();
   final portablePackerSource = File(
     '../libs/portable/src/main.rs',
@@ -248,6 +251,9 @@ void main() {
   ).readAsStringSync();
   final msiProjectSource = File(
     '../res/msi/Package/Package.wixproj',
+  ).readAsStringSync();
+  final msiPackageSource = File(
+    '../res/msi/Package/Components/LUODA.wxs',
   ).readAsStringSync();
   final cargoSource = File('../Cargo.toml').readAsStringSync();
   final pubspecSource = File('pubspec.yaml').readAsStringSync();
@@ -1146,13 +1152,27 @@ void main() {
     final pubspecSource = File('pubspec.yaml').readAsStringSync();
     expect(pubspecSource, contains('family: LDeskNotoSansCJKSC'));
     expect(pubspecSource, contains('assets/NotoSansCJKsc-Regular.otf'));
+    expect(pubspecSource, contains('family: LDeskNotoSansSymbols2'));
+    expect(pubspecSource, contains('assets/NotoSansSymbols2-Regular.ttf'));
+    expect(pubspecSource, contains('family: LDeskNotoColorEmoji'));
+    expect(pubspecSource, contains('assets/NotoColorEmoji.ttf'));
     final bundledCjkFont = File('assets/NotoSansCJKsc-Regular.otf');
+    final bundledSymbolsFont = File('assets/NotoSansSymbols2-Regular.ttf');
+    final bundledEmojiFont = File('assets/NotoColorEmoji.ttf');
     expect(bundledCjkFont.existsSync(), isTrue);
     expect(bundledCjkFont.lengthSync(), greaterThan(16000000));
+    expect(bundledSymbolsFont.existsSync(), isTrue);
+    expect(bundledSymbolsFont.lengthSync(), greaterThan(500000));
+    expect(bundledEmojiFont.existsSync(), isTrue);
+    expect(bundledEmojiFont.lengthSync(), greaterThan(5000000));
     expect(File('assets/NotoSansCJK-OFL.txt').existsSync(), isTrue);
+    expect(File('assets/NotoSansSymbols2-OFL.txt').existsSync(), isTrue);
+    expect(File('assets/NotoColorEmoji-OFL.txt').existsSync(), isTrue);
     expect(commonSource, contains('fontFamilyFallback: fontFamilyFallback'));
     for (final family in <String>[
       'LDeskNotoSansCJKSC',
+      'LDeskNotoSansSymbols2',
+      'LDeskNotoColorEmoji',
       'Microsoft YaHei UI',
       'PingFang SC',
       'Noto Sans CJK SC',
@@ -1174,6 +1194,8 @@ void main() {
     expect(chatModelSource, isNot(contains('dir.delete(recursive: true)')));
     expect(chatModelSource,
         isNot(contains("translate(\"Sent successfully to\")")));
+    expect(chatPageSource, contains("translate('Send 20 recent to email')"));
+    expect(chatPageSource, isNot(contains('Export 20 recent (ZIP)')));
   });
 
   test('desktop composer transient controls are mutually exclusive', () {
@@ -1407,7 +1429,7 @@ void main() {
     );
     expect(
       portableServiceSource,
-      contains('display_service::no_displays(&displays)'),
+      contains('virtual_display_manager::virtual_display_resolution()'),
     );
     expect(videoServiceSource, contains('FIRST_FRAME_CAPTURE_TIMEOUT'));
     expect(videoServiceSource, contains('Duration::from_secs(8)'));
@@ -1462,6 +1484,57 @@ void main() {
       expect(source, contains('usbmmidd_v2\\x64\\usbmmIdd.dll'));
       expect(source, contains('usbmmidd_v2\\deviceinstaller64.exe'));
     }
+  });
+
+  test('headless Windows hosts install and activate the bundled driver', () {
+    final prepareHeadless = displayServiceSource
+        .split('prepare_windows_server_headless_display() -> ResultType<()>')[1]
+        .split('pub fn try_get_displays_')[0];
+    final portableStartup = portableServiceSource
+        .split('pub(crate) fn start_portable_service(para: StartPara)')[1]
+        .split('pub extern "C" fn drop_portable_service_shared_memory')[0];
+    final systemCapture = portableServiceSource
+        .split('fn run_capture(shmem: Arc<SharedMemory>)')[1]
+        .split('fn run_ipc_client()')[0];
+    final amyuniDriver = virtualDisplaySource.split('pub mod amyuni_idd {')[1];
+
+    expect(
+      prepareHeadless,
+      contains('plug_in_headless_and_wait().map(|_| ())'),
+    );
+    expect(
+      prepareHeadless,
+      isNot(contains('is_win_server() || is_portable')),
+    );
+    expect(portableStartup, contains('display_service::try_get_displays()'));
+    expect(
+      portableStartup,
+      contains('virtual_display_manager::virtual_display_resolution()'),
+    );
+    expect(portableStartup, isNot(contains('bail!("no display available!")')));
+    expect(
+      systemCapture,
+      contains('display_service::try_get_displays_add_amyuni_headless()'),
+    );
+    expect(
+      coreMainSource,
+      contains('virtual_display_manager::install_update_driver()'),
+    );
+    final installIddCommand = coreMainSource
+        .split('args[0] == "--install-idd"')[1]
+        .split('return None;')[0];
+    expect(installIddCommand, contains('std::process::exit(1)'));
+    expect(
+      amyuniDriver,
+      contains('pub fn install_update_driver() -> ResultType<()>'),
+    );
+    expect(platformWindowsSource, contains('--install-idd'));
+    expect(
+      platformWindowsSource,
+      contains('if errorlevel 1 exit /b %errorlevel%'),
+    );
+    expect(msiPackageSource, contains('Id="InstallAmyuniIdd"'));
+    expect(msiPackageSource, contains('ExeCommand="--install-idd"'));
   });
 
   test('custom desktop client consistently uses a 470 by 500 window', () {

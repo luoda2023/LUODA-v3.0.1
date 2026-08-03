@@ -251,6 +251,8 @@ class ColorThemeExtension extends ThemeExtension<ColorThemeExtension> {
 class MyTheme {
   static const List<String> fontFamilyFallback = <String>[
     'LDeskNotoSansCJKSC',
+    'LDeskNotoSansSymbols2',
+    'LDeskNotoColorEmoji',
     'Microsoft YaHei UI',
     'Microsoft YaHei',
     'PingFang SC',
@@ -3338,7 +3340,7 @@ class ServerConfig {
     config['api'] = apiServer.trim();
     config['key'] = key.trim();
     return base64UrlEncode(
-      Uint8List.fromList(jsonEncode(config).codeUnits),
+      utf8.encode(jsonEncode(config)),
     ).split('').reversed.join();
   }
 

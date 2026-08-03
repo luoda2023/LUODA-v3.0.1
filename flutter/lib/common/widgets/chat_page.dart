@@ -294,7 +294,7 @@ class ChatPage extends StatelessWidget implements PageShape {
       items.add(const PopupMenuDivider(height: 1));
       addItem('send-email', Icons.email_outlined, translate('Send to email'));
       addItem('send-email-batch', Icons.archive_outlined,
-          translate('Export 20 recent (ZIP)'));
+          translate('Send 20 recent to email'));
     }
 
     if (isOwnMessage && canMutate) {
@@ -3622,11 +3622,20 @@ class _AiModelSelectorState extends State<_AiModelSelector> {
   }
 
   void _showModelPicker() {
-    final profiles = AiConfig.current.profiles;
+    final profiles = AiConfig.current.profiles
+        .asMap()
+        .entries
+        .where(
+          (entry) =>
+              entry.value.enabled &&
+              entry.value.profileType == AiProfileType.text,
+        )
+        .toList(growable: false);
     if (profiles.length <= 1) return;
     widget.onOpen?.call();
 
-    final activeIdx = AiConfig.current.activeProfileIndex;
+    final active = AiConfig.current.getProfileByType(AiProfileType.text);
+    final activeIdx = profiles.indexWhere((entry) => entry.value == active);
     final renderBox = context.findRenderObject() as RenderBox;
     final position = renderBox.localToGlobal(Offset.zero);
 
@@ -3641,7 +3650,8 @@ class _AiModelSelectorState extends State<_AiModelSelector> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       elevation: 4,
       items: List.generate(profiles.length, (i) {
-        final p = profiles[i];
+        final entry = profiles[i];
+        final p = entry.value;
         final isActive = i == activeIdx;
         return PopupMenuItem<String>(
           enabled: !isActive && !_updating,
@@ -3693,7 +3703,7 @@ class _AiModelSelectorState extends State<_AiModelSelector> {
           ),
           onTap: () async {
             setState(() => _updating = true);
-            await AiConfig.setActiveProfile(i);
+            await AiConfig.setActiveProfile(entry.key);
             if (mounted) {
               setState(() => _updating = false);
             }
@@ -3705,10 +3715,15 @@ class _AiModelSelectorState extends State<_AiModelSelector> {
 
   @override
   Widget build(BuildContext context) {
-    final profiles = AiConfig.current.profiles;
+    final profiles = AiConfig.current.profiles
+        .where(
+          (profile) =>
+              profile.enabled && profile.profileType == AiProfileType.text,
+        )
+        .toList(growable: false);
     if (profiles.isEmpty) return const SizedBox.shrink();
 
-    final active = AiConfig.currentProfile;
+    final active = AiConfig.current.getProfileByType(AiProfileType.text);
     final multiple = profiles.length > 1;
     final foreground = dark ? const Color(0xFF888B91) : const Color(0xFF888888);
     final remaining = AiConfig.current.remainingFor(active);
@@ -3755,28 +3770,26 @@ class _AiModelSelectorState extends State<_AiModelSelector> {
                 ),
               ),
             ],
-            if (multiple) ...[
-              const SizedBox(width: 3),
-              IconButton(
-                icon: Icon(
-                  Icons.settings_outlined,
-                  size: 15,
-                  color: foreground,
-                ),
-                constraints: const BoxConstraints.tightFor(
-                  width: 20,
-                  height: 20,
-                ),
-                padding: EdgeInsets.zero,
-                splashRadius: 10,
-                tooltip: translate('AI Settings'),
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const AiConfigPage()),
-                  );
-                },
+            const SizedBox(width: 3),
+            IconButton(
+              icon: Icon(
+                Icons.settings_outlined,
+                size: 15,
+                color: foreground,
               ),
-            ],
+              constraints: const BoxConstraints.tightFor(
+                width: 20,
+                height: 20,
+              ),
+              padding: EdgeInsets.zero,
+              splashRadius: 10,
+              tooltip: translate('AI Settings'),
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const AiConfigPage()),
+                );
+              },
+            ),
             if (multiple) ...[
               const SizedBox(width: 3),
               Icon(

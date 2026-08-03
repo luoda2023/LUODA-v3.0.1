@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -143,11 +144,19 @@ class AiConfig {
 
   /// Find the first enabled profile of the given type.
   AiProfile getProfileByType(AiProfileType type) {
-    final match = profiles.cast<AiProfile?>().firstWhere(
-          (p) => p!.enabled && p.profileType == type,
-          orElse: () => null,
-        );
-    return match ?? const AiProfile(enabled: false);
+    if (activeProfileIndex >= 0 && activeProfileIndex < profiles.length) {
+      final active = profiles[activeProfileIndex];
+      if (active.enabled && active.profileType == type) return active;
+    }
+    for (final profile in profiles) {
+      if (!profile.builtIn && profile.enabled && profile.profileType == type) {
+        return profile;
+      }
+    }
+    for (final profile in profiles) {
+      if (profile.enabled && profile.profileType == type) return profile;
+    }
+    return const AiProfile(enabled: false);
   }
 
   static const _storageKey = 'luoda_ai_config';
@@ -279,8 +288,8 @@ class AiConfig {
       profiles: cfg.profiles.where((p) => !p.builtIn).toList(),
       activeProfileIndex: index,
       email: cfg.email,
+      usageByProfile: cfg.usageByProfile,
     ));
-    _notifyChanged();
   }
 }
 
@@ -298,7 +307,7 @@ Uri _aiResourceUri(
 /// Shared AI API caller — returns raw response content from any prompt.
 Future<String?> callAiText(AiProfile profile, String prompt,
     {double temperature = 0.7}) async {
-  if (!profile.enabled || profile.endpoint.isEmpty || profile.apiKey.isEmpty) {
+  if (!profile.enabled || profile.endpoint.isEmpty) {
     return null;
   }
   try {
@@ -357,7 +366,7 @@ Future<String?> callAiText(AiProfile profile, String prompt,
 class AiService {
   /// Translate [text] between Chinese and English using the active profile.
   static Future<String?> translate(String text) async {
-    final profile = AiConfig.currentProfile;
+    final profile = AiConfig.current.getProfileByType(AiProfileType.text);
     if (!profile.enabled) return null;
     final hasChinese = RegExp(r'[\u4e00-\u9fff]').hasMatch(text);
     final sourceLang = hasChinese ? 'Chinese' : 'English';
@@ -370,7 +379,7 @@ class AiService {
 
   /// Chat: generate a reply for a user message (used for "#" prefixed messages).
   static Future<String?> chat(String message) async {
-    final profile = AiConfig.currentProfile;
+    final profile = AiConfig.current.getProfileByType(AiProfileType.text);
     if (!profile.enabled) return null;
     final prompt = 'You are a helpful assistant integrated into a chat app. '
         'Reply concisely and naturally in the same language as the user message.\n'
@@ -396,6 +405,8 @@ class AiService {
 /// Calls the image AI profile via OpenAI-compatible /v1/images/generations.
 /// Downloads the generated image and saves it to a temp path.
 class AiImageService {
+  static const int maxImageBytes = 25 * 1024 * 1024;
+
   static Future<String?> generate(
     String prompt, {
     String size = '1024x1024',
@@ -416,9 +427,7 @@ class AiImageService {
     String size = '1024x1024',
     Directory? outputDirectory,
   }) async {
-    if (!profile.enabled ||
-        profile.endpoint.isEmpty ||
-        profile.apiKey.isEmpty) {
+    if (!profile.enabled || profile.endpoint.isEmpty) {
       debugPrint('Image AI not configured');
       return null;
     }
@@ -431,7 +440,8 @@ class AiImageService {
             uri,
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': 'Bearer ${profile.apiKey}',
+              if (profile.apiKey.isNotEmpty)
+                'Authorization': 'Bearer ${profile.apiKey}',
             },
             body: jsonEncode({
               'model': profile.model,
@@ -453,27 +463,26 @@ class AiImageService {
 
           Uint8List? bytes;
           if (b64 != null && b64.isNotEmpty) {
-            bytes = base64Decode(b64);
-          } else if (url != null && url.isNotEmpty) {
-            // Download from URL with 15s timeout
-            try {
-              final imgResp = await http
-                  .get(Uri.parse(url))
-                  .timeout(const Duration(seconds: 15));
-              if (imgResp.statusCode == 200) {
-                bytes = imgResp.bodyBytes;
-              }
-            } catch (_) {
-              debugPrint('Image download failed: $url');
+            final estimatedBytes = (b64.length * 3) ~/ 4;
+            if (estimatedBytes <= maxImageBytes) {
+              bytes = base64Decode(b64);
             }
+          } else if (url != null && url.isNotEmpty) {
+            bytes = await _downloadImage(Uri.parse(url));
           }
 
-          if (bytes != null) {
-            // Save to a flat temp file (no extra directory).
+          if (bytes != null && bytes.length <= maxImageBytes) {
+            final extension = _imageExtension(bytes);
+            if (extension == null) {
+              debugPrint('Image generation returned an unsupported file');
+              return null;
+            }
             final ts = DateTime.now().millisecondsSinceEpoch;
             final dir = outputDirectory ?? Directory.systemTemp;
             await dir.create(recursive: true);
-            final file = File('${dir.path}/luoda_ai_img_$ts.png');
+            final file = File(
+              '${dir.path}${Platform.pathSeparator}luoda_ai_img_$ts.$extension',
+            );
             await file.writeAsBytes(bytes);
             return file.path;
           }
@@ -484,6 +493,64 @@ class AiImageService {
       }
     } catch (e) {
       debugPrint('Image gen error: $e');
+    }
+    return null;
+  }
+
+  static Future<Uint8List?> _downloadImage(Uri uri) async {
+    final client = http.Client();
+    try {
+      final response = await client
+          .send(http.Request('GET', uri))
+          .timeout(const Duration(seconds: 15));
+      if (response.statusCode != HttpStatus.ok ||
+          response.contentLength != null &&
+              response.contentLength! > maxImageBytes) {
+        return null;
+      }
+      final builder = BytesBuilder(copy: false);
+      var total = 0;
+      await for (final chunk
+          in response.stream.timeout(const Duration(seconds: 15))) {
+        total += chunk.length;
+        if (total > maxImageBytes) return null;
+        builder.add(chunk);
+      }
+      return builder.takeBytes();
+    } catch (error) {
+      debugPrint('Image download failed: $error');
+      return null;
+    } finally {
+      client.close();
+    }
+  }
+
+  static String? _imageExtension(Uint8List bytes) {
+    if (bytes.length >= 8 &&
+        bytes[0] == 0x89 &&
+        bytes[1] == 0x50 &&
+        bytes[2] == 0x4e &&
+        bytes[3] == 0x47 &&
+        bytes[4] == 0x0d &&
+        bytes[5] == 0x0a &&
+        bytes[6] == 0x1a &&
+        bytes[7] == 0x0a) {
+      return 'png';
+    }
+    if (bytes.length >= 3 &&
+        bytes[0] == 0xff &&
+        bytes[1] == 0xd8 &&
+        bytes[2] == 0xff) {
+      return 'jpg';
+    }
+    if (bytes.length >= 12 &&
+        ascii.decode(bytes.sublist(0, 4), allowInvalid: true) == 'RIFF' &&
+        ascii.decode(bytes.sublist(8, 12), allowInvalid: true) == 'WEBP') {
+      return 'webp';
+    }
+    if (bytes.length >= 6) {
+      final signature = ascii.decode(bytes.sublist(0, 6), allowInvalid: true);
+      if (signature == 'GIF87a' || signature == 'GIF89a') return 'gif';
     }
     return null;
   }

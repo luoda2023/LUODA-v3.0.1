@@ -509,7 +509,10 @@ fn wait_for_headless_display() -> ResultType<Vec<Display>> {
                     // Last resort: return whatever we have so the video service
                     // can attempt its own recovery path.
                     if !displays.is_empty() {
-                        log::warn!("headless display timeout, returning {} display(s)", displays.len());
+                        log::warn!(
+                            "headless display timeout, returning {} display(s)",
+                            displays.len()
+                        );
                         return Ok(displays);
                     }
                     bail!("virtual display did not enumerate before timeout");
@@ -547,24 +550,7 @@ pub(crate) fn prepare_windows_server_headless_display() -> ResultType<()> {
         log::debug!("headless display already present");
         return Ok(());
     }
-    match plug_in_headless_and_wait() {
-        Ok(_) => Ok(()),
-        Err(e) => {
-            // Even if the virtual display creation fails, we return Ok
-            // on Windows Server portable mode so the video service can still
-            // start and try its own recovery later.
-            let is_portable =
-                std::env::var_os(crate::common::PORTABLE_APPNAME_RUNTIME_ENV_KEY).is_some();
-            if crate::platform::windows::is_win_server() || is_portable {
-                log::warn!(
-                    "headless display preparation failed (will retry on capture): {e}"
-                );
-                Ok(())
-            } else {
-                Err(e)
-            }
-        }
-    }
+    plug_in_headless_and_wait().map(|_| ())
 }
 
 #[inline]
@@ -612,10 +598,8 @@ pub fn try_get_displays_(add_amyuni_headless: bool) -> ResultType<Vec<Display>> 
             Err(e) => {
                 log::error!("failed to create virtual display: {e}");
                 // On portable VPS, try one more time with a longer wait.
-                let is_portable = std::env::var_os(
-                    crate::common::PORTABLE_APPNAME_RUNTIME_ENV_KEY,
-                )
-                .is_some();
+                let is_portable =
+                    std::env::var_os(crate::common::PORTABLE_APPNAME_RUNTIME_ENV_KEY).is_some();
                 if is_portable || crate::platform::windows::is_win_server() {
                     std::thread::sleep(Duration::from_secs(3));
                     if let Ok(d) = Display::all() {

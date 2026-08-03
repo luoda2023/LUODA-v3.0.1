@@ -159,6 +159,12 @@ flutter:
     - family: LDeskNotoSansCJKSC
       fonts:
         - asset: assets/NotoSansCJKsc-Regular.otf
+    - family: LDeskNotoSansSymbols2
+      fonts:
+        - asset: assets/NotoSansSymbols2-Regular.ttf
+    - family: LDeskNotoColorEmoji
+      fonts:
+        - asset: assets/NotoColorEmoji.ttf
     - family: GestureIcons
       fonts:
         - asset: assets/gestures.ttf

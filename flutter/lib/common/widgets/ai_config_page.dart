@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../../models/ai_config_model.dart';
@@ -21,25 +23,26 @@ class _AiConfigPageState extends State<AiConfigPage> {
   void initState() {
     super.initState();
     final cfg = AiConfig.current;
-    _profiles = cfg.profiles
-        .map((p) => _ProfileFormState(
-              nameCtrl: TextEditingController(text: p.name),
-              endpointCtrl: TextEditingController(text: p.endpoint),
-              apiKeyCtrl: TextEditingController(text: p.apiKey),
-              modelCtrl: TextEditingController(text: p.model),
-              enabled: p.enabled,
-            ))
-        .toList();
+    _profiles = cfg.profiles.asMap().entries.map((entry) {
+      final p = entry.value;
+      return _ProfileFormState(
+        nameCtrl: TextEditingController(text: p.name),
+        endpointCtrl: TextEditingController(text: p.endpoint),
+        apiKeyCtrl: TextEditingController(text: p.apiKey),
+        modelCtrl: TextEditingController(text: p.model),
+        enabled: p.enabled,
+        builtIn: p.builtIn,
+        profileType: p.profileType,
+        originalIndex: entry.key,
+      );
+    }).toList();
     _emailCtrl = TextEditingController(text: cfg.email);
   }
 
   @override
   void dispose() {
     for (final p in _profiles) {
-      p.nameCtrl.dispose();
-      p.endpointCtrl.dispose();
-      p.apiKeyCtrl.dispose();
-      p.modelCtrl.dispose();
+      p.dispose();
     }
     _emailCtrl.dispose();
     super.dispose();
@@ -53,24 +56,36 @@ class _AiConfigPageState extends State<AiConfigPage> {
         apiKeyCtrl: TextEditingController(),
         modelCtrl: TextEditingController(text: 'gpt-4o-mini'),
         enabled: true,
+        builtIn: false,
+        profileType: AiProfileType.text,
+        originalIndex: -1,
       ));
     });
   }
 
   void _removeProfile(int index) {
-    if (_profiles.length <= 1) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text(translate('At least one profile is required'))),
-      );
-      return;
-    }
+    final profile = _profiles[index];
+    if (profile.builtIn) return;
     setState(() => _profiles.removeAt(index));
+    profile.dispose();
   }
 
   Future<void> _save() async {
     setState(() => _saving = true);
+    final current = AiConfig.current;
+    final activeForm = _profiles.cast<_ProfileFormState?>().firstWhere(
+          (profile) => profile!.originalIndex == current.activeProfileIndex,
+          orElse: () => null,
+        );
+    final userForms = _profiles.where((profile) => !profile.builtIn).toList();
+    var activeIndex = 0;
+    if (activeForm != null) {
+      activeIndex = activeForm.builtIn
+          ? activeForm.originalIndex
+          : AiConfig.builtInProfiles.length + userForms.indexOf(activeForm);
+    }
     await AiConfig.save(AiConfig(
-      profiles: _profiles
+      profiles: userForms
           .map((p) => AiProfile(
                 name: p.nameCtrl.text.trim(),
                 endpoint: p.endpointCtrl.text.trim(),
@@ -79,12 +94,17 @@ class _AiConfigPageState extends State<AiConfigPage> {
                     ? p.modelCtrl.text.trim()
                     : 'gpt-4o-mini',
                 enabled: p.enabled,
+                profileType: p.profileType,
               ))
           .toList(),
-      activeProfileIndex: AiConfig.current.activeProfileIndex,
+      activeProfileIndex: activeIndex,
       email: _emailCtrl.text.trim(),
+      usageByProfile: current.usageByProfile,
     ));
-    setState(() => _saving = false);
+    for (var i = 0; i < _profiles.length; i++) {
+      _profiles[i].originalIndex = i;
+    }
+    if (mounted) setState(() => _saving = false);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(translate('Configuration saved'))),
@@ -102,31 +122,43 @@ class _AiConfigPageState extends State<AiConfigPage> {
           ? p.modelCtrl.text.trim()
           : 'gpt-4o-mini',
       enabled: true,
+      profileType: p.profileType,
     );
-    if (profile.endpoint.isEmpty || profile.apiKey.isEmpty) {
+    if (profile.endpoint.isEmpty) {
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text(translate('Please fill endpoint and API key'))),
+        SnackBar(content: Text(translate('Please fill endpoint'))),
       );
       return;
     }
-    // Temporarily switch to this profile and test
-    final savedCfg = AiConfig.current;
-    await AiConfig.save(AiConfig(
-      profiles: [profile],
-      email: savedCfg.email,
-    ));
-    // Show test status inline
     ScaffoldMessenger.maybeOf(context)?.showSnackBar(
       SnackBar(content: Text(translate('Testing...'))),
     );
-    final result = await AiService.translate('Hello, how are you?');
-    await AiConfig.save(savedCfg); // restore
+
+    String? result;
+    if (profile.profileType == AiProfileType.image) {
+      final path = await AiImageService.generateWithProfile(
+        profile,
+        'A single green circle centered on a white background',
+      );
+      if (path != null) {
+        result = translate('Image model');
+        try {
+          await File(path).delete();
+        } catch (_) {}
+      }
+    } else {
+      result = await callAiText(
+        profile,
+        'Reply with only OK.',
+        temperature: 0,
+      );
+    }
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(result != null
-              ? '✅ $result'
+              ? '${translate('Test succeeded')}: $result'
               : '❌ ${translate('Connection failed')}'),
           duration: const Duration(seconds: 3),
         ),
@@ -155,8 +187,7 @@ class _AiConfigPageState extends State<AiConfigPage> {
                     width: 18,
                     height: 18,
                     child: CircularProgressIndicator(strokeWidth: 2))
-                : Text(translate('Save'),
-                    style: const TextStyle(fontSize: 14)),
+                : Text(translate('Save'), style: const TextStyle(fontSize: 14)),
           ),
         ],
       ),
@@ -172,7 +203,8 @@ class _AiConfigPageState extends State<AiConfigPage> {
               decoration: InputDecoration(
                 hintText: 'you@example.com',
                 filled: true,
-                fillColor: dark ? const Color(0xFF1C1E23) : const Color(0xFFF5F5F5),
+                fillColor:
+                    dark ? const Color(0xFF1C1E23) : const Color(0xFFF5F5F5),
                 border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
                     borderSide: BorderSide.none),
@@ -222,9 +254,8 @@ class _AiConfigPageState extends State<AiConfigPage> {
     final p = _profiles[index];
     final profiles = AiConfig.current.profiles;
     final origProfile = index < profiles.length ? profiles[index] : null;
-    final isBuiltIn = origProfile?.builtIn ?? false;
-    final isActive = AiConfig.current.activeProfileIndex == index &&
-        index < profiles.length;
+    final isBuiltIn = p.builtIn;
+    final isActive = p.originalIndex == AiConfig.current.activeProfileIndex;
 
     return Card(
       color: dark ? const Color(0xFF2B2D32) : Colors.white,
@@ -249,8 +280,8 @@ class _AiConfigPageState extends State<AiConfigPage> {
                     p.nameCtrl.text.isNotEmpty
                         ? p.nameCtrl.text
                         : translate('Profile name'),
-                    style:
-                        const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                    style: const TextStyle(
+                        fontSize: 14, fontWeight: FontWeight.w600),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -265,8 +296,7 @@ class _AiConfigPageState extends State<AiConfigPage> {
                     ),
                     child: Text(
                       translate('Built-in'),
-                      style: const TextStyle(
-                          fontSize: 10, color: Colors.grey),
+                      style: const TextStyle(fontSize: 10, color: Colors.grey),
                     ),
                   ),
                 if (isBuiltIn) const SizedBox(width: 4),
@@ -305,7 +335,9 @@ class _AiConfigPageState extends State<AiConfigPage> {
             if (isBuiltIn) ...[
               const SizedBox(height: 6),
               Text(
-                '${translate("Free 100 calls")} \u2022 ${origProfile?.name ?? ""}',
+                origProfile?.freeQuota != null && origProfile!.freeQuota > 0
+                    ? '${translate("Text model")} \u2022 ${translate("Free 100 calls")}'
+                    : translate('Image model'),
                 style: TextStyle(
                     fontSize: 12,
                     color: dark ? Colors.white38 : Colors.black38),
@@ -315,10 +347,30 @@ class _AiConfigPageState extends State<AiConfigPage> {
             // User profiles: show endpoint/key/model fields
             if (!isBuiltIn) ...[
               const SizedBox(height: 8),
+              DropdownButtonFormField<AiProfileType>(
+                value: p.profileType,
+                decoration: _inputDeco(
+                  dark,
+                  translate('Model type'),
+                ).copyWith(labelText: translate('Model type')),
+                items: <DropdownMenuItem<AiProfileType>>[
+                  DropdownMenuItem(
+                    value: AiProfileType.text,
+                    child: Text(translate('Text model')),
+                  ),
+                  DropdownMenuItem(
+                    value: AiProfileType.image,
+                    child: Text(translate('Image model')),
+                  ),
+                ],
+                onChanged: (value) {
+                  if (value != null) setState(() => p.profileType = value);
+                },
+              ),
+              const SizedBox(height: 6),
               TextField(
                 controller: p.endpointCtrl,
-                decoration: _inputDeco(
-                    dark, 'https://api.openai.com/v1/chat/completions'),
+                decoration: _inputDeco(dark, 'https://api.openai.com/v1'),
                 style: const TextStyle(fontSize: 12),
               ),
               const SizedBox(height: 6),
@@ -405,8 +457,7 @@ class _AiConfigPageState extends State<AiConfigPage> {
       fillColor: dark ? const Color(0xFF1C1E23) : const Color(0xFFF5F5F5),
       border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
-      contentPadding:
-          const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       isDense: true,
     );
   }
@@ -419,6 +470,9 @@ class _ProfileFormState {
   final TextEditingController apiKeyCtrl;
   final TextEditingController modelCtrl;
   bool enabled;
+  final bool builtIn;
+  AiProfileType profileType;
+  int originalIndex;
 
   _ProfileFormState({
     required this.nameCtrl,
@@ -426,5 +480,15 @@ class _ProfileFormState {
     required this.apiKeyCtrl,
     required this.modelCtrl,
     required this.enabled,
+    required this.builtIn,
+    required this.profileType,
+    required this.originalIndex,
   });
+
+  void dispose() {
+    nameCtrl.dispose();
+    endpointCtrl.dispose();
+    apiKeyCtrl.dispose();
+    modelCtrl.dispose();
+  }
 }

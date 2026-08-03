@@ -32,7 +32,7 @@ use hbb_common::{
     tokio::{
         self,
         net::UdpSocket,
-        time::{Duration, Instant, Interval},
+        time::{Duration, Instant, Interval, MissedTickBehavior},
     },
     ResultType, Stream,
 };
@@ -914,9 +914,7 @@ pub fn is_lan_ip(ip: &str) -> bool {
     let ip = ip.split('%').next().unwrap_or(ip).trim();
     match ip.parse::<std::net::IpAddr>() {
         Ok(std::net::IpAddr::V4(v4)) => v4.is_loopback() || v4.is_private() || v4.is_link_local(),
-        Ok(std::net::IpAddr::V6(v6)) => {
-            v6.is_loopback() || v6.is_unicast_link_local()
-        }
+        Ok(std::net::IpAddr::V6(v6)) => v6.is_loopback() || v6.is_unicast_link_local(),
         Err(_) => false,
     }
 }
@@ -1777,8 +1775,9 @@ pub struct ThrottledInterval {
 }
 
 impl ThrottledInterval {
-    pub fn new(i: Interval) -> ThrottledInterval {
+    pub fn new(mut i: Interval) -> ThrottledInterval {
         let period = i.period();
+        i.set_missed_tick_behavior(MissedTickBehavior::Skip);
         ThrottledInterval {
             interval: i,
             next_tick: Instant::now(),
@@ -2456,18 +2455,23 @@ mod tests {
             loop {
                 tokio::select! {
                     _ = timer.tick() => {
-                        times.push(get_timestamp_secs());
+                        times.push(Instant::now());
                         if times.len() == 5 {
                             break;
                         }
                     }
                 }
             }
-            // No multiple ticks in the `interval` time.
-            // Values in "times" are unique and are less than normal tokio interval.
-            // See previous test (test_tokio_time_interval_sleep) for comparison.
-            let times2: HashSet<u128> = HashSet::from_iter(times.clone());
-            assert_eq!(times.len(), times2.len(), "test: {}", i);
+            // The wrapper throttles delayed ticks to at least 90% of the period.
+            // Use Tokio's monotonic clock instead of rounded wall-clock seconds so
+            // valid ticks near a second boundary cannot be reported as duplicates.
+            for pair in times.windows(2) {
+                assert!(
+                    pair[1].duration_since(pair[0]) >= Duration::from_millis(850),
+                    "test: {i}, interval: {:?}",
+                    pair[1].duration_since(pair[0])
+                );
+            }
         }
     }
 

@@ -49,6 +49,40 @@ pub fn is_virtual_display_supported() -> bool {
     }
 }
 
+fn parse_virtual_display_resolution(value: &str) -> Option<(usize, usize)> {
+    let (width, height) = value.split_once('x')?;
+    let width = width.parse::<usize>().ok()?;
+    let height = height.parse::<usize>().ok()?;
+    (width > 0 && height > 0).then_some((width, height))
+}
+
+pub fn virtual_display_resolution() -> (usize, usize) {
+    parse_virtual_display_resolution(&hbb_common::config::Config::get_option(
+        hbb_common::config::keys::OPTION_VIRTUAL_DISPLAY_RESOLUTION,
+    ))
+    .unwrap_or((1920, 1080))
+}
+
+#[cfg(test)]
+mod resolution_tests {
+    use super::parse_virtual_display_resolution;
+
+    #[test]
+    fn parses_valid_virtual_display_resolution() {
+        assert_eq!(
+            parse_virtual_display_resolution("2560x1440"),
+            Some((2560, 1440))
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_virtual_display_resolution() {
+        for value in ["", "1920", "0x1080", "1920x0", "wideXhigh"] {
+            assert_eq!(parse_virtual_display_resolution(value), None, "{value}");
+        }
+    }
+}
+
 /// Count of currently ACTIVE physical displays (excluding mirroring drivers and
 /// our own virtual/IDD monitors). Used to detect headless VPS/remote machines:
 /// if zero physical displays are active, we can automatically plug in a virtual
@@ -106,7 +140,10 @@ pub fn auto_plug_headless_if_needed() -> bool {
             true
         }
         Err(e) => {
-            log::warn!("Headless machine detected but failed to plug virtual display: {}", e);
+            log::warn!(
+                "Headless machine detected but failed to plug virtual display: {}",
+                e
+            );
             false
         }
     }
@@ -126,6 +163,14 @@ pub fn plug_in_headless() -> ResultType<()> {
     match IDD_IMPL {
         IDD_IMPL_LUODA => luoda_idd::plug_in_headless(),
         IDD_IMPL_AMYUNI => amyuni_idd::plug_in_headless(),
+        _ => bail!("Unsupported virtual display implementation."),
+    }
+}
+
+pub fn install_update_driver() -> ResultType<()> {
+    match IDD_IMPL {
+        IDD_IMPL_LUODA => luoda_idd::install_update_driver(),
+        IDD_IMPL_AMYUNI => amyuni_idd::install_update_driver(),
         _ => bail!("Unsupported virtual display implementation."),
     }
 }
@@ -289,9 +334,10 @@ pub mod luoda_idd {
     pub fn plug_in_headless() -> ResultType<()> {
         let mut manager = VIRTUAL_DISPLAY_MANAGER.lock().unwrap();
         manager.prepare_driver()?;
+        let (width, height) = super::virtual_display_resolution();
         let modes = [virtual_display::MonitorMode {
-            width: 1920,
-            height: 1080,
+            width: width as _,
+            height: height as _,
             sync: 60,
         }];
         let device_names = get_device_names().into_iter().collect();
@@ -620,6 +666,11 @@ pub mod amyuni_idd {
         Ok(())
     }
 
+    pub fn install_update_driver() -> ResultType<()> {
+        let mut is_async = false;
+        check_install_driver(&mut is_async)
+    }
+
     pub fn reset_all() -> ResultType<()> {
         let _ = crate::privacy_mode::turn_off_privacy(0, None);
         let _ = plug_out_monitor(super::IDD_PLUG_OUT_ALL_INDEX, true, false);
@@ -694,7 +745,7 @@ pub mod amyuni_idd {
         }
         // Workaround for the issue that we can't set the default the resolution.
         if let Ok(old_connectivity_old) = reg_connectivity_old {
-            let (vw, vh) = get_virtual_display_resolution();
+            let (vw, vh) = super::virtual_display_resolution();
             std::thread::spawn(move || {
                 try_reset_resolution_on_first_plug_in(old_connectivity_old.len(), vw, vh);
             });
@@ -721,23 +772,6 @@ pub mod amyuni_idd {
                 }
             }
         }
-    }
-
-    /// Read configured virtual display resolution, default 1920x1080.
-    fn get_virtual_display_resolution() -> (usize, usize) {
-        let res_str = hbb_common::config::Config::get_option(
-            hbb_common::config::keys::OPTION_VIRTUAL_DISPLAY_RESOLUTION);
-        if !res_str.is_empty() {
-            let parts: Vec<&str> = res_str.split('x').collect();
-            if parts.len() == 2 {
-                if let (Ok(w), Ok(h)) = (parts[0].parse::<usize>(), parts[1].parse::<usize>()) {
-                    if w > 0 && h > 0 {
-                        return (w, h);
-                    }
-                }
-            }
-        }
-        (1920, 1080) // default
     }
 
     pub fn plug_in_headless() -> ResultType<()> {

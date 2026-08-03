@@ -61,15 +61,24 @@ pub fn core_main() -> Option<Vec<String>> {
             }
             if config::Config::get_option(keys::OPTION_ACCESS_MODE).is_empty() {
                 log::info!("core_main: setting default access-mode=full");
-                config::Config::set_option(keys::OPTION_ACCESS_MODE.to_string(), "full".to_string());
+                config::Config::set_option(
+                    keys::OPTION_ACCESS_MODE.to_string(),
+                    "full".to_string(),
+                );
             }
             if config::Config::get_option(keys::OPTION_APPROVE_MODE).is_empty() {
                 log::info!("core_main: setting default approve-mode=password");
-                config::Config::set_option(keys::OPTION_APPROVE_MODE.to_string(), "password".to_string());
+                config::Config::set_option(
+                    keys::OPTION_APPROVE_MODE.to_string(),
+                    "password".to_string(),
+                );
             }
             if config::Config::get_option(keys::OPTION_ENABLE_KEYBOARD).is_empty() {
                 log::info!("core_main: setting default enable-keyboard=Y");
-                config::Config::set_option(keys::OPTION_ENABLE_KEYBOARD.to_string(), "Y".to_string());
+                config::Config::set_option(
+                    keys::OPTION_ENABLE_KEYBOARD.to_string(),
+                    "Y".to_string(),
+                );
             }
             if config::Config::get_option(keys::OPTION_DIRECT_SERVER).is_empty() {
                 log::info!("core_main: setting default direct-server=Y");
@@ -252,9 +261,9 @@ pub fn core_main() -> Option<Vec<String>> {
         // get the tray indicator even without a system service installation.
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         if !crate::check_process("--tray", true) {
-            let hide = crate::ui_interface::get_builtin_option(
-                hbb_common::config::keys::OPTION_HIDE_TRAY,
-            ) == "Y";
+            let hide =
+                crate::ui_interface::get_builtin_option(hbb_common::config::keys::OPTION_HIDE_TRAY)
+                    == "Y";
             if !hide {
                 std::thread::spawn(move || crate::tray::start_tray());
             }
@@ -336,9 +345,11 @@ pub fn core_main() -> Option<Vec<String>> {
             } else if args[0] == "--install-idd" {
                 #[cfg(windows)]
                 if crate::virtual_display_manager::is_virtual_display_supported() {
-                    hbb_common::allow_err!(
-                        crate::virtual_display_manager::luoda_idd::install_update_driver()
-                    );
+                    if let Err(error) = crate::virtual_display_manager::install_update_driver() {
+                        log::error!("failed to install virtual display driver: {error}");
+                        eprintln!("failed to install virtual display driver: {error}");
+                        std::process::exit(1);
+                    }
                 }
                 return None;
             } else if args[0] == "--portable-service" {

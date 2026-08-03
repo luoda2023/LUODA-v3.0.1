@@ -320,15 +320,16 @@ pub mod server {
                 let current_display = (*para).current_display;
                 let timeout_ms = (*para).timeout_ms;
                 if c.is_none() {
-                    let Ok(mut displays) = display_service::try_get_displays() else {
-                        log::error!("Failed to get displays");
-                        *EXIT.lock().unwrap() = true;
-                        return;
+                    let Ok(mut displays) = display_service::try_get_displays_add_amyuni_headless()
+                    else {
+                        log::error!("Failed to prepare a display for portable capture");
+                        std::thread::sleep(Duration::from_secs(1));
+                        continue;
                     };
                     if displays.len() <= current_display {
                         log::error!("Invalid display index:{}", current_display);
-                        *EXIT.lock().unwrap() = true;
-                        return;
+                        std::thread::sleep(Duration::from_secs(1));
+                        continue;
                     }
                     let display = displays.remove(current_display);
                     display_width = display.width();
@@ -520,7 +521,7 @@ pub mod server {
 // functions called in main process.
 pub mod client {
     use super::*;
-    use crate::display_service;
+    use crate::{display_service, virtual_display_manager};
     use hbb_common::{anyhow::Context, message_proto::PointerDeviceEvent};
     use scrap::PixelBuffer;
 
@@ -542,10 +543,10 @@ pub mod client {
             bail!("already running");
         }
         if SHMEM.lock().unwrap().is_none() {
-            let displays = display_service::try_get_displays_add_amyuni_headless()?;
-            if display_service::no_displays(&displays) {
-                bail!("no display available!");
-            }
+            let displays = display_service::try_get_displays().unwrap_or_else(|error| {
+                log::warn!("display probe failed before portable service startup: {error}");
+                Vec::new()
+            });
             let mut max_pixel = 0;
             let align = 64;
             for d in &displays {
@@ -557,6 +558,13 @@ pub mod client {
                         max_pixel = pixel;
                     }
                 }
+            }
+            if max_pixel == 0 {
+                let (width, height) = virtual_display_manager::virtual_display_resolution();
+                max_pixel = utils::align(width, align) * utils::align(height, align);
+                log::warn!(
+                    "no display available before elevation; reserving {width}x{height} portable capture memory"
+                );
             }
             let shmem_size = utils::align(ADDR_CAPTURE_FRAME + max_pixel * 4, align);
             // os error 112, no enough space

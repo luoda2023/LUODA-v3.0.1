@@ -42,6 +42,70 @@ void main() {
     expect(result, '中文𠮷与 emoji 😀');
   });
 
+  test('text AI supports local compatible endpoints without an API key',
+      () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    final requestSeen = Completer<void>();
+    server.listen((request) async {
+      expect(request.uri.path, '/v1/chat/completions');
+      expect(request.headers.value(HttpHeaders.authorizationHeader), isNull);
+      await utf8.decoder.bind(request).join();
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(jsonEncode({
+        'choices': [
+          {
+            'message': {'content': '本地模型正常'}
+          }
+        ]
+      }));
+      await request.response.close();
+      requestSeen.complete();
+    });
+
+    final result = await callAiText(
+      AiProfile(
+        endpoint: 'http://127.0.0.1:${server.port}/v1',
+        model: 'local-no-auth',
+      ),
+      '测试本地模型',
+    );
+
+    expect(result, '本地模型正常');
+    await requestSeen.future.timeout(const Duration(seconds: 2));
+  });
+
+  test('AI profile selection keeps text and image models separate', () {
+    const builtInImage = AiProfile(
+      name: 'built-in-image',
+      endpoint: 'https://built-in.invalid/v1',
+      apiKey: 'built-in',
+      model: 'built-in-image',
+      builtIn: true,
+      profileType: AiProfileType.image,
+    );
+    const customText = AiProfile(
+      name: 'custom-text',
+      endpoint: 'http://127.0.0.1:11434/v1',
+      model: 'local-text',
+      profileType: AiProfileType.text,
+    );
+    const customImage = AiProfile(
+      name: 'custom-image',
+      endpoint: 'https://images.invalid/v1',
+      apiKey: 'custom',
+      model: 'custom-image',
+      profileType: AiProfileType.image,
+    );
+    const config = AiConfig(
+      profiles: <AiProfile>[builtInImage, customText, customImage],
+      activeProfileIndex: 1,
+    );
+
+    expect(config.getProfileByType(AiProfileType.text).name, 'custom-text');
+    expect(config.getProfileByType(AiProfileType.image).name, 'custom-image');
+  });
+
   test('image AI accepts a base endpoint and writes returned bytes', () async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     addTearDown(() => server.close(force: true));
@@ -55,7 +119,7 @@ void main() {
       request.response.write(jsonEncode({
         'data': [
           {
-            'b64_json': base64Encode(<int>[1, 2, 3, 4])
+            'b64_json': base64Encode(<int>[137, 80, 78, 71, 13, 10, 26, 10])
           }
         ]
       }));
@@ -79,7 +143,8 @@ void main() {
     await responseFuture;
     expect(path, isNotNull);
     final file = File(path!);
-    expect(await file.readAsBytes(), <int>[1, 2, 3, 4]);
+    expect(path, endsWith('.png'));
+    expect(await file.readAsBytes(), <int>[137, 80, 78, 71, 13, 10, 26, 10]);
     await file.delete();
   });
 
@@ -93,12 +158,12 @@ void main() {
         request.response.headers.contentType = ContentType.json;
         request.response.write(jsonEncode({
           'data': [
-            {'url': 'http://127.0.0.1:${server.port}/generated.png'}
+            {'url': 'http://127.0.0.1:${server.port}/generated.jpg'}
           ]
         }));
-      } else if (request.uri.path == '/generated.png') {
-        request.response.headers.contentType = ContentType('image', 'png');
-        request.response.add(<int>[137, 80, 78, 71, 13, 10, 26, 10]);
+      } else if (request.uri.path == '/generated.jpg') {
+        request.response.headers.contentType = ContentType('image', 'jpeg');
+        request.response.add(<int>[255, 216, 255, 217]);
         if (!completed.isCompleted) completed.complete();
       } else {
         request.response.statusCode = HttpStatus.notFound;
@@ -123,7 +188,8 @@ void main() {
     await completed.future.timeout(const Duration(seconds: 5));
     expect(path, isNotNull);
     final file = File(path!);
-    expect(await file.readAsBytes(), <int>[137, 80, 78, 71, 13, 10, 26, 10]);
+    expect(path, endsWith('.jpg'));
+    expect(await file.readAsBytes(), <int>[255, 216, 255, 217]);
     await file.delete();
   });
 
