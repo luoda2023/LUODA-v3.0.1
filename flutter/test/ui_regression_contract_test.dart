@@ -24,6 +24,12 @@ void main() {
   final desktopConnectionSource = File(
     'lib/desktop/pages/connection_page.dart',
   ).readAsStringSync();
+  final clipboardImageProbeSource = File(
+    'lib/desktop/clipboard_image_probe.dart',
+  ).readAsStringSync();
+  final clipboardImageProbeNativeSource = File(
+    'lib/desktop/clipboard_image_probe_native.dart',
+  ).readAsStringSync();
   final remotePageSource = File(
     'lib/desktop/pages/remote_page.dart',
   ).readAsStringSync();
@@ -1029,7 +1035,19 @@ void main() {
     expect(clipboardFlow, isNot(contains('FilePicker.platform.pickFiles')));
     expect(clipboardFlow, contains("translate('Clipboard has no image')"));
     expect(homePageSource, contains('getApplicationSupportDirectory'));
-    expect(homePageSource, contains('IsClipboardFormatAvailable'));
+    expect(homePageSource, contains('isWindowsClipboardImageAvailable()'));
+    expect(
+      homePageSource,
+      isNot(contains("package:win32/win32.dart")),
+    );
+    expect(
+      clipboardImageProbeSource,
+      contains("if (dart.library.html) 'clipboard_image_probe_web.dart'"),
+    );
+    expect(
+      clipboardImageProbeNativeSource,
+      contains('IsClipboardFormatAvailable'),
+    );
 
     expect(fileViewerSource, contains('setFullscreen(true)'));
     expect(fileViewerSource, contains('FilePreviewKind.image'));

@@ -43,7 +43,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:window_size/window_size.dart' as window_size;
-import 'package:win32/win32.dart';
+import '../clipboard_image_probe.dart';
 import '../widgets/button.dart';
 import '../../common/direct_chat.dart';
 import '../../common/direct_chat_policy.dart';
@@ -3166,9 +3166,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       );
 
       if (Platform.isWindows) {
-        final hasBitmap =
-            IsClipboardFormatAvailable(CLIPBOARD_FORMAT.CF_DIB) != 0 ||
-                IsClipboardFormatAvailable(CLIPBOARD_FORMAT.CF_DIBV5) != 0;
+        final hasBitmap = isWindowsClipboardImageAvailable();
         if (!hasBitmap) return null;
         final tempFile = imageFile;
         final script = File(
