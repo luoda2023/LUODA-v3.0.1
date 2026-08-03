@@ -15,10 +15,12 @@ class VoiceMessageRecorderButton extends StatefulWidget {
     super.key,
     required this.chatModel,
     required this.enabled,
+    this.onInteractionStart,
   });
 
   final ChatModel chatModel;
   final bool enabled;
+  final VoidCallback? onInteractionStart;
 
   @override
   State<VoiceMessageRecorderButton> createState() =>
@@ -44,6 +46,7 @@ class _VoiceMessageRecorderButtonState
 
   Future<void> _toggle() async {
     if (!widget.enabled || _busy) return;
+    widget.onInteractionStart?.call();
     if (_recording) {
       await _stopAndSend();
     } else {

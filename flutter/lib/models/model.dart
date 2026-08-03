@@ -492,6 +492,7 @@ class FfiModel with ChangeNotifier {
       } else if (name == 'fingerprint') {
         final actual = (evt['fingerprint'] ?? '').toString();
         FingerprintState.ensure(peerId).value = actual;
+        await _persistDiscoveredDirectPairing(peerId);
         final ffi = parent.target;
         if (ffi?.connType == ConnType.chat) {
           final pairing = DirectPairingStore.find(
@@ -1502,17 +1503,7 @@ class FfiModel with ChangeNotifier {
     final displayName = _pi.displayName.trim().isNotEmpty
         ? _pi.displayName.trim()
         : _pi.username;
-    if (ffi != null &&
-        actualPeerId.isNotEmpty &&
-        DirectPairingStore.isDirectEndpoint(ffi.id.trim())) {
-      await DirectPairingStore.saveDiscovered(
-        peerId: actualPeerId,
-        endpoint: ffi.id.trim(),
-        fingerprint: FingerprintState.ensure(peerId).value,
-        displayName: displayName,
-        avatar: _pi.avatar,
-      );
-    }
+    await _persistDiscoveredDirectPairing(peerId);
     if (ffi != null && ffi.connType == ConnType.chat) {
       final currentPeerId = ffi.chatModel.currentKey.peerId;
       final chatPeerId = actualPeerId.isNotEmpty
@@ -1640,6 +1631,51 @@ class FfiModel with ChangeNotifier {
     if (!isCache) {
       tryUseAllMyDisplaysForTheRemoteSession(peerId);
     }
+  }
+
+  Future<void> _persistDiscoveredDirectPairing(String sessionPeerId) async {
+    final ffi = parent.target;
+    if (ffi == null) return;
+    final endpoint = <String>[ffi.id.trim(), sessionPeerId.trim()].firstWhere(
+      DirectPairingStore.isDirectEndpoint,
+      orElse: () => '',
+    );
+    final actualPeerId =
+        (cachedPeerData.peerInfo['peer_id'] ?? '').toString().trim();
+    if (endpoint.isEmpty || actualPeerId.isEmpty) {
+      debugPrint(
+        '[DirectPairing] pending endpoint=${endpoint.isNotEmpty} '
+        'peer=${actualPeerId.isNotEmpty}',
+      );
+      return;
+    }
+
+    final fingerprint = <String>{
+      sessionPeerId.trim(),
+      ffi.id.trim(),
+      actualPeerId,
+    }
+        .where((id) => id.isNotEmpty)
+        .map((id) => FingerprintState.ensure(id).value.trim())
+        .firstWhere((value) => value.isNotEmpty, orElse: () => '');
+    if (fingerprint.isEmpty) {
+      debugPrint('[DirectPairing] pending fingerprint=0');
+      return;
+    }
+
+    final displayName = _pi.displayName.trim().isNotEmpty
+        ? _pi.displayName.trim()
+        : _pi.username;
+    await DirectPairingStore.saveDiscovered(
+      peerId: actualPeerId,
+      endpoint: endpoint,
+      fingerprint: fingerprint,
+      displayName: displayName,
+      avatar: _pi.avatar,
+    );
+    debugPrint(
+      '[DirectPairing] saved peer=$actualPeerId fingerprint=${fingerprint.length}',
+    );
   }
 
   checkDesktopKeyboardMode() async {

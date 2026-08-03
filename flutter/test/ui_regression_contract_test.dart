@@ -21,6 +21,12 @@ void main() {
   final homePageSource = File(
     'lib/desktop/pages/desktop_home_page.dart',
   ).readAsStringSync();
+  final commonSource = File(
+    'lib/common.dart',
+  ).readAsStringSync();
+  final emailDraftSource = File(
+    'lib/common/email_draft_service.dart',
+  ).readAsStringSync();
   final desktopConnectionSource = File(
     'lib/desktop/pages/connection_page.dart',
   ).readAsStringSync();
@@ -478,6 +484,12 @@ void main() {
     expect(homePageSource, contains("translate('Message permissions')"));
     expect(homePageSource, contains('DirectChatAudience.friendsOnly'));
     expect(homePageSource, contains('DirectChatAudience.everyone'));
+    expect(homePageSource, contains('position: PopupMenuPosition.under'));
+    expect(homePageSource, contains('offset: const Offset(0, 8)'));
+    expect(
+      homePageSource,
+      contains('BoxConstraints.tightFor(width: 288)'),
+    );
     expect(homePageSource, contains("addGroup('Friends', true)"));
     expect(homePageSource, contains("addGroup('Strangers', false)"));
     expect(
@@ -591,6 +603,35 @@ void main() {
     );
   });
 
+  test('desktop rail omits the redundant bottom more button', () {
+    expect(homePageSource, isNot(contains('onMore:')));
+    expect(
+      desktopRailSource,
+      contains('if (onMore != null)'),
+    );
+  });
+
+  test('conversation hover and selection keep readable foregrounds', () {
+    expect(
+      weChatTokensSource,
+      contains('kWeChatConversationHoverColor'),
+    );
+    expect(homePageSource, contains('hoverColor: conversationHoverColor'));
+    expect(
+      RegExp(
+        r'color:\s*selected\s*\?\s*Colors\.white\s*:\s*theme\.colorScheme\.onSurface',
+      ).hasMatch(homePageSource),
+      isTrue,
+    );
+    expect(
+      _contrastRatio(
+        Colors.white,
+        const Color(0xFF057A3A),
+      ),
+      greaterThanOrEqualTo(4.5),
+    );
+  });
+
   test('desktop settings entry exists only in the bottom primary rail', () {
     expect(homePageSource, contains('onSettings: DesktopTabPage.onAddSetting'));
     expect(desktopTabSource, isNot(contains("message: 'Settings'")));
@@ -612,7 +653,7 @@ void main() {
     expect(desktopMainTitleBarSource, contains('windowManager.close()'));
     expect(
       desktopTabSource,
-      contains('tabController.jumpToByKey(kTabLabelHomePage)'),
+      contains('controller.jumpToByKey(kTabLabelHomePage)'),
     );
   });
 
@@ -1015,7 +1056,7 @@ void main() {
       () {
     expect(chatPageSource, contains('onSendImage'));
     expect(chatPageSource, contains('Icons.image_outlined'));
-    expect(chatPageSource, contains('Icons.content_paste_go_outlined'));
+    expect(chatPageSource, isNot(contains('Icons.content_paste_go_outlined')));
     expect(chatPageSource, contains('LogicalKeyboardKey.keyV'));
     expect(chatPageSource, contains('_pasteClipboardText'));
     expect(
@@ -1052,8 +1093,103 @@ void main() {
     expect(fileViewerSource, contains('setFullscreen(true)'));
     expect(fileViewerSource, contains('FilePreviewKind.image'));
     expect(filePreviewPageSource, contains('filePreviewIcon(fileName)'));
+    expect(chatPageSource, contains('Future<void> _openMessageFilePreview('));
+    expect(chatPageSource, contains('siblingPaths: siblingPaths'));
+    expect(filePreviewPageSource, contains('TransformationController'));
+    expect(filePreviewPageSource, contains('void _zoomImage(double factor)'));
+    expect(filePreviewPageSource, contains('Icons.zoom_in_rounded'));
+    expect(filePreviewPageSource, contains('Icons.zoom_out_rounded'));
+    expect(filePreviewPageSource,
+        contains('leadingWidth: hasMultiple ? 164 : null'));
     expect(chineseLangSource, contains('"Paste Image"'));
     expect(chineseLangSource, contains('"Clipboard has no image"'));
+  });
+
+  test('message translation is rendered inline below the original text', () {
+    final translateFlow = chatPageSource
+        .split("if (action == 'translate')")[1]
+        .split("if (action == 'send-email')")[0];
+    expect(translateFlow, contains('beginMessageTranslation'));
+    expect(translateFlow, contains('completeMessageTranslation'));
+    expect(translateFlow, isNot(contains('showDialog')));
+    expect(chatPageSource, contains('messageTranslation(messageId)'));
+    expect(chatPageSource, contains('isMessageTranslationPending(messageId)'));
+  });
+
+  test('recall stays in the context menu without a red bubble-side shortcut',
+      () {
+    expect(chatPageSource, contains("addItem('recall'"));
+    expect(chatPageSource, isNot(contains('Color(0x33FF6B6B)')));
+    expect(chatPageSource, isNot(contains('Color(0x1AE5484D)')));
+  });
+
+  test('single and multi-message forwarding use the target peer session', () {
+    expect(chatModelSource, contains('Future<void> sendForwardBundle('));
+    expect(chatPageSource, contains('ForwardMessagesCallback'));
+    expect(chatPageSource, contains("translate('Forward individually')"));
+    expect(chatPageSource, contains("translate('Merge and forward')"));
+    expect(chatPageSource, contains('_selectedMessagesForForward()'));
+    expect(
+        homePageSource, contains('Future<bool> _forwardConversationMessages('));
+    expect(homePageSource, contains('targetModel.sendForwardBundle('));
+    expect(homePageSource,
+        contains('fileSession.fileModel.localController.sendFiles('));
+    expect(mobileHomeSource,
+        contains('onForwardMessages: _forwardConversationMessages'));
+    expect(mobileHomeSource, contains('gFFI.chatModel.sendForwardBundle('));
+    expect(chatPageSource, contains("properties?['ldesk_kind'] == 'forward'"));
+    expect(chatPageSource, contains('_buildForwardBundle('));
+    expect(chatPageSource, contains('_showForwardBundleDetails('));
+  });
+
+  test('chat typography has multilingual symbol and emoji fallbacks', () {
+    final pubspecSource = File('pubspec.yaml').readAsStringSync();
+    expect(pubspecSource, contains('family: LDeskNotoSansCJKSC'));
+    expect(pubspecSource, contains('assets/NotoSansCJKsc-Regular.otf'));
+    final bundledCjkFont = File('assets/NotoSansCJKsc-Regular.otf');
+    expect(bundledCjkFont.existsSync(), isTrue);
+    expect(bundledCjkFont.lengthSync(), greaterThan(16000000));
+    expect(File('assets/NotoSansCJK-OFL.txt').existsSync(), isTrue);
+    expect(commonSource, contains('fontFamilyFallback: fontFamilyFallback'));
+    for (final family in <String>[
+      'LDeskNotoSansCJKSC',
+      'Microsoft YaHei UI',
+      'PingFang SC',
+      'Noto Sans CJK SC',
+      'SimSun-ExtB',
+      'SimSun-ExtG',
+      'Segoe UI Symbol',
+      'Segoe UI Emoji',
+      'Noto Color Emoji',
+    ]) {
+      expect(commonSource, contains("'$family'"));
+    }
+  });
+
+  test('email actions open a populated draft instead of reporting fake send',
+      () {
+    expect(chatPageSource, contains('EmailDraftService.openDraft('));
+    expect(chatModelSource, contains('EmailDraftService.formatMessages('));
+    expect(emailDraftSource, contains("scheme: 'mailto'"));
+    expect(chatModelSource, isNot(contains('dir.delete(recursive: true)')));
+    expect(chatModelSource,
+        isNot(contains("translate(\"Sent successfully to\")")));
+  });
+
+  test('desktop composer transient controls are mutually exclusive', () {
+    expect(chatPageSource, contains('void _closeTransientPanels()'));
+    expect(
+        chatPageSource, contains('void _runToolAction(VoidCallback action)'));
+    expect(
+        chatPageSource, contains('onInteractionStart: _closeTransientPanels'));
+    expect(chatPageSource, contains('onOpen: _closeTransientPanels'));
+  });
+
+  test('settings title bar omits the redundant back button', () {
+    expect(
+      desktopTabSource,
+      isNot(contains('onBack: key == kTabLabelSettingPage')),
+    );
   });
 
   test('remembered passwords persist for direct endpoints and peer IDs', () {
@@ -1118,7 +1254,7 @@ void main() {
     expect(pubspecSource, contains('record: 5.2.1'));
     expect(pubspecSource, contains('audioplayers: 6.1.0'));
     expect(directChatSource,
-        contains('enum DirectChatKind { text, file, voice }'));
+        contains('enum DirectChatKind { text, file, voice, forward }'));
     expect(directChatSource, contains("DirectChatEnvelope('voice_chunk'"));
     expect(directChatSource, contains("DirectChatEnvelope('voice_request'"));
     expect(
@@ -1278,6 +1414,16 @@ void main() {
     expect(videoServiceSource, contains('first frame capture timed out'));
   });
 
+  test('headless peers still publish their authenticated identity', () {
+    final noDisplays = uiSessionSource
+        .split('if pi.displays.is_empty() {')[1]
+        .split('return;')[0];
+    expect(uiSessionSource, contains('canonical_direct_peer_id('));
+    expect(noDisplays, contains('self.set_peer_info(&pi)'));
+    expect(noDisplays.indexOf('self.set_peer_info(&pi)'),
+        lessThan(noDisplays.indexOf('self.msgbox(')));
+  });
+
   test('Windows Server registration uses the fixed TCP rendezvous endpoint',
       () {
     expect(configRustSource, contains('rev.dicad.cn:21116'));
@@ -1415,13 +1561,14 @@ void main() {
         .split(
             'handlePeerInfo(Map<String, dynamic> evt, String peerId, bool isCache) async')[1]
         .split('_pi.sasEnabled =')[0];
-    final saveIndex =
-        peerInfoHandler.indexOf('DirectPairingStore.saveDiscovered(');
+    final saveIndex = peerInfoHandler
+        .indexOf('await _persistDiscoveredDirectPairing(peerId)');
     final chatOnlyIndex = peerInfoHandler.indexOf(
       'ffi.connType == ConnType.chat',
     );
     expect(saveIndex, greaterThanOrEqualTo(0));
     expect(chatOnlyIndex, greaterThan(saveIndex));
+    expect(modelSource, contains('DirectPairingStore.saveDiscovered('));
   });
 
   test('desktop shell uses a restrained WeChat typography scale', () {

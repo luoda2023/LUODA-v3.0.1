@@ -6,7 +6,7 @@ import 'package:luoda_flutter/models/viewer_session_model.dart';
 void main() {
   test('self target guard recognizes every local connection form', () {
     const ownId = '423727';
-    const localAddresses = <String>['192.168.1.20', '36.134.211.189'];
+    const localAddresses = <String>['192.168.1.20', '198.51.100.44'];
 
     for (final target in <String>[
       '423 727',
@@ -17,7 +17,7 @@ void main() {
       '[::1]:21118',
       '0.0.0.0:21118',
       '192.168.1.20:21118',
-      '36.134.211.189:21118',
+      '198.51.100.44:21118',
     ]) {
       expect(
         DirectPairingStore.isSelfTargetValue(
@@ -72,6 +72,31 @@ void main() {
     expect(restored.originSequence, 7);
     expect(restored.text, 'hello \u4f60\u597d');
     expect(restored.delivery, DirectChatDelivery.queued);
+  });
+
+  test('persisted chat text replaces malformed UTF-16 before rendering', () {
+    final malformed = String.fromCharCodes(<int>[0xD800, 0x41, 0xDC00]);
+    final record = DirectChatRecord.fromJson(<String, dynamic>{
+      'id': 'message-invalid-utf16',
+      'conversation_id': 'peer-invalid-utf16',
+      'origin_device_id': 'device-invalid-utf16',
+      'direction': 'incoming',
+      'kind': 'text',
+      'text': malformed,
+      'sender_id': malformed,
+      'sender_name': malformed,
+      'sender_avatar': '',
+      'sent_at': '2026-08-03T08:30:00Z',
+      'delivery': 'delivered',
+      'file_name': malformed,
+      'reply_to_text': malformed,
+    });
+
+    expect(record.text, '\uFFFDA\uFFFD');
+    expect(record.senderId, '\uFFFDA\uFFFD');
+    expect(record.senderName, '\uFFFDA\uFFFD');
+    expect(record.fileName, '\uFFFDA\uFFFD');
+    expect(record.replyToText, '\uFFFDA\uFFFD');
   });
 
   test('legacy and malformed payloads remain outside the control protocol', () {
@@ -211,6 +236,76 @@ void main() {
     expect(request?.data['id'], record.id);
   });
 
+  test('merged forwards preserve sender and message summaries on both peers',
+      () {
+    final record = DirectChatRecord(
+      id: 'forward-1',
+      conversationId: 'peer-b',
+      originDeviceId: 'device-a',
+      originSequence: 9,
+      direction: DirectChatDirection.outgoing,
+      kind: DirectChatKind.forward,
+      text: 'Chat history',
+      senderId: 'device-a',
+      senderName: 'Alice',
+      senderAvatar: '',
+      sentAt: DateTime.utc(2026, 8, 3),
+      delivery: DirectChatDelivery.queued,
+      forwardTitle: 'Alice and VPS',
+      forwardItems: const <DirectChatForwardItem>[
+        DirectChatForwardItem(
+          senderName: 'Alice',
+          kind: DirectChatKind.text,
+          text: 'hello',
+        ),
+        DirectChatForwardItem(
+          senderName: 'VPS',
+          kind: DirectChatKind.file,
+          text: 'Sent file: report.pdf',
+          fileName: 'report.pdf',
+        ),
+      ],
+    );
+
+    final restored = DirectChatRecord.fromJson(
+      DirectChatEnvelope.decode(DirectChatEnvelope.message(record).encode())!
+          .data,
+    );
+    expect(restored.kind, DirectChatKind.forward);
+    expect(restored.forwardTitle, 'Alice and VPS');
+    expect(restored.forwardItems, hasLength(2));
+    expect(restored.forwardItems.last.fileName, 'report.pdf');
+  });
+
+  test('chat envelope preserves multilingual and supplementary characters', () {
+    const content = '简体中文 𠀀 𠮷 😀 ♜ € e\u0301';
+    final record = DirectChatRecord(
+      id: 'unicode-1',
+      conversationId: 'peer-b',
+      originDeviceId: 'device-a',
+      originSequence: 10,
+      direction: DirectChatDirection.outgoing,
+      kind: DirectChatKind.text,
+      text: content,
+      senderId: 'device-a',
+      senderName: '用户😀',
+      senderAvatar: '',
+      sentAt: DateTime.utc(2026, 8, 3),
+      delivery: DirectChatDelivery.queued,
+      replyToSender: '对方𠮷',
+      replyToText: '引用♜',
+    );
+
+    final restored = DirectChatRecord.fromJson(
+      DirectChatEnvelope.decode(DirectChatEnvelope.message(record).encode())!
+          .data,
+    );
+    expect(restored.text, content);
+    expect(restored.senderName, '用户😀');
+    expect(restored.replyToSender, '对方𠮷');
+    expect(restored.replyToText, '引用♜');
+  });
+
   test('paired target carries a WAN fallback for off-LAN connections', () {
     final pairing = DirectPairing(
       peerId: 'peer-3',
@@ -230,24 +325,42 @@ void main() {
 
   test('paired IP resolves through the canonical ID and fingerprint', () {
     final pairing = DirectPairing(
-      peerId: '980966',
-      displayName: 'VPS',
-      lanEndpoint: '36.134.211.189:21118',
+      peerId: '654321',
+      displayName: 'Direct peer',
+      lanEndpoint: '198.51.100.44:21118',
       publicEndpoint: '',
       fingerprint: List<String>.filled(64, 'b').join(),
       updatedAt: DateTime.utc(2026, 8, 3),
     );
 
     final target = DirectPairingStore.resolveConnectionTargetValue(
-      '36.134.211.189:21118',
-      pairings: {'980966': pairing},
+      '198.51.100.44:21118',
+      pairings: {'654321': pairing},
     );
 
-    expect(target, startsWith('980966@36.134.211.189:21118?key='));
+    expect(target, startsWith('654321@198.51.100.44:21118?key='));
+  });
+
+  test('paired device ID prefers its latest direct IP endpoint', () {
+    final pairing = DirectPairing(
+      peerId: '654321',
+      displayName: 'Direct peer',
+      lanEndpoint: '198.51.100.44:21118',
+      publicEndpoint: '',
+      fingerprint: List<String>.filled(64, 'b').join(),
+      updatedAt: DateTime.utc(2026, 8, 3),
+    );
+
+    final target = DirectPairingStore.resolveConnectionTargetValue(
+      '654321',
+      pairings: {'654321': pairing},
+    );
+
+    expect(target, startsWith('654321@198.51.100.44:21118?key='));
   });
 
   test('unpaired device IDs remain valid core connection targets', () {
-    expect(DirectPairingStore.isDeviceId('980966'), isTrue);
+    expect(DirectPairingStore.isDeviceId('654321'), isTrue);
     expect(DirectPairingStore.isDeviceId('peer-office-01'), isTrue);
     expect(DirectPairingStore.isDeviceId('192.168.1.8:21118'), isFalse);
     expect(DirectPairingStore.isDeviceId(''), isFalse);

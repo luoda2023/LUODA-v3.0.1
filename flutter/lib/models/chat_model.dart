@@ -24,6 +24,8 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../consts.dart';
 import '../common.dart';
 import '../common/direct_chat.dart';
+import '../common/email_draft_service.dart';
+import '../common/string_utils.dart';
 import '../common/direct_pairing.dart';
 import '../common/direct_voice_storage.dart';
 import '../common/widgets/overlay.dart';
@@ -107,6 +109,40 @@ class ChatModel with ChangeNotifier {
   final Set<String> _selectedMessageIds = {};
   bool get isMultiSelectMode => _multiSelectMode;
   Set<String> get selectedMessageIds => _selectedMessageIds;
+
+  static const int _maxCachedTranslations = 500;
+  final Map<String, String> _messageTranslations = <String, String>{};
+  final Set<String> _pendingMessageTranslations = <String>{};
+
+  String? messageTranslation(String messageId) =>
+      _messageTranslations[messageId];
+
+  bool isMessageTranslationPending(String messageId) =>
+      _pendingMessageTranslations.contains(messageId);
+
+  bool beginMessageTranslation(String messageId) {
+    if (messageId.isEmpty || !_pendingMessageTranslations.add(messageId)) {
+      return false;
+    }
+    notifyListeners();
+    return true;
+  }
+
+  void completeMessageTranslation(String messageId, String translated) {
+    _pendingMessageTranslations.remove(messageId);
+    final value = sanitizeInvalidUtf16(translated).trim();
+    if (messageId.isNotEmpty && value.isNotEmpty) {
+      _messageTranslations[messageId] = value;
+      while (_messageTranslations.length > _maxCachedTranslations) {
+        _messageTranslations.remove(_messageTranslations.keys.first);
+      }
+    }
+    notifyListeners();
+  }
+
+  void failMessageTranslation(String messageId) {
+    if (_pendingMessageTranslations.remove(messageId)) notifyListeners();
+  }
 
   // Typing indicator state (peer → us)
   final Map<String, DateTime> _peerTypingTimestamps = {};
@@ -389,8 +425,8 @@ class ChatModel with ChangeNotifier {
     required String displayName,
     required String avatar,
   }) {
-    final normalizedName = displayName.trim();
-    final normalizedAvatar = avatar.trim();
+    final normalizedName = sanitizeInvalidUtf16(displayName).trim();
+    final normalizedAvatar = sanitizeInvalidUtf16(avatar).trim();
     final pairing = DirectPairingStore.find(peerId);
     if (pairing != null &&
         (normalizedName.isNotEmpty && normalizedName != pairing.displayName ||
@@ -877,11 +913,17 @@ class ChatModel with ChangeNotifier {
       ];
       var cleanQuery = query;
       for (final kw in imageTriggers) {
+        final asciiKeyword =
+            RegExp(r'^[a-z]+$', caseSensitive: false).hasMatch(kw);
+        final pattern = asciiKeyword
+            ? r'\b' + RegExp.escape(kw) + r'\b'
+            : RegExp.escape(kw);
         cleanQuery = cleanQuery.replaceAll(
-            RegExp(r'\b' + RegExp.escape(kw) + r'\s*\b', caseSensitive: false),
-            '');
+          RegExp(pattern, caseSensitive: false),
+          '',
+        );
       }
-      cleanQuery = cleanQuery.trim();
+      cleanQuery = cleanQuery.replaceAll(RegExp(r'\s+'), ' ').trim();
       if (cleanQuery.isEmpty) cleanQuery = query; // fallback
       final localPath = await AiImageService.generate(cleanQuery);
       if (localPath == null || localPath.isEmpty) {
@@ -889,12 +931,7 @@ class ChatModel with ChangeNotifier {
       }
 
       // Remove progress message
-      final body = _messages[key];
-      if (body != null) {
-        body.chatMessages.removeWhere((m) =>
-            m.customProperties?['ldesk_ai_reply'] == 'true' &&
-            m.customProperties?['ldesk_ai_system'] == 'true');
-      }
+      _messages[key]?.chatMessages.remove(step1);
 
       // Insert generated image as a file message
       final fileName = 'ai_${DateTime.now().millisecondsSinceEpoch}.png';
@@ -916,14 +953,9 @@ class ChatModel with ChangeNotifier {
       notifyListeners();
     } catch (e) {
       debugPrint('Image generation failed: $e');
-      final body = _messages[key];
-      if (body != null) {
-        body.chatMessages.removeWhere((m) =>
-            m.customProperties?['ldesk_ai_reply'] == 'true' &&
-            m.customProperties?['ldesk_ai_system'] == 'true');
-      }
+      _messages[key]?.chatMessages.remove(step1);
       final failMsg = ChatMessage(
-        text: '${translate("Image generation failed")}: $e',
+        text: translate('Image generation failed'),
         user: me,
         createdAt: DateTime.now(),
         customProperties: {'ldesk_ai_reply': 'true', 'ldesk_ai_system': 'true'},
@@ -933,116 +965,61 @@ class ChatModel with ChangeNotifier {
     }
   }
 
-  /// Handle "#" email export intent — collect 20 messages, zip, open folder.
-  Future<void> _handleEmailExport(String query) async {
+  /// Handle "#" email export intent by opening a real email draft.
+  Future<void> _handleEmailExport() async {
     final email = AiConfig.current.email;
     final key = _currentKey;
 
-    // Step 1: show "compressing..." message
-    final step1 = ChatMessage(
-      text: translate('Compressing and preparing to send...'),
+    final progress = ChatMessage(
+      text: translate('Preparing email...'),
       user: me,
       createdAt: DateTime.now(),
       customProperties: {'ldesk_ai_reply': 'true', 'ldesk_ai_system': 'true'},
     );
-    insertMessage(key, step1);
+    insertMessage(key, progress);
     notifyListeners();
 
-    // Collect 20 recent messages
-    final allMessages = _messages[key]?.chatMessages ?? [];
-    final endIdx = 20 > allMessages.length ? allMessages.length : 20;
-    final selected = allMessages.sublist(0, endIdx);
-    final reversed = selected.reversed.toList();
-
     try {
-      // Create temp directory
-      final dir = await Directory.systemTemp.createTemp('luoda_chat_export_');
-      final chatFile = File('${dir.path}/chat_log.txt');
-      final chatBuf = StringBuffer();
-      for (final m in reversed) {
-        final who = m.user.firstName ?? m.user.id;
-        final time = m.createdAt.toLocal().toString().substring(0, 19);
-        final text = m.text ?? '';
-        final fname = (m.customProperties?['ldesk_file_name'] ?? '').toString();
-        final localPath =
-            (m.customProperties?['ldesk_local_path'] ?? '').toString();
-        chatBuf.writeln(
-            '[$time] $who: ${fname.isNotEmpty ? "[${translate("File")}] $fname" : text}');
-        if (text.isNotEmpty && fname.isNotEmpty) chatBuf.writeln('  $text');
-        chatBuf.writeln('');
-        // Copy attachment if available
-        if (localPath.isNotEmpty) {
-          final src = File(localPath);
-          if (await src.exists()) {
-            try {
-              await src.copy('${dir.path}/$fname');
-            } catch (_) {}
-          }
-        }
-      }
-      await chatFile.writeAsString(chatBuf.toString());
-
-      // Create ZIP with 30s timeout
-      final zipPath = '${dir.path}.zip';
-      if (isWindows) {
-        await Process.run('powershell', [
-          '-NoProfile',
-          '-Command',
-          'Compress-Archive',
-          '-Path',
-          dir.path,
-          '-DestinationPath',
-          zipPath,
-          '-Force',
-        ]).timeout(const Duration(seconds: 30));
-      } else {
-        await Process.run('zip', ['-rj', zipPath, dir.path])
-            .timeout(const Duration(seconds: 30));
-      }
-
-      // Remove old progress message
-      final body = _messages[key];
-      if (body != null) {
-        body.chatMessages.removeWhere((m) =>
-            m.customProperties?['ldesk_ai_reply'] == 'true' &&
-            m.customProperties?['ldesk_ai_system'] == 'true');
-      }
-
-      // Step 2: show success with email
-      final successMsg = ChatMessage(
-        text: '${translate("Sent successfully to")}: $email',
+      final messages = (_messages[key]?.chatMessages ?? const <ChatMessage>[])
+          .where((message) => !identical(message, progress))
+          .take(20)
+          .toList(growable: false)
+          .reversed
+          .map(
+            (message) => EmailDraftMessage(
+              sender: message.user.firstName ?? message.user.id,
+              sentAt: message.createdAt,
+              text: message.text,
+              fileName: (message.customProperties?['ldesk_file_name'] ?? '')
+                  .toString(),
+            ),
+          )
+          .toList(growable: false);
+      final content = EmailDraftService.formatMessages(
+        messages,
+        fileLabel: translate('File'),
+      );
+      final opened = await EmailDraftService.openDraft(
+        recipient: email,
+        subject: translate('Chat messages'),
+        body: content,
+      );
+      _messages[key]?.chatMessages.remove(progress);
+      final result = ChatMessage(
+        text: opened
+            ? '${translate("Email draft opened")}: $email'
+            : translate('Unable to open email client'),
         user: me,
         createdAt: DateTime.now(),
         customProperties: {'ldesk_ai_reply': 'true', 'ldesk_ai_system': 'true'},
       );
-      insertMessage(key, successMsg);
+      insertMessage(key, result);
       notifyListeners();
-
-      // Open folder containing the ZIP
-      final zipFile = File(zipPath);
-      if (await zipFile.exists()) {
-        if (isWindows) {
-          await Process.run('explorer', ['/select,${zipPath}']);
-        } else if (isMacOS) {
-          await Process.run('open', ['-R', zipPath]);
-        } else {
-          await Process.run('xdg-open', [dir.parent.path]);
-        }
-      }
-      // Clean up temp directory
-      try {
-        await dir.delete(recursive: true);
-      } catch (_) {}
     } catch (e) {
       debugPrint('Email export failed: $e');
-      final body = _messages[key];
-      if (body != null) {
-        body.chatMessages.removeWhere((m) =>
-            m.customProperties?['ldesk_ai_reply'] == 'true' &&
-            m.customProperties?['ldesk_ai_system'] == 'true');
-      }
+      _messages[key]?.chatMessages.remove(progress);
       final failMsg = ChatMessage(
-        text: '${translate("Export failed")}: $e',
+        text: translate('Export failed'),
         user: me,
         createdAt: DateTime.now(),
         customProperties: {'ldesk_ai_reply': 'true', 'ldesk_ai_system': 'true'},
@@ -1053,7 +1030,7 @@ class ChatModel with ChangeNotifier {
   }
 
   Future<void> _sendMessage(ChatMessage message) async {
-    final rawText = message.text.trim();
+    final rawText = sanitizeInvalidUtf16(message.text).trim();
     if (rawText.isEmpty) {
       return;
     }
@@ -1101,12 +1078,13 @@ class ChatModel with ChangeNotifier {
         final isExportIntent = hasValidEmail &&
             exportKeywords.any((kw) => aiQuery.toLowerCase().contains(kw));
         if (isExportIntent) {
-          unawaited(_handleEmailExport(aiQuery));
+          unawaited(_handleEmailExport());
           inputNode.requestFocus();
           return;
         }
         // --- Normal AI chat ---
         if (AiConfig.current.enabled) {
+          final key = _currentKey;
           // Show a local placeholder while AI is thinking
           final placeholder = ChatMessage(
             text: '${translate("AI thinking")}...',
@@ -1117,14 +1095,14 @@ class ChatModel with ChangeNotifier {
               'ldesk_ai_loading': 'true'
             },
           );
-          insertMessage(_currentKey, placeholder);
+          insertMessage(key, placeholder);
           notifyListeners();
 
           final reply = await AiService.chat(aiQuery);
           if (reply != null && reply.isNotEmpty) {
-            // Replace placeholder with actual AI reply
+            _messages[key]?.chatMessages.remove(placeholder);
             final record = await DirectChatRepository.instance.createOutgoing(
-              conversationId: _currentKey.peerId,
+              conversationId: key.peerId,
               kind: DirectChatKind.text,
               text: reply,
               senderId: me.id,
@@ -1135,16 +1113,23 @@ class ChatModel with ChangeNotifier {
             var aiMsg = _toChatMessage(record, me);
             aiMsg.customProperties ??= <String, dynamic>{};
             aiMsg.customProperties!['ldesk_ai_reply'] = 'true';
-            insertMessage(_currentKey, aiMsg);
-            await _transmitRecord(_currentKey, record);
+            insertMessage(key, aiMsg);
+            await _transmitRecord(key, record);
             notifyListeners();
           } else {
-            // AI failed; remove placeholder
-            final body = _messages[_currentKey];
-            if (body != null) {
-              body.chatMessages.removeWhere(
-                  (m) => m.customProperties?['ldesk_ai_loading'] == 'true');
-            }
+            _messages[key]?.chatMessages.remove(placeholder);
+            insertMessage(
+              key,
+              ChatMessage(
+                text: translate('AI request failed'),
+                user: me,
+                createdAt: DateTime.now(),
+                customProperties: const <String, dynamic>{
+                  'ldesk_ai_reply': 'true',
+                  'ldesk_ai_system': 'true',
+                },
+              ),
+            );
             notifyListeners();
           }
           inputNode.requestFocus();
@@ -1163,6 +1148,9 @@ class ChatModel with ChangeNotifier {
       _touchChatActivity(key.peerId);
       final replyId =
           (_replyToMessage?.customProperties?['ldesk_id'] ?? '').toString();
+      final replySender = _replyToMessage == null
+          ? ''
+          : (_replyToMessage!.user.firstName ?? _replyToMessage!.user.id);
       final replyText = _replyToMessage?.text ?? '';
       DirectChatRecord? record;
       try {
@@ -1174,6 +1162,7 @@ class ChatModel with ChangeNotifier {
           senderName: me.firstName ?? '',
           senderAvatar: '',
           replyToId: replyId,
+          replyToSender: replySender,
           replyToText: replyText.length > 80
               ? '${replyText.substring(0, 80)}...'
               : replyText,
@@ -1226,6 +1215,16 @@ class ChatModel with ChangeNotifier {
 
   void sendText(String text) {
     send(
+      ChatMessage(
+        text: text,
+        user: me,
+        createdAt: DateTime.now(),
+      ),
+    );
+  }
+
+  Future<void> sendTextAndWait(String text) {
+    return _sendMessage(
       ChatMessage(
         text: text,
         user: me,
@@ -1384,6 +1383,28 @@ class ChatModel with ChangeNotifier {
       fileSha256: fileSha256,
       localPath: localPath,
       inlineBytes: inlineBytes,
+    );
+    insertMessage(key, _toChatMessage(record, me));
+    await _transmitRecord(key, record);
+    notifyListeners();
+  }
+
+  Future<void> sendForwardBundle({
+    required String title,
+    required List<DirectChatForwardItem> items,
+  }) async {
+    final key = _currentKey;
+    if (key.peerId.isEmpty || items.isEmpty) return;
+    _touchChatActivity(key.peerId);
+    final record = await DirectChatRepository.instance.createOutgoing(
+      conversationId: key.peerId,
+      kind: DirectChatKind.forward,
+      text: translate('Chat history'),
+      senderId: me.id,
+      senderName: me.firstName ?? '',
+      senderAvatar: '',
+      forwardTitle: title,
+      forwardItems: items,
     );
     insertMessage(key, _toChatMessage(record, me));
     await _transmitRecord(key, record);
@@ -1965,7 +1986,7 @@ class ChatModel with ChangeNotifier {
         ? translate(record.isOutgoing
             ? 'You recalled a message'
             : 'The other party recalled a message')
-        : record.text;
+        : sanitizeInvalidUtf16(record.text);
     MessageStatus status;
     switch (record.delivery) {
       case DirectChatDelivery.queued:
@@ -1999,6 +2020,8 @@ class ChatModel with ChangeNotifier {
           'ldesk_expires_at': record.expiresAt!.toUtc().toIso8601String(),
         'ldesk_disposition': record.disposition.name,
         if (record.replyToId.isNotEmpty) 'ldesk_reply_to_id': record.replyToId,
+        if (record.replyToSender.isNotEmpty)
+          'ldesk_reply_to_sender': record.replyToSender,
         if (record.replyToText.isNotEmpty)
           'ldesk_reply_to_text': record.replyToText,
         if (record.reactions.isNotEmpty)
@@ -2006,6 +2029,12 @@ class ChatModel with ChangeNotifier {
         if (record.isEdited) 'ldesk_is_edited': true,
         if (record.editedAt != null)
           'ldesk_edited_at': record.editedAt!.toUtc().toIso8601String(),
+        if (record.forwardTitle.isNotEmpty)
+          'ldesk_forward_title': record.forwardTitle,
+        if (record.forwardItems.isNotEmpty)
+          'ldesk_forward_items': record.forwardItems
+              .map((item) => item.toJson())
+              .toList(growable: false),
       },
     );
   }

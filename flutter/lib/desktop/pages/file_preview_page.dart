@@ -38,21 +38,28 @@ class FilePreviewPage extends StatefulWidget {
 
 class _FilePreviewPageState extends State<FilePreviewPage> with WindowListener {
   int _currentIndex = 0;
-  List<String> get _paths => widget.siblingPaths ?? [widget.filePath];
+  late final List<String> _paths;
+  final TransformationController _imageTransformController =
+      TransformationController();
+  double _imageScale = 1;
 
   @override
   void initState() {
     super.initState();
     windowManager.addListener(this);
-    if (widget.siblingPaths != null) {
-      _currentIndex = widget.siblingPaths!.indexOf(widget.filePath);
-      if (_currentIndex < 0) _currentIndex = 0;
-    }
+    _paths = <String>{
+      ...?widget.siblingPaths?.where((path) => path.trim().isNotEmpty),
+      if (widget.filePath.trim().isNotEmpty) widget.filePath,
+    }.toList(growable: true);
+    if (_paths.isEmpty) _paths.add(widget.filePath);
+    _currentIndex = _paths.indexOf(widget.filePath);
+    if (_currentIndex < 0) _currentIndex = 0;
   }
 
   @override
   void dispose() {
     windowManager.removeListener(this);
+    _imageTransformController.dispose();
     super.dispose();
   }
 
@@ -63,13 +70,32 @@ class _FilePreviewPageState extends State<FilePreviewPage> with WindowListener {
 
   void _goPrevious() {
     if (_currentIndex > 0) {
+      _resetImageTransform(notify: false);
       setState(() => _currentIndex--);
     }
   }
 
   void _goNext() {
     if (_currentIndex < _paths.length - 1) {
+      _resetImageTransform(notify: false);
       setState(() => _currentIndex++);
+    }
+  }
+
+  void _zoomImage(double factor) {
+    final nextScale = (_imageScale * factor).clamp(0.1, 10.0).toDouble();
+    if (nextScale == _imageScale) return;
+    setState(() => _imageScale = nextScale);
+    _imageTransformController.value =
+        Matrix4.diagonal3Values(nextScale, nextScale, 1);
+  }
+
+  void _resetImageTransform({bool notify = true}) {
+    _imageTransformController.value = Matrix4.identity();
+    if (notify) {
+      setState(() => _imageScale = 1);
+    } else {
+      _imageScale = 1;
     }
   }
 
@@ -81,6 +107,7 @@ class _FilePreviewPageState extends State<FilePreviewPage> with WindowListener {
     final currentPath = _paths[_currentIndex];
     final fileName = _currentName;
     final hasMultiple = _paths.length > 1;
+    final isImage = filePreviewKindForName(fileName) == FilePreviewKind.image;
     final dark = Theme.of(context).brightness == Brightness.dark;
     final bgColor = filePreviewKindForName(fileName) == FilePreviewKind.image
         ? Colors.black
@@ -97,6 +124,7 @@ class _FilePreviewPageState extends State<FilePreviewPage> with WindowListener {
           style: const TextStyle(fontSize: 14),
           overflow: TextOverflow.ellipsis,
         ),
+        leadingWidth: hasMultiple ? 164 : null,
         leading: hasMultiple
             ? Row(
                 mainAxisSize: MainAxisSize.min,
@@ -120,6 +148,32 @@ class _FilePreviewPageState extends State<FilePreviewPage> with WindowListener {
               )
             : null,
         actions: [
+          if (isImage) ...<Widget>[
+            IconButton(
+              tooltip: translate('Zoom out'),
+              icon: const Icon(Icons.zoom_out_rounded, size: 20),
+              onPressed: _imageScale > 0.1 ? () => _zoomImage(0.8) : null,
+            ),
+            SizedBox(
+              width: 52,
+              child: Center(
+                child: Text(
+                  '${(_imageScale * 100).round()}%',
+                  style: const TextStyle(fontSize: 12, color: Colors.white70),
+                ),
+              ),
+            ),
+            IconButton(
+              tooltip: translate('Zoom in'),
+              icon: const Icon(Icons.zoom_in_rounded, size: 20),
+              onPressed: _imageScale < 10 ? () => _zoomImage(1.25) : null,
+            ),
+            IconButton(
+              tooltip: translate('Reset zoom'),
+              icon: const Icon(Icons.center_focus_strong_rounded, size: 19),
+              onPressed: _imageScale == 1 ? null : _resetImageTransform,
+            ),
+          ],
           IconButton(
             tooltip: translate('Open with system app'),
             icon: const Icon(Icons.open_in_new_rounded, size: 20),
@@ -170,6 +224,7 @@ class _FilePreviewPageState extends State<FilePreviewPage> with WindowListener {
 
   Widget _buildImagePreview(String path) {
     return InteractiveViewer(
+      transformationController: _imageTransformController,
       minScale: 0.1,
       maxScale: 10.0,
       boundaryMargin: const EdgeInsets.all(80),

@@ -6,15 +6,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:luoda_flutter/common.dart';
 import 'package:luoda_flutter/common/direct_chat.dart';
+import 'package:luoda_flutter/common/direct_pairing.dart';
 import 'package:luoda_flutter/models/chat_model.dart';
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../mobile/pages/home_page.dart';
 import '../../models/meeting_group_model.dart';
 import 'package:luoda_flutter/common/direct_viewer_invite.dart';
 import '../wechat_ui_tokens.dart';
+import '../email_draft_service.dart';
+import '../string_utils.dart';
 import 'file_viewer.dart';
 import 'file_preview_types.dart';
 import 'message_context_region.dart';
@@ -45,6 +47,63 @@ enum ChatPageType {
 }
 
 typedef PasteImageCallback = Future<bool> Function(bool notifyIfEmpty);
+typedef ForwardMessagesCallback = Future<bool> Function(
+  String targetPeerId,
+  List<ChatForwardItem> items,
+  bool merged,
+);
+
+class ChatForwardItem {
+  const ChatForwardItem({
+    required this.senderName,
+    required this.kind,
+    required this.text,
+    required this.fileName,
+    required this.fileSize,
+    required this.localPath,
+    required this.voiceDurationMs,
+  });
+
+  factory ChatForwardItem.fromMessage(ChatMessage message) {
+    final properties = message.customProperties;
+    final kindName = (properties?['ldesk_kind'] ?? 'text').toString();
+    return ChatForwardItem(
+      senderName:
+          sanitizeInvalidUtf16(message.user.firstName ?? message.user.id)
+              .trim(),
+      kind: DirectChatKind.values.firstWhere(
+        (value) => value.name == kindName,
+        orElse: () => DirectChatKind.text,
+      ),
+      text: sanitizeInvalidUtf16(message.text).trim(),
+      fileName: sanitizeInvalidUtf16(
+        (properties?['ldesk_file_name'] ?? '').toString(),
+      ),
+      fileSize: int.tryParse('${properties?['ldesk_file_size'] ?? 0}') ?? 0,
+      localPath: sanitizeInvalidUtf16(
+        (properties?['ldesk_local_path'] ?? '').toString(),
+      ),
+      voiceDurationMs:
+          int.tryParse('${properties?['ldesk_voice_duration_ms'] ?? 0}') ?? 0,
+    );
+  }
+
+  final String senderName;
+  final DirectChatKind kind;
+  final String text;
+  final String fileName;
+  final int fileSize;
+  final String localPath;
+  final int voiceDurationMs;
+
+  DirectChatForwardItem toSummary() => DirectChatForwardItem(
+        senderName: senderName,
+        kind: kind,
+        text: text,
+        fileName: fileName,
+        voiceDurationMs: voiceDurationMs,
+      );
+}
 
 class ChatPage extends StatelessWidget implements PageShape {
   late final ChatModel chatModel;
@@ -53,6 +112,7 @@ class ChatPage extends StatelessWidget implements PageShape {
   final VoidCallback? onRemoteAssist;
   final VoidCallback? onSendImage;
   final PasteImageCallback? onPasteImage;
+  final ForwardMessagesCallback? onForwardMessages;
   final bool peerOffline;
 
   ChatPage({
@@ -62,6 +122,7 @@ class ChatPage extends StatelessWidget implements PageShape {
     this.onRemoteAssist,
     this.onSendImage,
     this.onPasteImage,
+    this.onForwardMessages,
     this.peerOffline = false,
   }) {
     this.chatModel = chatModel ?? gFFI.chatModel;
@@ -127,6 +188,14 @@ class ChatPage extends StatelessWidget implements PageShape {
           gFFI.chatModel.changeCurrentKey(key);
         })
   ];
+
+  String _messageTranslationKey(ChatMessage message) {
+    final recordId =
+        (message.customProperties?['ldesk_id'] ?? '').toString().trim();
+    if (recordId.isNotEmpty) return recordId;
+    return '${message.user.id}:${message.createdAt.microsecondsSinceEpoch}:'
+        '${message.text.hashCode}';
+  }
 
   /// WeChat PC style floating context menu — positioned near the message,
   /// with rounded corners, icon + text items, and clean dividers.
@@ -440,62 +509,22 @@ class ChatPage extends StatelessWidget implements PageShape {
         }
         return;
       }
-      // Show a loading indicator in a snackbar
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(
-                    strokeWidth: 2, color: Colors.white),
-              ),
-              const SizedBox(width: 12),
-              Text(translate('Translating...')),
-            ],
-          ),
-          duration: const Duration(seconds: 30),
-        ),
-      );
-      final translated = await AiService.translate(text);
-      if (!context.mounted) return;
-      ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
-      if (translated != null) {
-        // Show translated text in a dialog
-        await showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            titlePadding: const EdgeInsets.fromLTRB(24, 22, 24, 0),
-            contentPadding: const EdgeInsets.fromLTRB(24, 14, 24, 6),
-            actionsPadding: const EdgeInsets.fromLTRB(16, 6, 16, 14),
-            title: Text(translate('Translation'),
-                style:
-                    const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-            content: SelectableText(translated,
-                style: const TextStyle(fontSize: 14, height: 1.5)),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                style: TextButton.styleFrom(
-                  minimumSize: const Size(80, 36),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8)),
-                ),
-                child: Text(translate('Close'),
-                    style: const TextStyle(fontSize: 13)),
-              ),
-            ],
-          ),
-        );
-      } else {
-        if (context.mounted) {
-          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-            SnackBar(content: Text(translate('Translation failed'))),
-          );
+      final translationId = _messageTranslationKey(message);
+      if (!chatModel.beginMessageTranslation(translationId)) return;
+      try {
+        final translated = await AiService.translate(text);
+        if (translated != null && translated.trim().isNotEmpty) {
+          chatModel.completeMessageTranslation(translationId, translated);
+          return;
         }
+      } catch (error) {
+        debugPrint('Message translation failed: $error');
+      }
+      chatModel.failMessageTranslation(translationId);
+      if (context.mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(content: Text(translate('Translation failed'))),
+        );
       }
       return;
     }
@@ -512,20 +541,21 @@ class ChatPage extends StatelessWidget implements PageShape {
         }
         return;
       }
-      // Use mailto: to open system email client
       final email = AiConfig.current.email;
-      final subject = Uri.encodeComponent(
-          '${translate("Chat message")} - ${message.user.firstName ?? ''}');
-      final body = Uri.encodeComponent(content);
-      final uri = Uri.parse('mailto:$email?subject=$subject&body=$body');
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri);
-      } else {
-        if (context.mounted) {
-          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-            SnackBar(content: Text(translate('Unable to open email client'))),
-          );
-        }
+      final opened = await EmailDraftService.openDraft(
+        recipient: email,
+        subject:
+            '${translate("Chat message")} - ${message.user.firstName ?? ''}',
+        body: content,
+      );
+      if (context.mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(
+            content: Text(translate(
+              opened ? 'Email draft opened' : 'Unable to open email client',
+            )),
+          ),
+        );
       }
       return;
     }
@@ -555,67 +585,32 @@ class ChatPage extends StatelessWidget implements PageShape {
       final selected = allMessages.sublist(clickedIdx, endIdx);
       final reversed = selected.reversed.toList();
 
-      // Build a temp directory with export content
       try {
-        final dir = await Directory.systemTemp.createTemp('luoda_chat_export_');
-        final chatFile = File('${dir.path}/chat_log.txt');
-        final chatBuf = StringBuffer();
-        for (final m in reversed) {
-          final who = m.user.firstName ?? m.user.id;
-          final time = m.createdAt.toLocal().toString().substring(0, 19);
-          final text = m.text ?? '';
-          final fname =
-              (m.customProperties?['ldesk_file_name'] ?? '').toString();
-          final localPath =
-              (m.customProperties?['ldesk_local_path'] ?? '').toString();
-          chatBuf.writeln(
-              '[$time] $who: ${fname.isNotEmpty ? "[${translate("File")}] $fname" : text}');
-          if (text.isNotEmpty && fname.isNotEmpty) chatBuf.writeln('  $text');
-          chatBuf.writeln('');
-          // Copy attachment file if available (images, docs)
-          if (localPath.isNotEmpty) {
-            final src = File(localPath);
-            if (await src.exists()) {
-              try {
-                await src.copy('${dir.path}/$fname');
-              } catch (_) {}
-            }
-          }
-        }
-        await chatFile.writeAsString(chatBuf.toString());
-
-        // Create ZIP via system command
-        final zipPath = '${dir.path}.zip';
-        if (isWindows) {
-          await Process.run('powershell', [
-            '-NoProfile',
-            '-Command',
-            'Compress-Archive',
-            '-Path',
-            dir.path,
-            '-DestinationPath',
-            zipPath,
-            '-Force',
-          ]);
-        } else {
-          await Process.run('zip', ['-rj', zipPath, dir.path]);
-        }
-
-        // Open the folder containing the ZIP
-        final zipFile = File(zipPath);
-        if (await zipFile.exists()) {
-          if (isWindows) {
-            await Process.run('explorer', ['/select,${zipPath}']);
-          } else if (isMacOS) {
-            await Process.run('open', ['-R', zipPath]);
-          } else {
-            await Process.run('xdg-open', [dir.parent.path]);
-          }
-          if (context.mounted) {
-            ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-              SnackBar(content: Text('${translate("Exported")}: $zipPath')),
-            );
-          }
+        final body = EmailDraftService.formatMessages(
+          reversed.map(
+            (item) => EmailDraftMessage(
+              sender: item.user.firstName ?? item.user.id,
+              sentAt: item.createdAt,
+              text: item.text,
+              fileName:
+                  (item.customProperties?['ldesk_file_name'] ?? '').toString(),
+            ),
+          ),
+          fileLabel: translate('File'),
+        );
+        final opened = await EmailDraftService.openDraft(
+          recipient: AiConfig.current.email,
+          subject: translate('Chat messages'),
+          body: body,
+        );
+        if (context.mounted) {
+          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+            SnackBar(
+              content: Text(translate(
+                opened ? 'Email draft opened' : 'Unable to open email client',
+              )),
+            ),
+          );
         }
       } catch (e) {
         debugPrint('Export failed: $e');
@@ -628,7 +623,7 @@ class ChatPage extends StatelessWidget implements PageShape {
       return;
     }
     if (action == 'forward') {
-      await _showForwardPicker(context, message);
+      await _showForwardPicker(context, <ChatMessage>[message]);
       return;
     }
     if (action == 'destroy') {
@@ -668,10 +663,60 @@ class ChatPage extends StatelessWidget implements PageShape {
 
   Future<void> _showForwardPicker(
     BuildContext context,
-    ChatMessage message,
+    List<ChatMessage> messages,
   ) async {
-    final peers = gFFI.recentPeersModel.peers.toList();
-    if (peers.isEmpty) {
+    if (messages.isEmpty) return;
+    var merged = false;
+    if (messages.length > 1) {
+      final mode = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => SimpleDialog(
+          title: Text(translate('Forward messages')),
+          children: <Widget>[
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(dialogContext, 'individual'),
+              child: ListTile(
+                leading: const Icon(Icons.send_outlined),
+                title: Text(translate('Forward individually')),
+                subtitle: Text(translate('Send each message separately')),
+              ),
+            ),
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(dialogContext, 'merged'),
+              child: ListTile(
+                leading: const Icon(Icons.article_outlined),
+                title: Text(translate('Merge and forward')),
+                subtitle: Text(translate('Send as one chat history card')),
+              ),
+            ),
+          ],
+        ),
+      );
+      if (mode == null || !context.mounted) return;
+      merged = mode == 'merged';
+    }
+
+    final currentPeerId = chatModel.currentKey.peerId;
+    final targets = <String, String>{};
+    for (final pairing in DirectPairingStore.load().values) {
+      if (pairing.peerId != currentPeerId) {
+        targets[pairing.peerId] =
+            pairing.displayName.isEmpty ? pairing.peerId : pairing.displayName;
+      }
+    }
+    for (final peer in gFFI.recentPeersModel.peers) {
+      if (peer.id != currentPeerId && peer.id.isNotEmpty) {
+        targets.putIfAbsent(
+          peer.id,
+          () => peer.alias.trim().isNotEmpty
+              ? peer.alias.trim()
+              : peer.displayName.trim().isNotEmpty
+                  ? peer.displayName.trim()
+                  : peer.id,
+        );
+      }
+    }
+    if (targets.isEmpty) {
       if (context.mounted) {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
           SnackBar(content: Text(translate('No contacts to forward to'))),
@@ -679,44 +724,147 @@ class ChatPage extends StatelessWidget implements PageShape {
       }
       return;
     }
-    final currentPeerId = chatModel.currentKey.peerId;
     final target = await showDialog<String>(
       context: context,
       builder: (dialogContext) => SimpleDialog(
         title: Text(translate('Forward to')),
         children: <Widget>[
-          for (final peer in peers)
-            if (peer.id != currentPeerId)
-              SimpleDialogOption(
-                onPressed: () => Navigator.pop(dialogContext, peer.id),
-                child: ListTile(
-                  leading: CircleAvatar(
-                      child: Text(
-                          peer.id.isNotEmpty ? peer.id[0].toUpperCase() : '?')),
-                  title: Text(peer.id),
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
+          SizedBox(
+            width: 360,
+            height: (targets.length * 58.0).clamp(100, 420).toDouble(),
+            child: ListView(
+              shrinkWrap: true,
+              children: <Widget>[
+                for (final entry in targets.entries)
+                  SimpleDialogOption(
+                    onPressed: () => Navigator.pop(dialogContext, entry.key),
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        child: Text(entry.value.isNotEmpty
+                            ? entry.value.characters.first.toUpperCase()
+                            : '?'),
+                      ),
+                      title: Text(entry.value),
+                      subtitle: entry.value == entry.key
+                          ? null
+                          : Text(entry.key, maxLines: 1),
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+              ],
+            ),
+          ),
         ],
       ),
     );
     if (target == null || !context.mounted) return;
-    final forwardText = message.text.trim();
-    if (forwardText.isEmpty) return;
-    // Save current key, switch to target, send, switch back
-    final savedKey = chatModel.currentKey;
-    chatModel.changeCurrentKey(MessageKey(target, ChatModel.clientModeID));
-    chatModel.sendText(forwardText);
-    chatModel.changeCurrentKey(savedKey);
+    final sorted = messages.toList(growable: false)
+      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    final items =
+        sorted.map(ChatForwardItem.fromMessage).toList(growable: false);
+    final handled = onForwardMessages != null
+        ? await onForwardMessages!(target, items, merged)
+        : await _forwardWithCurrentModel(target, items, merged);
+    if (!handled || !context.mounted) return;
+    chatModel.exitMultiSelect();
     ScaffoldMessenger.maybeOf(context)?.showSnackBar(
       SnackBar(content: Text(translate('Forwarded'))),
     );
   }
 
-  /// Open file preview in an independent OS window.
-  /// All file types (image/audio/text/other) are handled by FilePreviewPage.
-  /// Legacy _showImagePreview removed — use showFileViewer() instead.
+  Future<bool> _forwardWithCurrentModel(
+    String targetPeerId,
+    List<ChatForwardItem> items,
+    bool merged,
+  ) async {
+    final ensureConnection = chatModel.ensureChatConnection;
+    if (ensureConnection == null) return false;
+    await ensureConnection(targetPeerId);
+    if (chatModel.currentKey.peerId != targetPeerId) return false;
+    if (merged) {
+      final senders = items
+          .map((item) => item.senderName)
+          .where((name) => name.isNotEmpty)
+          .toSet()
+          .take(2)
+          .join(', ');
+      await chatModel.sendForwardBundle(
+        title: senders.isEmpty ? translate('Chat history') : senders,
+        items: items.map((item) => item.toSummary()).toList(growable: false),
+      );
+      return true;
+    }
+    for (final item in items) {
+      if (item.kind == DirectChatKind.file &&
+          item.localPath.isNotEmpty &&
+          File(item.localPath).existsSync()) {
+        await chatModel.sendFileRecord(
+          fileName: item.fileName,
+          fileSize: item.fileSize,
+          localPath: item.localPath,
+        );
+      } else if (item.kind == DirectChatKind.voice) {
+        chatModel.sendText(
+          '[${translate('Voice')}] '
+          '${(item.voiceDurationMs / 1000).ceil()}s',
+        );
+      } else if (item.text.isNotEmpty) {
+        chatModel.sendText(item.text);
+      }
+    }
+    return true;
+  }
+
+  List<ChatMessage> _selectedMessagesForForward() {
+    final selected = chatModel.selectedMessageIds;
+    final messages =
+        chatModel.messages[chatModel.currentKey]?.chatMessages ?? const [];
+    return messages
+        .where(
+          (message) => selected.contains(
+            (message.customProperties?['ldesk_id'] ?? '').toString(),
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  Future<void> _openMessageFilePreview(
+    BuildContext context, {
+    required String fileName,
+    required int fileSize,
+    required String localPath,
+  }) async {
+    List<String>? siblingPaths;
+    if (filePreviewKindForName(fileName) == FilePreviewKind.image) {
+      final records = await chatModel.mediaForConversation();
+      final paths = <String>[];
+      for (final record in records.reversed) {
+        final path = record.localPath.trim();
+        if (path.isEmpty ||
+            filePreviewKindForName(record.fileName) != FilePreviewKind.image ||
+            !File(path).existsSync() ||
+            paths.contains(path)) {
+          continue;
+        }
+        paths.add(path);
+      }
+      if (localPath.isNotEmpty &&
+          File(localPath).existsSync() &&
+          !paths.contains(localPath)) {
+        paths.add(localPath);
+      }
+      if (paths.length > 1) siblingPaths = paths;
+    }
+    if (!context.mounted) return;
+    await showFileViewer(
+      context,
+      fileName: fileName,
+      fileSize: fileSize,
+      localPath: localPath,
+      siblingPaths: siblingPaths,
+    );
+  }
 
   /// Show message delivery info dialog.
   void _showMessageInfo(BuildContext context, ChatMessage message) {
@@ -817,6 +965,17 @@ class ChatPage extends StatelessWidget implements PageShape {
       }
       return;
     }
+    final siblingPaths = records.reversed
+        .where(
+          (record) =>
+              record.localPath.isNotEmpty &&
+              filePreviewKindForName(record.fileName) ==
+                  FilePreviewKind.image &&
+              File(record.localPath).existsSync(),
+        )
+        .map((record) => record.localPath)
+        .toSet()
+        .toList(growable: false);
     final dark = Theme.of(context).brightness == Brightness.dark;
     showModalBottomSheet(
       context: context,
@@ -849,6 +1008,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                   fileName: record.fileName,
                   fileSize: record.fileSize,
                   localPath: record.localPath,
+                  siblingPaths: siblingPaths.length > 1 ? siblingPaths : null,
                 );
               },
               child: Container(
@@ -962,6 +1122,17 @@ class ChatPage extends StatelessWidget implements PageShape {
               child: Text(translate('Select all')),
             ),
             const SizedBox(width: 8),
+            OutlinedButton.icon(
+              onPressed: chatModel.selectedMessageIds.isEmpty
+                  ? null
+                  : () => _showForwardPicker(
+                        context,
+                        _selectedMessagesForForward(),
+                      ),
+              icon: const Icon(Icons.forward_outlined, size: 18),
+              label: Text(translate('Forward')),
+            ),
+            const SizedBox(width: 8),
             FilledButton.tonalIcon(
               onPressed: chatModel.selectedMessageIds.isEmpty
                   ? null
@@ -1005,6 +1176,145 @@ class ChatPage extends StatelessWidget implements PageShape {
               label: Text(translate('Delete')),
             ),
           ])),
+    );
+  }
+
+  List<Map<String, dynamic>> _forwardItems(ChatMessage message) {
+    final raw = message.customProperties?['ldesk_forward_items'];
+    if (raw is! List) return const <Map<String, dynamic>>[];
+    return raw
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList(growable: false);
+  }
+
+  String _forwardItemSummary(Map<String, dynamic> item) {
+    final kind = (item['kind'] ?? '').toString();
+    final text = (item['text'] ?? '').toString().trim();
+    if (kind == DirectChatKind.file.name) {
+      final fileName = (item['file_name'] ?? '').toString().trim();
+      return '[${translate('File')}] ${fileName.isEmpty ? text : fileName}';
+    }
+    if (kind == DirectChatKind.voice.name) {
+      final duration = int.tryParse('${item['voice_duration_ms'] ?? 0}') ?? 0;
+      return '[${translate('Voice')}] ${(duration / 1000).ceil()}s';
+    }
+    if (kind == DirectChatKind.forward.name) {
+      return '[${translate('Chat history')}]';
+    }
+    return text;
+  }
+
+  Future<void> _showForwardBundleDetails(
+    BuildContext context,
+    String title,
+    List<Map<String, dynamic>> items,
+  ) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title.isEmpty ? translate('Chat history') : title),
+        content: SizedBox(
+          width: 440,
+          child: ListView.separated(
+            shrinkWrap: true,
+            itemCount: items.length,
+            separatorBuilder: (_, __) => const Divider(height: 16),
+            itemBuilder: (_, index) {
+              final item = items[index];
+              final sender = (item['sender_name'] ?? '').toString();
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  if (sender.isNotEmpty)
+                    Text(
+                      sender,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  const SizedBox(height: 3),
+                  Text(
+                    _forwardItemSummary(item),
+                    style: const TextStyle(fontSize: 13, height: 1.4),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(translate('Close')),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildForwardBundle(
+    BuildContext context,
+    ChatMessage message, {
+    required bool dark,
+    required bool isOwnMessage,
+  }) {
+    final items = _forwardItems(message);
+    final title =
+        (message.customProperties?['ldesk_forward_title'] ?? '').toString();
+    final foreground = dark ? Colors.white : const Color(0xFF181818);
+    final secondary = foreground.withOpacity(0.62);
+    final border = dark
+        ? const Color(0xFF4A4D54)
+        : Colors.black.withOpacity(isOwnMessage ? 0.13 : 0.09);
+    return InkWell(
+      onTap: items.isEmpty
+          ? null
+          : () => _showForwardBundleDetails(context, title, items),
+      borderRadius: BorderRadius.circular(6),
+      child: Container(
+        constraints: const BoxConstraints(minWidth: 220, maxWidth: 360),
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 9),
+        decoration: BoxDecoration(
+          border: Border.all(color: border),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(
+              title.isEmpty ? translate('Chat history') : title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: foreground,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 7),
+            for (final item in items.take(4))
+              Padding(
+                padding: const EdgeInsets.only(bottom: 3),
+                child: Text(
+                  '${(item['sender_name'] ?? '').toString()}: '
+                  '${_forwardItemSummary(item)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: secondary, fontSize: 12),
+                ),
+              ),
+            const SizedBox(height: 4),
+            Text(
+              '${items.length} ${translate('messages')}',
+              style: TextStyle(color: secondary, fontSize: 11),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1399,7 +1709,13 @@ class ChatPage extends StatelessWidget implements PageShape {
               final recalled = properties?['ldesk_disposition'] == 'recalled';
               final isFile = !recalled && properties?['ldesk_kind'] == 'file';
               final isVoice = !recalled && properties?['ldesk_kind'] == 'voice';
-              final messageId = (properties?['ldesk_id'] ?? '').toString();
+              final isForward =
+                  !recalled && properties?['ldesk_kind'] == 'forward';
+              final recordId = (properties?['ldesk_id'] ?? '').toString();
+              final messageId = _messageTranslationKey(message);
+              final translated = chatModel.messageTranslation(messageId);
+              final translating =
+                  chatModel.isMessageTranslationPending(messageId);
               final voiceDurationMs = int.tryParse(
                     '${properties?['ldesk_voice_duration_ms'] ?? 0}',
                   ) ??
@@ -1414,6 +1730,8 @@ class ChatPage extends StatelessWidget implements PageShape {
                   (properties?['ldesk_local_path'] ?? '').toString();
               final replyToText =
                   (properties?['ldesk_reply_to_text'] ?? '').toString();
+              final replyToSender =
+                  (properties?['ldesk_reply_to_sender'] ?? '').toString();
               final reactions =
                   properties?['ldesk_reactions'] as Map<String, dynamic>?;
               final isEdited = properties?['ldesk_is_edited'] == true;
@@ -1435,17 +1753,14 @@ class ChatPage extends StatelessWidget implements PageShape {
                             ? Colors.black.withOpacity(0.12)
                             : Colors.black.withOpacity(0.06),
                         borderRadius: BorderRadius.circular(6),
-                        border: Border(
-                          left: BorderSide(
-                            color: isOwnMessage
-                                ? const Color(0xFF7BDB8A)
-                                : kWeChatPrimaryColor,
-                            width: 3,
-                          ),
+                        border: Border.all(
+                          color: Colors.black.withOpacity(0.08),
                         ),
                       ),
                       child: Text(
-                        replyToText,
+                        replyToSender.isEmpty
+                            ? replyToText
+                            : '$replyToSender: $replyToText',
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -1455,21 +1770,28 @@ class ChatPage extends StatelessWidget implements PageShape {
                         ),
                       ),
                     ),
-                  if (isVoice && messageId.isNotEmpty)
+                  if (isForward)
+                    _buildForwardBundle(
+                      context,
+                      message,
+                      dark: dark,
+                      isOwnMessage: isOwnMessage,
+                    )
+                  else if (isVoice && recordId.isNotEmpty)
                     VoiceMessageBubble(
                       chatModel: chatModel,
-                      messageId: messageId,
+                      messageId: recordId,
                       durationMs: voiceDurationMs,
                     )
                   else if (isFile && fileName.isNotEmpty)
                     InkWell(
                       onTap: () {
-                        showFileViewer(
+                        unawaited(_openMessageFilePreview(
                           context,
                           fileName: fileName,
                           fileSize: fileSize,
                           localPath: localPath,
-                        );
+                        ));
                       },
                       borderRadius: BorderRadius.circular(8),
                       child: Padding(
@@ -1571,6 +1893,49 @@ class ChatPage extends StatelessWidget implements PageShape {
                     _buildInviteCard(context, message.text.trim(), foreground)
                   else
                     _buildRichText(message.text, foreground, isDesktopHome),
+                  if (translating || translated?.isNotEmpty == true)
+                    Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(top: 8),
+                      padding: const EdgeInsets.only(top: 7),
+                      decoration: BoxDecoration(
+                        border: Border(
+                          top: BorderSide(
+                            color: foreground.withOpacity(0.14),
+                          ),
+                        ),
+                      ),
+                      child: translating
+                          ? Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: <Widget>[
+                                SizedBox(
+                                  width: 12,
+                                  height: 12,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 1.5,
+                                    color: foreground.withOpacity(0.55),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  translate('Translating...'),
+                                  style: TextStyle(
+                                    color: foreground.withOpacity(0.62),
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            )
+                          : SelectableText(
+                              translated!,
+                              style: TextStyle(
+                                color: foreground.withOpacity(0.82),
+                                fontSize: isDesktopHome ? 13 : 14,
+                                height: 1.45,
+                              ),
+                            ),
+                    ),
                   // Reaction bar
                   if (reactions != null && reactions.isNotEmpty)
                     Padding(
@@ -1831,8 +2196,6 @@ class ChatPage extends StatelessWidget implements PageShape {
               );
               final avatar = messageAvatar(message.user, null, null);
               final avatarKey = GlobalKey();
-              final canManage = isOwnMessage &&
-                  message.customProperties?['ldesk_disposition'] == 'active';
               final inMultiSelect = chatModel.isMultiSelectMode;
               final messageId =
                   (message.customProperties?['ldesk_id'] ?? '').toString();
@@ -1866,44 +2229,6 @@ class ChatPage extends StatelessWidget implements PageShape {
                   ),
                 );
               }
-              final actionButton = canManage && !inMultiSelect
-                  ? Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        // Left-click recall button
-                        IconButton(
-                          onPressed: () async {
-                            final changed =
-                                await chatModel.recallMessage(message);
-                            if (context.mounted && changed) {
-                              ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-                                SnackBar(
-                                    content:
-                                        Text(translate('Message recalled'))),
-                              );
-                            }
-                          },
-                          tooltip: translate('Recall'),
-                          visualDensity: VisualDensity.compact,
-                          constraints: const BoxConstraints.tightFor(
-                              width: 34, height: 34),
-                          padding: EdgeInsets.zero,
-                          style: IconButton.styleFrom(
-                            backgroundColor: dark
-                                ? const Color(0x33FF6B6B)
-                                : const Color(0x1AE5484D),
-                          ),
-                          icon: Icon(
-                            Icons.undo_rounded,
-                            size: 18,
-                            color: dark
-                                ? const Color(0xFFFF8A8A)
-                                : const Color(0xFFE5484D),
-                          ),
-                        ),
-                      ],
-                    )
-                  : const SizedBox(width: 30, height: 30);
               return Padding(
                 padding: EdgeInsets.fromLTRB(
                   isDesktopHome ? 24 : 12,
@@ -1920,9 +2245,6 @@ class ChatPage extends StatelessWidget implements PageShape {
                       ? <Widget>[
                           if (inMultiSelect) multiSelectCheckbox,
                           messageColumn,
-                          const SizedBox(width: 4),
-                          actionButton,
-                          const SizedBox(width: 4),
                           const SizedBox(width: 11),
                           KeyedSubtree(key: avatarKey, child: avatar),
                         ]
@@ -2698,9 +3020,23 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
   void _toggleInputExpanded() {
     setState(() {
       _inputExpanded = !_inputExpanded;
-      if (_inputExpanded) _showEmojiPicker = false;
+      _showEmojiPicker = false;
+      _atOverlayVisible = false;
     });
     chatModel.inputNode.requestFocus();
+  }
+
+  void _closeTransientPanels() {
+    if (!_showEmojiPicker && !_atOverlayVisible) return;
+    setState(() {
+      _showEmojiPicker = false;
+      _atOverlayVisible = false;
+    });
+  }
+
+  void _runToolAction(VoidCallback action) {
+    _closeTransientPanels();
+    action();
   }
 
   void _onFocusChanged() {
@@ -2916,6 +3252,7 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
                         focusNode: chatModel.inputNode,
                         scrollController: _inputScrollController,
                         enabled: enabled,
+                        onTap: _closeTransientPanels,
                         expands: true,
                         minLines: null,
                         maxLines: null,
@@ -2976,28 +3313,21 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
                       icon: Icons.folder_outlined,
                       tooltip: translate('File Transfer'),
                       enabled: enabled,
-                      onPressed: onAttachFile,
+                      onPressed: () => _runToolAction(onAttachFile!),
                     ),
                   if (onSendImage != null)
                     _ComposerToolButton(
                       icon: Icons.image_outlined,
                       tooltip: translate('Send Image'),
                       enabled: enabled,
-                      onPressed: onSendImage,
-                    ),
-                  if (onPasteImage != null)
-                    _ComposerToolButton(
-                      icon: Icons.content_paste_go_outlined,
-                      tooltip: translate('Paste Image'),
-                      enabled: enabled,
-                      onPressed: () => onPasteImage!(true),
+                      onPressed: () => _runToolAction(onSendImage!),
                     ),
                   if (onRemoteAssist != null)
                     _ComposerToolButton(
                       icon: Icons.desktop_windows_outlined,
                       tooltip: translate('Remote Desktop'),
                       enabled: enabled,
-                      onPressed: onRemoteAssist,
+                      onPressed: () => _runToolAction(onRemoteAssist!),
                     ),
                   _ComposerToolButton(
                     icon: Icons.emoji_emotions_outlined,
@@ -3005,17 +3335,19 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
                     enabled: enabled,
                     onPressed: () => setState(() {
                       _showEmojiPicker = !_showEmojiPicker;
-                      if (_showEmojiPicker) _inputExpanded = false;
+                      _atOverlayVisible = false;
                     }),
                   ),
                   VoiceMessageRecorderButton(
                     chatModel: chatModel,
                     enabled: enabled,
+                    onInteractionStart: _closeTransientPanels,
                   ),
                   if (AiConfig.current.profiles.isNotEmpty)
                     _AiModelSelector(
                       dark: dark,
                       chatModel: chatModel,
+                      onOpen: _closeTransientPanels,
                     ),
                   const Spacer(),
                   ValueListenableBuilder<TextEditingValue>(
@@ -3257,10 +3589,12 @@ class _ActionChip extends StatelessWidget {
 class _AiModelSelector extends StatefulWidget {
   final bool dark;
   final ChatModel chatModel;
+  final VoidCallback? onOpen;
 
   const _AiModelSelector({
     required this.dark,
     required this.chatModel,
+    this.onOpen,
   });
 
   @override
@@ -3290,6 +3624,7 @@ class _AiModelSelectorState extends State<_AiModelSelector> {
   void _showModelPicker() {
     final profiles = AiConfig.current.profiles;
     if (profiles.length <= 1) return;
+    widget.onOpen?.call();
 
     final activeIdx = AiConfig.current.activeProfileIndex;
     final renderBox = context.findRenderObject() as RenderBox;

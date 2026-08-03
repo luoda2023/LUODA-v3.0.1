@@ -169,16 +169,17 @@ class DesktopPrimaryRail extends StatelessWidget {
                 onTap: onSettings,
                 imageBackground: hasBackground,
               ),
-              _RailButton(
-                destination: const DesktopRailDestination(
-                  id: 'more',
-                  label: 'More',
-                  icon: Icons.menu_rounded,
+              if (onMore != null)
+                _RailButton(
+                  destination: const DesktopRailDestination(
+                    id: 'more',
+                    label: 'More',
+                    icon: Icons.menu_rounded,
+                  ),
+                  selected: false,
+                  onTap: onMore,
+                  imageBackground: hasBackground,
                 ),
-                selected: false,
-                onTap: onMore,
-                imageBackground: hasBackground,
-              ),
               const SizedBox(height: 10),
             ],
           ),

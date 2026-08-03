@@ -794,13 +794,10 @@ class RemoteConnectionProgress extends StatelessWidget {
           child: Row(
             children: <Widget>[
               if (!timedOut)
-                const SizedBox(
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Color(0xFF07C160),
-                  ),
+                const Icon(
+                  Icons.hourglass_top_rounded,
+                  size: 16,
+                  color: Color(0xFF07C160),
                 )
               else
                 const Icon(

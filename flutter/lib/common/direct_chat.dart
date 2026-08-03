@@ -7,14 +7,55 @@ import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 
 import 'direct_chat_storage.dart';
+import 'string_utils.dart';
 
 enum DirectChatDelivery { queued, sent, delivered, failed }
 
 enum DirectChatDirection { incoming, outgoing }
 
-enum DirectChatKind { text, file, voice }
+enum DirectChatKind { text, file, voice, forward }
 
 enum DirectChatDisposition { active, recalled, destroyed }
+
+class DirectChatForwardItem {
+  const DirectChatForwardItem({
+    required this.senderName,
+    required this.kind,
+    required this.text,
+    this.fileName = '',
+    this.voiceDurationMs = 0,
+  });
+
+  final String senderName;
+  final DirectChatKind kind;
+  final String text;
+  final String fileName;
+  final int voiceDurationMs;
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'sender_name': sanitizeInvalidUtf16(senderName),
+        'kind': kind.name,
+        'text': sanitizeInvalidUtf16(text),
+        if (fileName.isNotEmpty) 'file_name': sanitizeInvalidUtf16(fileName),
+        if (voiceDurationMs > 0) 'voice_duration_ms': voiceDurationMs,
+      };
+
+  factory DirectChatForwardItem.fromJson(Map<String, dynamic> json) {
+    final kindName = (json['kind'] ?? '').toString();
+    return DirectChatForwardItem(
+      senderName: sanitizeInvalidUtf16(
+        (json['sender_name'] ?? '').toString(),
+      ),
+      kind: DirectChatKind.values.firstWhere(
+        (value) => value.name == kindName,
+        orElse: () => DirectChatKind.text,
+      ),
+      text: sanitizeInvalidUtf16((json['text'] ?? '').toString()),
+      fileName: sanitizeInvalidUtf16((json['file_name'] ?? '').toString()),
+      voiceDurationMs: int.tryParse('${json['voice_duration_ms'] ?? 0}') ?? 0,
+    );
+  }
+}
 
 class DirectChatRecord {
   const DirectChatRecord({
@@ -39,10 +80,13 @@ class DirectChatRecord {
     this.disposition = DirectChatDisposition.active,
     this.expiresAt,
     this.replyToId = '',
+    this.replyToSender = '',
     this.replyToText = '',
     this.reactions = const {},
     this.isEdited = false,
     this.editedAt,
+    this.forwardTitle = '',
+    this.forwardItems = const <DirectChatForwardItem>[],
   });
 
   final String id;
@@ -68,11 +112,14 @@ class DirectChatRecord {
   final int voiceDurationMs;
   final DateTime? expiresAt;
   final String replyToId;
+  final String replyToSender;
   final String replyToText;
   // Reactions: emoji -> list of device IDs who reacted
   final Map<String, List<String>> reactions;
   final bool isEdited;
   final DateTime? editedAt;
+  final String forwardTitle;
+  final List<DirectChatForwardItem> forwardItems;
 
   bool get isOutgoing => direction == DirectChatDirection.outgoing;
   bool get isExpired =>
@@ -89,10 +136,13 @@ class DirectChatRecord {
     String? localPath,
     String? inlineBytes,
     String? replyToId,
+    String? replyToSender,
     String? replyToText,
     Map<String, List<String>>? reactions,
     bool? isEdited,
     DateTime? editedAt,
+    String? forwardTitle,
+    List<DirectChatForwardItem>? forwardItems,
   }) {
     return DirectChatRecord(
       id: id,
@@ -116,10 +166,13 @@ class DirectChatRecord {
       voiceDurationMs: voiceDurationMs,
       expiresAt: expiresAt ?? this.expiresAt,
       replyToId: replyToId ?? this.replyToId,
+      replyToSender: replyToSender ?? this.replyToSender,
       replyToText: replyToText ?? this.replyToText,
       reactions: reactions ?? this.reactions,
       isEdited: isEdited ?? this.isEdited,
       editedAt: editedAt ?? this.editedAt,
+      forwardTitle: forwardTitle ?? this.forwardTitle,
+      forwardItems: forwardItems ?? this.forwardItems,
     );
   }
 
@@ -145,14 +198,22 @@ class DirectChatRecord {
         if (expiresAt != null)
           'expires_at': expiresAt!.toUtc().toIso8601String(),
         if (replyToId.isNotEmpty) 'reply_to_id': replyToId,
+        if (replyToSender.isNotEmpty) 'reply_to_sender': replyToSender,
         if (replyToText.isNotEmpty) 'reply_to_text': replyToText,
         if (reactions.isNotEmpty)
           'reactions': reactions.map((k, v) => MapEntry(k, v)),
         if (isEdited) 'is_edited': true,
         if (editedAt != null) 'edited_at': editedAt!.toUtc().toIso8601String(),
+        if (forwardTitle.isNotEmpty) 'forward_title': forwardTitle,
+        if (forwardItems.isNotEmpty)
+          'forward_items':
+              forwardItems.map((item) => item.toJson()).toList(growable: false),
       };
 
   factory DirectChatRecord.fromJson(Map<String, dynamic> json) {
+    String stringValue(String key) =>
+        sanitizeInvalidUtf16((json[key] ?? '').toString());
+
     T enumValue<T extends Enum>(List<T> values, String key, T fallback) {
       final name = (json[key] ?? '').toString();
       return values.firstWhere(
@@ -162,9 +223,9 @@ class DirectChatRecord {
     }
 
     return DirectChatRecord(
-      id: (json['id'] ?? '').toString(),
-      conversationId: (json['conversation_id'] ?? '').toString(),
-      originDeviceId: (json['origin_device_id'] ?? '').toString(),
+      id: stringValue('id'),
+      conversationId: stringValue('conversation_id'),
+      originDeviceId: stringValue('origin_device_id'),
       originSequence: int.tryParse('${json['origin_sequence'] ?? 0}') ?? 0,
       direction: enumValue(
         DirectChatDirection.values,
@@ -172,10 +233,10 @@ class DirectChatRecord {
         DirectChatDirection.incoming,
       ),
       kind: enumValue(DirectChatKind.values, 'kind', DirectChatKind.text),
-      text: (json['text'] ?? '').toString(),
-      senderId: (json['sender_id'] ?? '').toString(),
-      senderName: (json['sender_name'] ?? '').toString(),
-      senderAvatar: (json['sender_avatar'] ?? '').toString(),
+      text: stringValue('text'),
+      senderId: stringValue('sender_id'),
+      senderName: stringValue('sender_name'),
+      senderAvatar: stringValue('sender_avatar'),
       sentAt: DateTime.tryParse((json['sent_at'] ?? '').toString()) ??
           DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
       delivery: enumValue(
@@ -185,28 +246,39 @@ class DirectChatRecord {
       ),
       disposition: enumValue(DirectChatDisposition.values, 'disposition',
           DirectChatDisposition.active),
-      fileName: (json['file_name'] ?? '').toString(),
+      fileName: stringValue('file_name'),
       fileSize: int.tryParse('${json['file_size'] ?? 0}') ?? 0,
-      fileSha256: (json['file_sha256'] ?? '').toString(),
-      localPath: (json['local_path'] ?? '').toString(),
+      fileSha256: stringValue('file_sha256'),
+      localPath: stringValue('local_path'),
       voiceDurationMs: int.tryParse('${json['voice_duration_ms'] ?? 0}') ?? 0,
       expiresAt: DateTime.tryParse((json['expires_at'] ?? '').toString()),
-      replyToId: (json['reply_to_id'] ?? '').toString(),
-      replyToText: (json['reply_to_text'] ?? '').toString(),
+      replyToId: stringValue('reply_to_id'),
+      replyToSender: stringValue('reply_to_sender'),
+      replyToText: stringValue('reply_to_text'),
       reactions: _parseReactions(json['reactions']),
       isEdited: json['is_edited'] == true,
       editedAt: DateTime.tryParse((json['edited_at'] ?? '').toString()),
+      forwardTitle: stringValue('forward_title'),
+      forwardItems: (json['forward_items'] as List<dynamic>? ?? const [])
+          .whereType<Map>()
+          .map(
+            (item) => DirectChatForwardItem.fromJson(
+              Map<String, dynamic>.from(item),
+            ),
+          )
+          .toList(growable: false),
     );
   }
 
   static Map<String, List<String>> _parseReactions(dynamic raw) {
     if (raw is! Map) return const {};
     final result = <String, List<String>>{};
-    for (final entry in (raw as Map).entries) {
-      final emoji = entry.key.toString();
+    for (final entry in raw.entries) {
+      final emoji = sanitizeInvalidUtf16(entry.key.toString());
       final list = entry.value;
       if (list is List) {
-        result[emoji] = list.map((e) => e.toString()).toList();
+        result[emoji] =
+            list.map((e) => sanitizeInvalidUtf16(e.toString())).toList();
       }
     }
     return result;
@@ -416,30 +488,36 @@ class DirectChatRepository {
     String inlineBytes = '',
     int voiceDurationMs = 0,
     String replyToId = '',
+    String replyToSender = '',
     String replyToText = '',
+    String forwardTitle = '',
+    List<DirectChatForwardItem> forwardItems = const <DirectChatForwardItem>[],
   }) {
     return _write((state) async {
       final record = DirectChatRecord(
         id: id ?? const Uuid().v4(),
-        conversationId: conversationId,
+        conversationId: sanitizeInvalidUtf16(conversationId),
         originDeviceId: state.deviceId,
         originSequence: state.nextSequence++,
         direction: DirectChatDirection.outgoing,
         kind: kind,
-        text: text,
-        senderId: senderId,
-        senderName: senderName,
-        senderAvatar: senderAvatar,
+        text: sanitizeInvalidUtf16(text),
+        senderId: sanitizeInvalidUtf16(senderId),
+        senderName: sanitizeInvalidUtf16(senderName),
+        senderAvatar: sanitizeInvalidUtf16(senderAvatar),
         sentAt: DateTime.now().toUtc(),
         delivery: DirectChatDelivery.queued,
-        fileName: fileName,
+        fileName: sanitizeInvalidUtf16(fileName),
         fileSize: fileSize,
         fileSha256: fileSha256,
-        localPath: localPath,
+        localPath: sanitizeInvalidUtf16(localPath),
         inlineBytes: inlineBytes,
         voiceDurationMs: voiceDurationMs,
-        replyToId: replyToId,
-        replyToText: replyToText,
+        replyToId: sanitizeInvalidUtf16(replyToId),
+        replyToSender: sanitizeInvalidUtf16(replyToSender),
+        replyToText: sanitizeInvalidUtf16(replyToText),
+        forwardTitle: sanitizeInvalidUtf16(forwardTitle),
+        forwardItems: forwardItems,
       );
       state.records[record.id] = record;
       return record;
@@ -456,15 +534,15 @@ class DirectChatRepository {
     return _write((state) async {
       final record = DirectChatRecord(
         id: const Uuid().v4(),
-        conversationId: conversationId,
+        conversationId: sanitizeInvalidUtf16(conversationId),
         originDeviceId: 'legacy:$conversationId',
         originSequence: state.nextSequence++,
         direction: DirectChatDirection.incoming,
         kind: DirectChatKind.text,
-        text: text,
-        senderId: senderId,
-        senderName: senderName,
-        senderAvatar: senderAvatar,
+        text: sanitizeInvalidUtf16(text),
+        senderId: sanitizeInvalidUtf16(senderId),
+        senderName: sanitizeInvalidUtf16(senderName),
+        senderAvatar: sanitizeInvalidUtf16(senderAvatar),
         sentAt: DateTime.now().toUtc(),
         delivery: DirectChatDelivery.delivered,
       );
@@ -596,7 +674,7 @@ class DirectChatRepository {
         return null;
       }
       final updated = record.copyWith(
-        text: newText,
+        text: sanitizeInvalidUtf16(newText),
         isEdited: true,
         editedAt: DateTime.now().toUtc(),
         originSequence: state.nextSequence++,

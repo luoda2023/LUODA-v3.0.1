@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -10,6 +11,7 @@ import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 import '../../common.dart';
 import '../../common/direct_chat_policy.dart';
+import '../../common/direct_chat.dart';
 import '../../common/direct_pairing.dart';
 import '../../common/widgets/chat_page.dart';
 import '../../models/chat_model.dart';
@@ -158,6 +160,7 @@ class HomePageState extends State<HomePage> {
                   type: ChatPageType.mobileMain,
                   onAttachFile: _sendDirectChatFiles,
                   onRemoteAssist: _startRemoteFromChat,
+                  onForwardMessages: _forwardConversationMessages,
                 ),
               );
             },
@@ -407,6 +410,89 @@ class HomePageState extends State<HomePage> {
       }
     }
     showToast(translate('Direct file transfer started.'));
+  }
+
+  Future<bool> _forwardConversationMessages(
+    String rawTargetPeerId,
+    List<ChatForwardItem> items,
+    bool merged,
+  ) async {
+    if (items.isEmpty) return false;
+    final pairing = DirectPairingStore.find(rawTargetPeerId) ??
+        DirectPairingStore.findByEndpoint(rawTargetPeerId);
+    final peerId = pairing?.peerId ?? rawTargetPeerId.trim();
+    final ensureConnection = gFFI.chatModel.ensureChatConnection;
+    if (peerId.isEmpty ||
+        ensureConnection == null ||
+        await DirectPairingStore.isSelfTarget(peerId)) {
+      return false;
+    }
+    await ensureConnection(peerId);
+    if (gFFI.chatModel.currentKey.peerId != peerId) return false;
+
+    if (merged) {
+      final senders = items
+          .map((item) => item.senderName)
+          .where((name) => name.isNotEmpty)
+          .toSet()
+          .take(2)
+          .join(', ');
+      await gFFI.chatModel.sendForwardBundle(
+        title: senders.isEmpty ? translate('Chat history') : senders,
+        items: items.map((item) => item.toSummary()).toList(growable: false),
+      );
+      return true;
+    }
+
+    final transferableFiles = items
+        .where(
+          (item) =>
+              item.kind == DirectChatKind.file &&
+              item.localPath.isNotEmpty &&
+              File(item.localPath).existsSync(),
+        )
+        .toList(growable: false);
+    if (transferableFiles.isNotEmpty) {
+      final fileSession = await _ensureDirectFileSession(peerId);
+      if (fileSession == null) return false;
+      final selected = SelectedItems(isLocal: true);
+      for (final item in transferableFiles) {
+        selected.add(
+          Entry()
+            ..path = item.localPath
+            ..name = item.fileName
+            ..size = item.fileSize,
+        );
+      }
+      await fileSession.fileModel.localController.sendFiles(
+        selected,
+        fileSession.fileModel.remoteController.directoryData(),
+      );
+    }
+
+    for (final item in items) {
+      if (item.kind == DirectChatKind.file) {
+        if (item.localPath.isNotEmpty && File(item.localPath).existsSync()) {
+          await gFFI.chatModel.sendFileRecord(
+            fileName: item.fileName,
+            fileSize: item.fileSize,
+            localPath: item.localPath,
+          );
+        } else {
+          await gFFI.chatModel.sendTextAndWait(
+            '[${translate('File')}] ${item.fileName}',
+          );
+        }
+      } else if (item.kind == DirectChatKind.voice) {
+        await gFFI.chatModel.sendTextAndWait(
+          '[${translate('Voice')}] '
+          '${(item.voiceDurationMs / 1000).ceil()}s',
+        );
+      } else if (item.text.isNotEmpty) {
+        await gFFI.chatModel.sendTextAndWait(item.text);
+      }
+    }
+    return true;
   }
 
   String _fmtSize(int bytes) {

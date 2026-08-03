@@ -11,7 +11,6 @@ import 'package:path_provider/path_provider.dart';
 import 'package:luoda_flutter/common.dart';
 import 'package:luoda_flutter/common/widgets/animated_rotation_widget.dart';
 import 'package:luoda_flutter/common/widgets/ai_config_page.dart';
-import 'package:luoda_flutter/models/ai_config_model.dart';
 import 'package:luoda_flutter/common/widgets/chat_page.dart';
 import 'package:luoda_flutter/common/widgets/join_viewer_page.dart';
 import 'package:luoda_flutter/common/widgets/custom_password.dart';
@@ -118,6 +117,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   bool _openingViewerInvite = false;
   final Map<String, FFI> _directChatSessions = <String, FFI>{};
   final Map<String, FFI> _directFileSessions = <String, FFI>{};
+  final Set<String> _openingDirectConnections = <String>{};
+  final Map<String, DateTime> _lastDirectConnectionAttempt =
+      <String, DateTime>{};
+  static const Duration _directConnectionClickCooldown = Duration(seconds: 2);
   final Map<String, bool> _knownPeerOnline = <String, bool>{};
   final Set<String> _notifiedChatConnections = <String>{};
   static const Duration _contactSectionRefreshInterval = Duration(seconds: 30);
@@ -517,7 +520,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       onSelected: _selectSection,
       onSettings: DesktopTabPage.onAddSetting,
       onPairPhone: () => _showPairingQrDialog(context),
-      onMore: () => _showToolsMenu(context),
     );
   }
 
@@ -1142,39 +1144,53 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               ),
               SizedBox(
                 height: 24,
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<DirectChatAudience>(
-                    value: _directChatAccess.audience,
-                    isExpanded: true,
-                    isDense: true,
-                    icon: const Icon(Icons.expand_more_rounded, size: 18),
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      color: theme.colorScheme.onSurface,
-                      fontWeight: FontWeight.w600,
+                child: PopupMenuButton<DirectChatAudience>(
+                  tooltip: translate('Message permissions'),
+                  padding: EdgeInsets.zero,
+                  position: PopupMenuPosition.under,
+                  offset: const Offset(0, 8),
+                  constraints: const BoxConstraints.tightFor(width: 288),
+                  onSelected: (value) =>
+                      unawaited(_directChatAccess.setAudience(value)),
+                  itemBuilder: (context) =>
+                      <PopupMenuEntry<DirectChatAudience>>[
+                    PopupMenuItem<DirectChatAudience>(
+                      value: DirectChatAudience.friendsOnly,
+                      child: Text(
+                        translate('Only friends can contact me anytime'),
+                        maxLines: 1,
+                      ),
                     ),
-                    items: <DropdownMenuItem<DirectChatAudience>>[
-                      DropdownMenuItem<DirectChatAudience>(
-                        value: DirectChatAudience.friendsOnly,
+                    PopupMenuItem<DirectChatAudience>(
+                      value: DirectChatAudience.everyone,
+                      child: Text(
+                        translate('Strangers can also chat with me directly'),
+                        maxLines: 1,
+                      ),
+                    ),
+                  ],
+                  child: Row(
+                    children: <Widget>[
+                      Expanded(
                         child: Text(
-                          translate('Only friends can contact me anytime'),
+                          _directChatAccess.audience ==
+                                  DirectChatAudience.friendsOnly
+                              ? translate(
+                                  'Only friends can contact me anytime',
+                                )
+                              : translate(
+                                  'Strangers can also chat with me directly',
+                                ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: theme.colorScheme.onSurface,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
-                      DropdownMenuItem<DirectChatAudience>(
-                        value: DirectChatAudience.everyone,
-                        child: Text(
-                          translate('Strangers can also chat with me directly'),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
+                      const Icon(Icons.expand_more_rounded, size: 18),
                     ],
-                    onChanged: (value) {
-                      if (value != null) {
-                        unawaited(_directChatAccess.setAudience(value));
-                      }
-                    },
                   ),
                 ),
               ),
@@ -1313,6 +1329,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                 peerId,
                                 notifyIfEmpty: notifyIfEmpty,
                               ),
+                              onForwardMessages: _forwardConversationMessages,
                             )
                           : _buildEmptyConversation(
                               context,
@@ -2079,6 +2096,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       ]),
       builder: (context, _) {
         final theme = Theme.of(context);
+        final conversationHoverColor = theme.brightness == Brightness.dark
+            ? const Color(0xFF34373D)
+            : kWeChatConversationHoverColor;
         final query = _contactQuery.value.trim().toLowerCase();
         final entries = gFFI.chatModel.messages.entries.where((entry) {
           final peerId = entry.key.peerId.trim();
@@ -2190,6 +2210,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                           : kWeChatSelectedConversationColor
                       : Colors.transparent,
                   child: InkWell(
+                    hoverColor: conversationHoverColor,
                     child: SizedBox(
                       height: 68,
                       child: Padding(
@@ -2218,8 +2239,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                     meeting.title,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: theme.textTheme.bodyLarge
-                                        ?.copyWith(fontWeight: FontWeight.w500),
+                                    style: theme.textTheme.bodyLarge?.copyWith(
+                                      color: isSelected ? Colors.white : null,
+                                      fontWeight: FontWeight.w500,
+                                    ),
                                   ),
                                   const SizedBox(height: 3),
                                   Text(
@@ -2227,8 +2250,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: theme.textTheme.bodySmall?.copyWith(
-                                      color: theme.colorScheme.onSurface
-                                          .withOpacity(0.48),
+                                      color: isSelected
+                                          ? Colors.white.withOpacity(0.82)
+                                          : theme.colorScheme.onSurface
+                                              .withOpacity(0.48),
                                     ),
                                   ),
                                 ],
@@ -2267,6 +2292,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                         : kWeChatSelectedConversationColor
                     : Colors.transparent,
                 child: InkWell(
+                  hoverColor: conversationHoverColor,
                   onTap: _contactSelectionMode
                       ? () => _toggleManagedEntry(peerId)
                       : () => _openConversation(entry),
@@ -2307,7 +2333,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                         overflow: TextOverflow.ellipsis,
                                         style:
                                             theme.textTheme.bodyLarge?.copyWith(
-                                          color: selected ? Colors.white : null,
+                                          color: selected
+                                              ? Colors.white
+                                              : theme.colorScheme.onSurface,
                                           fontWeight: FontWeight.w500,
                                           fontSize: 15,
                                           letterSpacing: 0,
@@ -2351,9 +2379,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                         child: Icon(
                                           icon,
                                           size: 14,
-                                          color: theme.colorScheme.onSurface
-                                              .withOpacity(
-                                                  selected ? 0.82 : 0.46),
+                                          color: selected
+                                              ? Colors.white.withOpacity(0.82)
+                                              : theme.colorScheme.onSurface
+                                                  .withOpacity(0.46),
                                         ),
                                       ),
                                     Expanded(
@@ -2413,6 +2442,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     DirectPairing pairing,
   ) {
     final theme = Theme.of(context);
+    final conversationHoverColor = theme.brightness == Brightness.dark
+        ? const Color(0xFF34373D)
+        : kWeChatConversationHoverColor;
     final name =
         pairing.displayName.isEmpty ? pairing.peerId : pairing.displayName;
     final selected = _selectedConversationPeerId == pairing.peerId;
@@ -2428,6 +2460,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             ? theme.colorScheme.onSurface.withOpacity(0.08)
             : Colors.transparent,
         child: InkWell(
+          hoverColor: conversationHoverColor,
           onTap: _contactSelectionMode
               ? () => _toggleManagedEntry(pairing.peerId)
               : () => _startDirectChat(pairing.peerId),
@@ -2568,6 +2601,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     String conversationPeerId,
   ) {
     final theme = Theme.of(context);
+    final conversationHoverColor = theme.brightness == Brightness.dark
+        ? const Color(0xFF34373D)
+        : kWeChatConversationHoverColor;
     final name = _contactName(peer);
     final selected = _selectedConversationPeerId == conversationPeerId;
     final initial = name.trim().isEmpty ? '?' : name.trim().characters.first;
@@ -2585,6 +2621,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             ? theme.colorScheme.onSurface.withOpacity(0.08)
             : Colors.transparent,
         child: InkWell(
+          hoverColor: conversationHoverColor,
           onTap: _contactSelectionMode
               ? () => _toggleManagedEntry(peer.id)
               : () => _openContactConversation(peer),
@@ -2887,6 +2924,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       }
       return;
     }
+    if (activate) {
+      unawaited(_releaseInactiveDirectChatSessions(peerId));
+    }
     final contact = _findContact(peerId);
     final existing = _directChatSessionFor(peerId);
     if (existing != null && !existing.closed) {
@@ -2962,6 +3002,36 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     return null;
   }
 
+  void _canonicalizeDirectChatSessions() {
+    var selectionChanged = false;
+    for (final entry in _directChatSessions.entries.toList(growable: false)) {
+      final storagePeerId = entry.key;
+      final ffi = entry.value;
+      final canonicalPeerId = ffi.chatModel.currentKey.peerId.trim();
+      if (canonicalPeerId.isEmpty || canonicalPeerId == storagePeerId) continue;
+
+      final existing = _directChatSessions[canonicalPeerId];
+      _directChatSessions.remove(storagePeerId);
+      if (existing == null || existing.closed || identical(existing, ffi)) {
+        _directChatSessions[canonicalPeerId] = ffi;
+      } else {
+        unawaited(ffi.close());
+      }
+      if (_notifiedChatConnections.remove(storagePeerId)) {
+        _notifiedChatConnections.add(canonicalPeerId);
+      }
+      if (_selectedConversationPeerId == storagePeerId) {
+        _selectedConversationPeerId = canonicalPeerId;
+        selectionChanged = true;
+      }
+      if (_activeDirectChatPeerId == storagePeerId) {
+        _activeDirectChatPeerId = canonicalPeerId;
+        selectionChanged = true;
+      }
+    }
+    if (selectionChanged && mounted) setState(() {});
+  }
+
   FFI? _directChatSessionFor(String peerId) {
     final direct = _directChatSessions[peerId];
     if (direct != null) return direct;
@@ -2969,6 +3039,34 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       if (ffi.chatModel.currentKey.peerId == peerId) return ffi;
     }
     return null;
+  }
+
+  Future<void> _releaseInactiveDirectChatSessions(String activePeerId) async {
+    final staleChatPeers = _directChatSessions.entries
+        .where((entry) {
+          final ffi = entry.value;
+          final sessionPeerId = ffi.chatModel.currentKey.peerId.trim();
+          final canonicalPeerId =
+              sessionPeerId.isEmpty ? entry.key : sessionPeerId;
+          return canonicalPeerId != activePeerId &&
+              !_directChatAccess.shouldAutoReconnect(canonicalPeerId);
+        })
+        .map((entry) => entry.key)
+        .toList(growable: false);
+    for (final peerId in staleChatPeers) {
+      final ffi = _directChatSessions.remove(peerId);
+      _notifiedChatConnections.remove(peerId);
+      _clearBackgroundChatRetry(peerId);
+      if (ffi != null) await ffi.close();
+    }
+
+    final staleFilePeers = _directFileSessions.keys
+        .where((peerId) => peerId != activePeerId)
+        .toList(growable: false);
+    for (final peerId in staleFilePeers) {
+      final ffi = _directFileSessions.remove(peerId);
+      if (ffi != null) await _disposeFileSession(ffi);
+    }
   }
 
   Client? _incomingDirectChatClientFor(String peerId) {
@@ -3134,6 +3232,104 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       translate('Direct file transfer started.'),
       tone: _WorkspaceNoticeTone.success,
     );
+  }
+
+  Future<bool> _forwardConversationMessages(
+    String rawTargetPeerId,
+    List<ChatForwardItem> items,
+    bool merged,
+  ) async {
+    if (items.isEmpty) return false;
+    final pairing = DirectPairingStore.find(rawTargetPeerId) ??
+        DirectPairingStore.findByEndpoint(rawTargetPeerId);
+    final peerId = pairing?.peerId ?? rawTargetPeerId.trim();
+    if (peerId.isEmpty || await DirectPairingStore.isSelfTarget(peerId)) {
+      return false;
+    }
+
+    await _startDirectChat(peerId, activate: false);
+    final direct = _directChatSessionFor(peerId);
+    final incoming = _incomingDirectChatClientFor(peerId);
+    final ChatModel targetModel;
+    if (direct != null && !direct.closed) {
+      targetModel = direct.chatModel;
+      targetModel.changeCurrentKey(
+        MessageKey(peerId, ChatModel.clientModeID),
+      );
+    } else if (incoming != null) {
+      targetModel = gFFI.chatModel;
+      targetModel.changeCurrentKey(MessageKey(peerId, incoming.id));
+    } else {
+      _showConversationNotice(
+        translate('Unable to connect to forwarding target.'),
+        tone: _WorkspaceNoticeTone.error,
+      );
+      return false;
+    }
+
+    if (merged) {
+      final senders = items
+          .map((item) => item.senderName)
+          .where((name) => name.isNotEmpty)
+          .toSet()
+          .take(2)
+          .join(', ');
+      await targetModel.sendForwardBundle(
+        title: senders.isEmpty ? translate('Chat history') : senders,
+        items: items.map((item) => item.toSummary()).toList(growable: false),
+      );
+      return true;
+    }
+
+    final transferableFiles = items
+        .where(
+          (item) =>
+              item.kind == DirectChatKind.file &&
+              item.localPath.isNotEmpty &&
+              File(item.localPath).existsSync(),
+        )
+        .toList(growable: false);
+    if (transferableFiles.isNotEmpty) {
+      final fileSession = await _ensureDirectFileSession(peerId);
+      if (fileSession == null) return false;
+      final selected = SelectedItems(isLocal: true);
+      for (final item in transferableFiles) {
+        selected.add(
+          Entry()
+            ..path = item.localPath
+            ..name = item.fileName
+            ..size = item.fileSize,
+        );
+      }
+      await fileSession.fileModel.localController.sendFiles(
+        selected,
+        fileSession.fileModel.remoteController.directoryData(),
+      );
+    }
+
+    for (final item in items) {
+      if (item.kind == DirectChatKind.file) {
+        if (item.localPath.isNotEmpty && File(item.localPath).existsSync()) {
+          await targetModel.sendFileRecord(
+            fileName: item.fileName,
+            fileSize: item.fileSize,
+            localPath: item.localPath,
+          );
+        } else {
+          await targetModel.sendTextAndWait(
+            '[${translate('File')}] ${item.fileName}',
+          );
+        }
+      } else if (item.kind == DirectChatKind.voice) {
+        await targetModel.sendTextAndWait(
+          '[${translate('Voice')}] '
+          '${(item.voiceDurationMs / 1000).ceil()}s',
+        );
+      } else if (item.text.isNotEmpty) {
+        await targetModel.sendTextAndWait(item.text);
+      }
+    }
+    return true;
   }
 
   Future<void> _pickImagesForConversation(String peerId) async {
@@ -3639,6 +3835,29 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       );
       return;
     }
+    final mode = isFileTransfer
+        ? 'file'
+        : isViewCamera
+            ? 'camera'
+            : isTerminal
+                ? 'terminal'
+                : isTcpTunneling
+                    ? 'tunnel'
+                    : 'desktop';
+    final requestKey = '$mode|$endpoint';
+    final now = DateTime.now();
+    final lastAttempt = _lastDirectConnectionAttempt[requestKey];
+    if (_openingDirectConnections.contains(requestKey) ||
+        lastAttempt != null &&
+            now.difference(lastAttempt) < _directConnectionClickCooldown) {
+      return;
+    }
+    _openingDirectConnections.add(requestKey);
+    _lastDirectConnectionAttempt[requestKey] = now;
+    _lastDirectConnectionAttempt.removeWhere(
+      (_, attemptedAt) =>
+          now.difference(attemptedAt) > const Duration(minutes: 5),
+    );
     try {
       await connect(
         context,
@@ -3661,53 +3880,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         translate('Unable to open the connection window.'),
         tone: _WorkspaceNoticeTone.error,
       );
+    } finally {
+      _openingDirectConnections.remove(requestKey);
     }
-  }
-
-  Future<void> _showToolsMenu(BuildContext context) async {
-    final id = _clientIdController.text.trim();
-    await showModalBottomSheet<void>(
-      context: context,
-      builder: (sheetContext) => SafeArea(
-        child: Wrap(
-          children: <Widget>[
-            ListTile(
-              leading: const Icon(Icons.folder_outlined),
-              title: Text(translate('File Transfer')),
-              enabled: id.isNotEmpty,
-              onTap: id.isEmpty
-                  ? null
-                  : () {
-                      Navigator.pop(sheetContext);
-                      _connectDirect(context, id, isFileTransfer: true);
-                    },
-            ),
-            ListTile(
-              leading: const Icon(Icons.videocam_outlined),
-              title: Text(translate('View camera')),
-              enabled: id.isNotEmpty,
-              onTap: id.isEmpty
-                  ? null
-                  : () {
-                      Navigator.pop(sheetContext);
-                      _connectDirect(context, id, isViewCamera: true);
-                    },
-            ),
-            ListTile(
-              leading: const Icon(Icons.terminal_outlined),
-              title: Text(translate('Terminal')),
-              enabled: id.isNotEmpty,
-              onTap: id.isEmpty
-                  ? null
-                  : () {
-                      Navigator.pop(sheetContext);
-                      _connectDirect(context, id, isTerminal: true);
-                    },
-            ),
-          ],
-        ),
-      ),
-    );
   }
 
   void _handleConversationAction(
@@ -5549,6 +5724,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   }
 
   void _checkConnectionTransitions() {
+    _canonicalizeDirectChatSessions();
     final peers = <Peer>{
       ...gFFI.recentPeersModel.peers,
       ...gFFI.favoritePeersModel.peers,

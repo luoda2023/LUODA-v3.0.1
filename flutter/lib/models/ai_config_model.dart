@@ -1,12 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
-import '../common.dart';
+import '../common/string_utils.dart';
 import 'platform_model.dart';
 
 /// AI profile type.
@@ -113,8 +112,7 @@ class AiConfig {
       builtIn: true,
       name: 'hermesAPI',
       endpoint: 'http://47.114.75.115:40000/v1',
-      apiKey:
-          'sk-proxy-local-51f5bd4b9797f2620bc55460946802711cf7312b38c24794',
+      apiKey: 'sk-proxy-local-51f5bd4b9797f2620bc55460946802711cf7312b38c24794',
       model: 'hermesAPI',
       enabled: true,
       profileType: AiProfileType.text,
@@ -139,7 +137,7 @@ class AiConfig {
 
   /// Shorthand — delegates to the static currentProfile.
   bool get enabled => _cached.profiles.isNotEmpty &&
-      _cached.activeProfileIndex < _cached.profiles.length
+          _cached.activeProfileIndex < _cached.profiles.length
       ? _cached.profiles[_cached.activeProfileIndex].enabled
       : false;
 
@@ -149,14 +147,7 @@ class AiConfig {
           (p) => p!.enabled && p.profileType == type,
           orElse: () => null,
         );
-    return match ?? _currentActiveProfile();
-  }
-
-  AiProfile _currentActiveProfile() {
-    if (activeProfileIndex >= 0 && activeProfileIndex < profiles.length) {
-      return profiles[activeProfileIndex];
-    }
-    return const AiProfile(enabled: false);
+    return match ?? const AiProfile(enabled: false);
   }
 
   static const _storageKey = 'luoda_ai_config';
@@ -173,7 +164,8 @@ class AiConfig {
 
   static AiProfile get currentProfile {
     final cfg = _cached;
-    if (cfg.activeProfileIndex >= 0 && cfg.activeProfileIndex < cfg.profiles.length) {
+    if (cfg.activeProfileIndex >= 0 &&
+        cfg.activeProfileIndex < cfg.profiles.length) {
       return cfg.profiles[cfg.activeProfileIndex];
     }
     return const AiProfile(enabled: false);
@@ -236,8 +228,7 @@ class AiConfig {
 
       _cached = AiConfig(
         profiles: allProfiles,
-        activeProfileIndex:
-            savedIdx.clamp(0, allProfiles.length - 1),
+        activeProfileIndex: savedIdx.clamp(0, allProfiles.length - 1),
         email: (() {
           try {
             final json = jsonDecode(raw) as Map<String, dynamic>;
@@ -259,8 +250,7 @@ class AiConfig {
 
   /// Persist only user-defined profiles (built-in are auto-added on load).
   static Future<void> save(AiConfig config) async {
-    final userProfiles =
-        config.profiles.where((p) => !p.builtIn).toList();
+    final userProfiles = config.profiles.where((p) => !p.builtIn).toList();
     _cached = AiConfig(
       profiles: [...builtInProfiles, ...userProfiles],
       activeProfileIndex: config.activeProfileIndex,
@@ -294,44 +284,56 @@ class AiConfig {
   }
 }
 
+Uri _aiResourceUri(
+  String endpoint,
+  String resource,
+) {
+  final uri = Uri.parse(endpoint.trim());
+  var path = uri.path.replaceFirst(RegExp(r'/+$'), '');
+  if (path.endsWith(resource)) return uri.replace(path: path);
+  if (path.isEmpty) path = '/v1';
+  return uri.replace(path: '$path$resource');
+}
+
 /// Shared AI API caller — returns raw response content from any prompt.
-Future<String?> _callAi(AiProfile profile, String prompt,
+Future<String?> callAiText(AiProfile profile, String prompt,
     {double temperature = 0.7}) async {
-  if (!profile.enabled ||
-      profile.endpoint.isEmpty ||
-      profile.apiKey.isEmpty) {
+  if (!profile.enabled || profile.endpoint.isEmpty || profile.apiKey.isEmpty) {
     return null;
   }
   try {
-    final uri = Uri.parse(profile.endpoint);
+    final uri = _aiResourceUri(profile.endpoint, '/chat/completions');
     final response = await http
         .post(
-      uri,
-      headers: {
-        'Content-Type': 'application/json',
-        if (profile.apiKey.isNotEmpty)
-          'Authorization': 'Bearer ${profile.apiKey}',
-      },
-      body: jsonEncode({
-        'model': profile.model,
-        'messages': [
-          {'role': 'user', 'content': prompt},
-        ],
-        'max_tokens': 2048,
-        'temperature': temperature,
-      }),
-    )
+          uri,
+          headers: {
+            'Content-Type': 'application/json',
+            if (profile.apiKey.isNotEmpty)
+              'Authorization': 'Bearer ${profile.apiKey}',
+          },
+          body: jsonEncode({
+            'model': profile.model,
+            'messages': [
+              {'role': 'user', 'content': prompt},
+            ],
+            'max_tokens': 2048,
+            'temperature': temperature,
+          }),
+        )
         .timeout(const Duration(seconds: 30));
 
     if (response.statusCode == 200) {
-      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      final body =
+          jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
       final choices = body['choices'] as List?;
       if (choices != null && choices.isNotEmpty) {
-        final content =
-            (choices[0] as Map<String, dynamic>)['message']?['content']
-                ?.toString()
-                .trim();
-        if (content != null && content.isNotEmpty) {
+        final choice = choices[0] as Map<String, dynamic>;
+        final message = choice['message'];
+        final content = sanitizeInvalidUtf16(
+          ((message is Map ? message['content'] : null) ?? choice['text'] ?? '')
+              .toString(),
+        ).trim();
+        if (content.isNotEmpty) {
           // Track usage count for built-in profiles with quotas.
           if (profile.builtIn && profile.freeQuota > 0) {
             // Use unawaited to not block the response, but capture the future
@@ -363,7 +365,7 @@ class AiService {
     final prompt = 'Translate the following $sourceLang text to $targetLang. '
         'Reply with ONLY the translated text, no explanations, no quotes.\n\n'
         '$text';
-    return _callAi(profile, prompt, temperature: 0.1);
+    return callAiText(profile, prompt, temperature: 0.1);
   }
 
   /// Chat: generate a reply for a user message (used for "#" prefixed messages).
@@ -386,7 +388,7 @@ class AiService {
         '- --- for horizontal rules\n\n'
         'Format naturally — only use formatting when it improves readability.\n\n'
         '$message';
-    return _callAi(profile, prompt, temperature: 0.7);
+    return callAiText(profile, prompt, temperature: 0.7);
   }
 }
 
@@ -397,8 +399,23 @@ class AiImageService {
   static Future<String?> generate(
     String prompt, {
     String size = '1024x1024',
+    Directory? outputDirectory,
   }) async {
     final profile = AiConfig.current.getProfileByType(AiProfileType.image);
+    return generateWithProfile(
+      profile,
+      prompt,
+      size: size,
+      outputDirectory: outputDirectory,
+    );
+  }
+
+  static Future<String?> generateWithProfile(
+    AiProfile profile,
+    String prompt, {
+    String size = '1024x1024',
+    Directory? outputDirectory,
+  }) async {
     if (!profile.enabled ||
         profile.endpoint.isEmpty ||
         profile.apiKey.isEmpty) {
@@ -407,29 +424,27 @@ class AiImageService {
     }
 
     try {
-      // Construct the image generation URL (append /images/generations)
-      var base = profile.endpoint;
-      if (!base.endsWith('/')) base += '/';
-      final uri = Uri.parse('${base}images/generations');
+      final uri = _aiResourceUri(profile.endpoint, '/images/generations');
 
       final response = await http
           .post(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ${profile.apiKey}',
-        },
-        body: jsonEncode({
-          'model': profile.model,
-          'prompt': prompt,
-          'n': 1,
-          'size': size,
-          'response_format': 'b64_json',
-        }),
-      ).timeout(const Duration(seconds: 60));
+            uri,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer ${profile.apiKey}',
+            },
+            body: jsonEncode({
+              'model': profile.model,
+              'prompt': prompt,
+              'n': 1,
+              'size': size,
+            }),
+          )
+          .timeout(const Duration(seconds: 60));
 
       if (response.statusCode == 200) {
-        final body = jsonDecode(response.body) as Map<String, dynamic>;
+        final body =
+            jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
         final dataList = body['data'] as List?;
         if (dataList != null && dataList.isNotEmpty) {
           final data = dataList[0] as Map<String, dynamic>;
@@ -442,7 +457,8 @@ class AiImageService {
           } else if (url != null && url.isNotEmpty) {
             // Download from URL with 15s timeout
             try {
-              final imgResp = await http.get(Uri.parse(url))
+              final imgResp = await http
+                  .get(Uri.parse(url))
                   .timeout(const Duration(seconds: 15));
               if (imgResp.statusCode == 200) {
                 bytes = imgResp.bodyBytes;
@@ -455,7 +471,8 @@ class AiImageService {
           if (bytes != null) {
             // Save to a flat temp file (no extra directory).
             final ts = DateTime.now().millisecondsSinceEpoch;
-            final dir = Directory.systemTemp;
+            final dir = outputDirectory ?? Directory.systemTemp;
+            await dir.create(recursive: true);
             final file = File('${dir.path}/luoda_ai_img_$ts.png');
             await file.writeAsBytes(bytes);
             return file.path;

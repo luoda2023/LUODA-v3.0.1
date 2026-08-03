@@ -53,6 +53,19 @@ use crate::{client::Data, client::Interface};
 
 const CHANGE_RESOLUTION_VALID_TIMEOUT_SECS: u64 = 15;
 
+fn canonical_direct_peer_id(
+    peer_id: &str,
+    other_server: Option<&(String, String, String)>,
+) -> String {
+    let peer_id = peer_id.trim();
+    if !peer_id.is_empty() {
+        return peer_id.to_owned();
+    }
+    other_server
+        .map(|(expected_id, _, _)| expected_id.trim().to_owned())
+        .unwrap_or_default()
+}
+
 #[derive(Clone, Default)]
 pub struct Session<T: InvokeUiSession> {
     pub password: String,
@@ -73,6 +86,26 @@ pub struct Session<T: InvokeUiSession> {
     pub last_audit_note: Arc<Mutex<String>>,
     pub audit_guid: Arc<Mutex<String>>,
     pub viewer_join: Arc<RwLock<Option<JoinAsViewer>>>,
+}
+
+#[cfg(test)]
+mod direct_identity_tests {
+    use super::canonical_direct_peer_id;
+
+    #[test]
+    fn canonical_peer_id_prefers_direct_query_identity() {
+        let direct = (
+            "654321".to_owned(),
+            "198.51.100.44:21118".to_owned(),
+            "fingerprint".to_owned(),
+        );
+        assert_eq!(canonical_direct_peer_id("", Some(&direct)), "654321");
+        assert_eq!(
+            canonical_direct_peer_id("server-id", Some(&direct)),
+            "server-id"
+        );
+        assert_eq!(canonical_direct_peer_id("", None), "");
+    }
 }
 
 #[derive(Clone)]
@@ -1914,6 +1947,8 @@ impl<T: InvokeUiSession> Interface for Session<T> {
     }
 
     fn handle_peer_info(&self, mut pi: PeerInfo) {
+        let direct_target = self.lc.read().unwrap().other_server.clone();
+        pi.peer_id = canonical_direct_peer_id(&pi.peer_id, direct_target.as_ref());
         log::debug!("handle_peer_info :{:?}", pi);
         self.lc.write().unwrap().peer_info = Some(pi.clone());
         if pi.current_display as usize >= pi.displays.len() {
@@ -1931,6 +1966,10 @@ impl<T: InvokeUiSession> Interface for Session<T> {
             if pi.displays.is_empty() {
                 self.lc.write().unwrap().handle_peer_info(&pi);
                 self.update_privacy_mode();
+                // Keep the authenticated identity available to Flutter even
+                // when a headless host cannot produce a display yet. This
+                // lets a verified IP session persist its ID-to-IP fallback.
+                self.set_peer_info(&pi);
                 let msg = if self.is_view_camera() {
                     "No cameras"
                 } else {

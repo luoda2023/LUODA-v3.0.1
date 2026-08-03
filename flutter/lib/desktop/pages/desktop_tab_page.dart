@@ -39,11 +39,7 @@ class DesktopTabPage extends StatefulWidget {
   static Future<void> showHome({int peerTabIndex = 0}) async {
     try {
       final controller = Get.find<DesktopTabController>();
-      final index = controller.state.value.tabs
-          .indexWhere((tab) => tab.key == kTabLabelHomePage);
-      if (index >= 0) {
-        controller.jumpTo(index);
-      }
+      controller.jumpToByKey(kTabLabelHomePage);
       const sections = <String>[
         'recent',
         'favorites',
@@ -154,9 +150,6 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
                   workspaceChrome: !compactClient &&
                       !bind.isIncomingOnly() &&
                       key == kTabLabelHomePage,
-                  onBack: key == kTabLabelSettingPage
-                      ? () => tabController.jumpToByKey(kTabLabelHomePage)
-                      : null,
                 );
               }),
               showMinimize: !compactClient,

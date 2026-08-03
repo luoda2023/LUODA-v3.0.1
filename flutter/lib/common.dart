@@ -249,6 +249,25 @@ class ColorThemeExtension extends ThemeExtension<ColorThemeExtension> {
 }
 
 class MyTheme {
+  static const List<String> fontFamilyFallback = <String>[
+    'LDeskNotoSansCJKSC',
+    'Microsoft YaHei UI',
+    'Microsoft YaHei',
+    'PingFang SC',
+    'Noto Sans CJK SC',
+    'Noto Sans SC',
+    'SimSun-ExtB',
+    'SimSun-ExtG',
+    'Microsoft JhengHei UI',
+    'Yu Gothic UI',
+    'Malgun Gothic',
+    'Segoe UI Symbol',
+    'Segoe UI Emoji',
+    'Noto Sans Symbols',
+    'Noto Sans Symbols 2',
+    'Noto Color Emoji',
+  ];
+
   MyTheme._();
 
   static const Color primary = Color(0xFF07C160);
@@ -424,6 +443,7 @@ class MyTheme {
 
   static ThemeData lightTheme = ThemeData(
     useMaterial3: false,
+    fontFamilyFallback: fontFamilyFallback,
     brightness: Brightness.light,
     primaryColor: primary,
     focusColor: primarySoft,
@@ -597,6 +617,7 @@ class MyTheme {
 
   static ThemeData darkTheme = ThemeData(
     useMaterial3: false,
+    fontFamilyFallback: fontFamilyFallback,
     brightness: Brightness.dark,
     primaryColor: accentDark,
     focusColor: const Color(0xFF263750),

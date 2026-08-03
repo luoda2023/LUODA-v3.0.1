@@ -10,15 +10,18 @@ const Color kWeChatCanvasColor = Color(0xFFF7F7F7);
 const Color kWeChatIncomingBubbleColor = Color(0xFFFFFFFF);
 const Color kWeChatIncomingBubbleBorder = Color(0xFFE2E2E2);
 const Color kWeChatOutgoingBubbleColor = Color(0xFF95EC69);
-const Color kWeChatSelectedConversationColor = Color(0xFF07C160);
+const Color kWeChatSelectedConversationColor = Color(0xFF057A3A);
+const Color kWeChatConversationHoverColor = Color(0xFFE5E8E6);
 const Color kWeChatDividerColor = Color(0xFFE5E5E5);
 
 /// Dark-mode canvas — slightly lighter than pure #1C1E23 so incoming bubbles
 /// (Color(0xFF2B2D32)) remain visually distinguishable from the background.
 const Color kWeChatCanvasColorDark = Color(0xFF181A1F);
+
 /// Dark-mode incoming bubble — lightened from #2B2D32 to give meaningful
 /// contrast against kWeChatCanvasColorDark.
 const Color kWeChatIncomingBubbleColorDark = Color(0xFF3A3D43);
+
 /// Dark-mode outgoing bubble — slightly brighter green so it still pops in dark.
 const Color kWeChatOutgoingBubbleColorDark = Color(0xFF4A8F66);
 

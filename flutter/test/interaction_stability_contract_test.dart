@@ -11,6 +11,18 @@ String methodBody(String source, String start, String end) {
 }
 
 void main() {
+  test('remote first-frame waiting state does not animate indefinitely', () {
+    final source =
+        File('lib/desktop/pages/remote_page.dart').readAsStringSync();
+    final start = source.indexOf('class RemoteConnectionProgress');
+    final end = source.indexOf('class _RemoteSessionStatusBar', start);
+    expect(start, greaterThanOrEqualTo(0));
+    expect(end, greaterThan(start));
+    final progressSource = source.substring(start, end);
+    expect(progressSource, contains('Icons.hourglass_top_rounded'));
+    expect(progressSource, isNot(contains('CircularProgressIndicator')));
+  });
+
   final serverModelSource =
       File('lib/models/server_model.dart').readAsStringSync();
   final desktopHomeSource =
@@ -297,6 +309,22 @@ void main() {
     expect(directChatSource, contains('latestConversations()'));
   });
 
+  test('conversation switching releases non-persistent direct sessions', () {
+    final releaseIdle = methodBody(
+      desktopHomeSource,
+      'Future<void> _releaseInactiveDirectChatSessions(',
+      'Future<void> _maintainTrustedChatSessions()',
+    );
+
+    expect(releaseIdle, contains('shouldAutoReconnect(canonicalPeerId)'));
+    expect(releaseIdle, contains('_directChatSessions.remove(peerId)'));
+    expect(releaseIdle, contains('await ffi.close()'));
+    expect(
+      desktopHomeSource,
+      contains('unawaited(_releaseInactiveDirectChatSessions(peerId))'),
+    );
+  });
+
   test('mobile direct chat connects without a blocking dialog', () {
     final startChat = methodBody(
       mobileConnectionSource,
@@ -399,6 +427,64 @@ void main() {
       startChat,
       contains('DirectPairingStore.findByEndpoint(requestedId)'),
     );
+  });
+
+  test('successful IP chat sessions rekey to the canonical device ID', () {
+    final canonicalize = methodBody(
+      desktopHomeSource,
+      'void _canonicalizeDirectChatSessions()',
+      'FFI? _directChatSessionFor(',
+    );
+    final releaseIdle = methodBody(
+      desktopHomeSource,
+      'Future<void> _releaseInactiveDirectChatSessions(',
+      'Future<void> _maintainTrustedChatSessions()',
+    );
+
+    expect(canonicalize, contains('ffi.chatModel.currentKey.peerId'));
+    expect(canonicalize, contains('_directChatSessions[canonicalPeerId]'));
+    expect(canonicalize, contains('_selectedConversationPeerId'));
+    expect(releaseIdle, contains('ffi.chatModel.currentKey.peerId'));
+  });
+
+  test(
+      'successful IP remote sessions persist ID fallback in either event order',
+      () {
+    final persistPairing = methodBody(
+      modelSource,
+      'Future<void> _persistDiscoveredDirectPairing(',
+      'checkDesktopKeyboardMode() async',
+    );
+    final fingerprintEvent = modelSource
+        .split("} else if (name == 'fingerprint') {")[1]
+        .split("} else if (name == 'plugin_manager') {")[0];
+    final peerInfoHandler = methodBody(
+      modelSource,
+      'handlePeerInfo(',
+      'Future<void> _persistDiscoveredDirectPairing(',
+    );
+
+    expect(persistPairing, contains('sessionPeerId.trim()'));
+    expect(persistPairing, contains('cachedPeerData.peerInfo'));
+    expect(persistPairing, contains('FingerprintState.ensure'));
+    expect(persistPairing, contains('DirectPairingStore.saveDiscovered('));
+    expect(fingerprintEvent,
+        contains('await _persistDiscoveredDirectPairing(peerId)'));
+    expect(peerInfoHandler,
+        contains('await _persistDiscoveredDirectPairing(peerId)'));
+  });
+
+  test('remote session launch suppresses duplicate target requests', () {
+    final connectDirect = methodBody(
+      desktopHomeSource,
+      'Future<void> _connectDirect(',
+      'void _handleConversationAction(',
+    );
+
+    expect(connectDirect, contains('_openingDirectConnections.add'));
+    expect(connectDirect, contains('_lastDirectConnectionAttempt'));
+    expect(connectDirect, contains('finally'));
+    expect(connectDirect, contains('_openingDirectConnections.remove'));
   });
 
   test('desktop message context menu remains reachable', () {
