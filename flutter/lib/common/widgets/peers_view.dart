@@ -14,12 +14,20 @@ import 'package:visibility_detector/visibility_detector.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../../common.dart';
+import '../direct_chat_policy.dart';
 import '../../models/peer_model.dart';
 import '../../models/platform_model.dart';
 import 'peer_card.dart';
 
 typedef PeerFilter = bool Function(Peer peer);
 typedef PeerCardBuilder = Widget Function(Peer peer);
+
+class _PeerGroupHeader {
+  const _PeerGroupHeader(this.label, this.count);
+
+  final String label;
+  final int count;
+}
 
 class PeerSortType {
   static const String remoteId = 'Remote ID';
@@ -73,11 +81,13 @@ class _PeersView extends StatefulWidget {
   final PeerFilter? peerFilter;
   final PeerCardBuilder peerCardBuilder;
   final PeerTabIndex peerTabIndex;
+  final bool groupByDirectChatPolicy;
 
   const _PeersView({
     required this.peers,
     required this.peerCardBuilder,
     required this.peerTabIndex,
+    required this.groupByDirectChatPolicy,
     this.peerFilter,
     Key? key,
   }) : super(key: key);
@@ -107,6 +117,7 @@ class _PeersViewState extends State<_PeersView>
   bool _isActive = true;
 
   final _scrollController = ScrollController();
+  final _directChatAccess = DirectChatAccessController.instance;
 
   _PeersViewState() {
     _startCheckOnlines();
@@ -114,17 +125,45 @@ class _PeersViewState extends State<_PeersView>
 
   @override
   void initState() {
+    super.initState();
     windowManager.addListener(this);
     WidgetsBinding.instance.addObserver(this);
-    super.initState();
+    if (widget.groupByDirectChatPolicy) {
+      _directChatAccess.load();
+      _directChatAccess.addListener(_onDirectChatPolicyChanged);
+    }
+    _loadInitialPeers();
   }
 
   @override
   void dispose() {
     windowManager.removeListener(this);
     WidgetsBinding.instance.removeObserver(this);
+    if (widget.groupByDirectChatPolicy) {
+      _directChatAccess.removeListener(_onDirectChatPolicyChanged);
+    }
+    _scrollController.dispose();
     _exit = true;
     super.dispose();
+  }
+
+  void _onDirectChatPolicyChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _loadInitialPeers() {
+    switch (widget.peers.loadEvent) {
+      case LoadEvent.recent:
+        unawaited(bind.mainLoadRecentPeers());
+        break;
+      case LoadEvent.favorite:
+        unawaited(bind.mainLoadFavPeers());
+        break;
+      case LoadEvent.lan:
+        unawaited(bind.mainLoadLanPeers());
+        unawaited(bind.mainDiscover());
+        break;
+    }
   }
 
   @override
@@ -234,117 +273,157 @@ class _PeersViewState extends State<_PeersView>
   Widget _buildPeersView(Peers peers) {
     final updateEvent = peers.event;
     final body = ObxValue<RxList>((filters) {
-      return FutureBuilder<List<Peer>>(
-        builder: (context, snapshot) {
-          if (snapshot.hasData) {
-            var peers = snapshot.data!;
-            if (peers.length > 1000) peers = peers.sublist(0, 1000);
-            gFFI.peerTabModel.setCurrentTabCachedPeers(peers);
-            buildOnePeer(Peer peer, bool isPortrait) {
-              final visibilityChild = VisibilityDetector(
-                key: ValueKey(_cardId(peer.id)),
-                onVisibilityChanged: onVisibilityChanged,
-                child: widget.peerCardBuilder(peer),
-              );
-              // `Provider.of<PeerTabModel>(context)` will causes infinete loop.
-              // Because `gFFI.peerTabModel.setCurrentTabCachedPeers(peers)` will trigger `notifyListeners()`.
-              //
-              // No need to listen the currentTab change event.
-              // Because the currentTab change event will trigger the peers change event,
-              // and the peers change event will trigger _buildPeersView().
-              return !isPortrait
-                  ? Obx(
-                      () => peerCardUiType.value == PeerUiType.list
-                          ? Container(height: 45, child: visibilityChild)
-                          : peerCardUiType.value == PeerUiType.grid
-                          ? SizedBox(
-                              width: 320,
-                              height: 176,
-                              child: visibilityChild,
-                            )
-                          : SizedBox(
-                              width: 220,
-                              height: 42,
-                              child: visibilityChild,
-                            ),
-                    )
-                  : Container(child: visibilityChild);
-            }
-
-            // We should avoid too many rebuilds. Win10(Some machines) on Flutter 3.19.6.
-            // Continious rebuilds of `ListView.builder` will cause memory leak.
-            // Simple demo can reproduce this issue.
-            final Widget child = Obx(
-              () => stateGlobal.isPortrait.isTrue
-                  ? ListView.builder(
-                      itemCount: peers.length,
-                      itemBuilder: (BuildContext context, int index) {
-                        return buildOnePeer(peers[index], true).marginOnly(
-                          top: index == 0 ? 0 : space / 2,
-                          bottom: space / 2,
-                        );
-                      },
-                    )
-                  : peerCardUiType.value == PeerUiType.list
-                  ? ListView.builder(
-                      controller: _scrollController,
-                      itemCount: peers.length,
-                      itemBuilder: (BuildContext context, int index) {
-                        return buildOnePeer(peers[index], false).marginOnly(
-                          right: space,
-                          top: index == 0 ? 0 : space / 2,
-                          bottom: space / 2,
-                        );
-                      },
-                    )
-                  : peerCardUiType.value == PeerUiType.grid
-                  ? LayoutBuilder(
-                      builder: (context, constraints) {
-                        final columns = constraints.maxWidth >= 680 ? 2 : 1;
-                        return GridView.builder(
-                          controller: _scrollController,
-                          padding: EdgeInsets.only(right: space),
-                          gridDelegate:
-                              SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: columns,
-                                childAspectRatio: 1.55,
-                                mainAxisSpacing: space,
-                                crossAxisSpacing: space,
-                              ),
-                          itemCount: peers.length,
-                          itemBuilder: (BuildContext context, int index) {
-                            return buildOnePeer(peers[index], false);
-                          },
-                        );
-                      },
-                    )
-                  : DynamicGridView.builder(
-                      gridDelegate: SliverGridDelegateWithWrapping(
-                        mainAxisSpacing: space / 2,
-                        crossAxisSpacing: space,
-                      ),
-                      itemCount: peers.length,
-                      itemBuilder: (BuildContext context, int index) {
-                        return buildOnePeer(peers[index], false);
-                      },
-                    ),
-            );
-
-            if (updateEvent == UpdateEvent.load) {
-              _curPeers.clear();
-              _curPeers.addAll(peers.map((e) => e.id));
-              _queryOnlines(true);
-            }
-            return child;
-          } else {
-            return const Center(child: CircularProgressIndicator());
-          }
-        },
-        future: matchPeers(filters[0].value, filters[1].value, peers.peers),
+      var matchedPeers = matchPeers(
+        filters[0].value,
+        filters[1].value,
+        peers.peers,
       );
+      if (matchedPeers.length > 1000) {
+        matchedPeers = matchedPeers.sublist(0, 1000);
+      }
+      gFFI.peerTabModel.setCurrentTabCachedPeers(matchedPeers);
+
+      Widget buildOnePeer(Peer peer, bool isPortrait) {
+        final visibilityChild = VisibilityDetector(
+          key: ValueKey(_cardId(peer.id)),
+          onVisibilityChanged: onVisibilityChanged,
+          child: widget.peerCardBuilder(peer),
+        );
+        return !isPortrait
+            ? Obx(
+                () => peerCardUiType.value == PeerUiType.list
+                    ? SizedBox(height: 45, child: visibilityChild)
+                    : peerCardUiType.value == PeerUiType.grid
+                        ? SizedBox(
+                            width: 320,
+                            height: 176,
+                            child: visibilityChild,
+                          )
+                        : SizedBox(
+                            width: 220,
+                            height: 42,
+                            child: visibilityChild,
+                          ),
+              )
+            : visibilityChild;
+      }
+
+      final Widget child = Obx(
+        () => stateGlobal.isPortrait.isTrue
+            ? _buildPortraitList(matchedPeers, buildOnePeer)
+            : peerCardUiType.value == PeerUiType.list
+                ? ListView.builder(
+                    controller: _scrollController,
+                    itemCount: matchedPeers.length,
+                    itemBuilder: (BuildContext context, int index) {
+                      return buildOnePeer(matchedPeers[index], false)
+                          .marginOnly(
+                        right: space,
+                        top: index == 0 ? 0 : space / 2,
+                        bottom: space / 2,
+                      );
+                    },
+                  )
+                : peerCardUiType.value == PeerUiType.grid
+                    ? LayoutBuilder(
+                        builder: (context, constraints) {
+                          final columns = constraints.maxWidth >= 680 ? 2 : 1;
+                          return GridView.builder(
+                            controller: _scrollController,
+                            padding: EdgeInsets.only(right: space),
+                            gridDelegate:
+                                SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: columns,
+                              childAspectRatio: 1.55,
+                              mainAxisSpacing: space,
+                              crossAxisSpacing: space,
+                            ),
+                            itemCount: matchedPeers.length,
+                            itemBuilder: (BuildContext context, int index) {
+                              return buildOnePeer(matchedPeers[index], false);
+                            },
+                          );
+                        },
+                      )
+                    : DynamicGridView.builder(
+                        gridDelegate: SliverGridDelegateWithWrapping(
+                          mainAxisSpacing: space / 2,
+                          crossAxisSpacing: space,
+                        ),
+                        itemCount: matchedPeers.length,
+                        itemBuilder: (BuildContext context, int index) {
+                          return buildOnePeer(matchedPeers[index], false);
+                        },
+                      ),
+      );
+
+      if (updateEvent == UpdateEvent.load) {
+        _curPeers
+          ..clear()
+          ..addAll(matchedPeers.map((peer) => peer.id));
+        _queryOnlines(true);
+      }
+      return child;
     }, obslist);
 
     return body;
+  }
+
+  Widget _buildPortraitList(
+    List<Peer> peers,
+    Widget Function(Peer peer, bool isPortrait) buildOnePeer,
+  ) {
+    final rows = _mobileGroupedRows(peers);
+    return ListView.builder(
+      itemCount: rows.length,
+      itemBuilder: (BuildContext context, int index) {
+        final row = rows[index];
+        if (row is _PeerGroupHeader) {
+          return Container(
+            height: 34,
+            alignment: Alignment.centerLeft,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            child: Text(
+              '${translate(row.label)} (${row.count})',
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withOpacity(0.62),
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+          );
+        }
+        final peer = row as Peer;
+        return buildOnePeer(peer, true).marginOnly(
+          top:
+              index == 0 || rows[index - 1] is _PeerGroupHeader ? 0 : space / 2,
+          bottom: space / 2,
+        );
+      },
+    );
+  }
+
+  List<Object> _mobileGroupedRows(List<Peer> peers) {
+    if (!widget.groupByDirectChatPolicy) return peers.cast<Object>();
+    final friends = peers
+        .where((peer) => _directChatAccess.isFriend(peer.id))
+        .toList(growable: false);
+    final strangers = peers
+        .where((peer) => !_directChatAccess.isFriend(peer.id))
+        .toList(growable: false);
+    return <Object>[
+      if (friends.isNotEmpty) ...<Object>[
+        _PeerGroupHeader('Friends', friends.length),
+        ...friends,
+      ],
+      if (strangers.isNotEmpty) ...<Object>[
+        _PeerGroupHeader('Strangers', strangers.length),
+        ...strangers,
+      ],
+    ];
   }
 
   var _queryInterval = const Duration(seconds: 20);
@@ -395,11 +474,12 @@ class _PeersViewState extends State<_PeersView>
     }
   }
 
-  Future<List<Peer>>? matchPeers(
+  List<Peer> matchPeers(
     String searchText,
     String sortedBy,
     List<Peer> peers,
-  ) async {
+  ) {
+    peers = peers.toList(growable: false);
     if (widget.peerFilter != null) {
       peers = peers.where((peer) => widget.peerFilter!(peer)).toList();
     }
@@ -428,7 +508,13 @@ class _PeersViewState extends State<_PeersView>
           );
           break;
         case PeerSortType.status:
-          peers.sort((p1, p2) => p1.online ? -1 : 1);
+          peers.sort((p1, p2) {
+            final onlineOrder =
+                (p2.online ? 1 : 0).compareTo(p1.online ? 1 : 0);
+            return onlineOrder != 0
+                ? onlineOrder
+                : p1.getId().compareTo(p2.getId());
+          });
           break;
       }
     }
@@ -438,17 +524,16 @@ class _PeersViewState extends State<_PeersView>
       return peers;
     }
     searchText = searchText.toLowerCase();
-    final matches = await Future.wait(
-      peers.map((peer) => matchPeer(searchText, peer, widget.peerTabIndex)),
-    );
-    final filteredList = List<Peer>.empty(growable: true);
-    for (var i = 0; i < peers.length; i++) {
-      if (matches[i]) {
-        filteredList.add(peers[i]);
+    return peers.where((peer) {
+      if (peer.id.toLowerCase().contains(searchText) ||
+          peer.hostname.toLowerCase().contains(searchText) ||
+          peer.username.toLowerCase().contains(searchText) ||
+          peer.alias.toLowerCase().contains(searchText)) {
+        return true;
       }
-    }
-
-    return filteredList;
+      return peerTabShowNote(widget.peerTabIndex) &&
+          peer.note.toLowerCase().contains(searchText);
+    }).toList(growable: false);
   }
 }
 
@@ -456,12 +541,14 @@ abstract class BasePeersView extends StatelessWidget {
   final PeerTabIndex peerTabIndex;
   final PeerFilter? peerFilter;
   final PeerCardBuilder peerCardBuilder;
+  final bool groupByDirectChatPolicy;
 
   const BasePeersView({
     Key? key,
     required this.peerTabIndex,
     this.peerFilter,
     required this.peerCardBuilder,
+    this.groupByDirectChatPolicy = false,
   }) : super(key: key);
 
   @override
@@ -492,6 +579,7 @@ abstract class BasePeersView extends StatelessWidget {
       peerFilter: peerFilter,
       peerCardBuilder: peerCardBuilder,
       peerTabIndex: peerTabIndex,
+      groupByDirectChatPolicy: groupByDirectChatPolicy,
     );
   }
 }
@@ -502,18 +590,12 @@ class RecentPeersView extends BasePeersView {
     EdgeInsets? menuPadding,
     ScrollController? scrollController,
   }) : super(
-         key: key,
-         peerTabIndex: PeerTabIndex.recent,
-         peerCardBuilder: (Peer peer) =>
-             RecentPeerCard(peer: peer, menuPadding: menuPadding),
-       );
-
-  @override
-  Widget build(BuildContext context) {
-    final widget = super.build(context);
-    bind.mainLoadRecentPeers();
-    return widget;
-  }
+          key: key,
+          peerTabIndex: PeerTabIndex.recent,
+          groupByDirectChatPolicy: isMobile,
+          peerCardBuilder: (Peer peer) =>
+              RecentPeerCard(peer: peer, menuPadding: menuPadding),
+        );
 }
 
 class FavoritePeersView extends BasePeersView {
@@ -522,18 +604,12 @@ class FavoritePeersView extends BasePeersView {
     EdgeInsets? menuPadding,
     ScrollController? scrollController,
   }) : super(
-         key: key,
-         peerTabIndex: PeerTabIndex.fav,
-         peerCardBuilder: (Peer peer) =>
-             FavoritePeerCard(peer: peer, menuPadding: menuPadding),
-       );
-
-  @override
-  Widget build(BuildContext context) {
-    final widget = super.build(context);
-    bind.mainLoadFavPeers();
-    return widget;
-  }
+          key: key,
+          peerTabIndex: PeerTabIndex.fav,
+          groupByDirectChatPolicy: isMobile,
+          peerCardBuilder: (Peer peer) =>
+              FavoritePeerCard(peer: peer, menuPadding: menuPadding),
+        );
 }
 
 class DiscoveredPeersView extends BasePeersView {
@@ -542,19 +618,11 @@ class DiscoveredPeersView extends BasePeersView {
     EdgeInsets? menuPadding,
     ScrollController? scrollController,
   }) : super(
-         key: key,
-         peerTabIndex: PeerTabIndex.lan,
-         peerCardBuilder: (Peer peer) =>
-             DiscoveredPeerCard(peer: peer, menuPadding: menuPadding),
-       );
-
-  @override
-  Widget build(BuildContext context) {
-    final widget = super.build(context);
-    bind.mainLoadLanPeers();
-    bind.mainDiscover();
-    return widget;
-  }
+          key: key,
+          peerTabIndex: PeerTabIndex.lan,
+          peerCardBuilder: (Peer peer) =>
+              DiscoveredPeerCard(peer: peer, menuPadding: menuPadding),
+        );
 }
 
 class AddressBookPeersView extends BasePeersView {
@@ -563,22 +631,22 @@ class AddressBookPeersView extends BasePeersView {
     EdgeInsets? menuPadding,
     ScrollController? scrollController,
   }) : super(
-         key: key,
-         peerTabIndex: PeerTabIndex.ab,
-         peerFilter: (Peer peer) =>
-             _hitTag(gFFI.abModel.selectedTags, peer.tags),
-         peerCardBuilder: (Peer peer) =>
-             AddressBookPeerCard(peer: peer, menuPadding: menuPadding),
-       );
+          key: key,
+          peerTabIndex: PeerTabIndex.ab,
+          groupByDirectChatPolicy: isMobile,
+          peerFilter: (Peer peer) =>
+              _hitTag(gFFI.abModel.selectedTags, peer.tags),
+          peerCardBuilder: (Peer peer) =>
+              AddressBookPeerCard(peer: peer, menuPadding: menuPadding),
+        );
 
   static bool _hitTag(List<dynamic> selectedTags, List<dynamic> idents) {
     if (selectedTags.isEmpty) {
       return true;
     }
     // The result of a no-tag union with normal tags, still allows normal tags to perform union or intersection operations.
-    final selectedNormalTags = selectedTags
-        .where((tag) => tag != kUntagged)
-        .toList();
+    final selectedNormalTags =
+        selectedTags.where((tag) => tag != kUntagged).toList();
     if (selectedTags.contains(kUntagged)) {
       if (idents.isEmpty) return true;
       if (selectedNormalTags.isEmpty) return false;
@@ -607,12 +675,12 @@ class MyGroupPeerView extends BasePeersView {
     EdgeInsets? menuPadding,
     ScrollController? scrollController,
   }) : super(
-         key: key,
-         peerTabIndex: PeerTabIndex.group,
-         peerFilter: filter,
-         peerCardBuilder: (Peer peer) =>
-             MyGroupPeerCard(peer: peer, menuPadding: menuPadding),
-       );
+          key: key,
+          peerTabIndex: PeerTabIndex.group,
+          peerFilter: filter,
+          peerCardBuilder: (Peer peer) =>
+              MyGroupPeerCard(peer: peer, menuPadding: menuPadding),
+        );
 
   static bool filter(Peer peer) {
     final model = gFFI.groupModel;
@@ -626,7 +694,7 @@ class MyGroupPeerView extends BasePeersView {
       );
       final searchPeersOfDeviceGroup =
           peer.device_group_name.toLowerCase().contains(text) &&
-          model.deviceGroups.any((g) => g.name == peer.device_group_name);
+              model.deviceGroups.any((g) => g.name == peer.device_group_name);
       if (!searchPeersOfUser && !searchPeersOfDeviceGroup) {
         return false;
       }

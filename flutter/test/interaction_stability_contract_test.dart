@@ -15,6 +15,10 @@ void main() {
       File('lib/models/server_model.dart').readAsStringSync();
   final desktopHomeSource =
       File('lib/desktop/pages/desktop_home_page.dart').readAsStringSync();
+  final desktopTabSource =
+      File('lib/desktop/pages/desktop_tab_page.dart').readAsStringSync();
+  final win32WindowSource =
+      File('windows/runner/win32_window.cpp').readAsStringSync();
   final mobileConnectionSource =
       File('lib/mobile/pages/connection_page.dart').readAsStringSync();
   final mobileHomeSource =
@@ -25,10 +29,11 @@ void main() {
       File('lib/models/native_model.dart').readAsStringSync();
   final chatPageSource =
       File('lib/common/widgets/chat_page.dart').readAsStringSync();
+  final peersViewSource =
+      File('lib/common/widgets/peers_view.dart').readAsStringSync();
   final sharedStateSource =
       File('lib/common/shared_state.dart').readAsStringSync();
-  final flutterFfiSource =
-      File('../src/flutter_ffi.rs').readAsStringSync();
+  final flutterFfiSource = File('../src/flutter_ffi.rs').readAsStringSync();
   final hbbCommonLibSource =
       File('../libs/hbb_common/src/lib.rs').readAsStringSync();
   final remotePageSource =
@@ -54,7 +59,22 @@ void main() {
     expect(serverModelSource, contains('stateGlobal.videoConnCount.value'));
   });
 
-  test('desktop start service restores both installed and in-process hosts', () {
+  test('periodic callbacks cannot overlap', () {
+    final common = File('lib/common.dart').readAsStringSync();
+
+    expect(common, contains('if (running) return;'));
+    expect(common, contains('running = true;'));
+    expect(common, contains('running = false;'));
+  });
+
+  test('desktop resize edges use native Windows hit testing', () {
+    expect(desktopTabSource, isNot(contains('DragToResizeArea(')));
+    expect(win32WindowSource, contains('WM_NCHITTEST'));
+    expect(win32WindowSource, contains('BorderlessResizeHitTest'));
+  });
+
+  test('desktop start service restores both installed and in-process hosts',
+      () {
     final startService = methodBody(
       flutterFfiSource,
       'pub fn main_start_service()',
@@ -105,6 +125,176 @@ void main() {
     expect(startChat, contains('suppressConnectionDialogs = true'));
     expect(startChat, isNot(contains('showLoading(')));
     expect(startChat, isNot(contains('suppressConnectionDialogs = false')));
+    expect(
+      startChat,
+      contains('if (activate) {\n        _showConversationNotice('),
+    );
+  });
+
+  test('desktop background chat retries are bounded and do not scan history',
+      () {
+    final refresh = methodBody(
+      desktopHomeSource,
+      'Future<void> _refreshDirectSessions()',
+      'Future<bool> _canMaintainBackgroundChat(',
+    );
+    expect(refresh,
+        contains('if (_refreshingDirectSessions || !mounted) return;'));
+    expect(refresh, contains('_maintainTrustedChatSessions()'));
+    expect(refresh, contains('_maintainPendingChatSessions()'));
+    expect(refresh, isNot(contains('_maintainChatKeepAlive()')));
+    expect(desktopHomeSource, contains('const Duration(seconds: 15)'));
+    expect(desktopHomeSource, contains('_backgroundChatRetryDelays'));
+  });
+
+  test('desktop navigation and search update only the contact pane', () {
+    final selectSection = methodBody(
+      desktopHomeSource,
+      'Future<void> _selectSection(',
+      'Widget _buildContactsPane(',
+    );
+    expect(desktopHomeSource, contains('ValueNotifier<String> _selectedRail'));
+    expect(desktopHomeSource, contains('ValueNotifier<String> _contactQuery'));
+    expect(selectSection, isNot(contains('setState(')));
+    expect(
+      desktopHomeSource,
+      contains('onChanged: (value) => _contactQuery.value = value'),
+    );
+  });
+
+  test('desktop section switching does not reload fresh peer lists', () {
+    final loadSection = methodBody(
+      desktopHomeSource,
+      'Future<void> _loadContactSection(',
+      'Future<void> _startDirectChat(',
+    );
+
+    expect(desktopHomeSource, contains('_lastContactSectionLoad'));
+    expect(desktopHomeSource, contains('_contactSectionRefreshInterval'));
+    expect(loadSection, contains('now.difference(lastLoad) <'));
+    expect(loadSection, contains('return;'));
+  });
+
+  test('desktop contact rows reuse one pairing snapshot per list build', () {
+    final contactSection = methodBody(
+      desktopHomeSource,
+      'Widget _buildContactSection(BuildContext context)',
+      'Widget _buildPeopleGroupHeader(',
+    );
+    final contactItem = methodBody(
+      desktopHomeSource,
+      'Widget _buildContactItem(',
+      'Widget _buildDragFeedback(',
+    );
+
+    expect(contactSection, contains('final directPairings ='));
+    expect(contactSection,
+        contains('row as Peer,\n              directPairings,'));
+    expect(contactItem, isNot(contains('DirectPairingStore.load()')));
+  });
+
+  test('peer tabs load once and filter synchronously', () {
+    expect(peersViewSource, contains('void _loadInitialPeers()'));
+    expect(peersViewSource, contains('_loadInitialPeers();'));
+    expect(peersViewSource, isNot(contains('FutureBuilder<List<Peer>>')));
+    expect(
+      peersViewSource,
+      isNot(contains('bind.mainLoadRecentPeers();\n    return widget;')),
+    );
+    expect(
+      peersViewSource,
+      isNot(contains('bind.mainLoadFavPeers();\n    return widget;')),
+    );
+  });
+
+  test('mobile peer tabs group recent favorites and contacts by trust', () {
+    expect(peersViewSource, contains('groupByDirectChatPolicy'));
+    expect(peersViewSource, contains('_mobileGroupedRows'));
+    expect(peersViewSource, contains("_PeerGroupHeader('Friends'"));
+    expect(peersViewSource, contains("_PeerGroupHeader('Strangers'"));
+  });
+
+  test('background chat reconnects only accepted friends on both clients', () {
+    final desktopTrusted = methodBody(
+      desktopHomeSource,
+      'Future<void> _maintainTrustedChatSessions()',
+      'Future<void> _maintainPendingChatSessions()',
+    );
+    final desktopPending = methodBody(
+      desktopHomeSource,
+      'Future<void> _maintainPendingChatSessions()',
+      'Future<void> _refreshDirectSessions()',
+    );
+    final mobileKeepAlive = methodBody(
+      mobileConnectionSource,
+      'Future<void> _maintainChatKeepAlive()',
+      'Widget _buildPairedContacts()',
+    );
+    for (final source in <String>[
+      desktopTrusted,
+      desktopPending,
+      mobileKeepAlive,
+    ]) {
+      expect(source, contains('shouldAutoReconnect'));
+    }
+  });
+
+  test('successful chat handshakes record prior acceptance', () {
+    expect(
+      modelSource,
+      contains('DirectChatAccessController.instance.markAccepted'),
+    );
+    expect(
+      serverModelSource,
+      contains('DirectChatAccessController.instance.markAccepted'),
+    );
+  });
+
+  test('chat workspace has no offline or reconnect status banners', () {
+    expect(chatPageSource, isNot(contains('Widget reconnectBar')));
+    expect(chatPageSource, isNot(contains('Widget offlineBar')));
+    expect(chatPageSource, isNot(contains("translate('Reconnecting...')")));
+    expect(
+      chatPageSource,
+      isNot(contains('Peer is offline — messages will be kept locally')),
+    );
+  });
+
+  test('desktop chat suppresses automatic network status notices', () {
+    final transitions = methodBody(
+      desktopHomeSource,
+      'void _checkConnectionTransitions()',
+      '_updateWindowSize()',
+    );
+
+    expect(transitions, isNot(contains("translate('Network')")));
+    expect(transitions, isNot(contains('_lastNetworkNoticeAt')));
+    expect(transitions, isNot(contains('_WorkspaceNoticeTone.warning')));
+    expect(transitions, isNot(contains('_WorkspaceNoticeTone.error')));
+  });
+
+  test('conversation switching reuses loaded messages and stable identity', () {
+    final chatModelSource =
+        File('lib/models/chat_model.dart').readAsStringSync();
+    final directChatSource =
+        File('lib/common/direct_chat.dart').readAsStringSync();
+    final changeKey = methodBody(
+      chatModelSource,
+      'changeCurrentKey(MessageKey key)',
+      'receive(int id, String rawText)',
+    );
+    final updateIdentity = methodBody(
+      chatModelSource,
+      'void updatePeerIdentity(',
+      'showChatIconOverlay(',
+    );
+
+    expect(changeKey, contains('_conversationRecords.containsKey(key.peerId)'));
+    expect(updateIdentity, contains('if (changed) notifyListeners();'));
+    expect(updateIdentity,
+        isNot(contains('for (final entry in _messages.entries)')));
+    expect(chatModelSource, contains('latestConversations()'));
+    expect(directChatSource, contains('latestConversations()'));
   });
 
   test('mobile direct chat connects without a blocking dialog', () {
@@ -189,6 +379,52 @@ void main() {
     expect(chatPageSource, isNot(contains('child: Flexible(')));
   });
 
+  test('IP contacts open the canonical paired conversation', () {
+    final openContact = methodBody(
+      desktopHomeSource,
+      'void _openContactConversation(Peer peer)',
+      '(String, Color) _contactDeliveryStatus(',
+    );
+    final startChat = methodBody(
+      desktopHomeSource,
+      'Future<void> _startDirectChat(',
+      'Peer? _findContact(',
+    );
+
+    expect(openContact, contains('_conversationPeerId(requestedId)'));
+    expect(openContact, contains('_selectedConversationPeerId = peerId'));
+    expect(openContact, contains('MessageKey('));
+    expect(openContact, contains('_startDirectChat(requestedId)'));
+    expect(
+      startChat,
+      contains('DirectPairingStore.findByEndpoint(requestedId)'),
+    );
+  });
+
+  test('desktop message context menu remains reachable', () {
+    final contextMenu = methodBody(
+      chatPageSource,
+      'Future<String?> _showWeChatContextMenu(',
+      'Future<bool> _showWeChatConfirm(',
+    );
+
+    expect(contextMenu, isNot(contains('if (id.isEmpty) return null;')));
+    expect(contextMenu, contains('RelativeRect.fromRect('));
+    expect(contextMenu, isNot(contains('RelativeRect.fromLTRB(')));
+    expect(chatPageSource, contains('MessageContextRegion('));
+    expect(chatPageSource, contains('onSecondaryTap: (position) async'));
+    expect(chatPageSource, contains('contextMenuBuilder: (_, __)'));
+  });
+
+  test('desktop composer supports scrolling and expansion', () {
+    expect(chatPageSource, contains('_inputScrollController'));
+    expect(chatPageSource, contains('thumbVisibility: true'));
+    expect(chatPageSource, contains('trackVisibility: true'));
+    expect(chatPageSource, contains('Icons.fullscreen_rounded'));
+    expect(chatPageSource, contains('Icons.fullscreen_exit_rounded'));
+    expect(chatPageSource, contains('_expandedHeight'));
+  });
+
   test('desktop conversations exclude the local device identity', () {
     expect(
       desktopHomeSource,
@@ -196,6 +432,16 @@ void main() {
         'if (peerId.isEmpty || peerId == gFFI.chatModel.me.id) return false;',
       ),
     );
+  });
+
+  test('desktop conversation preview localizes stored voice labels', () {
+    final preview = methodBody(
+      desktopHomeSource,
+      'String _conversationPreview(',
+      'IconData? _conversationFileIcon(',
+    );
+    expect(preview, contains("properties?['ldesk_kind'] == 'voice'"));
+    expect(preview, contains("translate('Voice message')"));
   });
 
   test('remote shared state is reference counted per mounted session', () {
@@ -241,8 +487,10 @@ void main() {
     expect(androidBuildSource, contains('requiredLuodaAbis'));
     expect(androidBuildSource, contains('verifyLuodaNativeLibraries'));
     expect(androidBuildSource, contains('libluoda.so'));
-    expect(androidBuildSource, contains('dependsOn(verifyLuodaNativeLibraries)'));
-    expect(androidBuildSource, isNot(contains('abiFilters += requiredLuodaAbis')));
+    expect(
+        androidBuildSource, contains('dependsOn(verifyLuodaNativeLibraries)'));
+    expect(
+        androidBuildSource, isNot(contains('abiFilters += requiredLuodaAbis')));
   });
 
   test('launcher icons use the padded LUODA artwork on every platform', () {

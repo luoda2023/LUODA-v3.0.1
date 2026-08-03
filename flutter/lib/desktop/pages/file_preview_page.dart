@@ -6,7 +6,7 @@ import 'package:open_filex/open_filex.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../../common.dart';
-import '../../consts.dart';
+import '../../common/widgets/file_preview_types.dart';
 
 String _formatFileSize(int fileSize) {
   if (fileSize < 1024) return '$fileSize B';
@@ -15,25 +15,6 @@ String _formatFileSize(int fileSize) {
   }
   return '${(fileSize / 1024 / 1024).toStringAsFixed(1)} MB';
 }
-
-const Set<String> _kImageExts = <String>{
-  'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg',
-};
-const Set<String> _kAudioExts = <String>{
-  'mp3', 'wav', 'flac', 'aac', 'ogg', 'wma', 'm4a',
-};
-const Set<String> _kTextExts = <String>{
-  'txt', 'md', 'log', 'json', 'xml', 'yaml', 'yml', 'toml', 'csv', 'ini',
-};
-
-String _ext(String fileName) {
-  final dot = fileName.lastIndexOf('.');
-  return dot >= 0 ? fileName.substring(dot + 1).toLowerCase() : '';
-}
-
-bool _isImage(String fileName) => _kImageExts.contains(_ext(fileName));
-bool _isAudio(String fileName) => _kAudioExts.contains(_ext(fileName));
-bool _isText(String fileName) => _kTextExts.contains(_ext(fileName));
 
 /// Standalone file preview window — supports images (zoom/pan), audio playback,
 /// text display, and basic file info for other types.
@@ -55,11 +36,9 @@ class FilePreviewPage extends StatefulWidget {
   State<FilePreviewPage> createState() => _FilePreviewPageState();
 }
 
-class _FilePreviewPageState extends State<FilePreviewPage>
-    with WindowListener {
+class _FilePreviewPageState extends State<FilePreviewPage> with WindowListener {
   int _currentIndex = 0;
-  List<String> get _paths =>
-      widget.siblingPaths ?? [widget.filePath];
+  List<String> get _paths => widget.siblingPaths ?? [widget.filePath];
 
   @override
   void initState() {
@@ -103,7 +82,9 @@ class _FilePreviewPageState extends State<FilePreviewPage>
     final fileName = _currentName;
     final hasMultiple = _paths.length > 1;
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final bgColor = _isImage(fileName) ? Colors.black : Colors.black87;
+    final bgColor = filePreviewKindForName(fileName) == FilePreviewKind.image
+        ? Colors.black
+        : Colors.black87;
 
     return Scaffold(
       backgroundColor: bgColor,
@@ -173,13 +154,14 @@ class _FilePreviewPageState extends State<FilePreviewPage>
       );
     }
 
-    if (_isImage(fileName)) {
+    final kind = filePreviewKindForName(fileName);
+    if (kind == FilePreviewKind.image) {
       return _buildImagePreview(path);
     }
-    if (_isAudio(fileName)) {
+    if (kind == FilePreviewKind.audio) {
       return _AudioPreview(path, fileName);
     }
-    if (_isText(fileName)) {
+    if (kind == FilePreviewKind.text || kind == FilePreviewKind.code) {
       return _TextPreview(path, fileName, dark);
     }
     // Other file types: show info + open button
@@ -190,6 +172,7 @@ class _FilePreviewPageState extends State<FilePreviewPage>
     return InteractiveViewer(
       minScale: 0.1,
       maxScale: 10.0,
+      boundaryMargin: const EdgeInsets.all(80),
       child: Center(
         child: Image.file(
           File(path),
@@ -222,8 +205,35 @@ class _FilePreviewPageState extends State<FilePreviewPage>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.insert_drive_file_outlined,
-                size: 64, color: Colors.white38),
+            Container(
+              width: 88,
+              height: 88,
+              decoration: BoxDecoration(
+                color: filePreviewColor(fileName, 0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              alignment: Alignment.center,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: <Widget>[
+                  Icon(
+                    filePreviewIcon(fileName),
+                    size: 38,
+                    color: filePreviewColor(fileName, 0.95),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    fileExtensionLabel(fileName),
+                    style: TextStyle(
+                      color: filePreviewColor(fileName, 0.95),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0,
+                    ),
+                  ),
+                ],
+              ),
+            ),
             const SizedBox(height: 16),
             Text(
               fileName,
@@ -342,8 +352,7 @@ class _AudioPreviewState extends State<_AudioPreview> {
                       .clamp(0, _duration.inMilliseconds)
                       .toDouble(),
               max: _duration.inMilliseconds.toDouble(),
-              onChanged: (v) =>
-                  _player.seek(Duration(milliseconds: v.toInt())),
+              onChanged: (v) => _player.seek(Duration(milliseconds: v.toInt())),
             ),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,

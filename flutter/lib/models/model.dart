@@ -10,6 +10,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:luoda_flutter/common/direct_chat_policy.dart';
 import 'package:luoda_flutter/common/widgets/peers_view.dart';
 import 'package:luoda_flutter/common/direct_pairing.dart';
 import 'package:luoda_flutter/consts.dart';
@@ -1126,7 +1127,8 @@ class FfiModel with ChangeNotifier {
     // 环境问题（如被控端无显示器）不应触发自动重连循环，
     // 否则会持续弹"No displays"对话框且反复建连/断开。
     if (_isEnvironmentError(text)) return false;
-    return bind.mainGetLocalOption(key: 'direct-chat-auto-reconnect') != 'N';
+    final peerId = ffi?.chatModel.currentKey.peerId ?? '';
+    return DirectChatAccessController.instance.shouldAutoReconnect(peerId);
   }
 
   /// Returns true if the error text is an environmental/host issue
@@ -1526,6 +1528,7 @@ class FfiModel with ChangeNotifier {
         displayName: displayName,
         avatar: _pi.avatar,
       );
+      await DirectChatAccessController.instance.markAccepted(chatPeerId);
     }
     _pi.sasEnabled = evt['sas_enabled'] == 'true';
     final currentDisplay = int.parse(evt['current_display']);

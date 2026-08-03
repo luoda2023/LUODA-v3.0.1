@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as path;
@@ -10,12 +9,19 @@ class RuntimeLogger {
   RuntimeLogger._();
 
   static final RuntimeLogger instance = RuntimeLogger._();
+  static const Duration _flushInterval = Duration(seconds: 1);
+  static const Duration _duplicateWindow = Duration(seconds: 30);
+  static const int _maxEntriesPerWindow = 3;
+  static const int _maxTrackedMessages = 256;
 
   IOSink? _sink;
   File? _logFile;
   bool _enabled = true;
   bool _hooksInstalled = false;
   Future<void> _pendingWrite = Future<void>.value();
+  Timer? _flushTimer;
+  final Map<int, _RuntimeLogWindow> _duplicateWindows =
+      <int, _RuntimeLogWindow>{};
 
   String? get logPath => _logFile?.path;
 
@@ -75,19 +81,70 @@ class RuntimeLogger {
   void _write(String level, String tag, String message) {
     final sink = _sink;
     if (!_enabled || sink == null) return;
-    final timestamp = DateTime.now().toUtc().toIso8601String();
-    final line = '[$timestamp] [$level] [$tag] $message';
+    final now = DateTime.now().toUtc();
+    final signature = Object.hash(level, tag, message.length, message.hashCode);
+    final previous = _duplicateWindows[signature];
+    if (previous != null &&
+        now.difference(previous.startedAt) < _duplicateWindow) {
+      previous.count++;
+      if (previous.count == _maxEntriesPerWindow + 1) {
+        _enqueueLine(
+          sink,
+          '[${now.toIso8601String()}] [WARN] [LOGGER] '
+          'Further duplicate [$level] [$tag] entries suppressed for '
+          '${_duplicateWindow.inSeconds} seconds',
+        );
+      }
+      if (previous.count > _maxEntriesPerWindow) return;
+    } else {
+      _duplicateWindows.remove(signature);
+      _duplicateWindows[signature] = _RuntimeLogWindow(now);
+      if (_duplicateWindows.length > _maxTrackedMessages) {
+        _duplicateWindows.remove(_duplicateWindows.keys.first);
+      }
+    }
+    _enqueueLine(
+      sink,
+      '[${now.toIso8601String()}] [$level] [$tag] $message',
+    );
+  }
+
+  void _enqueueLine(IOSink sink, String line) {
     _pendingWrite = _pendingWrite.then((_) async {
       sink.writeln(line);
-      await sink.flush();
     }).catchError((Object error, StackTrace _) {
       _enabled = false;
       debugPrint('Runtime logger write failed: $error');
     });
+    _scheduleFlush();
+  }
+
+  void _scheduleFlush() {
+    _flushTimer ??= Timer(_flushInterval, _flush);
+  }
+
+  Future<void> _flush() async {
+    _flushTimer = null;
+    final sink = _sink;
+    if (!_enabled || sink == null) return;
+    _pendingWrite = _pendingWrite.then((_) => sink.flush()).catchError(
+      (Object error, StackTrace _) {
+        _enabled = false;
+        debugPrint('Runtime logger flush failed: $error');
+      },
+    );
+    await _pendingWrite;
   }
 
   void info(String tag, String message) => _write('INFO', tag, message);
   void warn(String tag, String message) => _write('WARN', tag, message);
   void error(String tag, String message) => _write('ERROR', tag, message);
   void debug(String tag, String message) => _write('DEBUG', tag, message);
+}
+
+class _RuntimeLogWindow {
+  _RuntimeLogWindow(this.startedAt);
+
+  final DateTime startedAt;
+  int count = 1;
 }

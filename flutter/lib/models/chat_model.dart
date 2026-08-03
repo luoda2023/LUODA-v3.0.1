@@ -327,11 +327,45 @@ class ChatModel with ChangeNotifier {
   }
 
   Future<void> _restoreRecentConversations() async {
-    final peerIds = await DirectChatRepository.instance.conversationIds();
-    for (final peerId in peerIds) {
-      await _restoreConversation(MessageKey(peerId, clientModeID));
+    final latest = await DirectChatRepository.instance.latestConversations();
+    final pairings = DirectPairingStore.load();
+    for (final entry in latest.entries) {
+      final peerId = entry.key;
+      final record = entry.value;
+      final pairing = pairings[peerId];
+      final key = MessageKey(peerId, clientModeID);
+      final body = _messages.putIfAbsent(
+        key,
+        () => MessageBody(
+          ChatUser(
+            id: peerId,
+            firstName: pairing?.displayName.isNotEmpty == true
+                ? pairing!.displayName
+                : peerId,
+            profileImage:
+                pairing?.avatar.isNotEmpty == true ? pairing!.avatar : null,
+          ),
+          <ChatMessage>[],
+        ),
+      );
+      if (!record.isOutgoing) {
+        if (record.senderName.isNotEmpty) {
+          body.chatUser.firstName = record.senderName;
+        }
+        if (record.senderAvatar.isNotEmpty) {
+          body.chatUser.profileImage = record.senderAvatar;
+        }
+      }
+      body.chatMessages = <ChatMessage>[
+        _toChatMessage(record, record.isOutgoing ? me : body.chatUser),
+      ];
+      _scheduleSelfDestruct(
+        key,
+        record,
+        record.isOutgoing ? me : body.chatUser,
+      );
     }
-    if (peerIds.isNotEmpty) notifyListeners();
+    if (latest.isNotEmpty) notifyListeners();
   }
 
   ChatUser? get currentUser => _messages[_currentKey]?.chatUser;
@@ -355,24 +389,46 @@ class ChatModel with ChangeNotifier {
     required String displayName,
     required String avatar,
   }) {
-    unawaited(DirectPairingStore.updateIdentity(
-      peerId,
-      displayName: displayName,
-      avatar: avatar,
-    ));
+    final normalizedName = displayName.trim();
+    final normalizedAvatar = avatar.trim();
+    final pairing = DirectPairingStore.find(peerId);
+    if (pairing != null &&
+        (normalizedName.isNotEmpty && normalizedName != pairing.displayName ||
+            normalizedAvatar.isNotEmpty &&
+                normalizedAvatar != pairing.avatar)) {
+      unawaited(DirectPairingStore.updateIdentity(
+        peerId,
+        displayName: normalizedName,
+        avatar: normalizedAvatar,
+      ));
+    }
     var changed = false;
-    for (final entry in _messages.entries) {
-      if (entry.key.peerId != peerId) continue;
-      if (displayName.isNotEmpty) {
-        entry.value.chatUser.firstName = displayName;
+    final body = _messages[MessageKey(peerId, clientModeID)];
+    if (body != null) {
+      if (normalizedName.isNotEmpty &&
+          body.chatUser.firstName != normalizedName) {
+        body.chatUser.firstName = normalizedName;
+        changed = true;
       }
-      entry.value.chatUser.profileImage = avatar.isEmpty ? null : avatar;
-      for (final message in entry.value.chatMessages) {
+      final nextProfileImage = normalizedAvatar.isEmpty
+          ? body.chatUser.profileImage
+          : normalizedAvatar;
+      if (body.chatUser.profileImage != nextProfileImage) {
+        body.chatUser.profileImage = nextProfileImage;
+        changed = true;
+      }
+      for (final message in body.chatMessages) {
         if (message.user.id != peerId) continue;
-        if (displayName.isNotEmpty) message.user.firstName = displayName;
-        message.user.profileImage = avatar.isEmpty ? null : avatar;
+        if (normalizedName.isNotEmpty &&
+            message.user.firstName != normalizedName) {
+          message.user.firstName = normalizedName;
+          changed = true;
+        }
+        if (message.user.profileImage != nextProfileImage) {
+          message.user.profileImage = nextProfileImage;
+          changed = true;
+        }
       }
-      changed = true;
     }
     if (changed) notifyListeners();
   }
@@ -560,6 +616,9 @@ class ChatModel with ChangeNotifier {
         key = MessageKey(pairing.peerId, key.connId);
       }
     }
+    if (_currentKey.peerId == key.peerId && _currentKey.connId == key.connId) {
+      return;
+    }
     // Save draft for current conversation before switching
     if (_currentKey.peerId.isNotEmpty && textController.text.isNotEmpty) {
       _drafts[_currentKey.peerId] = textController.text;
@@ -605,7 +664,9 @@ class ChatModel with ChangeNotifier {
     }
     notifyListeners();
     mobileClearClientUnread(key.connId);
-    unawaited(_restoreConversation(key));
+    if (!_conversationRecords.containsKey(key.peerId)) {
+      unawaited(_restoreConversation(key));
+    }
   }
 
   receive(int id, String rawText) async {
@@ -801,10 +862,24 @@ class ChatModel with ChangeNotifier {
 
     try {
       // Strip trigger keywords so the image prompt is clean
-      const imageTriggers = ['画', '图片', '图像', '生成图片', '绘', 'draw', 'image', 'picture', 'generate', 'create', '生成'];
+      const imageTriggers = [
+        '画',
+        '图片',
+        '图像',
+        '生成图片',
+        '绘',
+        'draw',
+        'image',
+        'picture',
+        'generate',
+        'create',
+        '生成'
+      ];
       var cleanQuery = query;
       for (final kw in imageTriggers) {
-        cleanQuery = cleanQuery.replaceAll(RegExp(r'\b' + RegExp.escape(kw) + r'\s*\b', caseSensitive: false), '');
+        cleanQuery = cleanQuery.replaceAll(
+            RegExp(r'\b' + RegExp.escape(kw) + r'\s*\b', caseSensitive: false),
+            '');
       }
       cleanQuery = cleanQuery.trim();
       if (cleanQuery.isEmpty) cleanQuery = query; // fallback
@@ -1328,7 +1403,6 @@ class ChatModel with ChangeNotifier {
       connId ?? _currentKey.connId,
     );
     changeCurrentKey(key);
-    await _restoreConversation(key);
 
     for (final record
         in await DirectChatRepository.instance.pendingFor(resolvedPeerId)) {

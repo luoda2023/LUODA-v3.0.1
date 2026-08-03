@@ -928,7 +928,10 @@ pub mod client {
         }
     }
 
-    pub fn get_cursor_info(pci: PCURSORINFO) -> BOOL {
+    /// # Safety
+    ///
+    /// `pci` must point to writable memory for a valid `CURSORINFO` value.
+    pub unsafe fn get_cursor_info(pci: PCURSORINFO) -> BOOL {
         if RUNNING.lock().unwrap().clone() {
             let mut option = SHMEM.lock().unwrap();
             option

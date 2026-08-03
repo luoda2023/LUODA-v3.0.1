@@ -26,7 +26,7 @@ pub type InstallUpdateDriver = fn(&mut bool) -> ResultType<()>;
 pub type UninstallDriver = fn(&mut bool) -> ResultType<()>;
 pub type PlugInMonitor = fn(u32, u32, u32) -> ResultType<()>;
 pub type PlugOutMonitor = fn(u32) -> ResultType<()>;
-pub type UpdateMonitorModes = fn(u32, u32, PMonitorMode) -> ResultType<()>;
+pub type UpdateMonitorModes = unsafe fn(u32, u32, PMonitorMode) -> ResultType<()>;
 
 macro_rules! make_lib_wrapper {
     ($($field:ident : $tp:ty),+) => {
@@ -192,5 +192,5 @@ pub fn update_monitor_modes(monitor_index: u32, modes: &[MonitorMode]) -> Result
         .unwrap()
         .update_monitor_modes
         .ok_or(anyhow::Error::msg("update_monitor_modes method not found"))?;
-    f(monitor_index, modes.len() as _, modes.as_ptr() as _)
+    unsafe { f(monitor_index, modes.len() as _, modes.as_ptr() as _) }
 }

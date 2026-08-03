@@ -214,23 +214,27 @@ pub fn get_pids_of_process_with_first_arg<S1: AsRef<str>, S2: AsRef<str>>(
 mod tests {
     use super::*;
     #[test]
+    #[cfg_attr(
+        target_os = "windows",
+        ignore = "requires access to an interactive Windows desktop"
+    )]
     fn test_cursor_data() {
         for _ in 0..30 {
             if let Some(hc) = get_cursor().unwrap() {
                 let cd = get_cursor_data(hc).unwrap();
-                repng::encode(
-                    std::fs::File::create("cursor.png").unwrap(),
-                    cd.width as _,
-                    cd.height as _,
-                    &cd.colors[..],
-                )
-                .unwrap();
+                assert!(cd.width > 0);
+                assert!(cd.height > 0);
+                assert_eq!(cd.colors.len(), cd.width as usize * cd.height as usize * 4);
             }
             #[cfg(target_os = "macos")]
             macos::is_process_trusted(false);
         }
     }
     #[test]
+    #[cfg_attr(
+        target_os = "windows",
+        ignore = "requires access to an interactive Windows desktop"
+    )]
     fn test_get_cursor_pos() {
         for _ in 0..30 {
             assert!(!get_cursor_pos().is_none());

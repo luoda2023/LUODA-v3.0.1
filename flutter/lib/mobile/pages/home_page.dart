@@ -9,6 +9,7 @@ import 'package:get/get.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 import '../../common.dart';
+import '../../common/direct_chat_policy.dart';
 import '../../common/direct_pairing.dart';
 import '../../common/widgets/chat_page.dart';
 import '../../models/chat_model.dart';
@@ -24,6 +25,13 @@ abstract class PageShape extends Widget {
   final String title = "";
   final Widget icon = Icon(null);
   final List<Widget> appBarActions = [];
+}
+
+class _MobilePeopleGroupHeader {
+  const _MobilePeopleGroupHeader(this.label, this.count);
+
+  final String label;
+  final int count;
 }
 
 class HomePage extends StatefulWidget {
@@ -235,7 +243,8 @@ class HomePageState extends State<HomePage> {
 
   Future<void> _syncLatestPairing() async {
     if (!mounted || !isMobile) return;
-    if (bind.mainGetLocalOption(key: 'direct-chat-always-on') != 'Y') return;
+    final access = DirectChatAccessController.instance..load();
+    if (!access.alwaysOn) return;
     await gFFI.serverModel.updateClientState();
     if (!mounted) return;
     final pairing = DirectPairingStore.latestCompanion();
@@ -307,7 +316,8 @@ class HomePageState extends State<HomePage> {
       await _sendDirectChatFiles();
     } else {
       final type = action == 'camera' ? FileType.media : FileType.image;
-      final picked = await FilePicker.platform.pickFiles(type: type, allowMultiple: true);
+      final picked =
+          await FilePicker.platform.pickFiles(type: type, allowMultiple: true);
       final files = picked?.files.where((f) => f.path != null).toList() ?? [];
       if (files.isEmpty) return;
       await _sendPickedFiles(files);
@@ -362,7 +372,8 @@ class HomePageState extends State<HomePage> {
     var totalBytes = 0;
     for (final f in files) {
       if (f.size > kMaxSingleFileBytes) {
-        showToast(translate('File too large') + ': ${f.name} (${_fmtSize(f.size)})');
+        showToast(
+            translate('File too large') + ': ${f.name} (${_fmtSize(f.size)})');
         return;
       }
       totalBytes += f.size;
@@ -401,7 +412,8 @@ class HomePageState extends State<HomePage> {
   String _fmtSize(int bytes) {
     if (bytes < 1024) return '$bytes B';
     if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    if (bytes < 1024 * 1024 * 1024) return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    if (bytes < 1024 * 1024 * 1024)
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
     return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
   }
 
@@ -637,10 +649,12 @@ class _MobileMessagesPage extends StatefulWidget implements PageShape {
 
 class _MobileMessagesPageState extends State<_MobileMessagesPage> {
   final TextEditingController _searchController = TextEditingController();
+  final ValueNotifier<String> _query = ValueNotifier<String>('');
 
   @override
   void dispose() {
     _searchController.dispose();
+    _query.dispose();
     super.dispose();
   }
 
@@ -683,26 +697,53 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage> {
     if (properties?['ldesk_kind'] != 'file') return null;
     final fileName = (properties?['ldesk_file_name'] ?? '').toString();
     if (fileName.isEmpty) return null;
-    final ext = fileName.contains('.')
-        ? fileName.split('.').last.toLowerCase()
-        : '';
+    final ext =
+        fileName.contains('.') ? fileName.split('.').last.toLowerCase() : '';
     switch (ext) {
-      case 'jpg': case 'jpeg': case 'png': case 'gif':
-      case 'bmp': case 'webp': case 'svg':
+      case 'jpg':
+      case 'jpeg':
+      case 'png':
+      case 'gif':
+      case 'bmp':
+      case 'webp':
+      case 'svg':
         return Icons.image_outlined;
-      case 'mp4': case 'avi': case 'mkv': case 'mov':
-      case 'wmv': case 'flv':
+      case 'mp4':
+      case 'avi':
+      case 'mkv':
+      case 'mov':
+      case 'wmv':
+      case 'flv':
         return Icons.movie_outlined;
-      case 'mp3': case 'wav': case 'flac': case 'aac':
+      case 'mp3':
+      case 'wav':
+      case 'flac':
+      case 'aac':
         return Icons.audiotrack_outlined;
-      case 'pdf': return Icons.picture_as_pdf_outlined;
-      case 'doc': case 'docx': return Icons.description_outlined;
-      case 'xls': case 'xlsx': case 'csv': return Icons.table_chart_outlined;
-      case 'ppt': case 'pptx': return Icons.slideshow_outlined;
-      case 'zip': case 'rar': case '7z': case 'tar': case 'gz':
+      case 'pdf':
+        return Icons.picture_as_pdf_outlined;
+      case 'doc':
+      case 'docx':
+        return Icons.description_outlined;
+      case 'xls':
+      case 'xlsx':
+      case 'csv':
+        return Icons.table_chart_outlined;
+      case 'ppt':
+      case 'pptx':
+        return Icons.slideshow_outlined;
+      case 'zip':
+      case 'rar':
+      case '7z':
+      case 'tar':
+      case 'gz':
         return Icons.folder_zip_outlined;
-      case 'txt': case 'md': case 'log': return Icons.article_outlined;
-      default: return Icons.insert_drive_file_outlined;
+      case 'txt':
+      case 'md':
+      case 'log':
+        return Icons.article_outlined;
+      default:
+        return Icons.insert_drive_file_outlined;
     }
   }
 
@@ -749,18 +790,143 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage> {
         fallback;
   }
 
+  Widget _buildAudienceSelector(
+    BuildContext context,
+    DirectChatAccessController access,
+    bool dark,
+  ) {
+    return Container(
+      color: dark ? MyTheme.surfaceDark : Colors.white,
+      child: ListTile(
+        dense: true,
+        minLeadingWidth: 24,
+        leading: const Icon(Icons.shield_outlined, size: 20),
+        title: Text(translate('Message permissions')),
+        trailing: SizedBox(
+          width: 190,
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<DirectChatAudience>(
+              value: access.audience,
+              isExpanded: true,
+              isDense: true,
+              items: <DropdownMenuItem<DirectChatAudience>>[
+                DropdownMenuItem<DirectChatAudience>(
+                  value: DirectChatAudience.friendsOnly,
+                  child: Text(
+                    translate('Friends only'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                DropdownMenuItem<DirectChatAudience>(
+                  value: DirectChatAudience.everyone,
+                  child: Text(
+                    translate('Everyone'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+              onChanged: (value) {
+                if (value != null) unawaited(access.setAudience(value));
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMessageGroupHeader(
+    BuildContext context,
+    _MobilePeopleGroupHeader group,
+    bool dark,
+  ) {
+    return Container(
+      height: 34,
+      alignment: Alignment.centerLeft,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      color: dark ? const Color(0xFF202227) : const Color(0xFFF1F3F5),
+      child: Text(
+        '${translate(group.label)} (${group.count})',
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.62),
+              fontWeight: FontWeight.w600,
+            ),
+      ),
+    );
+  }
+
+  Future<void> _showPeerPolicySheet(
+    BuildContext context,
+    String peerId,
+    DirectChatAccessController access,
+  ) async {
+    final isFriend = access.isFriend(peerId);
+    final isBlocked = gFFI.chatSettingsModel.isBlocked(peerId);
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            ListTile(
+              leading: Icon(
+                isFriend
+                    ? Icons.person_remove_outlined
+                    : Icons.person_add_alt_1_outlined,
+              ),
+              title: Text(
+                translate(isFriend ? 'Move to strangers' : 'Add as friend'),
+              ),
+              onTap: () => Navigator.pop(
+                sheetContext,
+                isFriend ? 'stranger' : 'friend',
+              ),
+            ),
+            ListTile(
+              leading: Icon(
+                isBlocked ? Icons.lock_open_rounded : Icons.block_rounded,
+              ),
+              title: Text(translate(isBlocked ? 'Unblock' : 'Block')),
+              onTap: () => Navigator.pop(sheetContext, 'block'),
+            ),
+          ],
+        ),
+      ),
+    );
+    switch (action) {
+      case 'friend':
+        if (isBlocked) await gFFI.chatSettingsModel.toggleBlock(peerId);
+        await access.setPeerPolicy(peerId, 'allow');
+        break;
+      case 'stranger':
+        await access.setPeerPolicy(peerId, 'ask');
+        break;
+      case 'block':
+        await gFFI.chatSettingsModel.toggleBlock(peerId);
+        await access.setPeerPolicy(peerId, isBlocked ? 'ask' : 'deny');
+        break;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
+    final access = DirectChatAccessController.instance..load();
     return ChangeNotifierProvider.value(
       value: gFFI.chatModel,
       child: ListenableBuilder(
-        listenable: Listenable.merge([gFFI.chatModel, gFFI.chatSettingsModel]),
+        listenable: Listenable.merge(<Listenable>[
+          gFFI.chatModel,
+          gFFI.chatSettingsModel,
+          access,
+          _query,
+        ]),
         builder: (context, _) {
           final model = gFFI.chatModel;
           final dark = Theme.of(context).brightness == Brightness.dark;
           final muted = dark ? MyTheme.mutedDark : MyTheme.mutedLight;
-          final query = _searchController.text.trim().toLowerCase();
+          final query = _query.value.trim().toLowerCase();
           final entries = model.messages.entries.where((entry) {
             if (entry.key.peerId.isEmpty) return false;
             if (query.isEmpty) return true;
@@ -772,6 +938,22 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage> {
             ..sort(
               (a, b) => _latestMessageTime(b).compareTo(_latestMessageTime(a)),
             );
+          final friends = entries
+              .where((entry) => access.isFriend(entry.key.peerId))
+              .toList(growable: false);
+          final strangers = entries
+              .where((entry) => !access.isFriend(entry.key.peerId))
+              .toList(growable: false);
+          final rows = <Object>[
+            if (friends.isNotEmpty) ...<Object>[
+              _MobilePeopleGroupHeader('Friends', friends.length),
+              ...friends,
+            ],
+            if (strangers.isNotEmpty) ...<Object>[
+              _MobilePeopleGroupHeader('Strangers', strangers.length),
+              ...strangers,
+            ],
+          ];
           return ColoredBox(
             color: dark ? MyTheme.canvasDark : const Color(0xFFEDEDED),
             child: Column(
@@ -782,7 +964,7 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage> {
                     height: 38,
                     child: TextField(
                       controller: _searchController,
-                      onChanged: (_) => setState(() {}),
+                      onChanged: (value) => _query.value = value,
                       decoration: InputDecoration(
                         hintText: translate('Search'),
                         prefixIcon: const Icon(Icons.search_rounded, size: 19),
@@ -797,8 +979,9 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage> {
                     ),
                   ),
                 ),
+                _buildAudienceSelector(context, access, dark),
                 Expanded(
-                  child: entries.isEmpty
+                  child: rows.isEmpty
                       ? Center(
                           child: Padding(
                             padding: const EdgeInsets.all(28),
@@ -835,14 +1018,23 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage> {
                           ),
                         )
                       : ListView.separated(
-                          itemCount: entries.length,
+                          itemCount: rows.length,
                           separatorBuilder: (_, __) => Divider(
                             height: 1,
                             indent: 74,
                             color: Theme.of(context).dividerColor,
                           ),
                           itemBuilder: (context, index) {
-                            final entry = entries[index];
+                            final row = rows[index];
+                            if (row is _MobilePeopleGroupHeader) {
+                              return _buildMessageGroupHeader(
+                                context,
+                                row,
+                                dark,
+                              );
+                            }
+                            final entry =
+                                row as MapEntry<MessageKey, MessageBody>;
                             final user = entry.value.chatUser;
                             final name = (user.firstName ?? '').trim();
                             final client =
@@ -852,8 +1044,10 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage> {
                                   client.isChat &&
                                   !client.disconnected,
                             );
-                            final isMuted = gFFI.chatSettingsModel.isMuted(entry.key.peerId);
-                            final isBlocked = gFFI.chatSettingsModel.isBlocked(entry.key.peerId);
+                            final isMuted = gFFI.chatSettingsModel
+                                .isMuted(entry.key.peerId);
+                            final isBlocked = gFFI.chatSettingsModel
+                                .isBlocked(entry.key.peerId);
                             final fileIcon = _fileIconForEntry(entry);
                             return Material(
                               color: dark ? MyTheme.surfaceDark : Colors.white,
@@ -875,14 +1069,17 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage> {
                                           fontSize: 16,
                                           fontWeight: FontWeight.w500,
                                           color: isBlocked
-                                              ? Theme.of(context).colorScheme.error
+                                              ? Theme.of(context)
+                                                  .colorScheme
+                                                  .error
                                               : null,
                                         ),
                                       ),
                                     ),
                                     if (isMuted)
                                       Padding(
-                                        padding: const EdgeInsets.only(right: 4),
+                                        padding:
+                                            const EdgeInsets.only(right: 4),
                                         child: Icon(
                                           Icons.volume_off_rounded,
                                           size: 14,
@@ -903,15 +1100,19 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage> {
                                   children: <Widget>[
                                     if (fileIcon != null)
                                       Padding(
-                                        padding: const EdgeInsets.only(right: 5),
-                                        child: Icon(fileIcon, size: 14, color: muted),
+                                        padding:
+                                            const EdgeInsets.only(right: 5),
+                                        child: Icon(fileIcon,
+                                            size: 14, color: muted),
                                       ),
                                     if (isBlocked)
                                       Text(
                                         translate('Blocked'),
                                         style: TextStyle(
                                           fontSize: 13,
-                                          color: Theme.of(context).colorScheme.error,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .error,
                                         ),
                                       )
                                     else
@@ -934,6 +1135,11 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage> {
                                 ),
                                 onTap: () =>
                                     widget.onOpenConversation(entry.key),
+                                onLongPress: () => _showPeerPolicySheet(
+                                  context,
+                                  entry.key.peerId,
+                                  access,
+                                ),
                               ),
                             );
                           },

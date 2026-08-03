@@ -285,7 +285,7 @@ class _InviteViewerDialogState extends State<InviteViewerDialog> {
               items: _ttlOptions
                   .map((m) => DropdownMenuItem(
                         value: m,
-                        child: Text('$m min'),
+                        child: Text('$m ${translate('min')}'),
                       ))
                   .toList(),
               onChanged: (v) => setState(() => _ttlMinutes = v ?? _ttlMinutes),

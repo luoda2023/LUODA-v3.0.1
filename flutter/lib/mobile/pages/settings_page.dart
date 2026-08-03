@@ -13,6 +13,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
 import '../../common.dart';
+import '../../common/direct_chat_policy.dart';
 import '../../common/widgets/dialog.dart';
 import '../../common/widgets/login.dart';
 import '../../consts.dart';
@@ -152,12 +153,11 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
         mainGetLocalBoolOptionSync(kOptionKeepAwakeDuringOutgoingSessions);
     _showTerminalExtraKeys =
         mainGetLocalBoolOptionSync(kOptionEnableShowTerminalExtraKeys);
-    _directChatAlwaysOn =
-        bind.mainGetLocalOption(key: 'direct-chat-always-on') == 'Y';
+    final directChatAccess = DirectChatAccessController.instance..load();
+    _directChatAlwaysOn = directChatAccess.alwaysOn;
     _directChatTrustedOnly =
-        bind.mainGetLocalOption(key: 'direct-chat-trusted-only') != 'N';
-    _directChatAutoReconnect =
-        bind.mainGetLocalOption(key: 'direct-chat-auto-reconnect') != 'N';
+        directChatAccess.audience == DirectChatAudience.friendsOnly;
+    _directChatAutoReconnect = directChatAccess.autoReconnect;
     _serverlessDirectOnly =
         bind.mainGetOptionSync(key: kOptionServerlessDirectOnly) == 'Y';
   }
@@ -721,10 +721,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
               description: Text(translate('Available when LDesk is running')),
               initialValue: _directChatAlwaysOn,
               onToggle: (value) async {
-                await bind.mainSetLocalOption(
-                  key: 'direct-chat-always-on',
-                  value: value ? 'Y' : 'N',
-                );
+                await DirectChatAccessController.instance.setAlwaysOn(value);
                 if (isAndroid) {
                   if (value) {
                     await _requestDirectChatNotificationPermissionOnce();
@@ -743,40 +740,41 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
               enabled: _directChatAlwaysOn,
               onToggle: _directChatAlwaysOn
                   ? (value) async {
-                      await bind.mainSetLocalOption(
-                        key: 'direct-chat-trusted-only',
-                        value: value ? 'Y' : 'N',
+                      await DirectChatAccessController.instance.setAudience(
+                        value
+                            ? DirectChatAudience.friendsOnly
+                            : DirectChatAudience.everyone,
                       );
                       setState(() => _directChatTrustedOnly = value);
                     }
                   : null,
             ),
-            SettingsTile.switchTile(
-              leading: const Icon(Icons.sync_rounded),
-              title: Text(
-                translate('Reconnect trusted contacts automatically'),
+            if (_showAdvancedSettings)
+              SettingsTile.switchTile(
+                leading: const Icon(Icons.sync_rounded),
+                title: Text(
+                  translate('Reconnect trusted contacts automatically'),
+                ),
+                initialValue: _directChatAutoReconnect,
+                enabled: _directChatAlwaysOn,
+                onToggle: _directChatAlwaysOn
+                    ? (value) async {
+                        await DirectChatAccessController.instance
+                            .setAutoReconnect(value);
+                        setState(() => _directChatAutoReconnect = value);
+                      }
+                    : null,
               ),
-              initialValue: _directChatAutoReconnect,
-              enabled: _directChatAlwaysOn,
-              onToggle: _directChatAlwaysOn
-                  ? (value) async {
-                      await bind.mainSetLocalOption(
-                        key: 'direct-chat-auto-reconnect',
-                        value: value ? 'Y' : 'N',
-                      );
-                      setState(() => _directChatAutoReconnect = value);
-                    }
-                  : null,
-            ),
-            SettingsTile.navigation(
-              leading: const Icon(Icons.manage_accounts_outlined),
-              title: Text(translate('Contact message permissions')),
-              trailing: const Icon(Icons.chevron_right_rounded),
-              enabled: _directChatAlwaysOn,
-              onPressed: _directChatAlwaysOn
-                  ? (_) => _showContactMessagePermissions()
-                  : null,
-            ),
+            if (_showAdvancedSettings)
+              SettingsTile.navigation(
+                leading: const Icon(Icons.manage_accounts_outlined),
+                title: Text(translate('Contact message permissions')),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                enabled: _directChatAlwaysOn,
+                onPressed: _directChatAlwaysOn
+                    ? (_) => _showContactMessagePermissions()
+                    : null,
+              ),
           ],
         ),
         if (!kLocalProfileOnly && !bind.isDisableAccount())
@@ -809,27 +807,29 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
             ],
           ),
         SettingsSection(title: Text(translate("Settings")), tiles: [
-          SettingsTile.switchTile(
-            title: Text(translate('Serverless direct mode')),
-            description: Text(translate(
-              'When enabled, device ID connections are disabled; IP, QR, and LAN connections stay direct. When disabled, device IDs try direct first and use encrypted TCP relay only if needed.',
-            )),
-            leading: const Icon(Icons.shield_outlined),
-            initialValue: _serverlessDirectOnly,
-            onToggle:
-                disabledSettings || isOptionFixed(kOptionServerlessDirectOnly)
-                    ? null
-                    : (value) async {
-                        await bind.mainSetOption(
-                          key: kOptionServerlessDirectOnly,
-                          value: value ? 'Y' : 'N',
-                        );
-                        if (mounted) {
-                          setState(() => _serverlessDirectOnly = value);
-                        }
-                      },
-          ),
-          if (!_serverlessDirectOnly &&
+          if (_showAdvancedSettings)
+            SettingsTile.switchTile(
+              title: Text(translate('Serverless direct mode')),
+              description: Text(translate(
+                'When enabled, device ID connections are disabled; IP, QR, and LAN connections stay direct. When disabled, device IDs try direct first and use encrypted TCP relay only if needed.',
+              )),
+              leading: const Icon(Icons.shield_outlined),
+              initialValue: _serverlessDirectOnly,
+              onToggle:
+                  disabledSettings || isOptionFixed(kOptionServerlessDirectOnly)
+                      ? null
+                      : (value) async {
+                          await bind.mainSetOption(
+                            key: kOptionServerlessDirectOnly,
+                            value: value ? 'Y' : 'N',
+                          );
+                          if (mounted) {
+                            setState(() => _serverlessDirectOnly = value);
+                          }
+                        },
+            ),
+          if (_showAdvancedSettings &&
+              !_serverlessDirectOnly &&
               !disabledSettings &&
               !_hideNetwork &&
               !_hideServer)
@@ -842,14 +842,18 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                     setState(callback);
                   });
                 }),
-          if (!_serverlessDirectOnly && !_hideNetwork && !_hideProxy)
+          if (_showAdvancedSettings &&
+              !_serverlessDirectOnly &&
+              !_hideNetwork &&
+              !_hideProxy)
             SettingsTile(
                 title: Text(translate('Socks5/Http(s) Proxy')),
                 leading: Icon(Icons.network_ping),
                 onPressed: (context) {
                   changeSocks5Proxy();
                 }),
-          if (!_serverlessDirectOnly &&
+          if (_showAdvancedSettings &&
+              !_serverlessDirectOnly &&
               !disabledSettings &&
               !_hideNetwork &&
               !_hideWebSocket)
@@ -867,7 +871,9 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                       });
                     },
             ),
-          if (!_serverlessDirectOnly && !_isUsingPublicServer)
+          if (_showAdvancedSettings &&
+              !_serverlessDirectOnly &&
+              !_isUsingPublicServer)
             SettingsTile.switchTile(
               title: Text(translate('Allow insecure TLS fallback')),
               initialValue: _allowInsecureTlsFallback,
@@ -883,7 +889,8 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                       });
                     },
             ),
-          if (!_serverlessDirectOnly &&
+          if (_showAdvancedSettings &&
+              !_serverlessDirectOnly &&
               isAndroid &&
               !outgoingOnly &&
               !_isUsingPublicServer)
@@ -902,7 +909,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                       });
                     },
             ),
-          if (!_serverlessDirectOnly && !incomingOnly)
+          if (_showAdvancedSettings && !_serverlessDirectOnly && !incomingOnly)
             SettingsTile.switchTile(
               title: Text(translate('Enable UDP hole punching')),
               initialValue: _enableUdpPunch,
@@ -915,7 +922,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                 });
               },
             ),
-          if (!_serverlessDirectOnly && !incomingOnly)
+          if (_showAdvancedSettings && !_serverlessDirectOnly && !incomingOnly)
             SettingsTile.switchTile(
               title: Text(translate('Enable IPv6 P2P connection')),
               initialValue: _enableIpv6Punch,
@@ -946,7 +953,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
               showThemeSettings(gFFI.dialogManager);
             },
           ),
-          if (!bind.isDisableAccount())
+          if (_showAdvancedSettings && !bind.isDisableAccount())
             SettingsTile.switchTile(
               title: Text(translate('note-at-conn-end-tip')),
               initialValue: _allowAskForNoteAtEndOfConnection,
@@ -964,7 +971,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                 });
               },
             ),
-          if (!incomingOnly)
+          if (_showAdvancedSettings && !incomingOnly)
             SettingsTile.switchTile(
               title:
                   Text(translate('keep-awake-during-outgoing-sessions-label')),
@@ -1281,19 +1288,8 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
   }
 
   Future<void> _showContactMessagePermissions() async {
-    final policies = <String, String>{};
-    try {
-      final raw = bind.mainGetLocalOption(
-        key: 'direct-chat-contact-policies',
-      );
-      if (raw.isNotEmpty) {
-        policies.addAll(
-          Map<String, dynamic>.from(jsonDecode(raw) as Map).map(
-            (key, value) => MapEntry(key, value.toString()),
-          ),
-        );
-      }
-    } catch (_) {}
+    final access = DirectChatAccessController.instance..load();
+    final policies = <String, String>{...access.peerPolicies};
 
     final peersById = <String, Peer>{};
     for (final peer in <Peer>[
@@ -1413,10 +1409,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                                   setSheetState(
                                     () => policies[peer.id] = value,
                                   );
-                                  await bind.mainSetLocalOption(
-                                    key: 'direct-chat-contact-policies',
-                                    value: jsonEncode(policies),
-                                  );
+                                  await access.setPeerPolicy(peer.id, value);
                                 },
                                 itemBuilder: (_) => <PopupMenuEntry<String>>[
                                   PopupMenuItem(
@@ -1480,8 +1473,13 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
 
 void showLanguageSettings(OverlayDialogManager dialogManager) async {
   try {
-    final langs = json.decode(await bind.mainGetLangs()) as List<dynamic>;
+    final langs = (json.decode(await bind.mainGetLangs()) as List<dynamic>)
+        .where((entry) => entry[0] == 'en' || entry[0] == 'zh-cn')
+        .toList();
     var lang = bind.mainGetLocalOption(key: kCommConfKeyLang);
+    if (!langs.any((entry) => entry[0] == lang)) {
+      lang = localeName.toLowerCase().startsWith('zh') ? 'zh-cn' : 'en';
+    }
     dialogManager.show((setState, close, context) {
       setLang(v) async {
         if (lang != v) {
@@ -1489,6 +1487,7 @@ void showLanguageSettings(OverlayDialogManager dialogManager) async {
             lang = v;
           });
           await bind.mainSetLocalOption(key: kCommConfKeyLang, value: v);
+          bind.mainChangeLanguage(lang: v);
           HomePage.homeKey.currentState?.refreshPages();
           Future.delayed(Duration(milliseconds: 200), close);
         }
@@ -1497,17 +1496,16 @@ void showLanguageSettings(OverlayDialogManager dialogManager) async {
       final isOptFixed = isOptionFixed(kCommConfKeyLang);
       return CustomAlertDialog(
         content: Column(
-          children: [
-                getRadio(Text(translate('Default')), defaultOptionLang, lang,
-                    isOptFixed ? null : setLang),
-                Divider(color: MyTheme.border),
-              ] +
-              langs.map((e) {
-                final key = e[0] as String;
-                final name = e[1] as String;
-                return getRadio(Text(translate(name)), key, lang,
-                    isOptFixed ? null : setLang);
-              }).toList(),
+          children: langs.map((e) {
+            final key = e[0] as String;
+            final name = e[1] as String;
+            return getRadio(
+              Text(name),
+              key,
+              lang,
+              isOptFixed ? null : setLang,
+            );
+          }).toList(),
         ),
       );
     }, backDismiss: true, clickMaskDismiss: true);
@@ -1549,7 +1547,7 @@ void showAbout(OverlayDialogManager dialogManager) {
     return CustomAlertDialog(
       title: Text(translate('About LUODA')),
       content: Wrap(direction: Axis.vertical, spacing: 12, children: [
-        Text('Version: $version'),
+        Text('${translate('Version')}: $version'),
         InkWell(
             onTap: () async {
               const url = 'https://dicad.cn/';
@@ -1734,7 +1732,9 @@ class __ManageTrustedDevicesState extends State<_ManageTrustedDevices> {
               return Center(child: CircularProgressIndicator());
             }
             if (snapshot.hasError) {
-              return Center(child: Text('Error: ${snapshot.error}'));
+              return Center(
+                child: Text('${translate('Error')}: ${snapshot.error}'),
+              );
             }
             final devices = snapshot.data as List<TrustedDevice>;
             trustedDevices = devices.obs;

@@ -905,9 +905,51 @@ pub fn http_request(url: String, method: String, body: Option<String>, header: S
 
 #[inline]
 pub fn get_async_http_status(url: String) -> Option<String> {
-    match ASYNC_HTTP_STATUS.lock().unwrap().get(&url) {
+    let mut statuses = ASYNC_HTTP_STATUS.lock().unwrap();
+    match statuses.get(&url) {
         None => None,
-        Some(_str) => Some(_str.to_string()),
+        Some(status) if status == INIT_ASYNC_JOB_STATUS => Some(status.clone()),
+        Some(_) => statuses.remove(&url),
+    }
+}
+
+#[cfg(test)]
+mod async_http_status_tests {
+    use super::*;
+
+    #[test]
+    fn completed_http_status_is_consumed_once() {
+        let url = "https://example.invalid/completed".to_owned();
+        ASYNC_HTTP_STATUS
+            .lock()
+            .unwrap()
+            .insert(url.clone(), "response".to_owned());
+
+        assert_eq!(
+            get_async_http_status(url.clone()).as_deref(),
+            Some("response")
+        );
+        assert_eq!(get_async_http_status(url), None);
+    }
+
+    #[test]
+    fn pending_http_status_remains_pollable() {
+        let url = "https://example.invalid/pending".to_owned();
+        ASYNC_HTTP_STATUS
+            .lock()
+            .unwrap()
+            .insert(url.clone(), INIT_ASYNC_JOB_STATUS.to_owned());
+
+        assert_eq!(
+            get_async_http_status(url.clone()).as_deref(),
+            Some(INIT_ASYNC_JOB_STATUS)
+        );
+        assert_eq!(
+            get_async_http_status(url.clone()).as_deref(),
+            Some(INIT_ASYNC_JOB_STATUS)
+        );
+
+        ASYNC_HTTP_STATUS.lock().unwrap().remove(&url);
     }
 }
 
@@ -933,7 +975,7 @@ pub fn get_langs() -> String {
     use serde_json::json;
     let mut x: Vec<(&str, String)> = crate::lang::LANGS
         .iter()
-        .map(|a| (a.0, format!("{} ({})", a.1, a.0)))
+        .map(|a| (a.0, a.1.to_owned()))
         .collect();
     x.sort_by(|a, b| a.0.cmp(b.0));
     json!(x).to_string()

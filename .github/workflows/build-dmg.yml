@@ -97,7 +97,7 @@ jobs:
       - name: Generate macOS app icon
         run: |
           set -euo pipefail
-          SOURCE="$GITHUB_WORKSPACE/Images/icon-master-1056.png"
+          SOURCE="$GITHUB_WORKSPACE/res/icon_padded.png"
           ICONSET="$RUNNER_TEMP/AppIcon.iconset"
           mkdir -p "$ICONSET"
           while read -r name size; do

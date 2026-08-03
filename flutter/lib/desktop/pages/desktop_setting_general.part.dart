@@ -81,10 +81,7 @@ class _GeneralState extends State<_General> {
       children: [
         if (!isWeb) service(),
         theme(),
-        railBackground(),
         language(),
-        if (!isWeb) audio(context),
-        if (!isWeb) record(context),
         _otherSettings(),
       ],
     ).marginOnly(bottom: _kListViewBottomMargin);
@@ -129,7 +126,7 @@ class _GeneralState extends State<_General> {
                           const SizedBox(width: 14),
                           Expanded(
                             child: Text(
-                              translate('Other'),
+                              translate('Advanced settings'),
                               style: theme.textTheme.titleLarge?.copyWith(
                                 fontSize: 18,
                                 fontWeight: FontWeight.w600,
@@ -151,6 +148,9 @@ class _GeneralState extends State<_General> {
           ),
         ),
         if (_showOtherSettings) ...[
+          railBackground(),
+          if (!isWeb) audio(context),
+          if (!isWeb) record(context),
           if (!isWeb) hwcodec(),
           if (!isWeb) const WaylandCard(),
           other(),
@@ -826,8 +826,9 @@ class _GeneralState extends State<_General> {
                                       .exists()) {
                                     initialDirectory = user_dir;
                                   }
-                                  String? selectedDirectory =
-                                      await FilePicker.platform.getDirectoryPath(
+                                  String? selectedDirectory = await FilePicker
+                                      .platform
+                                      .getDirectoryPath(
                                           initialDirectory: initialDirectory);
                                   if (selectedDirectory != null) {
                                     await bind.mainSetLocalOption(
@@ -856,11 +857,10 @@ class _GeneralState extends State<_General> {
         Map<String, String> langsMap = {for (var v in langsList) v[0]: v[1]};
         List<String> keys = langsMap.keys.toList();
         List<String> values = langsMap.values.toList();
-        keys.insert(0, defaultOptionLang);
-        values.insert(0, translate('Default'));
         String currentKey = bind.mainGetLocalOption(key: kCommConfKeyLang);
         if (!keys.contains(currentKey)) {
-          currentKey = defaultOptionLang;
+          currentKey =
+              localeName.toLowerCase().startsWith('zh') ? 'zh-cn' : 'en';
         }
         final isOptFixed = isOptionFixed(kCommConfKeyLang);
         return _Card(

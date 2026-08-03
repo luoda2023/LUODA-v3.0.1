@@ -21,12 +21,14 @@ class RichChatText extends StatelessWidget {
   final String text;
   final Color foreground;
   final double defaultSize;
+  final EditableTextContextMenuBuilder? contextMenuBuilder;
 
   const RichChatText({
     super.key,
     required this.text,
     required this.foreground,
     this.defaultSize = 14,
+    this.contextMenuBuilder,
   });
 
   /// Small LRU cache: maps text → parsed block list.
@@ -170,7 +172,8 @@ class RichChatText extends StatelessWidget {
     final sepLine = lines[i + 1].trim();
     final sepCells = _parseTableRow(sepLine);
     if (sepCells.length != headerRow.length) return null;
-    if (!sepCells.every((c) => c.startsWith('---') || c.startsWith(':'))) return null;
+    if (!sepCells.every((c) => c.startsWith('---') || c.startsWith(':')))
+      return null;
 
     final rows = <List<String>>[headerRow];
     i += 2;
@@ -221,10 +224,14 @@ class RichChatText extends StatelessWidget {
           width: 0.5,
         ),
         columnWidths: table.columns.fold<int>(
-          0,
-          (sum, _) => sum + 1,
-        ) > 0
-            ? {for (int i = 0; i < table.columns.length; i++) i: FlexColumnWidth()}
+                  0,
+                  (sum, _) => sum + 1,
+                ) >
+                0
+            ? {
+                for (int i = 0; i < table.columns.length; i++)
+                  i: FlexColumnWidth()
+              }
             : null,
         children: table.rows.asMap().entries.map((entry) {
           final rowIdx = entry.key;
@@ -264,6 +271,7 @@ class RichChatText extends StatelessWidget {
     if (spans.isEmpty) return const SizedBox.shrink();
     return SelectableText.rich(
       TextSpan(children: spans),
+      contextMenuBuilder: contextMenuBuilder,
       style: TextStyle(
         color: fg,
         fontSize: size,
@@ -644,7 +652,8 @@ extension _RichChatBuilders on RichChatText {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('•  ', style: TextStyle(fontSize: defaultSize, color: foreground)),
+                Text('•  ',
+                    style: TextStyle(fontSize: defaultSize, color: foreground)),
                 Expanded(
                   child: _buildInline(item, foreground, defaultSize),
                 ),

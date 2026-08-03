@@ -29,6 +29,7 @@ class DirectPairing {
   final bool companion;
   final String syncSecret;
   final String avatar;
+
   /// DDNS domain:port, e.g. my-pc.example.com:21116
   /// When set, the client resolves the domain via DNS AAAA (IPv6) first,
   /// then falls back to A record (IPv4). This enables direct P2P without
@@ -41,10 +42,11 @@ class DirectPairing {
         if (publicEndpoint.isNotEmpty) publicEndpoint,
       }.toList(growable: false);
 
-  String get preferredEndpoint =>
-      ddnsEndpoint.isNotEmpty ? ddnsEndpoint
-      : lanEndpoint.isNotEmpty ? lanEndpoint
-      : publicEndpoint;
+  String get preferredEndpoint => ddnsEndpoint.isNotEmpty
+      ? ddnsEndpoint
+      : lanEndpoint.isNotEmpty
+          ? lanEndpoint
+          : publicEndpoint;
 
   String get connectionTarget {
     final key = fingerprint.replaceAll(':', '').replaceAll(' ', '');
@@ -98,11 +100,17 @@ class DirectPairingStore {
   static const storageKey = 'direct-pairings-v1';
   static const _companionSecretKey = 'direct-companion-secret-v1';
   static final ValueNotifier<int> revision = ValueNotifier<int>(0);
+  static Map<String, DirectPairing>? _cache;
 
   static Map<String, DirectPairing> load() {
+    final cached = _cache;
+    if (cached != null) return Map<String, DirectPairing>.of(cached);
     try {
       final raw = bind.mainGetLocalOption(key: storageKey);
-      if (raw.isEmpty) return <String, DirectPairing>{};
+      if (raw.isEmpty) {
+        _cache = <String, DirectPairing>{};
+        return <String, DirectPairing>{};
+      }
       final decoded = Map<String, dynamic>.from(jsonDecode(raw) as Map);
       final pairings = <String, DirectPairing>{};
       for (final entry in decoded.entries) {
@@ -113,7 +121,8 @@ class DirectPairingStore {
           pairings[pairing.peerId] = pairing;
         }
       }
-      return pairings;
+      _cache = pairings;
+      return Map<String, DirectPairing>.of(pairings);
     } catch (_) {
       return <String, DirectPairing>{};
     }
@@ -126,10 +135,10 @@ class DirectPairingStore {
   static DirectPairing? findByEndpoint(String ipOrEndpoint) {
     final target = ipOrEndpoint.trim().toLowerCase();
     return load().values.firstWhereOrNull(
-      (p) =>
-          p.lanEndpoint.toLowerCase().contains(target) ||
-          p.publicEndpoint.toLowerCase().contains(target),
-    );
+          (p) =>
+              p.lanEndpoint.toLowerCase().contains(target) ||
+              p.publicEndpoint.toLowerCase().contains(target),
+        );
   }
 
   static DirectPairing? latest() {
@@ -157,6 +166,7 @@ class DirectPairingStore {
         pairings.map((key, value) => MapEntry(key, value.toJson())),
       ),
     );
+    _cache = Map<String, DirectPairing>.of(pairings);
     revision.value++;
   }
 
@@ -174,6 +184,7 @@ class DirectPairingStore {
         pairings.map((key, value) => MapEntry(key, value.toJson())),
       ),
     );
+    _cache = Map<String, DirectPairing>.of(pairings);
     revision.value++;
   }
 
@@ -223,6 +234,7 @@ class DirectPairingStore {
         pairings.map((key, value) => MapEntry(key, value.toJson())),
       ),
     );
+    _cache = Map<String, DirectPairing>.of(pairings);
     revision.value++;
   }
 
@@ -294,9 +306,24 @@ class DirectPairingStore {
   }
 
   static String? resolveConnectionTarget(String value) {
+    return resolveConnectionTargetValue(value, pairings: load());
+  }
+
+  @visibleForTesting
+  static String? resolveConnectionTargetValue(
+    String value, {
+    required Map<String, DirectPairing> pairings,
+  }) {
     final input = value.trim().replaceAll(' ', '');
+    final pairing = pairings[input] ??
+        pairings.values.firstWhereOrNull(
+          (candidate) => candidate.endpoints.any(
+            (endpoint) => endpoint.toLowerCase() == input.toLowerCase(),
+          ),
+        );
+    if (pairing != null) return pairing.connectionTarget;
     if (isDirectEndpoint(input)) return input;
-    return find(input)?.connectionTarget ?? (isDeviceId(input) ? input : null);
+    return isDeviceId(input) ? input : null;
   }
 
   /// Device IDs are resolved by the rendezvous/direct-punching core when no

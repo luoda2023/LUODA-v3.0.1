@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:dash_chat_2/dash_chat_2.dart';
@@ -15,14 +16,26 @@ import '../../models/meeting_group_model.dart';
 import 'package:luoda_flutter/common/direct_viewer_invite.dart';
 import '../wechat_ui_tokens.dart';
 import 'file_viewer.dart';
+import 'file_preview_types.dart';
+import 'message_context_region.dart';
 import 'rich_text_builder.dart';
 import 'voice_message_controls.dart';
 import '../../models/ai_config_model.dart';
 import 'ai_config_page.dart';
 
 const _reactionEmojis = [
-  '👍', '❤️', '😂', '😮', '😢', '🙏',
-  '👏', '🎉', '🔥', '💯', '🤔', '👀',
+  '👍',
+  '❤️',
+  '😂',
+  '😮',
+  '😢',
+  '🙏',
+  '👏',
+  '🎉',
+  '🔥',
+  '💯',
+  '🤔',
+  '👀',
 ];
 
 enum ChatPageType {
@@ -31,12 +44,15 @@ enum ChatPageType {
   desktopHome,
 }
 
+typedef PasteImageCallback = Future<bool> Function(bool notifyIfEmpty);
+
 class ChatPage extends StatelessWidget implements PageShape {
   late final ChatModel chatModel;
   final ChatPageType? type;
   final VoidCallback? onAttachFile;
   final VoidCallback? onRemoteAssist;
-  final VoidCallback? onPasteImage;
+  final VoidCallback? onSendImage;
+  final PasteImageCallback? onPasteImage;
   final bool peerOffline;
 
   ChatPage({
@@ -44,6 +60,7 @@ class ChatPage extends StatelessWidget implements PageShape {
     this.type,
     this.onAttachFile,
     this.onRemoteAssist,
+    this.onSendImage,
     this.onPasteImage,
     this.peerOffline = false,
   }) {
@@ -126,9 +143,7 @@ class ChatPage extends StatelessWidget implements PageShape {
         (properties?['ldesk_disposition'] ?? 'active').toString();
     final delivery = (properties?['ldesk_delivery'] ?? '').toString();
     final isOwnMessage = message.user.id == chatModel.me.id;
-    if (id.isEmpty) return null;
-    if (isOwnMessage && disposition != 'active') return null;
-    if (!isOwnMessage && disposition != 'active') return null;
+    final canMutate = id.isNotEmpty && disposition == 'active';
 
     final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
     final localPos = overlay.globalToLocal(position);
@@ -136,17 +151,12 @@ class ChatPage extends StatelessWidget implements PageShape {
     // WeChat PC alignment: for own messages, the menu anchors its
     // top-right corner to the avatar's top-left. Position the menu so it
     // appears above and to the left of the avatar (mirrors WeChat PC).
-    final anchor = alignToAvatarLeft
-        ? RelativeRect.fromLTRB(
-            localPos.dx - 36, // start ~36px to the left of icon (avatar width)
-            localPos.dy,
-            localPos.dx + 1,
-            overlaySize.height - localPos.dy,
-          )
-        : RelativeRect.fromRect(
-            localPos & const Size(1, 1),
-            Offset.zero & overlaySize,
-          );
+    final anchorPoint =
+        alignToAvatarLeft ? localPos.translate(-36, 0) : localPos;
+    final anchor = RelativeRect.fromRect(
+      anchorPoint & const Size(1, 1),
+      Offset.zero & overlaySize,
+    );
 
     // Build menu items — keep it clean like WeChat PC
     final items = <PopupMenuEntry<String>>[];
@@ -166,35 +176,38 @@ class ChatPage extends StatelessWidget implements PageShape {
     }
 
     addItem('copy', Icons.copy_rounded, translate('Copy'));
-    addItem('reply', Icons.reply_rounded, translate('Reply'));
-    items.add(const PopupMenuDivider(height: 1));
-
-    // Reactions inline — compact row of emojis
-    items.add(
-      PopupMenuItem<String>(
-        enabled: false,
-        height: 40,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: _reactionEmojis.map((emoji) {
-              return GestureDetector(
-                onTap: () => Navigator.pop(context, 'react:$emoji'),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: Text(emoji, style: const TextStyle(fontSize: 22)),
-                ),
-              );
-            }).toList(),
+    if (disposition == 'active') {
+      addItem('reply', Icons.reply_rounded, translate('Reply'));
+    }
+    if (id.isNotEmpty) {
+      if (canMutate) {
+        items.add(const PopupMenuDivider(height: 1));
+        items.add(
+          PopupMenuItem<String>(
+            enabled: false,
+            height: 40,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: _reactionEmojis.map((emoji) {
+                  return GestureDetector(
+                    onTap: () => Navigator.pop(context, 'react:$emoji'),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Text(emoji, style: const TextStyle(fontSize: 22)),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
           ),
-        ),
-      ),
-    );
-    items.add(const PopupMenuDivider(height: 1));
-
-    addItem('select', Icons.checklist_rounded, translate('Select'));
+        );
+        items.add(const PopupMenuDivider(height: 1));
+        addItem('select', Icons.checklist_rounded, translate('Select'));
+      }
+    }
     addItem('info', Icons.info_outline_rounded, translate('Info'));
 
     // AI Translate — only if configured and message is text
@@ -207,20 +220,21 @@ class ChatPage extends StatelessWidget implements PageShape {
 
     // Send to email — only if email is configured
     if (AiConfig.current.email.isNotEmpty &&
-        RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(AiConfig.current.email)) {
+        RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+            .hasMatch(AiConfig.current.email)) {
       items.add(const PopupMenuDivider(height: 1));
       addItem('send-email', Icons.email_outlined, translate('Send to email'));
-      addItem('send-email-batch', Icons.archive_outlined, translate('Export 20 recent (ZIP)'));
+      addItem('send-email-batch', Icons.archive_outlined,
+          translate('Export 20 recent (ZIP)'));
     }
 
-    if (isOwnMessage) {
+    if (isOwnMessage && canMutate) {
       items.add(const PopupMenuDivider(height: 1));
       if (properties?['ldesk_kind'] == 'text') {
         addItem('edit', Icons.edit_rounded, translate('Edit'));
       }
       addItem('recall', Icons.undo_rounded, translate('Recall'));
-      addItem('destroy', Icons.delete_forever_outlined,
-          translate('Destroy'),
+      addItem('destroy', Icons.delete_forever_outlined, translate('Destroy'),
           color: Colors.redAccent);
       addItem('forward', Icons.forward_rounded, translate('Forward'));
       if (delivery == 'failed') {
@@ -235,10 +249,11 @@ class ChatPage extends StatelessWidget implements PageShape {
           translate('Self-destruct in 1 hour'));
     }
 
-    items.add(const PopupMenuDivider(height: 1));
-    addItem('delete', Icons.delete_outline_rounded,
-        translate('Delete'),
-        color: Colors.redAccent);
+    if (canMutate) {
+      items.add(const PopupMenuDivider(height: 1));
+      addItem('delete', Icons.delete_outline_rounded, translate('Delete'),
+          color: Colors.redAccent);
+    }
 
     return showMenu<String>(
       context: context,
@@ -270,8 +285,7 @@ class ChatPage extends StatelessWidget implements PageShape {
         title: Text(title,
             style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
         content: Text(message,
-            style: const TextStyle(fontSize: 13),
-            textAlign: TextAlign.center),
+            style: const TextStyle(fontSize: 13), textAlign: TextAlign.center),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -280,8 +294,8 @@ class ChatPage extends StatelessWidget implements PageShape {
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8)),
             ),
-            child: Text(translate('Cancel'),
-                style: const TextStyle(fontSize: 13)),
+            child:
+                Text(translate('Cancel'), style: const TextStyle(fontSize: 13)),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
@@ -354,21 +368,22 @@ class ChatPage extends StatelessWidget implements PageShape {
       final result = await showDialog<String>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           titlePadding: const EdgeInsets.fromLTRB(24, 22, 24, 0),
           contentPadding: const EdgeInsets.fromLTRB(24, 14, 24, 6),
           actionsPadding: const EdgeInsets.fromLTRB(16, 6, 16, 14),
           title: Text(translate('Edit message'),
-              style: const TextStyle(
-                  fontSize: 15, fontWeight: FontWeight.w600)),
+              style:
+                  const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
           content: TextField(
             controller: controller,
             autofocus: true,
             maxLines: 3,
             decoration: InputDecoration(
               hintText: translate('Edit your message...'),
-              border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8)),
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
               contentPadding: const EdgeInsets.all(12),
               isDense: true,
             ),
@@ -392,8 +407,8 @@ class ChatPage extends StatelessWidget implements PageShape {
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8)),
               ),
-              child: Text(translate('Save'),
-                  style: const TextStyle(fontSize: 13)),
+              child:
+                  Text(translate('Save'), style: const TextStyle(fontSize: 13)),
             ),
           ],
         ),
@@ -431,8 +446,10 @@ class ChatPage extends StatelessWidget implements PageShape {
           content: Row(
             children: [
               const SizedBox(
-                width: 18, height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2, color: Colors.white),
               ),
               const SizedBox(width: 12),
               Text(translate('Translating...')),
@@ -449,12 +466,14 @@ class ChatPage extends StatelessWidget implements PageShape {
         await showDialog(
           context: context,
           builder: (ctx) => AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             titlePadding: const EdgeInsets.fromLTRB(24, 22, 24, 0),
             contentPadding: const EdgeInsets.fromLTRB(24, 14, 24, 6),
             actionsPadding: const EdgeInsets.fromLTRB(16, 6, 16, 14),
             title: Text(translate('Translation'),
-                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                style:
+                    const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
             content: SelectableText(translated,
                 style: const TextStyle(fontSize: 14, height: 1.5)),
             actions: [
@@ -462,7 +481,8 @@ class ChatPage extends StatelessWidget implements PageShape {
                 onPressed: () => Navigator.pop(ctx),
                 style: TextButton.styleFrom(
                   minimumSize: const Size(80, 36),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8)),
                 ),
                 child: Text(translate('Close'),
                     style: const TextStyle(fontSize: 13)),
@@ -481,7 +501,8 @@ class ChatPage extends StatelessWidget implements PageShape {
     }
     if (action == 'send-email') {
       final text = message.text ?? '';
-      final fileName = (message.customProperties?['ldesk_file_name'] ?? '').toString();
+      final fileName =
+          (message.customProperties?['ldesk_file_name'] ?? '').toString();
       final content = fileName.isNotEmpty ? '$fileName\n\n$text' : text;
       if (content.trim().isEmpty) {
         if (context.mounted) {
@@ -509,7 +530,8 @@ class ChatPage extends StatelessWidget implements PageShape {
       return;
     }
     if (action == 'send-email-batch') {
-      final allMessages = chatModel.messages[chatModel.currentKey]?.chatMessages ?? [];
+      final allMessages =
+          chatModel.messages[chatModel.currentKey]?.chatMessages ?? [];
       if (allMessages.isEmpty) {
         if (context.mounted) {
           ScaffoldMessenger.maybeOf(context)?.showSnackBar(
@@ -522,8 +544,8 @@ class ChatPage extends StatelessWidget implements PageShape {
       final msgId = (message.customProperties?['ldesk_id'] ?? '').toString();
       int clickedIdx = 0;
       if (msgId.isNotEmpty) {
-        clickedIdx = allMessages.indexWhere((m) =>
-            (m.customProperties?['ldesk_id'] ?? '').toString() == msgId);
+        clickedIdx = allMessages.indexWhere(
+            (m) => (m.customProperties?['ldesk_id'] ?? '').toString() == msgId);
         if (clickedIdx < 0) clickedIdx = 0;
       }
       // Collect 20 messages starting from clicked, going older
@@ -542,9 +564,12 @@ class ChatPage extends StatelessWidget implements PageShape {
           final who = m.user.firstName ?? m.user.id;
           final time = m.createdAt.toLocal().toString().substring(0, 19);
           final text = m.text ?? '';
-          final fname = (m.customProperties?['ldesk_file_name'] ?? '').toString();
-          final localPath = (m.customProperties?['ldesk_local_path'] ?? '').toString();
-          chatBuf.writeln('[$time] $who: ${fname.isNotEmpty ? "[${translate("File")}] $fname" : text}');
+          final fname =
+              (m.customProperties?['ldesk_file_name'] ?? '').toString();
+          final localPath =
+              (m.customProperties?['ldesk_local_path'] ?? '').toString();
+          chatBuf.writeln(
+              '[$time] $who: ${fname.isNotEmpty ? "[${translate("File")}] $fname" : text}');
           if (text.isNotEmpty && fname.isNotEmpty) chatBuf.writeln('  $text');
           chatBuf.writeln('');
           // Copy attachment file if available (images, docs)
@@ -563,8 +588,14 @@ class ChatPage extends StatelessWidget implements PageShape {
         final zipPath = '${dir.path}.zip';
         if (isWindows) {
           await Process.run('powershell', [
-            '-NoProfile', '-Command',
-            'Compress-Archive', '-Path', dir.path, '-DestinationPath', zipPath, '-Force',
+            '-NoProfile',
+            '-Command',
+            'Compress-Archive',
+            '-Path',
+            dir.path,
+            '-DestinationPath',
+            zipPath,
+            '-Force',
           ]);
         } else {
           await Process.run('zip', ['-rj', zipPath, dir.path]);
@@ -659,7 +690,9 @@ class ChatPage extends StatelessWidget implements PageShape {
               SimpleDialogOption(
                 onPressed: () => Navigator.pop(dialogContext, peer.id),
                 child: ListTile(
-                  leading: CircleAvatar(child: Text(peer.id.isNotEmpty ? peer.id[0].toUpperCase() : '?')),
+                  leading: CircleAvatar(
+                      child: Text(
+                          peer.id.isNotEmpty ? peer.id[0].toUpperCase() : '?')),
                   title: Text(peer.id),
                   dense: true,
                   contentPadding: EdgeInsets.zero,
@@ -716,18 +749,22 @@ class ChatPage extends StatelessWidget implements PageShape {
         title: Text(translate('Message info')),
         children: <Widget>[
           _infoRow(ctx, translate('Status'), deliveryLabel),
-          _infoRow(ctx, translate('Type'), kind == 'voice'
-              ? translate('Voice')
-              : kind == 'file'
-                  ? translate('File')
-                  : translate('Text')),
-          _infoRow(ctx, translate('Time'),
+          _infoRow(
+              ctx,
+              translate('Type'),
+              kind == 'voice'
+                  ? translate('Voice')
+                  : kind == 'file'
+                      ? translate('File')
+                      : translate('Text')),
+          _infoRow(
+              ctx,
+              translate('Time'),
               '${message.createdAt.month}/${message.createdAt.day} '
               '${message.createdAt.hour.toString().padLeft(2, '0')}:'
               '${message.createdAt.minute.toString().padLeft(2, '0')}'),
           if (isEdited)
-            _infoRow(
-                ctx, translate('Edited'), editedAt?.toString() ?? ''),
+            _infoRow(ctx, translate('Edited'), editedAt?.toString() ?? ''),
           if (reactions != null && reactions.isNotEmpty)
             _infoRow(
               ctx,
@@ -802,8 +839,8 @@ class ChatPage extends StatelessWidget implements PageShape {
           itemBuilder: (_, index) {
             final record = records[index];
             final isImage = record.localPath.isNotEmpty &&
-                ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp']
-                    .contains(record.fileName.split('.').last.toLowerCase());
+                filePreviewKindForName(record.fileName) ==
+                    FilePreviewKind.image;
             return GestureDetector(
               onTap: () {
                 Navigator.pop(ctx);
@@ -816,9 +853,8 @@ class ChatPage extends StatelessWidget implements PageShape {
               },
               child: Container(
                 decoration: BoxDecoration(
-                  color: dark
-                      ? const Color(0xFF2B2D32)
-                      : const Color(0xFFF5F5F5),
+                  color:
+                      dark ? const Color(0xFF2B2D32) : const Color(0xFFF5F5F5),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: isImage
@@ -827,6 +863,8 @@ class ChatPage extends StatelessWidget implements PageShape {
                         child: Image.file(
                           File(record.localPath),
                           fit: BoxFit.cover,
+                          cacheWidth: 320,
+                          filterQuality: FilterQuality.low,
                           errorBuilder: (_, __, ___) =>
                               _mediaPlaceholder(record, dark),
                         ),
@@ -841,23 +879,11 @@ class ChatPage extends StatelessWidget implements PageShape {
   }
 
   Widget _mediaPlaceholder(DirectChatRecord record, bool dark) {
-    final ext = record.fileName.contains('.')
-        ? record.fileName.split('.').last.toLowerCase()
-        : '';
-    const img = {'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'};
-    final icon = img.contains(ext) ? Icons.image_outlined
-        : ['mp3','wav','ogg','flac','m4a'].contains(ext) ? Icons.audio_file_outlined
-        : ['mp4','avi','mov','mkv'].contains(ext) ? Icons.video_file_outlined
-        : ext == 'pdf' ? Icons.picture_as_pdf_outlined
-        : ['zip','rar','7z','tar','gz'].contains(ext) ? Icons.folder_zip_outlined
-        : ['doc','docx'].contains(ext) ? Icons.description_outlined
-        : ['xls','xlsx'].contains(ext) ? Icons.table_chart_outlined
-        : Icons.insert_drive_file_outlined;
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Icon(
-          icon,
+          filePreviewIcon(record.fileName),
           size: 32,
           color: dark ? const Color(0xFF999CA2) : const Color(0xFF888888),
         ),
@@ -889,7 +915,8 @@ class ChatPage extends StatelessWidget implements PageShape {
     final ok = await chatModel.clearConversation();
     if (context.mounted) {
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text(translate(
+        SnackBar(
+            content: Text(translate(
           ok ? 'Chat history cleared' : 'Failed to clear chat history',
         ))),
       );
@@ -902,78 +929,89 @@ class ChatPage extends StatelessWidget implements PageShape {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
         color: dark ? kWeChatCanvasColorDark : const Color(0xFFF8F8F8),
-        border: Border(top: BorderSide(
+        border: Border(
+            top: BorderSide(
           color: dark ? const Color(0xFF3A3D43) : const Color(0xFFDDDDDD),
         )),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.08),
-            blurRadius: 6, offset: const Offset(0, -2),
+            blurRadius: 6,
+            offset: const Offset(0, -2),
           ),
         ],
       ),
-      child: SafeArea(top: false, child: Row(children: [
-        TextButton(
-          onPressed: () => chatModel.exitMultiSelect(),
-          child: Text(translate('Cancel')),
-        ),
-        const Spacer(),
-        Text(
-          '${chatModel.selectedMessageIds.length} ${translate('selected')}',
-          style: TextStyle(
-            color: dark ? const Color(0xFF999CA2) : const Color(0xFF888888),
-            fontSize: 13,
-          ),
-        ),
-        const SizedBox(width: 12),
-        TextButton(
-          onPressed: () => chatModel.selectAllInConversation(),
-          child: Text(translate('Select all')),
-        ),
-        const SizedBox(width: 8),
-        FilledButton.tonalIcon(
-          onPressed: chatModel.selectedMessageIds.isEmpty ? null : () async {
-            final confirmed = await showDialog<bool>(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                title: Text(translate('Delete messages')),
-                content: Text('${translate('Delete')} ${chatModel.selectedMessageIds.length} ${translate('messages')}?'),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx, false),
-                    child: Text(translate('Cancel')),
-                  ),
-                  FilledButton(
-                    onPressed: () => Navigator.pop(ctx, true),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: Theme.of(ctx).colorScheme.error,
-                    ),
-                    child: Text(translate('Delete')),
-                  ),
-                ],
+      child: SafeArea(
+          top: false,
+          child: Row(children: [
+            TextButton(
+              onPressed: () => chatModel.exitMultiSelect(),
+              child: Text(translate('Cancel')),
+            ),
+            const Spacer(),
+            Text(
+              '${chatModel.selectedMessageIds.length} ${translate('selected')}',
+              style: TextStyle(
+                color: dark ? const Color(0xFF999CA2) : const Color(0xFF888888),
+                fontSize: 13,
               ),
-            );
-            if (confirmed != true || !context.mounted) return;
-            final deleted = await chatModel.batchDeleteMessages(
-              Set<String>.from(chatModel.selectedMessageIds),
-            );
-            chatModel.exitMultiSelect();
-            if (context.mounted && !deleted) {
-              ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-                SnackBar(content: Text(translate('Failed to delete messages'))),
-              );
-            }
-          },
-          icon: const Icon(Icons.delete_outline, size: 18),
-          label: Text(translate('Delete')),
-        ),
-      ])),
+            ),
+            const SizedBox(width: 12),
+            TextButton(
+              onPressed: () => chatModel.selectAllInConversation(),
+              child: Text(translate('Select all')),
+            ),
+            const SizedBox(width: 8),
+            FilledButton.tonalIcon(
+              onPressed: chatModel.selectedMessageIds.isEmpty
+                  ? null
+                  : () async {
+                      final confirmed = await showDialog<bool>(
+                        context: context,
+                        builder: (ctx) => AlertDialog(
+                          title: Text(translate('Delete messages')),
+                          content: Text(
+                              '${translate('Delete')} ${chatModel.selectedMessageIds.length} ${translate('messages')}?'),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(ctx, false),
+                              child: Text(translate('Cancel')),
+                            ),
+                            FilledButton(
+                              onPressed: () => Navigator.pop(ctx, true),
+                              style: FilledButton.styleFrom(
+                                backgroundColor:
+                                    Theme.of(ctx).colorScheme.error,
+                              ),
+                              child: Text(translate('Delete')),
+                            ),
+                          ],
+                        ),
+                      );
+                      if (confirmed != true || !context.mounted) return;
+                      final deleted = await chatModel.batchDeleteMessages(
+                        Set<String>.from(chatModel.selectedMessageIds),
+                      );
+                      chatModel.exitMultiSelect();
+                      if (context.mounted && !deleted) {
+                        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                          SnackBar(
+                              content:
+                                  Text(translate('Failed to delete messages'))),
+                        );
+                      }
+                    },
+              icon: const Icon(Icons.delete_outline, size: 18),
+              label: Text(translate('Delete')),
+            ),
+          ])),
     );
   }
 
   /// Small icon button used in the chat toolbar.
   Widget _toolbarIconButton(
-    BuildContext context, bool dark, {
+    BuildContext context,
+    bool dark, {
     required IconData icon,
     required String tooltip,
     required VoidCallback onTap,
@@ -988,9 +1026,7 @@ class ChatPage extends StatelessWidget implements PageShape {
           child: Container(
             padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
-              color: dark
-                  ? const Color(0x442B2D32)
-                  : const Color(0x44FFFFFF),
+              color: dark ? const Color(0x442B2D32) : const Color(0x44FFFFFF),
               borderRadius: BorderRadius.circular(6),
             ),
             child: Icon(
@@ -1011,6 +1047,7 @@ class ChatPage extends StatelessWidget implements PageShape {
       text: text,
       foreground: foreground,
       defaultSize: isDesktopHome ? 14 : 15,
+      contextMenuBuilder: (_, __) => const SizedBox.shrink(),
     );
   }
 
@@ -1094,13 +1131,19 @@ class ChatPage extends StatelessWidget implements PageShape {
             }
 
             bool hasDelivery(ChatMessage message) {
-              final d = (message.customProperties?['ldesk_delivery'] ?? '').toString();
-              return d == 'queued' || d == 'sent' || d == 'delivered' || d == 'failed';
+              final d = (message.customProperties?['ldesk_delivery'] ?? '')
+                  .toString();
+              return d == 'queued' ||
+                  d == 'sent' ||
+                  d == 'delivered' ||
+                  d == 'failed';
             }
 
             String aiReplyLabel(ChatMessage message) {
-              final aiReply = message.customProperties?['ldesk_ai_reply'] == 'true';
-              final isLoading = message.customProperties?['ldesk_ai_loading'] == 'true';
+              final aiReply =
+                  message.customProperties?['ldesk_ai_reply'] == 'true';
+              final isLoading =
+                  message.customProperties?['ldesk_ai_loading'] == 'true';
               if (isLoading) return '${translate("AI thinking")}...';
               if (aiReply) return translate('AI auto-reply');
               return '';
@@ -1108,13 +1151,15 @@ class ChatPage extends StatelessWidget implements PageShape {
 
             /// Connection source label: "via IP" for IP-originated messages.
             String _connSourceLabel(ChatMessage message) {
-              final source = message.customProperties?['ldesk_conn_source']?.toString();
+              final source =
+                  message.customProperties?['ldesk_conn_source']?.toString();
               if (source == 'ip') return 'via IP';
               return '';
             }
 
             Widget deliveryWidget(ChatMessage message) {
-              final d = (message.customProperties?['ldesk_delivery'] ?? '').toString();
+              final d = (message.customProperties?['ldesk_delivery'] ?? '')
+                  .toString();
               if (d.isEmpty) return const SizedBox.shrink();
               IconData icon;
               Color? color;
@@ -1145,7 +1190,9 @@ class ChatPage extends StatelessWidget implements PageShape {
                 children: [
                   Icon(icon, size: 13, color: color ?? Colors.grey),
                   const SizedBox(width: 3),
-                  Text(label, style: TextStyle(fontSize: 11, color: color ?? Colors.grey)),
+                  Text(label,
+                      style:
+                          TextStyle(fontSize: 11, color: color ?? Colors.grey)),
                 ],
               );
             }
@@ -1175,126 +1222,8 @@ class ChatPage extends StatelessWidget implements PageShape {
               return '${(fileSize / 1024 / 1024).toStringAsFixed(1)} MB';
             }
 
-            /// Returns a short label for the icon overlay (e.g. "PDF", "DOC").
-            String fileExtLabel(String fileName) {
-              final ext = fileName.contains('.')
-                  ? fileName.split('.').last.toLowerCase()
-                  : '';
-              if (ext.isEmpty) return '';
-              if (ext.length <= 4) return ext.toUpperCase();
-              return ext.substring(0, 4).toUpperCase();
-            }
-
-            IconData fileTypeIcon(String fileName) {
-              final ext = fileName.contains('.')
-                  ? fileName.split('.').last.toLowerCase()
-                  : '';
-              switch (ext) {
-                case 'jpg':
-                case 'jpeg':
-                case 'png':
-                case 'gif':
-                case 'bmp':
-                case 'webp':
-                case 'svg':
-                  return Icons.image_outlined;
-                case 'mp4':
-                case 'avi':
-                case 'mkv':
-                case 'mov':
-                case 'wmv':
-                case 'flv':
-                  return Icons.movie_outlined;
-                case 'mp3':
-                case 'wav':
-                case 'flac':
-                case 'aac':
-                case 'ogg':
-                case 'wma':
-                  return Icons.audiotrack_outlined;
-                case 'pdf':
-                  return Icons.picture_as_pdf_outlined;
-                case 'doc':
-                case 'docx':
-                  return Icons.description_outlined;
-                case 'xls':
-                case 'xlsx':
-                case 'csv':
-                  return Icons.table_chart_outlined;
-                case 'ppt':
-                case 'pptx':
-                  return Icons.slideshow_outlined;
-                case 'zip':
-                case 'rar':
-                case '7z':
-                case 'tar':
-                case 'gz':
-                  return Icons.folder_zip_outlined;
-                case 'exe':
-                case 'msi':
-                case 'apk':
-                case 'dmg':
-                  return Icons.android_outlined;
-                case 'txt':
-                case 'md':
-                case 'log':
-                  return Icons.article_outlined;
-                case 'json':
-                case 'xml':
-                case 'yaml':
-                case 'yml':
-                case 'toml':
-                  return Icons.code_outlined;
-                default:
-                  return Icons.insert_drive_file_outlined;
-              }
-            }
-
-            Color fileTypeColor(String fileName, double opacity) {
-              final ext = fileName.contains('.')
-                  ? fileName.split('.').last.toLowerCase()
-                  : '';
-              switch (ext) {
-                case 'jpg':
-                case 'jpeg':
-                case 'png':
-                case 'gif':
-                case 'bmp':
-                case 'webp':
-                case 'svg':
-                  return Color(0xFF4CAF50).withOpacity(opacity);
-                case 'mp4':
-                case 'avi':
-                case 'mkv':
-                case 'mov':
-                  return Color(0xFFE91E63).withOpacity(opacity);
-                case 'mp3':
-                case 'wav':
-                case 'flac':
-                case 'aac':
-                  return Color(0xFF9C27B0).withOpacity(opacity);
-                case 'pdf':
-                  return Color(0xFFF44336).withOpacity(opacity);
-                case 'doc':
-                case 'docx':
-                  return Color(0xFF2196F3).withOpacity(opacity);
-                case 'xls':
-                case 'xlsx':
-                case 'csv':
-                  return Color(0xFF4CAF50).withOpacity(opacity);
-                case 'ppt':
-                case 'pptx':
-                  return Color(0xFFFF9800).withOpacity(opacity);
-                case 'zip':
-                case 'rar':
-                case '7z':
-                  return Color(0xFFFFC107).withOpacity(opacity);
-                default:
-                  return Color(0xFF607D8B).withOpacity(opacity);
-              }
-            }
-
-            Widget _buildInviteCard(BuildContext context, String link, Color foreground) {
+            Widget _buildInviteCard(
+                BuildContext context, String link, Color foreground) {
               // 会议群邀请: luoda://meeting/{meetingId}
               if (link.startsWith('luoda://meeting/')) {
                 final meetingId = link.split('luoda://meeting/').last.trim();
@@ -1313,10 +1242,14 @@ class ChatPage extends StatelessWidget implements PageShape {
                     width: 240,
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: dark ? const Color(0xFF2A3A2A) : const Color(0xFFEDF7ED),
+                      color: dark
+                          ? const Color(0xFF2A3A2A)
+                          : const Color(0xFFEDF7ED),
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(
-                        color: dark ? const Color(0xFF3A6A3A) : const Color(0xFFB8E8B8),
+                        color: dark
+                            ? const Color(0xFF3A6A3A)
+                            : const Color(0xFFB8E8B8),
                       ),
                     ),
                     child: Column(
@@ -1324,15 +1257,20 @@ class ChatPage extends StatelessWidget implements PageShape {
                       children: <Widget>[
                         Row(
                           children: <Widget>[
-                            Icon(Icons.groups_rounded, size: 18,
-                                color: dark ? const Color(0xFF7AE87A) : const Color(0xFF1A8E1A)),
+                            Icon(Icons.groups_rounded,
+                                size: 18,
+                                color: dark
+                                    ? const Color(0xFF7AE87A)
+                                    : const Color(0xFF1A8E1A)),
                             const SizedBox(width: 8),
                             Text(
                               translate('Meeting Invitation'),
                               style: TextStyle(
                                 fontWeight: FontWeight.w600,
                                 fontSize: 13,
-                                color: dark ? Colors.white : const Color(0xFF1A1A1A),
+                                color: dark
+                                    ? Colors.white
+                                    : const Color(0xFF1A1A1A),
                               ),
                             ),
                           ],
@@ -1340,7 +1278,11 @@ class ChatPage extends StatelessWidget implements PageShape {
                         const SizedBox(height: 6),
                         Text(
                           translate('Join meeting group to watch and chat'),
-                          style: TextStyle(fontSize: 11, color: dark ? Colors.white70 : const Color(0xFF666666)),
+                          style: TextStyle(
+                              fontSize: 11,
+                              color: dark
+                                  ? Colors.white70
+                                  : const Color(0xFF666666)),
                         ),
                         const SizedBox(height: 8),
                         Container(
@@ -1353,7 +1295,10 @@ class ChatPage extends StatelessWidget implements PageShape {
                           child: Text(
                             translate('Join'),
                             textAlign: TextAlign.center,
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13),
                           ),
                         ),
                       ],
@@ -1403,7 +1348,8 @@ class ChatPage extends StatelessWidget implements PageShape {
                             style: TextStyle(
                               fontWeight: FontWeight.w600,
                               fontSize: 13,
-                              color: dark ? Colors.white : const Color(0xFF1A1A1A),
+                              color:
+                                  dark ? Colors.white : const Color(0xFF1A1A1A),
                             ),
                           ),
                         ],
@@ -1413,9 +1359,8 @@ class ChatPage extends StatelessWidget implements PageShape {
                         translate('Click to join and watch the remote session'),
                         style: TextStyle(
                           fontSize: 11,
-                          color: dark
-                              ? Colors.white70
-                              : const Color(0xFF666666),
+                          color:
+                              dark ? Colors.white70 : const Color(0xFF666666),
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -1444,7 +1389,6 @@ class ChatPage extends StatelessWidget implements PageShape {
               );
             }
 
-
             Widget messageBody(
               ChatMessage message, {
               required bool isOwnMessage,
@@ -1470,7 +1414,8 @@ class ChatPage extends StatelessWidget implements PageShape {
                   (properties?['ldesk_local_path'] ?? '').toString();
               final replyToText =
                   (properties?['ldesk_reply_to_text'] ?? '').toString();
-              final reactions = properties?['ldesk_reactions'] as Map<String, dynamic>?;
+              final reactions =
+                  properties?['ldesk_reactions'] as Map<String, dynamic>?;
               final isEdited = properties?['ldesk_is_edited'] == true;
               return Column(
                 crossAxisAlignment: isOwnMessage
@@ -1480,8 +1425,8 @@ class ChatPage extends StatelessWidget implements PageShape {
                   // Quote reply indicator
                   if (replyToText.isNotEmpty)
                     Container(
-                      constraints: BoxConstraints(
-                          maxWidth: isDesktopHome ? 400 : 300),
+                      constraints:
+                          BoxConstraints(maxWidth: isDesktopHome ? 400 : 300),
                       margin: const EdgeInsets.only(bottom: 6),
                       padding: const EdgeInsets.symmetric(
                           horizontal: 8, vertical: 5),
@@ -1519,27 +1464,12 @@ class ChatPage extends StatelessWidget implements PageShape {
                   else if (isFile && fileName.isNotEmpty)
                     InkWell(
                       onTap: () {
-                        final ext = fileName.contains('.')
-                            ? fileName.split('.').last.toLowerCase()
-                            : '';
-                        const imageExts = {
-                          'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'
-                        };
-                        if (imageExts.contains(ext) && localPath.isNotEmpty) {
-                          showFileViewer(
-                            context,
-                            fileName: fileName,
-                            fileSize: fileSize,
-                            localPath: localPath,
-                          );
-                        } else {
-                          showFileViewer(
-                            context,
-                            fileName: fileName,
-                            fileSize: fileSize,
-                            localPath: localPath,
-                          );
-                        }
+                        showFileViewer(
+                          context,
+                          fileName: fileName,
+                          fileSize: fileSize,
+                          localPath: localPath,
+                        );
                       },
                       borderRadius: BorderRadius.circular(8),
                       child: Padding(
@@ -1551,7 +1481,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                               width: 48,
                               height: 48,
                               decoration: BoxDecoration(
-                                color: fileTypeColor(
+                                color: filePreviewColor(
                                   fileName,
                                   dark ? 0.22 : 0.14,
                                 ),
@@ -1560,8 +1490,8 @@ class ChatPage extends StatelessWidget implements PageShape {
                               child: Stack(
                                 alignment: Alignment.center,
                                 children: [
-                                  if (fileTypeIcon(fileName) ==
-                                          Icons.image_outlined &&
+                                  if (filePreviewKindForName(fileName) ==
+                                          FilePreviewKind.image &&
                                       localPath.isNotEmpty)
                                     ClipRRect(
                                       borderRadius: BorderRadius.circular(10),
@@ -1570,26 +1500,34 @@ class ChatPage extends StatelessWidget implements PageShape {
                                         width: 48,
                                         height: 48,
                                         fit: BoxFit.cover,
+                                        cacheWidth: 96,
+                                        filterQuality: FilterQuality.low,
+                                        errorBuilder: (_, __, ___) => Icon(
+                                          filePreviewIcon(fileName),
+                                          size: 26,
+                                          color:
+                                              filePreviewColor(fileName, 0.72),
+                                        ),
                                       ),
                                     )
                                   else ...[
                                     Icon(
-                                      fileTypeIcon(fileName),
+                                      filePreviewIcon(fileName),
                                       size: 26,
-                                      color: fileTypeColor(fileName, 0.72),
+                                      color: filePreviewColor(fileName, 0.72),
                                     ),
                                     Positioned(
                                       bottom: 5,
                                       child: Text(
-                                        fileExtLabel(fileName),
+                                        fileExtensionLabel(fileName),
                                         style: TextStyle(
-                                          color: fileTypeColor(
+                                          color: filePreviewColor(
                                             fileName,
                                             dark ? 0.95 : 0.85,
                                           ),
                                           fontSize: 9.5,
                                           fontWeight: FontWeight.w700,
-                                          letterSpacing: 0.3,
+                                          letterSpacing: 0,
                                         ),
                                       ),
                                     ),
@@ -1647,7 +1585,8 @@ class ChatPage extends StatelessWidget implements PageShape {
                               .toList();
                           final isActive = users.contains(chatModel.me.id);
                           return GestureDetector(
-                            onTap: () => chatModel.toggleReaction(message, emoji),
+                            onTap: () =>
+                                chatModel.toggleReaction(message, emoji),
                             child: Container(
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 6, vertical: 2),
@@ -1697,8 +1636,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                             fontSize: 11,
                           ),
                         ),
-                        if (isOwnMessage &&
-                            hasDelivery(message)) ...<Widget>[
+                        if (isOwnMessage && hasDelivery(message)) ...<Widget>[
                           const SizedBox(width: 5),
                           deliveryWidget(message),
                         ],
@@ -1715,7 +1653,7 @@ class ChatPage extends StatelessWidget implements PageShape {
               final isOwnMessage = message.user.id == chatModel.me.id;
               final isAiReply = !isOwnMessage &&
                   (message.customProperties?['ldesk_ai_reply'] == 'true' ||
-                   message.customProperties?['ldesk_ai_loading'] == 'true');
+                      message.customProperties?['ldesk_ai_loading'] == 'true');
               final bubbleColor = isOwnMessage
                   ? dark
                       ? kWeChatOutgoingBubbleColorDark
@@ -1739,51 +1677,52 @@ class ChatPage extends StatelessWidget implements PageShape {
                       child: content,
                     )
                   : Stack(
-                clipBehavior: Clip.none,
-                children: <Widget>[
-                  Container(
-                    constraints: BoxConstraints(maxWidth: maxBubbleWidth),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 9,
-                    ),
-                    decoration: BoxDecoration(
-                      // LUODA FIX: light-mode incoming bubbles are white on a
-                      // near-white canvas (#F7F7F7) — invisible. Add a 1px
-                      // border in light mode so peer messages have clear edges.
-                      // Dark mode keeps the original flat fill (no border) so
-                      // the bubble doesn't feel "outlined" against dark canvas.
-                      color: bubbleColor,
-                      borderRadius: BorderRadius.circular(5),
-                      border: !dark && !isOwnMessage
-                          ? Border.all(
-                              color: kWeChatIncomingBubbleBorder,
-                              width: 1,
-                            )
-                          : null,
-                    ),
-                    child: content,
-                  ),
-                  Positioned(
-                    top: 11,
-                    left: isOwnMessage ? null : -6,
-                    right: isOwnMessage ? -6 : null,
-                    child: CustomPaint(
-                      size: const Size(7, 10),
-                      painter: _ChatBubbleTailPainter(
-                        color: bubbleColor,
-                        pointsRight: isOwnMessage,
-                      ),
-                    ),
-                  ),
-                ],
-              );
+                      clipBehavior: Clip.none,
+                      children: <Widget>[
+                        Container(
+                          constraints: BoxConstraints(maxWidth: maxBubbleWidth),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 9,
+                          ),
+                          decoration: BoxDecoration(
+                            // LUODA FIX: light-mode incoming bubbles are white on a
+                            // near-white canvas (#F7F7F7) — invisible. Add a 1px
+                            // border in light mode so peer messages have clear edges.
+                            // Dark mode keeps the original flat fill (no border) so
+                            // the bubble doesn't feel "outlined" against dark canvas.
+                            color: bubbleColor,
+                            borderRadius: BorderRadius.circular(5),
+                            border: !dark && !isOwnMessage
+                                ? Border.all(
+                                    color: kWeChatIncomingBubbleBorder,
+                                    width: 1,
+                                  )
+                                : null,
+                          ),
+                          child: content,
+                        ),
+                        Positioned(
+                          top: 11,
+                          left: isOwnMessage ? null : -6,
+                          right: isOwnMessage ? -6 : null,
+                          child: CustomPaint(
+                            size: const Size(7, 10),
+                            painter: _ChatBubbleTailPainter(
+                              color: bubbleColor,
+                              pointsRight: isOwnMessage,
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
               final messageColumn = Flexible(
-                child: GestureDetector(
-                  onSecondaryTapUp: (details) async {
+                child: MessageContextRegion(
+                  onSecondaryTap: (position) async {
                     final action = await _showWeChatContextMenu(
-                      context, message,
-                      position: details.globalPosition,
+                      context,
+                      message,
+                      position: position,
                       alignToAvatarLeft: isOwnMessage,
                     );
                     if (context.mounted) {
@@ -1792,90 +1731,102 @@ class ChatPage extends StatelessWidget implements PageShape {
                     }
                   },
                   child: Column(
-                  crossAxisAlignment: isOwnMessage
-                      ? CrossAxisAlignment.end
-                      : CrossAxisAlignment.start,
-                  children: <Widget>[
-                    if (!isOwnMessage && name.isNotEmpty) ...<Widget>[
-                      Padding(
-                        padding: const EdgeInsets.only(left: 2, bottom: 5),
-                        child: Text(
-                          name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: dark
-                                ? const Color(0xFFA8AAAE)
-                                : const Color(0xFF888888),
-                            fontSize: isDesktopHome ? 12 : 13,
-                            height: 1.2,
+                    crossAxisAlignment: isOwnMessage
+                        ? CrossAxisAlignment.end
+                        : CrossAxisAlignment.start,
+                    children: <Widget>[
+                      if (!isOwnMessage && name.isNotEmpty) ...<Widget>[
+                        Padding(
+                          padding: const EdgeInsets.only(left: 2, bottom: 5),
+                          child: Text(
+                            name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: dark
+                                  ? const Color(0xFFA8AAAE)
+                                  : const Color(0xFF888888),
+                              fontSize: isDesktopHome ? 12 : 13,
+                              height: 1.2,
+                            ),
                           ),
                         ),
-                      ),
-                    ],
-                    bubble,
-                    if (isAiReply && aiReplyLabel(message).isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4, left: 2),
-                        child: Text(
-                          aiReplyLabel(message),
-                          style: TextStyle(
-                            fontSize: 11,
-                            height: 1.2,
-                            color: dark ? const Color(0xFF999CA2) : const Color(0xFF999999),
+                      ],
+                      bubble,
+                      if (isAiReply && aiReplyLabel(message).isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4, left: 2),
+                          child: Text(
+                            aiReplyLabel(message),
+                            style: TextStyle(
+                              fontSize: 11,
+                              height: 1.2,
+                              color: dark
+                                  ? const Color(0xFF999CA2)
+                                  : const Color(0xFF999999),
+                            ),
                           ),
                         ),
-                      ),
-                    if (isOwnMessage &&
-                        (hasDelivery(message) ||
-                            selfDestructLabel(message).isNotEmpty))
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4, right: 2),
-                        child: DefaultTextStyle.merge(
-                          style: TextStyle(
-                            fontSize: 11,
-                            height: 1.2,
-                            color: dark ? const Color(0xFF999CA2) : const Color(0xFF999999),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              if (hasDelivery(message)) deliveryWidget(message),
-                              if (hasDelivery(message) && (selfDestructLabel(message).isNotEmpty || aiReplyLabel(message).isNotEmpty))
-                                const Padding(
-                                  padding: EdgeInsets.symmetric(horizontal: 4),
-                                  child: Text('·'),
-                                ),
-                              if (selfDestructLabel(message).isNotEmpty)
-                                Text(selfDestructLabel(message)),
-                              if (selfDestructLabel(message).isNotEmpty && aiReplyLabel(message).isNotEmpty)
-                                const Padding(
-                                  padding: EdgeInsets.symmetric(horizontal: 4),
-                                  child: Text('·'),
-                                ),
-                              if (aiReplyLabel(message).isNotEmpty)
-                                Text(aiReplyLabel(message),
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: kWeChatPrimaryColor,
-                                      fontWeight: FontWeight.w500,
-                                    )),
-                              // Connection source badge (IP/ID)
-                              if (_connSourceLabel(message).isNotEmpty)
-                                Padding(
-                                  padding: const EdgeInsets.only(left: 4),
-                                  child: Text(_connSourceLabel(message),
+                      if (isOwnMessage &&
+                          (hasDelivery(message) ||
+                              selfDestructLabel(message).isNotEmpty))
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4, right: 2),
+                          child: DefaultTextStyle.merge(
+                            style: TextStyle(
+                              fontSize: 11,
+                              height: 1.2,
+                              color: dark
+                                  ? const Color(0xFF999CA2)
+                                  : const Color(0xFF999999),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (hasDelivery(message))
+                                  deliveryWidget(message),
+                                if (hasDelivery(message) &&
+                                    (selfDestructLabel(message).isNotEmpty ||
+                                        aiReplyLabel(message).isNotEmpty))
+                                  const Padding(
+                                    padding:
+                                        EdgeInsets.symmetric(horizontal: 4),
+                                    child: Text('·'),
+                                  ),
+                                if (selfDestructLabel(message).isNotEmpty)
+                                  Text(selfDestructLabel(message)),
+                                if (selfDestructLabel(message).isNotEmpty &&
+                                    aiReplyLabel(message).isNotEmpty)
+                                  const Padding(
+                                    padding:
+                                        EdgeInsets.symmetric(horizontal: 4),
+                                    child: Text('·'),
+                                  ),
+                                if (aiReplyLabel(message).isNotEmpty)
+                                  Text(aiReplyLabel(message),
                                       style: TextStyle(
-                                        fontSize: 10,
-                                        color: dark ? const Color(0xFF777A80) : const Color(0xFFAAAAAA),
+                                        fontSize: 11,
+                                        color: kWeChatPrimaryColor,
+                                        fontWeight: FontWeight.w500,
                                       )),
-                                ),
-                            ],
+                                // Connection source badge (IP/ID)
+                                if (_connSourceLabel(message).isNotEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.only(left: 4),
+                                    child: Text(_connSourceLabel(message),
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          color: dark
+                                              ? const Color(0xFF777A80)
+                                              : const Color(0xFFAAAAAA),
+                                        )),
+                                  ),
+                              ],
+                            ),
                           ),
                         ),
-                      ),
-                  ],
-                ),
+                    ],
+                  ),
                 ),
               );
               final avatar = messageAvatar(message.user, null, null);
@@ -1898,13 +1849,14 @@ class ChatPage extends StatelessWidget implements PageShape {
                     margin: const EdgeInsets.only(right: 8),
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: isSelected
-                          ? kWeChatPrimaryColor
-                          : Colors.transparent,
+                      color:
+                          isSelected ? kWeChatPrimaryColor : Colors.transparent,
                       border: Border.all(
                         color: isSelected
                             ? kWeChatPrimaryColor
-                            : (dark ? const Color(0xFF555A62) : const Color(0xFFCCCCCC)),
+                            : (dark
+                                ? const Color(0xFF555A62)
+                                : const Color(0xFFCCCCCC)),
                         width: 2,
                       ),
                     ),
@@ -1921,18 +1873,20 @@ class ChatPage extends StatelessWidget implements PageShape {
                         // Left-click recall button
                         IconButton(
                           onPressed: () async {
-                            final changed = await chatModel.recallMessage(message);
+                            final changed =
+                                await chatModel.recallMessage(message);
                             if (context.mounted && changed) {
                               ScaffoldMessenger.maybeOf(context)?.showSnackBar(
                                 SnackBar(
-                                    content: Text(translate('Message recalled'))),
+                                    content:
+                                        Text(translate('Message recalled'))),
                               );
                             }
                           },
                           tooltip: translate('Recall'),
                           visualDensity: VisualDensity.compact,
-                          constraints:
-                              const BoxConstraints.tightFor(width: 34, height: 34),
+                          constraints: const BoxConstraints.tightFor(
+                              width: 34, height: 34),
                           padding: EdgeInsets.zero,
                           style: IconButton.styleFrom(
                             backgroundColor: dark
@@ -2105,8 +2059,10 @@ class ChatPage extends StatelessWidget implements PageShape {
                       dateSeparatorBuilder: (date) {
                         final now = DateTime.now();
                         final today = DateTime(now.year, now.month, now.day);
-                        final yesterday = today.subtract(const Duration(days: 1));
-                        final msgDate = DateTime(date.year, date.month, date.day);
+                        final yesterday =
+                            today.subtract(const Duration(days: 1));
+                        final msgDate =
+                            DateTime(date.year, date.month, date.day);
                         String label;
                         if (msgDate == today) {
                           label = '${translate('Today')} '
@@ -2117,13 +2073,11 @@ class ChatPage extends StatelessWidget implements PageShape {
                               '${date.hour.toString().padLeft(2, '0')}:'
                               '${date.minute.toString().padLeft(2, '0')}';
                         } else if (date.year == now.year) {
-                          label =
-                              '${date.month}/${date.day} '
+                          label = '${date.month}/${date.day} '
                               '${date.hour.toString().padLeft(2, '0')}:'
                               '${date.minute.toString().padLeft(2, '0')}';
                         } else {
-                          label =
-                              '${date.year}/${date.month}/${date.day} '
+                          label = '${date.year}/${date.month}/${date.day} '
                               '${date.hour.toString().padLeft(2, '0')}:'
                               '${date.minute.toString().padLeft(2, '0')}';
                         }
@@ -2151,7 +2105,8 @@ class ChatPage extends StatelessWidget implements PageShape {
                       showOtherUsersName: false,
                       onLongPressMessage: (message) async {
                         final action = await _showWeChatContextMenu(
-                          context, message,
+                          context,
+                          message,
                           position: Offset.zero,
                         );
                         if (context.mounted) {
@@ -2214,7 +2169,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                       },
                     ),
                   ).workaroundFreezeLinuxMint();
-                  final messageList = SelectionArea(child: chat);
+                  final messageList = chat;
                   // Typing indicator — shared between desktop and mobile
                   final peerId = chatModel.currentKey.peerId;
                   Widget typingBar = const SizedBox.shrink();
@@ -2224,11 +2179,14 @@ class ChatPage extends StatelessWidget implements PageShape {
                       child: Row(
                         children: [
                           SizedBox(
-                            width: 12, height: 12,
+                            width: 12,
+                            height: 12,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
                               valueColor: AlwaysStoppedAnimation<Color>(
-                                dark ? const Color(0xFF999CA2) : const Color(0xFF999999),
+                                dark
+                                    ? const Color(0xFF999CA2)
+                                    : const Color(0xFF999999),
                               ),
                             ),
                           ),
@@ -2237,7 +2195,9 @@ class ChatPage extends StatelessWidget implements PageShape {
                             translate('Typing...'),
                             style: TextStyle(
                               fontSize: 12,
-                              color: dark ? const Color(0xFF999CA2) : const Color(0xFF999999),
+                              color: dark
+                                  ? const Color(0xFF999CA2)
+                                  : const Color(0xFF999999),
                               fontStyle: FontStyle.italic,
                             ),
                           ),
@@ -2249,11 +2209,9 @@ class ChatPage extends StatelessWidget implements PageShape {
                   final replyMsg = chatModel.replyToMessage;
                   Widget replyBar = const SizedBox.shrink();
                   if (replyMsg != null) {
-                    final replyUser =
-                        replyMsg.user.id == chatModel.me.id
-                            ? translate('Me')
-                            : (replyMsg.user.firstName ??
-                                replyMsg.user.id);
+                    final replyUser = replyMsg.user.id == chatModel.me.id
+                        ? translate('Me')
+                        : (replyMsg.user.firstName ?? replyMsg.user.id);
                     replyBar = Container(
                       padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
                       decoration: BoxDecoration(
@@ -2281,8 +2239,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                           const SizedBox(width: 10),
                           Expanded(
                             child: Column(
-                              crossAxisAlignment:
-                                  CrossAxisAlignment.start,
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Text(
@@ -2310,85 +2267,10 @@ class ChatPage extends StatelessWidget implements PageShape {
                           ),
                           IconButton(
                             onPressed: () => chatModel.cancelReply(),
-                            icon: const Icon(Icons.close_rounded,
-                                size: 18),
-                            constraints: const BoxConstraints
-                                .tightFor(width: 32, height: 32),
+                            icon: const Icon(Icons.close_rounded, size: 18),
+                            constraints: const BoxConstraints.tightFor(
+                                width: 32, height: 32),
                             padding: EdgeInsets.zero,
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-                  // Reconnect banner
-                  Widget reconnectBar = const SizedBox.shrink();
-                  if (chatModel.isReconnecting) {
-                    reconnectBar = Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                          vertical: 8, horizontal: 14),
-                      color: dark
-                          ? const Color(0xFF3A3A1A)
-                          : const Color(0xFFFFF9E6),
-                      child: Row(
-                        children: [
-                          SizedBox(
-                            width: 14, height: 14,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor:
-                                  AlwaysStoppedAnimation<Color>(
-                                dark ? const Color(0xFFFFD54F)
-                                    : const Color(0xFFF9A825),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Text(
-                            translate('Reconnecting...'),
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: dark
-                                  ? const Color(0xFFFFD54F)
-                                  : const Color(0xFFF9A825),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-                  // Offline banner — shown when the peer is offline so the
-                  // user understands why messages can't be sent.
-                  Widget offlineBar = const SizedBox.shrink();
-                  if (peerOffline && chatModel.currentKey.peerId.isNotEmpty) {
-                    offlineBar = Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                          vertical: 8, horizontal: 14),
-                      color: dark
-                          ? const Color(0xFF3A2D1A)
-                          : const Color(0xFFFFF4E5),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.cloud_off_rounded,
-                            size: 16,
-                            color: dark
-                                ? const Color(0xFFFFB74D)
-                                : const Color(0xFFEF6C00),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              translate(
-                                  'Peer is offline — messages will be kept locally and sent when they reconnect'),
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: dark
-                                    ? const Color(0xFFFFB74D)
-                                    : const Color(0xFFB05600),
-                              ),
-                            ),
                           ),
                         ],
                       ),
@@ -2398,8 +2280,8 @@ class ChatPage extends StatelessWidget implements PageShape {
                   // the conversation has more history beyond the initial load.
                   Widget loadOlderBar = const SizedBox.shrink();
                   if (chatModel.hasOlderMessages(chatModel.currentKey) &&
-                      chatModel.messages[chatModel.currentKey]
-                              ?.chatMessages.isNotEmpty ==
+                      chatModel.messages[chatModel.currentKey]?.chatMessages
+                              .isNotEmpty ==
                           true) {
                     loadOlderBar = GestureDetector(
                       onTap: () =>
@@ -2435,10 +2317,9 @@ class ChatPage extends StatelessWidget implements PageShape {
                   if (!isDesktopHome) {
                     return Column(
                       children: <Widget>[
-                        reconnectBar,
-                        offlineBar,
                         loadOlderBar,
-                        Expanded(child: _buildMessageArea(
+                        Expanded(
+                            child: _buildMessageArea(
                           context: context,
                           dark: dark,
                           messageList: messageList,
@@ -2452,10 +2333,9 @@ class ChatPage extends StatelessWidget implements PageShape {
                   }
                   return Column(
                     children: <Widget>[
-                      reconnectBar,
-                      offlineBar,
                       loadOlderBar,
-                      Expanded(child: _buildMessageArea(
+                      Expanded(
+                          child: _buildMessageArea(
                         context: context,
                         dark: dark,
                         messageList: messageList,
@@ -2470,28 +2350,31 @@ class ChatPage extends StatelessWidget implements PageShape {
                         dark: dark,
                         onAttachFile: onAttachFile,
                         onRemoteAssist: onRemoteAssist,
+                        onSendImage: onSendImage,
                         onPasteImage: onPasteImage,
                       ),
                     ],
                   );
                 }),
                 // Toolbar buttons (top-right corner)
-                if (isDesktopHome &&
-                    chatModel.currentKey.peerId.isNotEmpty)
+                if (isDesktopHome && chatModel.currentKey.peerId.isNotEmpty)
                   Positioned(
-                    top: 8, right: 8,
+                    top: 8,
+                    right: 8,
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         _toolbarIconButton(
-                          context, dark,
+                          context,
+                          dark,
                           icon: Icons.perm_media_outlined,
                           tooltip: translate('Shared media'),
                           onTap: () => _showMediaGallery(context),
                         ),
                         const SizedBox(width: 4),
                         _toolbarIconButton(
-                          context, dark,
+                          context,
+                          dark,
                           icon: Icons.delete_sweep_outlined,
                           tooltip: translate('Clear chat history'),
                           onTap: () => _showClearHistoryDialog(context),
@@ -2502,7 +2385,9 @@ class ChatPage extends StatelessWidget implements PageShape {
                 // Multi-select bottom action bar
                 if (chatModel.isMultiSelectMode)
                   Positioned(
-                    bottom: 0, left: 0, right: 0,
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
                     child: multiSelectBottomBar(context, dark),
                   ),
                 if (chatModel.chatSearchVisible)
@@ -2511,7 +2396,9 @@ class ChatPage extends StatelessWidget implements PageShape {
                     left: 0,
                     right: 0,
                     child: Container(
-                      color: dark ? const Color(0xF22B2D32) : const Color(0xF2FFFFFF),
+                      color: dark
+                          ? const Color(0xF22B2D32)
+                          : const Color(0xF2FFFFFF),
                       padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
                       child: Row(
                         children: [
@@ -2521,18 +2408,22 @@ class ChatPage extends StatelessWidget implements PageShape {
                               decoration: InputDecoration(
                                 isDense: true,
                                 hintText: translate('Search messages...'),
-                                prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                                prefixIcon:
+                                    const Icon(Icons.search_rounded, size: 20),
                                 suffixIcon: chatModel.chatSearchText.isNotEmpty
                                     ? IconButton(
-                                        icon: const Icon(Icons.clear_rounded, size: 18),
-                                        onPressed: () => chatModel.updateChatSearch(''),
+                                        icon: const Icon(Icons.clear_rounded,
+                                            size: 18),
+                                        onPressed: () =>
+                                            chatModel.updateChatSearch(''),
                                       )
                                     : null,
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 8,
+                                  horizontal: 12,
+                                  vertical: 8,
                                 ),
                               ),
                               onChanged: chatModel.updateChatSearch,
@@ -2582,7 +2473,8 @@ class ChatPage extends StatelessWidget implements PageShape {
     final cardBg = dark ? const Color(0xFF2E3139) : const Color(0xFFFFFFFF);
     final cardBorder = dark ? const Color(0xFF3D404A) : const Color(0xFFE2E2E7);
     final iconColor = dark ? const Color(0xFF5A5D66) : const Color(0xFFB0B0B5);
-    final headingColor = dark ? const Color(0xFFAAADB5) : const Color(0xFF3C3C43);
+    final headingColor =
+        dark ? const Color(0xFFAAADB5) : const Color(0xFF3C3C43);
     final subColor = dark ? const Color(0xFF727580) : const Color(0xFF8E8E93);
     final shadowColor = dark ? Colors.black26 : const Color(0x14000000);
     final peerId = chatModel.currentKey.peerId;
@@ -2653,6 +2545,7 @@ class _DesktopChatComposer extends StatefulWidget {
     required this.dark,
     this.onAttachFile,
     this.onRemoteAssist,
+    this.onSendImage,
     this.onPasteImage,
   });
 
@@ -2661,37 +2554,116 @@ class _DesktopChatComposer extends StatefulWidget {
   final bool dark;
   final VoidCallback? onAttachFile;
   final VoidCallback? onRemoteAssist;
-  final VoidCallback? onPasteImage;
+  final VoidCallback? onSendImage;
+  final PasteImageCallback? onPasteImage;
 
   @override
   State<_DesktopChatComposer> createState() => _DesktopChatComposerState();
 }
 
 class _DesktopChatComposerState extends State<_DesktopChatComposer> {
+  static const double _collapsedHeight = 132;
+  static const double _expandedHeight = 260;
+
   bool _atOverlayVisible = false;
   List<MeetingMember> _atCandidates = [];
   int _atCursorPos = -1;
   final LayerLink _layerLink = LayerLink();
+  final ScrollController _inputScrollController = ScrollController();
   bool _inputFocused = false;
   bool _showEmojiPicker = false;
+  bool _inputExpanded = false;
 
   ChatModel get chatModel => widget.chatModel;
   bool get enabled => widget.enabled;
   bool get dark => widget.dark;
   VoidCallback? get onAttachFile => widget.onAttachFile;
   VoidCallback? get onRemoteAssist => widget.onRemoteAssist;
-  VoidCallback? get onPasteImage => widget.onPasteImage;
+  VoidCallback? get onSendImage => widget.onSendImage;
+  PasteImageCallback? get onPasteImage => widget.onPasteImage;
 
   /// Free Unicode emoji pack — commonly used chat faces and symbols.
   static const _emojiList = <String>[
-    '😀', '😂', '🤣', '😊', '😍', '🥰', '😘', '😜', '🤔', '😎',
-    '😢', '😭', '😤', '😡', '🥺', '😱', '🤯', '😴', '🤤', '😷',
-    '👍', '👎', '👏', '🙏', '💪', '✌️', '🤝', '👋', '🖐️', '🤞',
-    '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '💔', '💯',
-    '🔥', '⭐', '🎉', '🎊', '🥇', '✅', '❌', '💡', '📌', '🎯',
-    '🍕', '🍔', '☕', '🍺', '🎂', '🌈', '🌹', '🌸', '☀️', '🌙',
-    '🐶', '🐱', '🦊', '🐼', '🐧', '🦄', '🐝', '🐙', '🐳', '🦋',
-    '😅', '🙃', '😏', '😌', '🤗', '🤩', '😇', '🤐', '🥱', '😈',
+    '😀',
+    '😂',
+    '🤣',
+    '😊',
+    '😍',
+    '🥰',
+    '😘',
+    '😜',
+    '🤔',
+    '😎',
+    '😢',
+    '😭',
+    '😤',
+    '😡',
+    '🥺',
+    '😱',
+    '🤯',
+    '😴',
+    '🤤',
+    '😷',
+    '👍',
+    '👎',
+    '👏',
+    '🙏',
+    '💪',
+    '✌️',
+    '🤝',
+    '👋',
+    '🖐️',
+    '🤞',
+    '❤️',
+    '🧡',
+    '💛',
+    '💚',
+    '💙',
+    '💜',
+    '🖤',
+    '🤍',
+    '💔',
+    '💯',
+    '🔥',
+    '⭐',
+    '🎉',
+    '🎊',
+    '🥇',
+    '✅',
+    '❌',
+    '💡',
+    '📌',
+    '🎯',
+    '🍕',
+    '🍔',
+    '☕',
+    '🍺',
+    '🎂',
+    '🌈',
+    '🌹',
+    '🌸',
+    '☀️',
+    '🌙',
+    '🐶',
+    '🐱',
+    '🦊',
+    '🐼',
+    '🐧',
+    '🦄',
+    '🐝',
+    '🐙',
+    '🐳',
+    '🦋',
+    '😅',
+    '🙃',
+    '😏',
+    '😌',
+    '🤗',
+    '🤩',
+    '😇',
+    '🤐',
+    '🥱',
+    '😈',
   ];
 
   void _insertEmoji(String emoji) {
@@ -2719,7 +2691,16 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
   void dispose() {
     chatModel.textController.removeListener(_onTextChanged);
     chatModel.inputNode.removeListener(_onFocusChanged);
+    _inputScrollController.dispose();
     super.dispose();
+  }
+
+  void _toggleInputExpanded() {
+    setState(() {
+      _inputExpanded = !_inputExpanded;
+      if (_inputExpanded) _showEmojiPicker = false;
+    });
+    chatModel.inputNode.requestFocus();
   }
 
   void _onFocusChanged() {
@@ -2769,9 +2750,8 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
       return;
     }
     setState(() {
-      _atCandidates = group.members!
-          .where((m) => m.peerId != chatModel.me.id)
-          .toList();
+      _atCandidates =
+          group.members!.where((m) => m.peerId != chatModel.me.id).toList();
       _atOverlayVisible = true;
       _atCursorPos = chatModel.textController.selection.baseOffset;
     });
@@ -2802,7 +2782,8 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
     final before = text.substring(0, cursor);
     final atIdx = before.lastIndexOf('@');
     if (atIdx < 0) return;
-    final newText = '${text.substring(0, atIdx)}@${member.displayName} ${text.substring(cursor)}';
+    final newText =
+        '${text.substring(0, atIdx)}@${member.displayName} ${text.substring(cursor)}';
     chatModel.textController.text = newText;
     chatModel.textController.selection = TextSelection.collapsed(
       offset: atIdx + member.displayName.length + 2, // @Name<space>
@@ -2814,7 +2795,7 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
     final bg = dark ? const Color(0xFF1E2024) : const Color(0xFFF5F5F5);
     final border = dark ? const Color(0xFF3A3D43) : const Color(0xFFE2E2E2);
     return Container(
-      height: 180,
+      height: 164,
       margin: const EdgeInsets.fromLTRB(8, 0, 8, 2),
       decoration: BoxDecoration(
         color: bg,
@@ -2822,11 +2803,11 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
         border: Border.all(color: border),
       ),
       child: GridView.builder(
-        padding: const EdgeInsets.all(6),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 10,
-          mainAxisSpacing: 2,
-          crossAxisSpacing: 2,
+        padding: const EdgeInsets.all(4),
+        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+          maxCrossAxisExtent: 40,
+          mainAxisSpacing: 0,
+          crossAxisSpacing: 0,
         ),
         itemCount: _emojiList.length,
         itemBuilder: (_, i) => InkWell(
@@ -2838,6 +2819,39 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
         ),
       ),
     );
+  }
+
+  Future<void> _pasteClipboardText() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final pasted = data?.text;
+    if (pasted == null || pasted.isEmpty || !enabled) return;
+    final controller = chatModel.textController;
+    final value = controller.value;
+    final selection = value.selection;
+    final start = selection.isValid ? selection.start : value.text.length;
+    final end = selection.isValid ? selection.end : value.text.length;
+    controller.value = value.copyWith(
+      text: value.text.replaceRange(start, end, pasted),
+      selection: TextSelection.collapsed(offset: start + pasted.length),
+      composing: TextRange.empty,
+    );
+  }
+
+  Future<void> _handlePasteShortcut() async {
+    final pastedImage = await onPasteImage?.call(false) ?? false;
+    if (!pastedImage) await _pasteClipboardText();
+  }
+
+  KeyEventResult _handleComposerKeyEvent(FocusNode _, KeyEvent event) {
+    if (event is! KeyDownEvent || event.logicalKey != LogicalKeyboardKey.keyV) {
+      return KeyEventResult.ignored;
+    }
+    final keyboard = HardwareKeyboard.instance;
+    if (!keyboard.isControlPressed && !keyboard.isMetaPressed) {
+      return KeyEventResult.ignored;
+    }
+    if (enabled) unawaited(_handlePasteShortcut());
+    return KeyEventResult.handled;
   }
 
   void _send() {
@@ -2854,14 +2868,16 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
         ? const Color(0x473A3D43) // 28% opacity
         : const Color(0x47E2E2E2); // 28% opacity
     final focusedBorder = dark
-        ? const Color(0x4D4CAF50) // 30% opacity (slightly more visible when focused)
+        ? const Color(
+            0x4D4CAF50) // 30% opacity (slightly more visible when focused)
         : const Color(0x4707C160); // 28% opacity
     final foreground = dark ? const Color(0xFFF2F2F2) : const Color(0xFF222222);
     final muted = dark ? const Color(0xFF999CA2) : const Color(0xFF777777);
+    final composerHeight = _inputExpanded ? _expandedHeight : _collapsedHeight;
     final composer = AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeOut,
-      height: 118,
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOutCubic,
+      height: composerHeight,
       margin: const EdgeInsets.fromLTRB(8, 2, 8, 8),
       decoration: BoxDecoration(
         color: dark ? const Color(0xFF25272C) : kWeChatCanvasColor,
@@ -2883,30 +2899,70 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
       child: Column(
         children: <Widget>[
           Expanded(
-            child: TextField(
-              controller: chatModel.textController,
-              focusNode: chatModel.inputNode,
-              enabled: enabled,
-              expands: true,
-              minLines: null,
-              maxLines: null,
-              textAlignVertical: TextAlignVertical.top,
-              style: TextStyle(
-                color: foreground,
-                fontSize: 14,
-                height: 1.45,
-                letterSpacing: 0,
-              ),
-              decoration: InputDecoration(
-                hintText: translate('Write a message'),
-                hintStyle: TextStyle(
-                  color: muted,
-                  fontSize: 14,
-                  height: 1.45,
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: Focus(
+                    onKeyEvent: _handleComposerKeyEvent,
+                    child: Scrollbar(
+                      controller: _inputScrollController,
+                      thumbVisibility: true,
+                      trackVisibility: true,
+                      interactive: true,
+                      thickness: 6,
+                      radius: const Radius.circular(3),
+                      child: TextField(
+                        controller: chatModel.textController,
+                        focusNode: chatModel.inputNode,
+                        scrollController: _inputScrollController,
+                        enabled: enabled,
+                        expands: true,
+                        minLines: null,
+                        maxLines: null,
+                        textAlignVertical: TextAlignVertical.top,
+                        style: TextStyle(
+                          color: foreground,
+                          fontSize: 14,
+                          height: 1.45,
+                          letterSpacing: 0,
+                        ),
+                        decoration: InputDecoration(
+                          hintText: translate('Write a message'),
+                          hintStyle: TextStyle(
+                            color: muted,
+                            fontSize: 14,
+                            height: 1.45,
+                          ),
+                          contentPadding:
+                              const EdgeInsets.fromLTRB(14, 10, 52, 8),
+                          border: InputBorder.none,
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
-                contentPadding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
-                border: InputBorder.none,
-              ),
+                Positioned(
+                  top: 4,
+                  right: 12,
+                  child: Tooltip(
+                    message: translate(_inputExpanded ? 'Collapse' : 'Expand'),
+                    child: IconButton(
+                      onPressed: _toggleInputExpanded,
+                      constraints:
+                          const BoxConstraints.tightFor(width: 32, height: 32),
+                      padding: EdgeInsets.zero,
+                      splashRadius: 17,
+                      icon: Icon(
+                        _inputExpanded
+                            ? Icons.fullscreen_exit_rounded
+                            : Icons.fullscreen_rounded,
+                        size: 21,
+                        color: muted,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
           SizedBox(
@@ -2922,12 +2978,19 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
                       enabled: enabled,
                       onPressed: onAttachFile,
                     ),
-                  if (onPasteImage != null)
+                  if (onSendImage != null)
                     _ComposerToolButton(
                       icon: Icons.image_outlined,
                       tooltip: translate('Send Image'),
                       enabled: enabled,
-                      onPressed: onPasteImage,
+                      onPressed: onSendImage,
+                    ),
+                  if (onPasteImage != null)
+                    _ComposerToolButton(
+                      icon: Icons.content_paste_go_outlined,
+                      tooltip: translate('Paste Image'),
+                      enabled: enabled,
+                      onPressed: () => onPasteImage!(true),
                     ),
                   if (onRemoteAssist != null)
                     _ComposerToolButton(
@@ -2940,8 +3003,10 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
                     icon: Icons.emoji_emotions_outlined,
                     tooltip: translate('Emoji'),
                     enabled: enabled,
-                    onPressed: () =>
-                        setState(() => _showEmojiPicker = !_showEmojiPicker),
+                    onPressed: () => setState(() {
+                      _showEmojiPicker = !_showEmojiPicker;
+                      if (_showEmojiPicker) _inputExpanded = false;
+                    }),
                   ),
                   VoiceMessageRecorderButton(
                     chatModel: chatModel,
@@ -2989,7 +3054,7 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
                           style: const TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
-                            letterSpacing: 0.3,
+                            letterSpacing: 0,
                           ),
                         ),
                       );
@@ -3016,7 +3081,7 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
         withEmoji,
         if (_atOverlayVisible && _atCandidates.isNotEmpty)
           Positioned(
-            bottom: 122,
+            bottom: composerHeight + 4,
             left: 16,
             right: 16,
             child: Material(
@@ -3032,7 +3097,9 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
                   separatorBuilder: (_, __) => Divider(
                     height: 1,
                     indent: 52,
-                    color: dark ? const Color(0xFF3A3D43) : const Color(0xFFEEEEEE),
+                    color: dark
+                        ? const Color(0xFF3A3D43)
+                        : const Color(0xFFEEEEEE),
                   ),
                   itemBuilder: (_, i) {
                     final m = _atCandidates[i];
@@ -3273,7 +3340,8 @@ class _AiModelSelectorState extends State<_AiModelSelector> {
               ),
               if (isActive)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
                     color: kWeChatPrimaryColor.withOpacity(0.15),
                     borderRadius: BorderRadius.circular(4),
@@ -3347,9 +3415,7 @@ class _AiModelSelectorState extends State<_AiModelSelector> {
                   remaining == 0 ? '已用完' : '剩余 $remaining',
                   style: TextStyle(
                     fontSize: 10,
-                    color: remaining == 0
-                        ? Colors.red
-                        : kWeChatPrimaryColor,
+                    color: remaining == 0 ? Colors.red : kWeChatPrimaryColor,
                   ),
                 ),
               ),

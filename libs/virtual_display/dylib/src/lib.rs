@@ -174,18 +174,19 @@ type PMonitorMode = win10::idd::PMonitorMode;
 type PMonitorMode = *mut std::ffi::c_void;
 
 #[no_mangle]
-pub fn update_monitor_modes(
+/// # Safety
+///
+/// `_modes` must point to `_mode_count` valid monitor mode entries.
+pub unsafe fn update_monitor_modes(
     _monitor_index: u32,
     _mode_count: u32,
     _modes: PMonitorMode,
 ) -> ResultType<()> {
     #[cfg(windows)]
-    unsafe {
-        if win10::idd::FALSE
-            == win10::idd::MonitorModesUpdate(_monitor_index as _, _mode_count as _, _modes)
-        {
-            bail!("{}", win10::get_last_msg()?);
-        }
+    if win10::idd::FALSE
+        == win10::idd::MonitorModesUpdate(_monitor_index as _, _mode_count as _, _modes)
+    {
+        bail!("{}", win10::get_last_msg()?);
     }
     Ok(())
 }

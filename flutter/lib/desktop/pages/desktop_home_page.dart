@@ -7,6 +7,7 @@ import 'package:auto_size_text/auto_size_text.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:luoda_flutter/common.dart';
 import 'package:luoda_flutter/common/widgets/animated_rotation_widget.dart';
 import 'package:luoda_flutter/common/widgets/ai_config_page.dart';
@@ -42,8 +43,10 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:window_size/window_size.dart' as window_size;
+import 'package:win32/win32.dart';
 import '../widgets/button.dart';
 import '../../common/direct_chat.dart';
+import '../../common/direct_chat_policy.dart';
 import '../../common/direct_pairing.dart';
 import '../../common/direct_viewer_invite.dart';
 import '../../common/wechat_ui_tokens.dart';
@@ -72,6 +75,13 @@ enum _ConversationAction { fileTransfer, remoteAssist, camera, terminal, port }
 
 enum _WorkspaceNoticeTone { info, success, warning, error }
 
+class _PeopleGroupHeader {
+  const _PeopleGroupHeader(this.label, this.count);
+
+  final String label;
+  final int count;
+}
+
 class _DesktopHomePageState extends State<DesktopHomePage>
     with AutomaticKeepAliveClientMixin, WidgetsBindingObserver {
   final _leftPaneScrollController = ScrollController();
@@ -87,15 +97,22 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   var watchIsCanRecordAudio = false;
   Timer? _updateTimer;
   Timer? _directChatKeepAliveTimer;
-  // 空闲会话轮询拉取消息后的“自动关闭”定时器，以及上次重连时刻（用于限制重连频率）。
-  final Map<String, Timer> _idlePollClosers = <String, Timer>{};
-  final Map<String, DateTime> _lastIdleReconnect = <String, DateTime>{};
+  static const List<Duration> _backgroundChatRetryDelays = <Duration>[
+    Duration(seconds: 30),
+    Duration(minutes: 1),
+    Duration(minutes: 2),
+    Duration(minutes: 5),
+  ];
+  final Map<String, int> _backgroundChatFailures = <String, int>{};
+  final Map<String, DateTime> _backgroundChatRetryAfter = <String, DateTime>{};
+  bool _refreshingDirectSessions = false;
   bool isCardClosed = false;
   String _lastIp = '';
   String _lastLanIp = '';
   String _lastPort = '';
   bool _passwordVisible = false;
-  String _selectedRailId = 'chat';
+  final ValueNotifier<String> _selectedRail = ValueNotifier<String>('chat');
+  String get _selectedRailId => _selectedRail.value;
   Peer? _selectedContact;
   String? _selectedConversationPeerId;
   bool _openingViewerInvite = false;
@@ -103,8 +120,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   final Map<String, FFI> _directFileSessions = <String, FFI>{};
   final Map<String, bool> _knownPeerOnline = <String, bool>{};
   final Set<String> _notifiedChatConnections = <String>{};
-  int? _lastNetworkStatus;
-  DateTime? _lastNetworkNoticeAt;
+  static const Duration _contactSectionRefreshInterval = Duration(seconds: 30);
+  final Map<String, DateTime> _lastContactSectionLoad = <String, DateTime>{};
   Timer? _workspaceNoticeTimer;
   String? _workspaceNotice;
   _WorkspaceNoticeTone _workspaceNoticeTone = _WorkspaceNoticeTone.info;
@@ -116,6 +133,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   final RxBool _relayHover = false.obs;
   final RxBool _block = false.obs;
   final ContactCategoryModel _categoryModel = ContactCategoryModel();
+  final DirectChatAccessController _directChatAccess =
+      DirectChatAccessController.instance;
   String? _draggingPeerId; // 当前正在拖拽的联系人 ID
   String? _selectedCategoryFilter; // 当前选中的分类过滤器（null = 全部）
 
@@ -125,6 +144,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   final TextEditingController _clientIdController = TextEditingController();
   final TextEditingController _contactSearchController =
       TextEditingController();
+  final ValueNotifier<String> _contactQuery = ValueNotifier<String>('');
   final FocusNode _clientIdFocusNode = FocusNode();
 
   void _onClientConnect(String id, BuildContext buildCtx) {
@@ -238,6 +258,16 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           value: 'favorite',
           child: Text(translate('Add to Favorites')),
         ),
+        PopupMenuItem(
+          value: _directChatAccess.isFriend(id) ? 'stranger' : 'friend',
+          child: Text(
+            translate(
+              _directChatAccess.isFriend(id)
+                  ? 'Move to strangers'
+                  : 'Add as friend',
+            ),
+          ),
+        ),
         if (peer != null && _selectedRailId == 'contacts')
           PopupMenuItem(value: 'tags', child: Text(translate('Edit Tag'))),
         if (peer != null && _selectedRailId == 'contacts')
@@ -245,13 +275,17 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         PopupMenuItem(
           value: 'mute',
           child: Text(
-            gFFI.chatSettingsModel.isMuted(id) ? translate('Unmute') : translate('Mute'),
+            gFFI.chatSettingsModel.isMuted(id)
+                ? translate('Unmute')
+                : translate('Mute'),
           ),
         ),
         PopupMenuItem(
           value: 'block',
           child: Text(
-            gFFI.chatSettingsModel.isBlocked(id) ? translate('Unblock') : translate('Block'),
+            gFFI.chatSettingsModel.isBlocked(id)
+                ? translate('Unblock')
+                : translate('Block'),
           ),
         ),
         PopupMenuItem(
@@ -269,6 +303,15 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         break;
       case 'favorite':
         await _addManagedEntriesToFavorites(<String>[id]);
+        break;
+      case 'friend':
+        if (gFFI.chatSettingsModel.isBlocked(id)) {
+          await gFFI.chatSettingsModel.toggleBlock(id);
+        }
+        await _directChatAccess.setPeerPolicy(id, 'allow');
+        break;
+      case 'stranger':
+        await _directChatAccess.setPeerPolicy(id, 'ask');
         break;
       case 'tags':
         editAbTagDialog(gFFI.abModel.getPeerTags(id), (tags) async {
@@ -296,7 +339,12 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         }
         break;
       case 'block':
+        final willBlock = !gFFI.chatSettingsModel.isBlocked(id);
         await gFFI.chatSettingsModel.toggleBlock(id);
+        await _directChatAccess.setPeerPolicy(
+          id,
+          willBlock ? 'deny' : 'ask',
+        );
         if (context.mounted) {
           ScaffoldMessenger.maybeOf(context)?.showSnackBar(
             SnackBar(
@@ -360,16 +408,31 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             children: <Widget>[
               Row(
                 children: [
-                  if (showRail) _buildPrimaryRail(context),
-                  if (_selectedRailId == 'vip')
-                    const Expanded(child: VipFeaturesPage())
-                  else ...[
-                    SizedBox(
-                      width: contactsWidth,
-                      child: _buildContactsPane(context),
+                  if (showRail)
+                    ValueListenableBuilder<String>(
+                      valueListenable: _selectedRail,
+                      builder: (context, _, __) => _buildPrimaryRail(context),
                     ),
-                    Expanded(child: _buildConversationWorkspace(context)),
-                  ],
+                  Expanded(
+                    child: ValueListenableBuilder<String>(
+                      valueListenable: _selectedRail,
+                      child: _buildConversationWorkspace(context),
+                      builder: (context, section, workspace) {
+                        if (section == 'vip') {
+                          return const VipFeaturesPage();
+                        }
+                        return Row(
+                          children: <Widget>[
+                            SizedBox(
+                              width: contactsWidth,
+                              child: _buildContactsPane(context),
+                            ),
+                            Expanded(child: workspace!),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
                 ],
               ),
               Positioned(
@@ -384,8 +447,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               Obx(() {
                 final status = gFFI.chatModel.voiceCallStatus.value;
                 if (status == VoiceCallStatus.incoming) {
-                  final caller = gFFI.serverModel.clients
-                      .firstWhereOrNull((c) => c.incomingVoiceCall && !c.disconnected);
+                  final caller = gFFI.serverModel.clients.firstWhereOrNull(
+                      (c) => c.incomingVoiceCall && !c.disconnected);
                   return Positioned(
                     top: 0,
                     left: 0,
@@ -438,12 +501,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         selectedIcon: Icons.contacts_rounded,
       ),
       DesktopRailDestination(
-        id: 'history',
-        label: 'Access history',
-        icon: Icons.devices_outlined,
-        selectedIcon: Icons.devices_rounded,
-      ),
-      DesktopRailDestination(
         id: 'vip',
         label: 'VIP',
         icon: Icons.workspace_premium_outlined,
@@ -471,11 +528,14 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       'favorites',
       'discovered',
       'contacts',
-      'history',
       'vip',
     };
-    if (!sections.contains(section)) return;
-    if (mounted) setState(() => _selectedRailId = section);
+    if (!sections.contains(section) || !mounted) return;
+    if (_selectedRailId != section) {
+      _selectedRail.value = section;
+      _contactSearchController.clear();
+      _contactQuery.value = '';
+    }
     await _loadContactSection(section);
   }
 
@@ -488,7 +548,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       'favorites' => translate('Favorites'),
       'discovered' => translate('LAN discovery'),
       'contacts' => translate('Contacts'),
-      'history' => translate('Access history'),
       _ => translate('Contacts'),
     };
     return ColoredBox(
@@ -504,7 +563,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                     height: 34,
                     child: TextField(
                       controller: _contactSearchController,
-                      onChanged: (_) => setState(() {}),
+                      onChanged: (value) => _contactQuery.value = value,
                       onSubmitted: (value) {
                         if (DirectPairingStore.resolveConnectionTarget(value) !=
                             null) {
@@ -568,7 +627,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                       value: 'identity',
                       child: Text(translate('My Identity')),
                     ),
-                    if (_selectedRailId == 'chat' || _selectedRailId == 'contacts')
+                    if (_selectedRailId == 'chat' ||
+                        _selectedRailId == 'contacts')
                       PopupMenuItem<String>(
                         value: 'create-meeting',
                         child: Text(translate('Create Meeting')),
@@ -578,7 +638,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 if (_selectedRailId == 'contacts')
                   IconButton(
                     tooltip: translate('Add Category'),
-                    icon: const Icon(Icons.create_new_folder_outlined, size: 22),
+                    icon:
+                        const Icon(Icons.create_new_folder_outlined, size: 22),
                     onPressed: () => _showAddCategoryDialog(context),
                   ),
               ],
@@ -686,15 +747,16 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               gFFI.recentPeersModel,
               gFFI.favoritePeersModel,
               gFFI.lanPeersModel,
+              _directChatAccess,
             ]),
             builder: (context, _) => _buildPresenceStatusStrip(context),
           ),
           if (_selectedRailId == 'contacts') _buildCategoryFilterBar(context),
- Expanded(child: _buildContactSection(context)),
- ],
- ),
- );
- }
+          Expanded(child: _buildContactSection(context)),
+        ],
+      ),
+    );
+  }
 
   /// 分类过滤器栏 - 显示在联系人列表上方，支持点击筛选与拖拽投放
   Widget _buildCategoryFilterBar(BuildContext context) {
@@ -723,7 +785,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                   onTap: () => setState(() => _selectedCategoryFilter = null),
                   color: isSelected
                       ? theme.colorScheme.primary
-                      : (dark ? const Color(0xFF3A3D43) : const Color(0xFFE0E5EA)),
+                      : (dark
+                          ? const Color(0xFF3A3D43)
+                          : const Color(0xFFE0E5EA)),
                   onAcceptPeer: (_) {},
                 ),
               );
@@ -736,14 +800,17 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 label: category.name,
                 count: _categoryModel.getCategoryCount(category.name),
                 isSelected: isSelected,
-                onTap: () =>
-                    setState(() => _selectedCategoryFilter = isSelected ? null : category.name),
+                onTap: () => setState(() => _selectedCategoryFilter =
+                    isSelected ? null : category.name),
                 color: isSelected
                     ? theme.colorScheme.primary
-                    : (dark ? const Color(0xFF3A3D43) : const Color(0xFFE0E5EA)),
+                    : (dark
+                        ? const Color(0xFF3A3D43)
+                        : const Color(0xFFE0E5EA)),
                 onAcceptPeer: (peerId) {
                   _categoryModel.setPeerCategory(peerId, category.name);
-                  showToast(translate('Moved to {name}').replaceAll('{name}', category.name));
+                  showToast(translate('Moved to {name}')
+                      .replaceAll('{name}', category.name));
                 },
               ),
             );
@@ -792,7 +859,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 Icon(
                   Icons.folder_outlined,
                   size: 14,
-                  color: (isSelected || isHover) ? Colors.white : theme.colorScheme.onSurface,
+                  color: (isSelected || isHover)
+                      ? Colors.white
+                      : theme.colorScheme.onSurface,
                 ),
                 const SizedBox(width: 4),
                 Text(
@@ -802,7 +871,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                     color: (isSelected || isHover)
                         ? Colors.white
                         : theme.colorScheme.onSurface,
-                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                    fontWeight:
+                        isSelected ? FontWeight.w600 : FontWeight.normal,
                   ),
                 ),
                 if (count != null && count > 0) ...<Widget>[
@@ -957,15 +1027,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         : networkStatus == 0
             ? const Color(0xFFE39128)
             : const Color(0xFF667085);
-    final peer = _selectedContact;
-    final peerId = _selectedConversationPeerId ?? peer?.id ?? '';
-    final peerStatus =
-        peerId.isEmpty ? null : _directDeliveryStatus(peerId, contact: peer);
-    final peerLabel = peerStatus == null
-        ? translate('Not selected')
-        : translate(peerStatus.$1);
-    final peerColor =
-        peerStatus?.$2 ?? theme.colorScheme.onSurface.withOpacity(0.46);
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 8, 16, 10),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -995,13 +1056,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             ),
           ),
           Expanded(
-            child: _presenceStatusCell(
-              context,
-              label: translate('Peer status'),
-              value: peerLabel,
-              color: peerColor,
-              icon: Icons.devices_other_outlined,
-            ),
+            child: _messageAudienceCell(context),
           ),
         ],
       ),
@@ -1057,6 +1112,71 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                     ),
                   ),
                 ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _messageAudienceCell(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurface.withOpacity(0.56);
+    return Row(
+      children: <Widget>[
+        Icon(Icons.shield_outlined, size: 16, color: muted),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                translate('Message permissions'),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: muted,
+                  fontSize: 10,
+                ),
+              ),
+              SizedBox(
+                height: 24,
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<DirectChatAudience>(
+                    value: _directChatAccess.audience,
+                    isExpanded: true,
+                    isDense: true,
+                    icon: const Icon(Icons.expand_more_rounded, size: 18),
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: theme.colorScheme.onSurface,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    items: <DropdownMenuItem<DirectChatAudience>>[
+                      DropdownMenuItem<DirectChatAudience>(
+                        value: DirectChatAudience.friendsOnly,
+                        child: Text(
+                          translate('Only friends can contact me anytime'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      DropdownMenuItem<DirectChatAudience>(
+                        value: DirectChatAudience.everyone,
+                        child: Text(
+                          translate('Strangers can also chat with me directly'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) {
+                        unawaited(_directChatAccess.setAudience(value));
+                      }
+                    },
+                  ),
+                ),
               ),
             ],
           ),
@@ -1132,14 +1252,22 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           child: Consumer<ChatModel>(
             builder: (context, model, _) {
               final user = model.currentUser;
-              final selectedPeerId =
+              final rawSelectedPeerId =
                   _selectedConversationPeerId ?? _selectedContact?.id ?? '';
+              final modelPeerId = user?.id.trim() ?? '';
+              final selectedPairing =
+                  DirectPairingStore.find(rawSelectedPeerId) ??
+                      DirectPairingStore.findByEndpoint(rawSelectedPeerId);
+              final selectedPeerId =
+                  selectedPairing?.peerId.trim().isNotEmpty == true
+                      ? selectedPairing!.peerId.trim()
+                      : rawSelectedPeerId.trim();
               final userMatchesSelection = selectedPeerId.isEmpty ||
-                  user?.id.trim() == selectedPeerId.trim();
-              final peerId =
-                  userMatchesSelection && user?.id.trim().isNotEmpty == true
-                      ? user!.id.trim()
-                      : selectedPeerId;
+                  selectedPeerId == modelPeerId ||
+                  selectedPairing?.peerId == modelPeerId;
+              final peerId = userMatchesSelection && modelPeerId.isNotEmpty
+                  ? modelPeerId
+                  : selectedPeerId;
               final selectedName = _selectedContact == null
                   ? ''
                   : _contactName(_selectedContact!);
@@ -1178,8 +1306,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                   _sendFilesFromConversation(peerId),
                               onRemoteAssist: () =>
                                   _connectDirect(context, peerId),
-                              onPasteImage: () =>
-                                  _pasteImageToConversation(peerId),
+                              onSendImage: () =>
+                                  _pickImagesForConversation(peerId),
+                              onPasteImage: (notifyIfEmpty) =>
+                                  _pasteImageToConversation(
+                                peerId,
+                                notifyIfEmpty: notifyIfEmpty,
+                              ),
                             )
                           : _buildEmptyConversation(
                               context,
@@ -1629,14 +1762,16 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         model,
         gFFI.serverModel,
         DirectPairingStore.revision,
+        _directChatAccess,
+        _contactQuery,
       ]),
       builder: (context, _) {
-        final query = _contactSearchController.text.trim().toLowerCase();
+        final query = _contactQuery.value.trim().toLowerCase();
+        final directPairings = DirectPairingStore.load();
         final peers = <Peer>[];
         final seenPeerKeys = <String>{};
         for (final peer in model.peers) {
-          if ((_selectedRailId == 'recent' || _selectedRailId == 'history') &&
-              _isLoopbackPeer(peer)) {
+          if (_selectedRailId == 'recent' && _isLoopbackPeer(peer)) {
             continue;
           }
           if (query.isNotEmpty &&
@@ -1647,26 +1782,27 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           // 按分类筛选
           if (_selectedCategoryFilter != null &&
               _selectedRailId == 'contacts' &&
-              _categoryModel.getPeerCategory(peer.id) != _selectedCategoryFilter) {
+              _categoryModel.getPeerCategory(peer.id) !=
+                  _selectedCategoryFilter) {
             continue;
           }
           final identity = _historyIdentity(peer);
-          if ((_selectedRailId == 'recent' || _selectedRailId == 'history') &&
-              !seenPeerKeys.add(identity)) {
+          if (_selectedRailId == 'recent' && !seenPeerKeys.add(identity)) {
             continue;
           }
           peers.add(peer);
         }
         final peerIds = peers.map((peer) => peer.id).toSet();
         final standalonePairings = (_selectedRailId == 'contacts'
-                ? DirectPairingStore.load().values
+                ? directPairings.values
                 : const <DirectPairing>[])
             .where((pairing) {
           if (peerIds.contains(pairing.peerId)) return false;
           // 分类筛选（独立于搜索，需要先判断）
           if (_selectedCategoryFilter != null &&
               _selectedRailId == 'contacts' &&
-              _categoryModel.getPeerCategory(pairing.peerId) != _selectedCategoryFilter) {
+              _categoryModel.getPeerCategory(pairing.peerId) !=
+                  _selectedCategoryFilter) {
             return false;
           }
           if (query.isEmpty) return true;
@@ -1694,24 +1830,79 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             ),
           );
         }
+        final rows = <Object>[];
+        void addGroup(String label, bool friends) {
+          final groupedPairings = standalonePairings
+              .where(
+                (pairing) =>
+                    _directChatAccess.isFriend(pairing.peerId) == friends,
+              )
+              .toList(growable: false);
+          final groupedPeers = peers
+              .where(
+                (peer) =>
+                    _directChatAccess.isFriend(
+                      _conversationPeerId(peer.id, pairings: directPairings),
+                    ) ==
+                    friends,
+              )
+              .toList(growable: false);
+          final count = groupedPairings.length + groupedPeers.length;
+          if (count == 0) return;
+          rows.add(_PeopleGroupHeader(label, count));
+          rows.addAll(groupedPairings);
+          rows.addAll(groupedPeers);
+        }
+
+        addGroup('Friends', true);
+        addGroup('Strangers', false);
         return ListView.separated(
           padding: const EdgeInsets.symmetric(vertical: 4),
-          itemCount: standalonePairings.length + peers.length,
+          itemCount: rows.length,
           separatorBuilder: (_, __) => const SizedBox(height: 1),
           itemBuilder: (context, index) {
-            if (index < standalonePairings.length) {
+            final row = rows[index];
+            if (row is _PeopleGroupHeader) {
+              return _buildPeopleGroupHeader(context, row);
+            }
+            if (row is DirectPairing) {
               return _buildPairedContactItem(
                 context,
-                standalonePairings[index],
+                row,
               );
             }
             return _buildContactItem(
               context,
-              peers[index - standalonePairings.length],
+              row as Peer,
+              directPairings,
             );
           },
         );
       },
+    );
+  }
+
+  Widget _buildPeopleGroupHeader(
+    BuildContext context,
+    _PeopleGroupHeader group,
+  ) {
+    final theme = Theme.of(context);
+    return Container(
+      height: 32,
+      alignment: Alignment.centerLeft,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      color: theme.brightness == Brightness.dark
+          ? const Color(0xFF202227)
+          : const Color(0xFFF1F3F5),
+      child: Text(
+        '${translate(group.label)} (${group.count})',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: theme.textTheme.labelMedium?.copyWith(
+          color: theme.colorScheme.onSurface.withOpacity(0.62),
+          fontWeight: FontWeight.w600,
+        ),
+      ),
     );
   }
 
@@ -1753,9 +1944,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final properties = message.customProperties;
     if (properties?['ldesk_kind'] == 'file') {
       final fileName = (properties?['ldesk_file_name'] ?? '').toString();
-      return fileName.isEmpty
-          ? translate('File Transfer')
-          : fileName;
+      return fileName.isEmpty ? translate('File Transfer') : fileName;
+    }
+    if (properties?['ldesk_kind'] == 'voice') {
+      return translate('Voice message');
     }
     return message.text.trim().isEmpty
         ? translate('Message')
@@ -1778,26 +1970,53 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   }
 
   IconData _chatFileTypeIcon(String fileName) {
-    final ext = fileName.contains('.')
-        ? fileName.split('.').last.toLowerCase()
-        : '';
+    final ext =
+        fileName.contains('.') ? fileName.split('.').last.toLowerCase() : '';
     switch (ext) {
-      case 'jpg': case 'jpeg': case 'png': case 'gif':
-      case 'bmp': case 'webp': case 'svg':
+      case 'jpg':
+      case 'jpeg':
+      case 'png':
+      case 'gif':
+      case 'bmp':
+      case 'webp':
+      case 'svg':
         return Icons.image_outlined;
-      case 'mp4': case 'avi': case 'mkv': case 'mov':
-      case 'wmv': case 'flv':
+      case 'mp4':
+      case 'avi':
+      case 'mkv':
+      case 'mov':
+      case 'wmv':
+      case 'flv':
         return Icons.movie_outlined;
-      case 'mp3': case 'wav': case 'flac': case 'aac':
+      case 'mp3':
+      case 'wav':
+      case 'flac':
+      case 'aac':
         return Icons.audiotrack_outlined;
-      case 'pdf': return Icons.picture_as_pdf_outlined;
-      case 'doc': case 'docx': return Icons.description_outlined;
-      case 'xls': case 'xlsx': case 'csv': return Icons.table_chart_outlined;
-      case 'ppt': case 'pptx': return Icons.slideshow_outlined;
-      case 'zip': case 'rar': case '7z': case 'tar': case 'gz':
+      case 'pdf':
+        return Icons.picture_as_pdf_outlined;
+      case 'doc':
+      case 'docx':
+        return Icons.description_outlined;
+      case 'xls':
+      case 'xlsx':
+      case 'csv':
+        return Icons.table_chart_outlined;
+      case 'ppt':
+      case 'pptx':
+        return Icons.slideshow_outlined;
+      case 'zip':
+      case 'rar':
+      case '7z':
+      case 'tar':
+      case 'gz':
         return Icons.folder_zip_outlined;
-      case 'txt': case 'md': case 'log': return Icons.article_outlined;
-      default: return Icons.insert_drive_file_outlined;
+      case 'txt':
+      case 'md':
+      case 'log':
+        return Icons.article_outlined;
+      default:
+        return Icons.insert_drive_file_outlined;
     }
   }
 
@@ -1855,10 +2074,12 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         gFFI.chatModel,
         gFFI.serverModel,
         DirectPairingStore.revision,
+        _directChatAccess,
+        _contactQuery,
       ]),
       builder: (context, _) {
         final theme = Theme.of(context);
-        final query = _contactSearchController.text.trim().toLowerCase();
+        final query = _contactQuery.value.trim().toLowerCase();
         final entries = gFFI.chatModel.messages.entries.where((entry) {
           final peerId = entry.key.peerId.trim();
           if (peerId.isEmpty || peerId == gFFI.chatModel.me.id) return false;
@@ -1877,8 +2098,26 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           return m.title.toLowerCase().contains(query);
         }).toList(growable: false)
           ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-        final totalItems = meetingEntries.length + entries.length;
-        if (totalItems == 0) {
+        final rows = <Object>[];
+        if (meetingEntries.isNotEmpty) {
+          rows.add(_PeopleGroupHeader('Group chats', meetingEntries.length));
+          rows.addAll(meetingEntries);
+        }
+        void addConversationGroup(String label, bool friends) {
+          final grouped = entries
+              .where(
+                (entry) =>
+                    _directChatAccess.isFriend(entry.key.peerId) == friends,
+              )
+              .toList(growable: false);
+          if (grouped.isEmpty) return;
+          rows.add(_PeopleGroupHeader(label, grouped.length));
+          rows.addAll(grouped);
+        }
+
+        addConversationGroup('Friends', true);
+        addConversationGroup('Strangers', false);
+        if (rows.isEmpty) {
           return Center(
             child: Padding(
               padding: const EdgeInsets.all(24),
@@ -1910,7 +2149,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         }
         return ListView.separated(
           padding: EdgeInsets.zero,
-          itemCount: totalItems,
+          itemCount: rows.length,
           separatorBuilder: (_, __) => Divider(
             height: 1,
             indent: 65,
@@ -1920,18 +2159,25 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 : kWeChatDividerColor,
           ),
           itemBuilder: (context, index) {
-            if (index < meetingEntries.length) {
-              final meeting = meetingEntries[index];
-              final isSelected = _selectedConversationPeerId == 'meeting:${meeting.meetingId}';
+            final row = rows[index];
+            if (row is _PeopleGroupHeader) {
+              return _buildPeopleGroupHeader(context, row);
+            }
+            if (row is MeetingGroup) {
+              final meeting = row;
+              final isSelected =
+                  _selectedConversationPeerId == 'meeting:${meeting.meetingId}';
               return GestureDetector(
                 onTap: () {
                   setState(() {
-                    _selectedConversationPeerId = 'meeting:${meeting.meetingId}';
+                    _selectedConversationPeerId =
+                        'meeting:${meeting.meetingId}';
                     _selectedContact = null;
                     _activeDirectChatPeerId = null;
                   });
                   gFFI.chatModel.changeCurrentKey(
-                    MessageKey('meeting:${meeting.meetingId}', ChatModel.clientModeID),
+                    MessageKey(
+                        'meeting:${meeting.meetingId}', ChatModel.clientModeID),
                   );
                 },
                 onSecondaryTapUp: (details) {
@@ -1947,17 +2193,20 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                     child: SizedBox(
                       height: 68,
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 8),
                         child: Row(
                           children: <Widget>[
                             Container(
                               width: 40,
                               height: 40,
                               decoration: BoxDecoration(
-                                color: const Color(0xFF1A8E1A).withOpacity(0.15),
+                                color:
+                                    const Color(0xFF1A8E1A).withOpacity(0.15),
                                 borderRadius: BorderRadius.circular(8),
                               ),
-                              child: const Icon(Icons.groups_rounded, size: 22, color: Color(0xFF1A8E1A)),
+                              child: const Icon(Icons.groups_rounded,
+                                  size: 22, color: Color(0xFF1A8E1A)),
                             ),
                             const SizedBox(width: 11),
                             Expanded(
@@ -1969,7 +2218,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                     meeting.title,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w500),
+                                    style: theme.textTheme.bodyLarge
+                                        ?.copyWith(fontWeight: FontWeight.w500),
                                   ),
                                   const SizedBox(height: 3),
                                   Text(
@@ -1977,7 +2227,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: theme.textTheme.bodySmall?.copyWith(
-                                      color: theme.colorScheme.onSurface.withOpacity(0.48),
+                                      color: theme.colorScheme.onSurface
+                                          .withOpacity(0.48),
                                     ),
                                   ),
                                 ],
@@ -1991,7 +2242,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 ),
               );
             }
-            final entry = entries[index - meetingEntries.length];
+            final entry = row as MapEntry<MessageKey, MessageBody>;
             final peerId = entry.key.peerId;
             final user = entry.value.chatUser;
             final name = (user.firstName ?? '').trim();
@@ -2070,7 +2321,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                         size: 14,
                                         color: selected
                                             ? Colors.white.withOpacity(0.82)
-                                            : theme.colorScheme.onSurface.withOpacity(0.42),
+                                            : theme.colorScheme.onSurface
+                                                .withOpacity(0.42),
                                       ),
                                     if (gFFI.chatSettingsModel.isMuted(peerId))
                                       const SizedBox(width: 4),
@@ -2091,14 +2343,17 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                 const SizedBox(height: 3),
                                 Row(
                                   children: <Widget>[
-                                    if (_conversationFileIcon(entry) case final icon?)
+                                    if (_conversationFileIcon(entry)
+                                        case final icon?)
                                       Padding(
-                                        padding: const EdgeInsets.only(right: 5),
+                                        padding:
+                                            const EdgeInsets.only(right: 5),
                                         child: Icon(
                                           icon,
                                           size: 14,
                                           color: theme.colorScheme.onSurface
-                                              .withOpacity(selected ? 0.82 : 0.46),
+                                              .withOpacity(
+                                                  selected ? 0.82 : 0.46),
                                         ),
                                       ),
                                     Expanded(
@@ -2246,14 +2501,23 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     );
   }
 
-  Widget _buildContactItem(BuildContext context, Peer peer) {
-    final ffi = _directChatSessionFor(peer.id);
+  Widget _buildContactItem(
+    BuildContext context,
+    Peer peer,
+    Map<String, DirectPairing> pairings,
+  ) {
+    final conversationPeerId = _conversationPeerId(peer.id, pairings: pairings);
+    final ffi = _directChatSessionFor(conversationPeerId);
     final body = ffi != null
         ? AnimatedBuilder(
             animation: ffi.ffiModel,
-            builder: (context, _) => _buildContactItemBody(context, peer),
+            builder: (context, _) => _buildContactItemBody(
+              context,
+              peer,
+              conversationPeerId,
+            ),
           )
-        : _buildContactItemBody(context, peer);
+        : _buildContactItemBody(context, peer, conversationPeerId);
     // 仅在联系人（contacts）视图下启用长按拖拽到分类
     if (_selectedRailId != 'contacts') return body;
     return LongPressDraggable<String>(
@@ -2286,7 +2550,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             Expanded(
               child: Text(
                 _contactName(peer),
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.w600),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -2297,12 +2562,17 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     );
   }
 
-  Widget _buildContactItemBody(BuildContext context, Peer peer) {
+  Widget _buildContactItemBody(
+    BuildContext context,
+    Peer peer,
+    String conversationPeerId,
+  ) {
     final theme = Theme.of(context);
     final name = _contactName(peer);
-    final selected = _selectedConversationPeerId == peer.id;
+    final selected = _selectedConversationPeerId == conversationPeerId;
     final initial = name.trim().isEmpty ? '?' : name.trim().characters.first;
-    final delivery = _contactDeliveryStatus(peer);
+    final delivery =
+        _contactDeliveryStatus(peer, conversationPeerId: conversationPeerId);
     return GestureDetector(
       onSecondaryTapDown: (details) => _showManagedEntryMenu(
         context,
@@ -2317,35 +2587,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         child: InkWell(
           onTap: _contactSelectionMode
               ? () => _toggleManagedEntry(peer.id)
-              : () {
-                  final registered = _directChatSessionFor(peer.id);
-                  final active = registered != null && !registered.closed
-                      ? registered
-                      : null;
-                  final incoming = active == null
-                      ? _incomingDirectChatClientFor(peer.id)
-                      : null;
-                  setState(() {
-                    _selectedContact = peer;
-                    _selectedConversationPeerId = peer.id;
-                    _activeDirectChatPeerId = active == null ? null : peer.id;
-                  });
-                  final model = active?.chatModel ?? gFFI.chatModel;
-                  model.changeCurrentKey(
-                    MessageKey(
-                      peer.id,
-                      incoming?.id ?? ChatModel.clientModeID,
-                    ),
-                  );
-                  model.updatePeerIdentity(
-                    peer.id,
-                    displayName: _contactName(peer),
-                    avatar: peer.avatar,
-                  );
-                  if (active == null && incoming == null) {
-                    unawaited(_startDirectChat(peer.id));
-                  }
-                },
+              : () => _openContactConversation(peer),
           onDoubleTap: () => _connectDirect(context, peer.id),
           child: SizedBox(
             height: 66,
@@ -2439,16 +2681,75 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     );
   }
 
-  (String, Color) _contactDeliveryStatus(Peer peer) {
-    return _directDeliveryStatus(peer.id, contact: peer);
+  String _conversationPeerId(
+    String rawPeerId, {
+    Map<String, DirectPairing>? pairings,
+  }) {
+    final requestedId = rawPeerId.trim().replaceAll(' ', '');
+    if (requestedId.isEmpty) return '';
+    final availablePairings = pairings ?? DirectPairingStore.load();
+    var pairing = availablePairings[requestedId];
+    if (pairing == null) {
+      final target = requestedId.toLowerCase();
+      for (final candidate in availablePairings.values) {
+        if (candidate.endpoints.any(
+          (endpoint) => endpoint.toLowerCase().contains(target),
+        )) {
+          pairing = candidate;
+          break;
+        }
+      }
+    }
+    if (pairing != null && pairing.peerId.trim().isNotEmpty) {
+      return pairing.peerId.trim();
+    }
+    return requestedId;
+  }
+
+  void _openContactConversation(Peer peer) {
+    final requestedId = peer.id.trim();
+    final peerId = _conversationPeerId(requestedId);
+    if (peerId.isEmpty) return;
+    final registered = _directChatSessionFor(peerId);
+    final active = registered != null && !registered.closed ? registered : null;
+    final incoming =
+        active == null ? _incomingDirectChatClientFor(peerId) : null;
+    setState(() {
+      _selectedContact = peer;
+      _selectedConversationPeerId = peerId;
+      _activeDirectChatPeerId = active == null ? null : peerId;
+    });
+    final model = active?.chatModel ?? gFFI.chatModel;
+    model.changeCurrentKey(
+      MessageKey(peerId, incoming?.id ?? ChatModel.clientModeID),
+    );
+    model.updatePeerIdentity(
+      peerId,
+      displayName: _contactName(peer),
+      avatar: peer.avatar,
+    );
+    if (active == null && incoming == null) {
+      unawaited(_startDirectChat(requestedId));
+    }
+  }
+
+  (String, Color) _contactDeliveryStatus(
+    Peer peer, {
+    String? conversationPeerId,
+  }) {
+    return _directDeliveryStatus(
+      conversationPeerId ?? _conversationPeerId(peer.id),
+      contact: peer,
+    );
   }
 
   (String, Color) _directDeliveryStatus(String peerId, {Peer? contact}) {
     final ffi = _directChatSessionFor(peerId);
     final incoming = _incomingDirectChatClientFor(peerId);
     // Session alive and authorized: ready for chat.
-    if ((ffi != null && !ffi.closed &&
-         (ffi.ffiModel.pi.isSet.isTrue || ffi.connType == ConnType.chat)) ||
+    if ((ffi != null &&
+            !ffi.closed &&
+            (ffi.ffiModel.pi.isSet.isTrue || ffi.connType == ConnType.chat)) ||
         incoming != null) {
       return ('Messages allowed', const Color(0xFF238A57));
     }
@@ -2515,8 +2816,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         return gFFI.lanPeersModel;
       case 'contacts':
         return gFFI.abModel.peersModel;
-      case 'history':
-        return gFFI.recentPeersModel;
       case 'chat':
       case 'recent':
       default:
@@ -2525,27 +2824,36 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   }
 
   Future<void> _loadContactSection(String section) async {
-    switch (section) {
-      case 'favorites':
-        bind.mainLoadFavPeers();
-        break;
-      case 'discovered':
-        bind.mainLoadLanPeers();
-        bind.mainDiscover();
-        break;
-      case 'contacts':
-        await gFFI.abModel.pullAb(force: null, quiet: true);
-        break;
-      case 'history':
-        bind.mainLoadRecentPeers();
-        break;
-      case 'vip':
-        break;
-      case 'chat':
-      case 'recent':
-      default:
-        bind.mainLoadRecentPeers();
-        break;
+    final now = DateTime.now();
+    final lastLoad = _lastContactSectionLoad[section];
+    if (lastLoad != null &&
+        now.difference(lastLoad) < _contactSectionRefreshInterval) {
+      return;
+    }
+    _lastContactSectionLoad[section] = now;
+    try {
+      switch (section) {
+        case 'favorites':
+          bind.mainLoadFavPeers();
+          break;
+        case 'discovered':
+          bind.mainLoadLanPeers();
+          bind.mainDiscover();
+          break;
+        case 'contacts':
+          await gFFI.abModel.pullAb(force: null, quiet: true);
+          break;
+        case 'vip':
+          break;
+        case 'chat':
+        case 'recent':
+        default:
+          bind.mainLoadRecentPeers();
+          break;
+      }
+    } catch (_) {
+      _lastContactSectionLoad.remove(section);
+      rethrow;
     }
   }
 
@@ -2556,22 +2864,27 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final requestedId = rawPeerId.trim().replaceAll(' ', '');
     if (requestedId.isEmpty) return;
     if (await DirectPairingStore.isSelfTarget(requestedId)) {
-      _showConversationNotice(
-        translate(
-            'This is the current device. You cannot connect to or message yourself.'),
-        tone: _WorkspaceNoticeTone.error,
-      );
+      if (activate) {
+        _showConversationNotice(
+          translate(
+              'This is the current device. You cannot connect to or message yourself.'),
+          tone: _WorkspaceNoticeTone.error,
+        );
+      }
       return;
     }
-    final pairing = DirectPairingStore.find(requestedId);
+    final pairing = DirectPairingStore.find(requestedId) ??
+        DirectPairingStore.findByEndpoint(requestedId);
     final peerId = pairing?.peerId ?? requestedId;
     final endpoint = DirectPairingStore.resolveConnectionTarget(requestedId);
     if (endpoint == null) {
-      _showConversationNotice(
-        translate(
-            'Direct endpoint required. Scan the PC QR code or enter IP:port.'),
-        tone: _WorkspaceNoticeTone.warning,
-      );
+      if (activate) {
+        _showConversationNotice(
+          translate(
+              'Direct endpoint required. Scan the PC QR code or enter IP:port.'),
+          tone: _WorkspaceNoticeTone.warning,
+        );
+      }
       return;
     }
     final contact = _findContact(peerId);
@@ -2641,7 +2954,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       gFFI.groupModel.peersModel,
     ]) {
       for (final peer in model.peers) {
-        if (peer.id == peerId) return peer;
+        if (peer.id == peerId || _conversationPeerId(peer.id) == peerId) {
+          return peer;
+        }
       }
     }
     return null;
@@ -2670,164 +2985,104 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   }
 
   Future<void> _maintainTrustedChatSessions() async {
+    _directChatAccess.load();
     if (!mounted ||
-        bind.mainGetLocalOption(key: 'direct-chat-always-on') != 'Y' ||
-        bind.mainGetLocalOption(key: 'direct-chat-auto-reconnect') == 'N') {
+        !_directChatAccess.alwaysOn ||
+        !_directChatAccess.autoReconnect) {
       return;
     }
-    Map<String, dynamic> policies = const <String, dynamic>{};
-    try {
-      final raw = bind.mainGetLocalOption(
-        key: 'direct-chat-contact-policies',
-      );
-      if (raw.isNotEmpty) {
-        policies = Map<String, dynamic>.from(jsonDecode(raw) as Map);
-      }
-    } catch (_) {}
     for (final pairing in DirectPairingStore.load().values) {
       if (!mounted ||
           pairing.companion ||
-          policies[pairing.peerId] != 'allow') {
+          !_directChatAccess.shouldAutoReconnect(pairing.peerId)) {
         continue;
       }
+      if (!await _canMaintainBackgroundChat(pairing.peerId)) continue;
       final existing = _directChatSessionFor(pairing.peerId);
       final hasError =
           existing?.ffiModel.lastConnectionError?.isNotEmpty == true;
+      final connected = existing != null &&
+          !existing.closed &&
+          existing.ffiModel.pi.isSet.isTrue;
+      if (connected) {
+        _clearBackgroundChatRetry(pairing.peerId);
+        continue;
+      }
+      if (existing != null && !existing.closed && !hasError) continue;
+      if (!_backgroundChatRetryDue(pairing.peerId)) continue;
       if (existing != null && !existing.closed && hasError) {
         await existing.close();
       }
-      if (existing == null || existing.closed || hasError) {
-        await _startDirectChat(pairing.peerId, activate: false);
-      }
+      await _startDirectChat(pairing.peerId, activate: false);
+      _recordBackgroundChatAttempt(pairing.peerId);
     }
   }
 
   Future<void> _maintainPendingChatSessions() async {
-    for (final peerId
-        in await DirectChatRepository.instance.conversationIds()) {
+    for (final peerId in _directChatAccess.autoReconnectPeerIds) {
       if (!mounted) return;
+      if (!_directChatAccess.shouldAutoReconnect(peerId)) continue;
       final pending = await DirectChatRepository.instance.pendingFor(peerId);
       if (pending.isEmpty) {
         continue;
       }
+      if (!await _canMaintainBackgroundChat(peerId)) continue;
       final existing = _directChatSessionFor(peerId);
       final hasError =
           existing?.ffiModel.lastConnectionError?.isNotEmpty == true;
+      final connected = existing != null &&
+          !existing.closed &&
+          existing.ffiModel.pi.isSet.isTrue;
+      if (connected) {
+        _clearBackgroundChatRetry(peerId);
+        continue;
+      }
       if (existing != null && !existing.closed && !hasError) continue;
+      if (!_backgroundChatRetryDue(peerId)) continue;
       if (existing != null && !existing.closed) await existing.close();
       await _startDirectChat(peerId, activate: false);
+      _recordBackgroundChatAttempt(peerId);
     }
   }
 
   Future<void> _refreshDirectSessions() async {
-    await _maintainTrustedChatSessions();
-    await _maintainPendingChatSessions();
-    await _maintainChatKeepAlive();
-    await gFFI.chatModel.syncActiveCompanionSessions();
-  }
-
-  /// 是否为受“常驻在线”开关管控的可信联系人（由 _maintainTrustedChatSessions 全权保活）。
-  bool _isTrustedAlwaysOn(String peerId) {
-    if (bind.mainGetLocalOption(key: 'direct-chat-always-on') != 'Y' ||
-        bind.mainGetLocalOption(key: 'direct-chat-auto-reconnect') == 'N') {
-      return false;
-    }
-    final pairing = DirectPairingStore.find(peerId);
-    if (pairing?.companion == true) return false;
-    final raw = bind.mainGetLocalOption(key: 'direct-chat-contact-policies');
-    if (raw.isEmpty) return false;
+    if (_refreshingDirectSessions || !mounted) return;
+    _refreshingDirectSessions = true;
     try {
-      final policies = Map<String, dynamic>.from(jsonDecode(raw) as Map);
-      return policies[peerId] == 'allow';
-    } catch (_) {
+      await _maintainTrustedChatSessions();
+      await _maintainPendingChatSessions();
+      await gFFI.chatModel.syncActiveCompanionSessions();
+    } finally {
+      _refreshingDirectSessions = false;
+    }
+  }
+
+  Future<bool> _canMaintainBackgroundChat(String peerId) async {
+    if (peerId.trim().isEmpty ||
+        await DirectPairingStore.isSelfTarget(peerId)) {
+      _clearBackgroundChatRetry(peerId);
       return false;
     }
+    return DirectPairingStore.resolveConnectionTarget(peerId) != null;
   }
 
-  /// 对所有聊过天的会话执行保活与空闲重连：
-  /// - 处于保活窗口内（最近收发过消息）：保持连接在线，对方消息即时送达。
-  /// - 空闲超时：每 [ChatModel.kChatReconnectInterval] 自动重连一次拉取消息，
-  ///   拉取后短暂保活再断开以节省资源（正在查看的会话不主动断开）。
-  Future<void> _maintainChatKeepAlive() async {
-    if (!mounted) return;
-    final peerIds = await DirectChatRepository.instance.conversationIds();
-    for (final peerId in peerIds) {
-      if (!mounted) return;
-      // 受“常驻在线”开关管控的可信联系人，交由 _maintainTrustedChatSessions 全权保活，
-      // 避免与空闲轮询关闭逻辑相互拉扯。
-      if (_isTrustedAlwaysOn(peerId)) continue;
-      final active = gFFI.chatModel.isChatActive(peerId);
-      final existing = _directChatSessionFor(peerId);
-      final isViewing = _activeDirectChatPeerId == peerId;
-      if (active) {
-        // 保活窗口内：确保连接在线，并取消任何待关闭的定时器。
-        _idlePollClosers[peerId]?.cancel();
-        _idlePollClosers.remove(peerId);
-        if (existing == null || existing.closed) {
-          await _startDirectChat(peerId, activate: false);
-        }
-        continue;
-      }
-      // 空闲超时：正在查看则不主动断开。
-      if (isViewing) {
-        _idlePollClosers[peerId]?.cancel();
-        _idlePollClosers.remove(peerId);
-        continue;
-      }
-      if (existing != null && !existing.closed) {
-        // 已在线但空闲：安排一个短保活窗口后自动关闭（拉取消息）。
-        _scheduleIdlePollClose(peerId);
-      } else {
-        // 未连接：按固定间隔重连一次以拉取消息。
-        final last = _lastIdleReconnect[peerId];
-        final due = last == null ||
-            DateTime.now().difference(last) >= ChatModel.kChatReconnectInterval;
-        if (due && DirectPairingStore.resolveConnectionTarget(peerId) != null) {
-          await _startDirectChat(peerId, activate: false);
-          _lastIdleReconnect[peerId] = DateTime.now();
-          _scheduleIdlePollClose(peerId);
-        }
-      }
-    }
+  bool _backgroundChatRetryDue(String peerId) {
+    final retryAfter = _backgroundChatRetryAfter[peerId];
+    return retryAfter == null || !DateTime.now().isBefore(retryAfter);
   }
 
-  /// 空闲会话在拉取消息后短暂保活，若无新活动且未被查看则自动关闭。
-  void _scheduleIdlePollClose(String peerId) {
-    _idlePollClosers[peerId]?.cancel();
-    _idlePollClosers[peerId] = Timer(const Duration(seconds: 4), () async {
-      if (!mounted) return;
-      if (gFFI.chatModel.isChatActive(peerId) ||
-          _activeDirectChatPeerId == peerId) {
-        _idlePollClosers.remove(peerId);
-        return;
-      }
-      final existing = _directChatSessionFor(peerId);
-      if (existing != null && !existing.closed) {
-        await _closeDirectChat(peerId);
-      }
-      _idlePollClosers.remove(peerId);
-    });
+  void _recordBackgroundChatAttempt(String peerId) {
+    final failures = (_backgroundChatFailures[peerId] ?? 0) + 1;
+    _backgroundChatFailures[peerId] = failures;
+    final delayIndex =
+        (failures - 1).clamp(0, _backgroundChatRetryDelays.length - 1);
+    _backgroundChatRetryAfter[peerId] =
+        DateTime.now().add(_backgroundChatRetryDelays[delayIndex]);
   }
 
-  Future<void> _closeDirectChat(String peerId) async {
-    var registryKey = peerId;
-    var ffi = _directChatSessions[registryKey];
-    if (ffi == null) {
-      for (final entry in _directChatSessions.entries) {
-        if (entry.value.chatModel.currentKey.peerId == peerId) {
-          registryKey = entry.key;
-          ffi = entry.value;
-          break;
-        }
-      }
-    }
-    if (ffi == null) return;
-    _directChatSessions.remove(registryKey);
-    ffi.dialogManager.dismissAll();
-    await ffi.close();
-    if (mounted && _activeDirectChatPeerId == peerId) {
-      setState(() => _activeDirectChatPeerId = null);
-    }
+  void _clearBackgroundChatRetry(String peerId) {
+    _backgroundChatFailures.remove(peerId);
+    _backgroundChatRetryAfter.remove(peerId);
   }
 
   Future<void> _sendFilesFromConversation(String peerId) async {
@@ -2881,19 +3136,45 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     );
   }
 
-  /// Try to read an image from the system clipboard, returning a temp file
-  /// path / name / size on success, or null if clipboard has no image.
-  /// Falls back to file picker when clipboard access is unavailable.
+  Future<void> _pickImagesForConversation(String peerId) async {
+    final picked = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      allowMultiple: true,
+    );
+    final files = picked?.files.where((file) => file.path != null).toList() ??
+        <PlatformFile>[];
+    if (files.isEmpty || !mounted) return;
+    for (final file in files) {
+      await _sendImageFile(peerId, file.path!, file.name, file.size);
+    }
+  }
+
+  /// Read a clipboard image into persistent chat storage so its thumbnail and
+  /// full-screen preview remain available after the transfer completes.
   Future<Map<String, dynamic>?> _readClipboardImage() async {
     try {
       String? filePath;
       String ext = 'png';
-      final tempDir = Directory.systemTemp;
+      final supportDir = await getApplicationSupportDirectory();
+      final imageDir = Directory(
+        '${supportDir.path}${Platform.pathSeparator}chat_images',
+      );
+      await imageDir.create(recursive: true);
       final stamp = DateTime.now().millisecondsSinceEpoch;
+      final imageFile = File(
+        '${imageDir.path}${Platform.pathSeparator}clipboard_image_$stamp.$ext',
+      );
 
       if (Platform.isWindows) {
-        final tempFile = File('${tempDir.path}${Platform.pathSeparator}luoda_clipboard_$stamp.$ext');
-        final script = File('${tempDir.path}${Platform.pathSeparator}luoda_clip_$stamp.ps1');
+        final hasBitmap =
+            IsClipboardFormatAvailable(CLIPBOARD_FORMAT.CF_DIB) != 0 ||
+                IsClipboardFormatAvailable(CLIPBOARD_FORMAT.CF_DIBV5) != 0;
+        if (!hasBitmap) return null;
+        final tempFile = imageFile;
+        final script = File(
+          '${Directory.systemTemp.path}${Platform.pathSeparator}'
+          'luoda_clip_$stamp.ps1',
+        );
         final safePath = tempFile.path.replaceAll('\\', '\\\\');
         await script.writeAsString(
           'Add-Type -AssemblyName System.Windows.Forms;\n'
@@ -2906,12 +3187,14 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           'powershell',
           ['-NoProfile', '-NonInteractive', '-File', script.path],
         );
-        try { await script.delete(); } catch (_) {}
+        try {
+          await script.delete();
+        } catch (_) {}
         if (result.exitCode == 0 && await tempFile.exists()) {
           filePath = tempFile.path;
         }
       } else if (Platform.isMacOS) {
-        final tempFile = File('${tempDir.path}${Platform.pathSeparator}luoda_clipboard_$stamp.$ext');
+        final tempFile = imageFile;
         final result = await Process.run('osascript', [
           '-e',
           'try\n'
@@ -2947,9 +3230,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             );
           }
           if (bytes.isNotEmpty) {
-            final tempFile = File(
-              '${tempDir.path}${Platform.pathSeparator}luoda_clipboard_$stamp.$ext',
-            );
+            final tempFile = imageFile;
             await tempFile.writeAsBytes(bytes);
             if (await tempFile.exists()) {
               filePath = tempFile.path;
@@ -2974,42 +3255,31 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     }
   }
 
-  /// Send an image from clipboard (preferred) or file picker (fallback).
-  Future<void> _pasteImageToConversation(String peerId) async {
-    // 1. Try clipboard image first (desktop platforms)
+  Future<bool> _pasteImageToConversation(
+    String peerId, {
+    required bool notifyIfEmpty,
+  }) async {
     final clipboard = await _readClipboardImage();
-    if (clipboard != null) {
-      final clipPath = clipboard['path']! as String;
-      final ffi = await _ensureDirectFileSession(peerId);
-      if (ffi == null || !mounted) {
-        // Clean up temp file if send was aborted
-        try { await File(clipPath).delete(); } catch (_) {}
-        return;
-      }
-      await _sendImageFile(peerId, clipPath, clipboard['name']! as String, clipboard['size']! as int);
-      // Clean up clipboard temp file after successful send
-      try { await File(clipPath).delete(); } catch (_) {}
-      return;
-    }
-
-    // 2. Fall back to file picker
-    final picked = await FilePicker.platform.pickFiles(
-      type: FileType.image,
-      allowMultiple: false,
-    );
-    final file = picked?.files.firstOrNull;
-    if (file == null || file.path == null) {
+    if (clipboard == null) {
+      if (!notifyIfEmpty || !mounted) return false;
       _showConversationNotice(
-        translate('No image selected'),
+        translate('Clipboard has no image'),
         tone: _WorkspaceNoticeTone.warning,
       );
-      return;
+      return false;
     }
-    await _sendImageFile(peerId, file.path!, file.name, file.size);
+    await _sendImageFile(
+      peerId,
+      clipboard['path']! as String,
+      clipboard['name']! as String,
+      clipboard['size']! as int,
+    );
+    return true;
   }
 
   /// Common send-image-to-peer routine extracted from _pasteImageToConversation.
-  Future<void> _sendImageFile(String peerId, String path, String name, int size) async {
+  Future<void> _sendImageFile(
+      String peerId, String path, String name, int size) async {
     final ffi = await _ensureDirectFileSession(peerId);
     if (ffi == null || !mounted) return;
     final chatFfi = _directChatSessionFor(peerId);
@@ -3657,7 +3927,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     );
   }
 
-  Widget _buildIdentityPane(BuildContext context, [void Function(void Function())? setDialogState]) {
+  Widget _buildIdentityPane(BuildContext context,
+      [void Function(void Function())? setDialogState]) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final outgoingOnly = bind.isOutgoingOnly();
     return ColoredBox(
@@ -3687,7 +3958,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                 ),
                           ),
                           const SizedBox(height: 12),
-                          _buildIdentityCard(context, model, setDialogState: setDialogState),
+                          _buildIdentityCard(context, model,
+                              setDialogState: setDialogState),
                           const SizedBox(height: 22),
                         ],
                         Text(
@@ -3732,7 +4004,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                 builder: (_) => const AiConfigPage(),
                               ),
                             ),
-                            icon: const Icon(Icons.auto_awesome_outlined, size: 19),
+                            icon: const Icon(Icons.auto_awesome_outlined,
+                                size: 19),
                             label: Text(translate('AI Settings')),
                           ),
                         ),
@@ -5049,15 +5322,16 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
   @override
   void initState() {
- super.initState();
- _categoryModel.load();
- MeetingGroupStore.load();
- gFFI.chatModel.ensureChatConnection = (peerId) async {
- // LUODA: never try to connect to self — causes freeze / white screen.
- if (await DirectPairingStore.isSelfTarget(peerId)) return;
- if (DirectPairingStore.resolveConnectionTarget(peerId) == null) return;
- await _startDirectChat(peerId, activate: false);
- };
+    super.initState();
+    _directChatAccess.load();
+    _categoryModel.load();
+    MeetingGroupStore.load();
+    gFFI.chatModel.ensureChatConnection = (peerId) async {
+      // LUODA: never try to connect to self — causes freeze / white screen.
+      if (await DirectPairingStore.isSelfTarget(peerId)) return;
+      if (DirectPairingStore.resolveConnectionTarget(peerId) == null) return;
+      await _startDirectChat(peerId, activate: false);
+    };
     pendingViewerInvite.addListener(_handlePendingViewerInvite);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _handlePendingViewerInvite();
@@ -5069,7 +5343,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     // Direct-chat keep-alive is irrelevant in incoming-only client mode.
     if (!bind.isIncomingOnly()) {
       _directChatKeepAliveTimer = Timer.periodic(
-        const Duration(seconds: 5),
+        const Duration(seconds: 15),
         (_) => unawaited(_refreshDirectSessions()),
       );
     }
@@ -5295,29 +5569,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       }
     }
 
-    final networkStatus = gFFI.serverModel.connectStatus;
-    final now = DateTime.now();
-    if (_lastNetworkStatus != null &&
-        _lastNetworkStatus != networkStatus &&
-        networkStatus <= 0) {
-      // Throttle network-state notifications: avoid spamming the popup
-      // when the service flips between connecting <-> offline repeatedly.
-      final shown = _lastNetworkNoticeAt;
-      final cooldown = networkStatus == 0
-          ? const Duration(seconds: 30)
-          : const Duration(seconds: 10);
-      if (shown == null || now.difference(shown) > cooldown) {
-        _showConversationNotice(
-          '${translate('Network')}: ${networkStatus == 0 ? translate('Connecting') : translate('Offline')}',
-          tone: networkStatus == 0
-              ? _WorkspaceNoticeTone.warning
-              : _WorkspaceNoticeTone.error,
-        );
-        _lastNetworkNoticeAt = now;
-      }
-    }
-    _lastNetworkStatus = networkStatus;
-
     for (final entry in _directChatSessions.entries) {
       if (entry.value.ffiModel.pi.isSet.isTrue &&
           _notifiedChatConnections.add(entry.key)) {
@@ -5366,10 +5617,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     Get.delete<RxBool>(tag: 'stop-service');
     _updateTimer?.cancel();
     _directChatKeepAliveTimer?.cancel();
-    for (final timer in _idlePollClosers.values) {
-      timer.cancel();
-    }
-    _idlePollClosers.clear();
+    _backgroundChatFailures.clear();
+    _backgroundChatRetryAfter.clear();
     _workspaceNoticeTimer?.cancel();
     for (final ffi in _directChatSessions.values) {
       unawaited(ffi.close());
@@ -5381,6 +5630,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     _directFileSessions.clear();
     _clientIdController.dispose();
     _contactSearchController.dispose();
+    _contactQuery.dispose();
+    _selectedRail.dispose();
     _clientIdFocusNode.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -5424,7 +5675,8 @@ class _IncomingVoiceCallOverlay extends StatefulWidget {
   final VoidCallback onReject;
 
   @override
-  State<_IncomingVoiceCallOverlay> createState() => _IncomingVoiceCallOverlayState();
+  State<_IncomingVoiceCallOverlay> createState() =>
+      _IncomingVoiceCallOverlayState();
 }
 
 class _IncomingVoiceCallOverlayState extends State<_IncomingVoiceCallOverlay>
@@ -5487,7 +5739,8 @@ class _IncomingVoiceCallOverlayState extends State<_IncomingVoiceCallOverlay>
                         width: 64,
                         height: 64,
                         decoration: BoxDecoration(
-                          color: const Color(0xFF4CAF50).withOpacity(opacity * 0.3),
+                          color: const Color(0xFF4CAF50)
+                              .withOpacity(opacity * 0.3),
                           shape: BoxShape.circle,
                         ),
                       ),
@@ -5498,7 +5751,8 @@ class _IncomingVoiceCallOverlayState extends State<_IncomingVoiceCallOverlay>
                         width: 64,
                         height: 64,
                         decoration: BoxDecoration(
-                          color: const Color(0xFF4CAF50).withOpacity(opacity * 0.15),
+                          color: const Color(0xFF4CAF50)
+                              .withOpacity(opacity * 0.15),
                           shape: BoxShape.circle,
                         ),
                       ),
@@ -5511,9 +5765,8 @@ class _IncomingVoiceCallOverlayState extends State<_IncomingVoiceCallOverlay>
                 width: 64,
                 height: 64,
                 decoration: BoxDecoration(
-                  color: dark
-                      ? const Color(0xFF3D8C40)
-                      : const Color(0xFF4CAF50),
+                  color:
+                      dark ? const Color(0xFF3D8C40) : const Color(0xFF4CAF50),
                   shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(

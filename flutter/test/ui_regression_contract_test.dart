@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 
 double _contrastRatio(Color foreground, Color background) {
   final lighter = foreground.computeLuminance() > background.computeLuminance()
@@ -110,6 +111,18 @@ void main() {
   final chatPageSource = File(
     'lib/common/widgets/chat_page.dart',
   ).readAsStringSync();
+  final meetingGroupPanelSource = File(
+    'lib/common/widgets/meeting_group_panel.dart',
+  ).readAsStringSync();
+  final pluginSettingsSource = File(
+    'lib/plugin/widgets/desktop_settings.dart',
+  ).readAsStringSync();
+  final fileViewerSource = File(
+    'lib/common/widgets/file_viewer.dart',
+  ).readAsStringSync();
+  final filePreviewPageSource = File(
+    'lib/desktop/pages/file_preview_page.dart',
+  ).readAsStringSync();
   final weChatTokensSource = File(
     'lib/common/wechat_ui_tokens.dart',
   ).readAsStringSync();
@@ -121,6 +134,9 @@ void main() {
   ).readAsStringSync();
   final directChatSource = File(
     'lib/common/direct_chat.dart',
+  ).readAsStringSync();
+  final directChatPolicySource = File(
+    'lib/common/direct_chat_policy.dart',
   ).readAsStringSync();
   final directChatStorageSource = File(
     'lib/common/direct_chat_storage_io.dart',
@@ -191,6 +207,9 @@ void main() {
   final runtimeLoggerSource = File(
     'lib/runtime_logger.dart',
   ).readAsStringSync();
+  final rustLanguageSource = File(
+    '../src/lang.rs',
+  ).readAsStringSync();
   final webBridgeSource = File(
     'lib/web/bridge.dart',
   ).readAsStringSync();
@@ -202,6 +221,9 @@ void main() {
   ).readAsStringSync();
   final iosWorkflowSource = File(
     '../.github/workflows/build-ios.yml',
+  ).readAsStringSync();
+  final macosWorkflowSource = File(
+    '../.github/workflows/build-dmg.yml',
   ).readAsStringSync();
   final macosPodfileSource = File(
     'macos/Podfile',
@@ -403,6 +425,22 @@ void main() {
     expect(homePageSource, contains('localController.sendFiles'));
   });
 
+  test('desktop primary rail does not duplicate recent access history', () {
+    final railFlow = homePageSource
+        .split('Widget _buildPrimaryRail')[1]
+        .split('Future<void> _selectSection')[0];
+    expect(railFlow, contains("id: 'recent'"));
+    expect(railFlow, isNot(contains("id: 'history'")));
+    final sectionFlow = homePageSource
+        .split('Future<void> _selectSection')[1]
+        .split('Widget _buildContactsPane')[0];
+    expect(sectionFlow, isNot(contains("'history'")));
+    final settingsRailFlow = settingsSource
+        .split('Widget _buildPrimaryRail')[1]
+        .split('return DesktopPrimaryRail')[0];
+    expect(settingsRailFlow, isNot(contains("id: 'history'")));
+  });
+
   test('desktop shell localizes visible copy and exposes network state', () {
     for (final key in <String>[
       'Messages',
@@ -427,17 +465,15 @@ void main() {
     expect(desktopRailSource, isNot(contains("label: '设置'")));
   });
 
-  test('new desktop shell keeps navigation and presence status separate', () {
+  test('new desktop shell exposes message audience beside local status', () {
     expect(homePageSource, contains('onSelected: _selectSection'));
     expect(homePageSource, contains('_buildPresenceStatusStrip(context)'));
     expect(homePageSource, contains("translate('My status')"));
-    expect(homePageSource, contains("translate('Peer status')"));
-    expect(homePageSource, contains("translate('Not selected')"));
-    expect(
-      homePageSource,
-      contains('_selectedConversationPeerId ?? peer?.id'),
-    );
-    expect(homePageSource, contains('_directDeliveryStatus(peerId'));
+    expect(homePageSource, contains("translate('Message permissions')"));
+    expect(homePageSource, contains('DirectChatAudience.friendsOnly'));
+    expect(homePageSource, contains('DirectChatAudience.everyone'));
+    expect(homePageSource, contains("addGroup('Friends', true)"));
+    expect(homePageSource, contains("addGroup('Strangers', false)"));
     expect(
       desktopTabSource,
       contains('DesktopHomePage.selectSection'),
@@ -505,7 +541,8 @@ void main() {
     expect(homePageSource, contains('height: 68'));
     expect(homePageSource, contains('kWeChatSelectedConversationColor'));
     expect(chatPageSource, contains('class _DesktopChatComposer'));
-    expect(chatPageSource, contains('height: 118'));
+    expect(chatPageSource, contains('_collapsedHeight = 132'));
+    expect(chatPageSource, contains('_expandedHeight = 260'));
     expect(chatPageSource, contains('class _ChatBubbleTailPainter'));
     expect(chatPageSource, contains('BorderRadius.circular(5)'));
     expect(chatPageSource, contains('scaledBubbleWidth'));
@@ -534,10 +571,8 @@ void main() {
 
   test('desktop contact list includes every paired direct contact', () {
     expect(homePageSource, contains('_buildPairedContactItem'));
-    expect(
-      homePageSource,
-      contains('standalonePairings.length + peers.length'),
-    );
+    expect(homePageSource, contains('rows.addAll(groupedPairings)'));
+    expect(homePageSource, contains('rows.addAll(groupedPeers)'));
     expect(homePageSource, isNot(contains('pairings.take(3)')));
   });
 
@@ -644,6 +679,43 @@ void main() {
     expect(settingsSource, contains('_advancedSettingsExpanded'));
   });
 
+  test('desktop network keeps protocol switches behind advanced settings', () {
+    expect(
+      desktopNetworkSettingsSource,
+      contains('bool _showAdvancedNetworkSettings = false;'),
+    );
+    expect(
+      desktopNetworkSettingsSource,
+      contains('if (_showAdvancedNetworkSettings) network(context)'),
+    );
+    expect(
+      RegExp(r'if \(_showAdvancedNetworkSettings\)')
+          .allMatches(desktopNetworkSettingsSource)
+          .length,
+      greaterThanOrEqualTo(5),
+    );
+  });
+
+  test('desktop general settings show only common choices by default', () {
+    final primaryFlow = settingsGeneralSource
+        .split('Widget build(BuildContext context)')[1]
+        .split('Widget _otherSettings()')[0];
+    expect(primaryFlow, contains('service()'));
+    expect(primaryFlow, contains('theme()'));
+    expect(primaryFlow, contains('language()'));
+    expect(primaryFlow, isNot(contains('railBackground()')));
+    expect(primaryFlow, isNot(contains('audio(context)')));
+    expect(primaryFlow, isNot(contains('record(context)')));
+
+    final advancedFlow = settingsGeneralSource
+        .split('Widget _otherSettings()')[1]
+        .split('Widget theme()')[0];
+    expect(advancedFlow, contains("translate('Advanced settings')"));
+    expect(advancedFlow, contains('railBackground()'));
+    expect(advancedFlow, contains('audio(context)'));
+    expect(advancedFlow, contains('record(context)'));
+  });
+
   test('desktop settings use a compact human-scale type and spacing system',
       () {
     expect(settingsSource, contains('const double _kTabHeight = 48'));
@@ -673,7 +745,14 @@ void main() {
   });
 
   test('direct chat reconnects without exposing relay fallback', () {
-    expect(modelSource, contains("'direct-chat-auto-reconnect'"));
+    expect(
+      modelSource,
+      contains('DirectChatAccessController.instance.shouldAutoReconnect'),
+    );
+    expect(
+      directChatPolicySource,
+      contains("autoReconnectKey = 'direct-chat-auto-reconnect'"),
+    );
     expect(
       modelSource,
       contains("text == 'Direct messages rejected by this contact'"),
@@ -887,7 +966,7 @@ void main() {
     expect(directPairingSource, contains('isDeviceId(input)'));
     expect(
       directPairingSource,
-      contains("(isDeviceId(input) ? input : null)"),
+      contains('return isDeviceId(input) ? input : null;'),
     );
     expect(
       homePageSource,
@@ -926,6 +1005,39 @@ void main() {
     expect(remoteFlow, contains('await connect('));
   });
 
+  test('image selection, clipboard paste and preview are distinct workflows',
+      () {
+    expect(chatPageSource, contains('onSendImage'));
+    expect(chatPageSource, contains('Icons.image_outlined'));
+    expect(chatPageSource, contains('Icons.content_paste_go_outlined'));
+    expect(chatPageSource, contains('LogicalKeyboardKey.keyV'));
+    expect(chatPageSource, contains('_pasteClipboardText'));
+    expect(
+      chatPageSource,
+      contains('SliverGridDelegateWithMaxCrossAxisExtent'),
+    );
+
+    final imagePickerFlow = homePageSource
+        .split('Future<void> _pickImagesForConversation')[1]
+        .split('Future<Map<String, dynamic>?> _readClipboardImage')[0];
+    expect(imagePickerFlow, contains('FileType.image'));
+    expect(imagePickerFlow, contains('allowMultiple: true'));
+
+    final clipboardFlow = homePageSource
+        .split('Future<bool> _pasteImageToConversation')[1]
+        .split('Future<void> _sendImageFile')[0];
+    expect(clipboardFlow, isNot(contains('FilePicker.platform.pickFiles')));
+    expect(clipboardFlow, contains("translate('Clipboard has no image')"));
+    expect(homePageSource, contains('getApplicationSupportDirectory'));
+    expect(homePageSource, contains('IsClipboardFormatAvailable'));
+
+    expect(fileViewerSource, contains('setFullscreen(true)'));
+    expect(fileViewerSource, contains('FilePreviewKind.image'));
+    expect(filePreviewPageSource, contains('filePreviewIcon(fileName)'));
+    expect(chineseLangSource, contains('"Paste Image"'));
+    expect(chineseLangSource, contains('"Clipboard has no image"'));
+  });
+
   test('remembered passwords persist for direct endpoints and peer IDs', () {
     expect(clientSource, contains('config_id: String'));
     expect(
@@ -962,11 +1074,8 @@ void main() {
     expect(homePageSource, contains('_maintainPendingChatSessions'));
     expect(homePageSource, contains('Duration(seconds: 5)'));
     expect(homePageSource, contains('_checkConnectionTransitions'));
-    expect(homePageSource, contains('_lastNetworkStatus != null &&'));
-    expect(
-      homePageSource,
-      isNot(contains('if (_lastNetworkStatus == null ||')),
-    );
+    expect(homePageSource, isNot(contains('_lastNetworkStatus')));
+    expect(homePageSource, isNot(contains("translate('Network')")));
     expect(homePageSource, contains('_notifiedChatConnections.add'));
     expect(chatPageSource, contains("translate('Waiting to send')"));
     expect(chatModelSource, contains('DirectChatDelivery.delivered'));
@@ -1274,6 +1383,15 @@ void main() {
     expect(directDialog, contains('_connectDirect(context, target)'));
   });
 
+  test('direct endpoint chat keeps its editor after peer identity remapping',
+      () {
+    final workspace = homePageSource
+        .split('Widget _buildConversationWorkspace(BuildContext context)')[1]
+        .split('Widget _buildConversationHeader(')[0];
+    expect(workspace, contains('DirectPairingStore.findByEndpoint'));
+    expect(workspace, contains('selectedPairing?.peerId == modelPeerId'));
+  });
+
   test('every successful direct session is saved for later ID connections', () {
     final peerInfoHandler = modelSource
         .split(
@@ -1358,6 +1476,53 @@ void main() {
         "@{ Source = 'Images\\icon-32.png'; Target = 'res\\tray-icon.png' }";
     expect(windowsWorkflowSource, contains(trayMapping));
     expect(clientWorkflowSource, contains(trayMapping));
+  });
+
+  test('mobile launcher icons keep the complete LDesk mark in a safe zone', () {
+    final iosSource = img.decodePng(
+      File('../res/icon_ios.png').readAsBytesSync(),
+    );
+    final iosIcon = img.decodePng(
+      File(
+        'ios/Runner/Assets.xcassets/AppIcon.appiconset/'
+        'Icon-App-1024x1024@1x.png',
+      ).readAsBytesSync(),
+    );
+    final androidIcon = img.decodePng(
+      File(
+        'android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png',
+      ).readAsBytesSync(),
+    );
+
+    expect(iosSource, isNotNull);
+    expect(iosIcon, isNotNull);
+    expect(androidIcon, isNotNull);
+    expect(iosIcon!.width, 1024);
+    expect(iosIcon.height, 1024);
+
+    final iosCorner = iosIcon.getPixel(0, 0);
+    expect(iosCorner.a, 255);
+    expect(iosCorner.g, greaterThan(iosCorner.r));
+    expect(iosCorner.g, greaterThan(iosCorner.b));
+
+    final androidCorner = androidIcon!.getPixel(0, 0);
+    expect(androidCorner.a, 0);
+    final androidCenter = androidIcon.getPixel(
+      androidIcon.width ~/ 2,
+      androidIcon.height ~/ 2,
+    );
+    expect(androidCenter.a, 255);
+    expect(androidCenter.r, greaterThan(240));
+    expect(androidCenter.g, greaterThan(240));
+    expect(androidCenter.b, greaterThan(240));
+    expect(
+      macosWorkflowSource,
+      contains('SOURCE="\$GITHUB_WORKSPACE/res/icon_padded.png"'),
+    );
+    expect(
+      File('windows/runner/resources/app_icon.ico').readAsBytesSync(),
+      orderedEquals(File('../Images/icon.ico').readAsBytesSync()),
+    );
   });
 
   test('custom client EXE is a dedicated LDesk identity panel', () {
@@ -1513,7 +1678,13 @@ void main() {
         runtimeLoggerSource, contains('PlatformDispatcher.instance.onError'));
     expect(runtimeLoggerSource, contains('ldesk-flutter-'));
     expect(runtimeLoggerSource, contains('Future<void> _pendingWrite'));
-    expect(runtimeLoggerSource, contains('await sink.flush()'));
+    expect(runtimeLoggerSource, contains('_maxEntriesPerWindow'));
+    expect(runtimeLoggerSource, contains('Timer(_flushInterval'));
+    expect(runtimeLoggerSource, contains('_scheduleFlush()'));
+    final writeFlow = runtimeLoggerSource
+        .split('void _write(')[1]
+        .split('void _enqueueLine(')[0];
+    expect(writeFlow, isNot(contains('sink.flush()')));
     expect(
       runtimeLoggerSource,
       isNot(contains('unawaited(_sink!.flush()')),
@@ -1606,22 +1777,13 @@ void main() {
       settingsSource,
       contains('gFFI.chatModel.refreshLocalIdentity(notify: true)'),
     );
-    expect(
-      mobileSettingsSource,
-      contains("key: 'direct-chat-always-on'"),
-    );
-    expect(
-      mobileSettingsSource,
-      contains("key: 'direct-chat-trusted-only'"),
-    );
-    expect(
-      mobileSettingsSource,
-      contains("key: 'direct-chat-auto-reconnect'"),
-    );
-    expect(
-      mobileSettingsSource,
-      contains("key: 'direct-chat-contact-policies'"),
-    );
+    expect(mobileSettingsSource,
+        contains('DirectChatAccessController.instance.setAlwaysOn'));
+    expect(mobileSettingsSource,
+        contains('DirectChatAccessController.instance.setAudience'));
+    expect(mobileSettingsSource, contains('.setAutoReconnect(value)'));
+    expect(directChatPolicySource,
+        contains("peerPoliciesKey = 'direct-chat-contact-policies'"));
   });
 
   test('peer display name and avatar cross the direct protocol both ways', () {
@@ -1720,6 +1882,16 @@ void main() {
     expect(directChatSource, contains('setSelfDestruct('));
   });
 
+  test('legacy messages keep basic desktop context menu actions', () {
+    final contextMenu = chatPageSource
+        .split('Future<String?> _showWeChatContextMenu(')[1]
+        .split('Future<bool> _showWeChatConfirm(')[0];
+    expect(contextMenu, isNot(contains('if (id.isEmpty) return null;')));
+    expect(contextMenu, contains("addItem('copy'"));
+    expect(contextMenu, contains("addItem('reply'"));
+    expect(contextMenu, contains('if (id.isNotEmpty)'));
+  });
+
   test('direct pairing only advertises a ready listener in a compact dialog',
       () {
     expect(homePageSource, contains("kOptionDirectListenerStatus"));
@@ -1731,9 +1903,8 @@ void main() {
 
   test('desktop rail routes the VIP entry to the VIP features page', () {
     expect(homePageSource, contains("id: 'vip'"));
-    expect(homePageSource, contains("if (_selectedRailId == 'vip')"));
-    expect(
-        homePageSource, contains('const Expanded(child: VipFeaturesPage())'));
+    expect(homePageSource, contains("if (section == 'vip')"));
+    expect(homePageSource, contains('return const VipFeaturesPage()'));
     expect(homePageSource,
         isNot(contains("return const PeerTabPage(showTabStrip: false);")));
   });
@@ -1768,6 +1939,132 @@ void main() {
 
   test('desktop conversation header omits the duplicate online badge', () {
     expect(homePageSource, isNot(contains('_buildNetworkStatusBadge')));
+  });
+
+  test('all static Flutter labels have simplified Chinese translations', () {
+    final translatePattern = RegExp(
+      r'''translate\(\s*(['"])((?:\\.|(?!\1).)*)\1\s*\)''',
+    );
+    final tuplePattern = RegExp(
+      r'''\("((?:\\.|[^"])*)",\s*"((?:\\.|[^"])*)"\)''',
+    );
+    final usedKeys = <String>{};
+    for (final entity in Directory('lib').listSync(recursive: true)) {
+      if (entity is! File || !entity.path.endsWith('.dart')) continue;
+      final source = entity.readAsStringSync();
+      for (final match in translatePattern.allMatches(source)) {
+        final key =
+            match.group(2)!.replaceAll(r"\'", "'").replaceAll(r'\"', '"');
+        if (!key.contains(r'$')) usedKeys.add(key);
+      }
+    }
+    usedKeys.addAll(<String>{
+      'Record voice message',
+      'Stop and send voice message',
+      'Pin',
+      'Unpin',
+      'Pin Toolbar',
+      'Unpin Toolbar',
+    });
+    final cnSource = File('../src/lang/cn.rs').readAsStringSync();
+    final translations = <String, String>{
+      for (final match in tuplePattern.allMatches(cnSource))
+        match.group(1)!: match.group(2)!,
+    };
+    final missing = usedKeys.where((key) {
+      final value = translations[key];
+      return value == null || value.trim().isEmpty || value == key;
+    }).toList()
+      ..sort();
+    expect(missing, isEmpty, reason: 'Missing Chinese translations: $missing');
+  });
+
+  test('language settings expose only English and simplified Chinese', () {
+    final localeBlock = flutterCommonSource
+        .split('List<Locale> supportedLocales')[1]
+        .split('];')[0];
+    expect(RegExp(r'Locale\(').allMatches(localeBlock).length, 2);
+    expect(localeBlock, contains("Locale('en', 'US')"));
+    expect(localeBlock, contains("Locale('zh', 'CN')"));
+
+    final languagesBlock =
+        rustLanguageSource.split('pub const LANGS')[1].split('];')[0];
+    expect(RegExp(r'\("').allMatches(languagesBlock).length, 2);
+    expect(languagesBlock, contains(r'("en", "English")'));
+    expect(languagesBlock, contains(r'("zh-cn", "\u{7b80}'));
+    final desktopLanguageFlow = settingsGeneralSource
+        .split('Widget language()')[1]
+        .split('\n  }\n}')[0];
+    expect(desktopLanguageFlow, isNot(contains('keys.insert')));
+    final mobileLanguageFlow = mobileSettingsSource
+        .split('void showLanguageSettings')[1]
+        .split('void showThemeSettings')[0];
+    expect(
+      mobileLanguageFlow,
+      isNot(contains("getRadio(Text(translate('Default'))")),
+    );
+  });
+
+  test('English UI does not fall back to Chinese static labels', () {
+    final translatePattern = RegExp(
+      r'''translate\(\s*(['"])((?:\\.|(?!\1).)*)\1\s*\)''',
+    );
+    final tuplePattern = RegExp(
+      r'''\("((?:\\.|[^"])*)",\s*"((?:\\.|[^"])*)"\)''',
+    );
+    final usedKeys = <String>{};
+    for (final entity in Directory('lib').listSync(recursive: true)) {
+      if (entity is! File || !entity.path.endsWith('.dart')) continue;
+      for (final match
+          in translatePattern.allMatches(entity.readAsStringSync())) {
+        final key = match.group(2)!;
+        if (!key.contains(r'$')) usedKeys.add(key);
+      }
+    }
+    final enSource = File('../src/lang/en.rs').readAsStringSync();
+    final translations = <String, String>{
+      for (final match in tuplePattern.allMatches(enSource))
+        match.group(1)!: match.group(2)!,
+    };
+    final cjk = RegExp(r'[\u3400-\u9fff]');
+    final mixed = usedKeys.where((key) {
+      final value = translations[key] ?? key;
+      return cjk.hasMatch(value);
+    }).toList()
+      ..sort();
+    expect(mixed, isEmpty,
+        reason: 'Chinese labels leaked into English: $mixed');
+  });
+
+  test('group and plugin settings do not bypass localization', () {
+    expect(
+      meetingGroupPanelSource,
+      contains("hintText: translate('Group name')"),
+    );
+    expect(pluginSettingsSource, contains("Text(translate('Options'))"));
+  });
+
+  test('mobile settings and invite controls avoid hardcoded English labels',
+      () {
+    expect(mobileSettingsSource, isNot(contains("Text('Version: ")));
+    expect(mobileSettingsSource, isNot(contains("Text('Error: ")));
+    expect(inviteViewerSource, isNot(contains("Text('\$m min')")));
+  });
+
+  test('mobile settings keep technical connection switches advanced-only', () {
+    final primarySettingsFlow = mobileSettingsSource
+        .split('SettingsSection(title: Text(translate("Settings"))')[1]
+        .split("title: Text(translate('More'))")[0];
+    expect(
+      RegExp(r'if \(_showAdvancedSettings')
+          .allMatches(primarySettingsFlow)
+          .length,
+      greaterThanOrEqualTo(8),
+    );
+    expect(
+      primarySettingsFlow,
+      contains('if (_showAdvancedSettings && !incomingOnly)'),
+    );
   });
 
   test('new history lists hide loopback duplicates and collapse device aliases',

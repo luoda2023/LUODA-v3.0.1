@@ -50,6 +50,12 @@ mod fi;
 
 pub const LANGS: &[(&str, &str)] = &[
     ("en", "English"),
+    ("zh-cn", "\u{7b80}\u{4f53}\u{4e2d}\u{6587}"),
+];
+
+#[allow(dead_code)]
+pub const LEGACY_LANGS: &[(&str, &str)] = &[
+    ("en", "English"),
     ("it", "Italiano"),
     ("fr", "Français"),
     ("de", "Deutsch"),

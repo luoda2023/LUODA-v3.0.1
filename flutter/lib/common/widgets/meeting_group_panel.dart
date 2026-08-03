@@ -49,7 +49,8 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
 
   void _refreshInviteLink() {
     if (_group.inviteShortCode.isNotEmpty) {
-      _inviteLink = 'luoda://meeting/${_group.meetingId}?code=${_group.inviteShortCode}&host=${_group.hostPeerId}';
+      _inviteLink =
+          'luoda://meeting/${_group.meetingId}?code=${_group.inviteShortCode}&host=${_group.hostPeerId}';
     }
     setState(() {});
   }
@@ -63,7 +64,8 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
 
   String _generateShortCode() {
     const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-    final rand = List.generate(6, (_) => chars[DateTime.now().microsecond % chars.length]);
+    final rand = List.generate(
+        6, (_) => chars[DateTime.now().microsecond % chars.length]);
     // Shuffle with microseconds
     final r = (DateTime.now().microsecondsSinceEpoch % 100000).toString();
     return '${rand.join()}${r.substring(0, 2)}';
@@ -92,7 +94,8 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
     if (chatModel != null) {
       final key = chatModel.currentKey;
       if (key.peerId == _group.conversationId) {
-        chatModel.sendText('${translate('System')}: $displayName ${translate('joined the group')}');
+        chatModel.sendText(
+            '${translate('System')}: $displayName ${translate('joined the group')}');
       }
     }
   }
@@ -104,10 +107,13 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
         title: Text(translate('Remove member')),
         content: Text('${translate('Remove')} ${member.displayName}?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(translate('Cancel'))),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(translate('Cancel'))),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: Text(translate('Remove'), style: const TextStyle(color: Colors.red)),
+            child: Text(translate('Remove'),
+                style: const TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -161,7 +167,10 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
         title: TextField(
           controller: _titleCtrl,
           style: Theme.of(context).textTheme.titleMedium,
-          decoration: const InputDecoration(border: InputBorder.none, hintText: 'Group name'),
+          decoration: InputDecoration(
+            border: InputBorder.none,
+            hintText: translate('Group name'),
+          ),
           enabled: isHost,
           onSubmitted: (v) async {
             _group.title = v.trim().isNotEmpty ? v.trim() : _group.title;
@@ -196,7 +205,8 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
               ),
               child: Row(
                 children: [
-                  Icon(Icons.link_rounded, size: 18, color: Theme.of(context).colorScheme.primary),
+                  Icon(Icons.link_rounded,
+                      size: 18, color: Theme.of(context).colorScheme.primary),
                   const SizedBox(width: 10),
                   Expanded(
                     child: _inviteLink == null
@@ -211,14 +221,16 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
                             children: [
                               Text(
                                 translate('Invite link'),
-                                style: const TextStyle(fontSize: 11, color: Colors.grey),
+                                style: const TextStyle(
+                                    fontSize: 11, color: Colors.grey),
                               ),
                               const SizedBox(height: 2),
                               Text(
                                 _inviteLink!,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontSize: 13, fontFamily: 'monospace'),
+                                style: const TextStyle(
+                                    fontSize: 13, fontFamily: 'monospace'),
                               ),
                             ],
                           ),
@@ -246,7 +258,9 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
               decoration: BoxDecoration(
                 color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Theme.of(context).colorScheme.primary.withOpacity(0.3)),
+                border: Border.all(
+                    color:
+                        Theme.of(context).colorScheme.primary.withOpacity(0.3)),
               ),
               child: Row(
                 children: [
@@ -320,8 +334,10 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
                         decoration: InputDecoration(
                           hintText: translate('Enter peer ID or name'),
                           isDense: true,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 10),
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10)),
                         ),
                         onSubmitted: (v) => _addMember(v),
                       ),
@@ -402,7 +418,8 @@ class _MemberTile extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primary.withOpacity(0.15),
+                  color:
+                      Theme.of(context).colorScheme.primary.withOpacity(0.15),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(
@@ -462,12 +479,16 @@ class _GroupPopupMenu extends StatelessWidget {
               context: context,
               builder: (ctx) => AlertDialog(
                 title: Text(translate('Delete group')),
-                content: Text(translate('Delete this meeting group permanently?')),
+                content:
+                    Text(translate('Delete this meeting group permanently?')),
                 actions: [
-                  TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(translate('Cancel'))),
+                  TextButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      child: Text(translate('Cancel'))),
                   TextButton(
                     onPressed: () => Navigator.pop(ctx, true),
-                    child: Text(translate('Delete'), style: const TextStyle(color: Colors.red)),
+                    child: Text(translate('Delete'),
+                        style: const TextStyle(color: Colors.red)),
                   ),
                 ],
               ),
@@ -480,13 +501,17 @@ class _GroupPopupMenu extends StatelessWidget {
       },
       itemBuilder: (ctx) => [
         if (group.isHost)
-          PopupMenuItem(value: 'generate_invite', child: Text(translate('Generate invite link'))),
+          PopupMenuItem(
+              value: 'generate_invite',
+              child: Text(translate('Generate invite link'))),
         if (group.inviteShortCode.isNotEmpty)
-          PopupMenuItem(value: 'copy_invite', child: Text(translate('Copy invite link'))),
+          PopupMenuItem(
+              value: 'copy_invite', child: Text(translate('Copy invite link'))),
         const PopupMenuDivider(),
         PopupMenuItem(
           value: 'delete_group',
-          child: Text(translate('Delete group'), style: const TextStyle(color: Colors.red)),
+          child: Text(translate('Delete group'),
+              style: const TextStyle(color: Colors.red)),
         ),
       ],
     );

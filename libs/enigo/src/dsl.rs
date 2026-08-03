@@ -37,7 +37,12 @@ impl Error for ParseError {
 }
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.to_string())
+        f.write_str(match self {
+            ParseError::UnknownTag(_) => "Unknown tag",
+            ParseError::UnexpectedOpen => "Unescaped open bracket ({) found inside tag name",
+            ParseError::UnmatchedOpen => "Unmatched open bracket ({). No matching close (})",
+            ParseError::UnmatchedClose => "Unmatched close bracket (}). No previous open ({)",
+        })
     }
 }
 
@@ -179,6 +184,26 @@ mod tests {
         assert_eq!(
             tokenize("{+CTRL}{{this}} is going to fail}"),
             Err(ParseError::UnmatchedClose)
+        );
+    }
+
+    #[test]
+    fn parse_errors_have_stable_display_messages() {
+        assert_eq!(
+            ParseError::UnknownTag("TEST".to_owned()).to_string(),
+            "Unknown tag"
+        );
+        assert_eq!(
+            ParseError::UnexpectedOpen.to_string(),
+            "Unescaped open bracket ({) found inside tag name"
+        );
+        assert_eq!(
+            ParseError::UnmatchedOpen.to_string(),
+            "Unmatched open bracket ({). No matching close (})"
+        );
+        assert_eq!(
+            ParseError::UnmatchedClose.to_string(),
+            "Unmatched close bracket (}). No previous open ({)"
         );
     }
 }

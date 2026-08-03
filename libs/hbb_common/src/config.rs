@@ -122,6 +122,11 @@ lazy_static::lazy_static! {
     pub static ref BUILTIN_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
 }
 
+#[cfg(test)]
+lazy_static::lazy_static! {
+    pub static ref TEST_CONFIG_LOCK: Mutex<()> = Default::default();
+}
+
 #[cfg(target_os = "android")]
 lazy_static::lazy_static! {
     pub static ref ANDROID_RUSTLS_PLATFORM_VERIFIER_INITIALIZED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -3309,6 +3314,7 @@ mod tests {
 
     #[test]
     fn test_overwrite_settings() {
+        let _guard = TEST_CONFIG_LOCK.lock().unwrap();
         DEFAULT_SETTINGS
             .write()
             .unwrap()

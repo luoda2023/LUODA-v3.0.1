@@ -164,8 +164,7 @@ pub fn reset_input_cache() {}
 
 pub fn get_cursor() -> ResultType<Option<u64>> {
     unsafe {
-        #[allow(invalid_value)]
-        let mut ci: CURSORINFO = mem::MaybeUninit::uninit().assume_init();
+        let mut ci: CURSORINFO = mem::zeroed();
         ci.cbSize = std::mem::size_of::<CURSORINFO>() as _;
         if crate::portable_service::client::get_cursor_info(&mut ci) == FALSE {
             return Err(io::Error::last_os_error().into());
@@ -183,12 +182,11 @@ struct IconInfo(ICONINFO);
 impl IconInfo {
     fn new(icon: HICON) -> ResultType<Self> {
         unsafe {
-            #[allow(invalid_value)]
-            let mut ii = mem::MaybeUninit::uninit().assume_init();
-            if GetIconInfo(icon, &mut ii) == FALSE {
+            let mut ii = mem::MaybeUninit::<ICONINFO>::uninit();
+            if GetIconInfo(icon, ii.as_mut_ptr()) == FALSE {
                 Err(io::Error::last_os_error().into())
             } else {
-                let ii = Self(ii);
+                let ii = Self(ii.assume_init());
                 if ii.0.hbmMask.is_null() {
                     bail!("Cursor bitmap handle is NULL");
                 }
@@ -2194,7 +2192,10 @@ oLink.Save
     Ok(())
 }
 
-pub fn enable_lowlevel_keyboard(hwnd: HWND) {
+/// # Safety
+///
+/// `hwnd` must be a valid window handle owned by this process.
+pub unsafe fn enable_lowlevel_keyboard(hwnd: HWND) {
     let ret = unsafe { win32_enable_lowlevel_keyboard(hwnd) };
     if ret != 0 {
         log::error!("Failure grabbing keyboard");
@@ -2202,7 +2203,11 @@ pub fn enable_lowlevel_keyboard(hwnd: HWND) {
     }
 }
 
-pub fn disable_lowlevel_keyboard(hwnd: HWND) {
+/// # Safety
+///
+/// `hwnd` must be a valid window handle previously passed to
+/// [`enable_lowlevel_keyboard`].
+pub unsafe fn disable_lowlevel_keyboard(hwnd: HWND) {
     unsafe { win32_disable_lowlevel_keyboard(hwnd) };
 }
 
@@ -2511,7 +2516,10 @@ pub fn get_logon_user_token(user: &str, pwd: &str) -> ResultType<HANDLE> {
 // If the provided token is an impersonation token, it duplicates it to a primary token.
 // If the provided token is already a primary token, it returns it as is.
 // The caller is responsible for closing the returned token handle.
-pub fn ensure_primary_token(user_token: HANDLE) -> ResultType<HANDLE> {
+/// # Safety
+///
+/// `user_token` must be a valid token handle owned by the caller.
+pub unsafe fn ensure_primary_token(user_token: HANDLE) -> ResultType<HANDLE> {
     if user_token.is_null() || user_token == INVALID_HANDLE_VALUE {
         bail!("Invalid user token provided");
     }
@@ -2537,13 +2545,13 @@ pub fn ensure_primary_token(user_token: HANDLE) -> ResultType<HANDLE> {
         if token_type == TokenImpersonation {
             let mut duplicate_token: HANDLE = std::ptr::null_mut();
             let dup_res = DuplicateToken(user_token, SecurityImpersonation, &mut duplicate_token);
-            CloseHandle(user_token);
             if dup_res == FALSE {
                 bail!(
                     "Failed to duplicate token, error {}",
                     io::Error::last_os_error()
                 );
             }
+            CloseHandle(user_token);
             Ok(duplicate_token)
         } else {
             Ok(user_token)
@@ -2551,7 +2559,10 @@ pub fn ensure_primary_token(user_token: HANDLE) -> ResultType<HANDLE> {
     }
 }
 
-pub fn is_user_token_admin(user_token: HANDLE) -> ResultType<bool> {
+/// # Safety
+///
+/// `user_token` must be a valid token handle for the duration of this call.
+pub unsafe fn is_user_token_admin(user_token: HANDLE) -> ResultType<bool> {
     if user_token.is_null() || user_token == INVALID_HANDLE_VALUE {
         bail!("Invalid user token provided");
     }
@@ -3792,7 +3803,10 @@ fn nt_terminate_process(process_id: DWORD) -> ResultType<()> {
     }
 }
 
-pub fn try_set_window_foreground(window: HWND) {
+/// # Safety
+///
+/// `window` must be a valid top-level window handle.
+pub unsafe fn try_set_window_foreground(window: HWND) {
     let env_key = SET_FOREGROUND_WINDOW;
     if let Ok(value) = std::env::var(env_key) {
         if value == "1" {

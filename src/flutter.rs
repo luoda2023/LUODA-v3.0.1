@@ -123,7 +123,10 @@ pub extern "C" fn handle_applicationShouldOpenUntitledFile() {
 
 #[cfg(windows)]
 #[no_mangle]
-pub extern "C" fn luoda_core_main_args(args_len: *mut c_int) -> *mut *mut c_char {
+/// # Safety
+///
+/// `args_len` must point to writable memory for one `c_int`.
+pub unsafe extern "C" fn luoda_core_main_args(args_len: *mut c_int) -> *mut *mut c_char {
     unsafe { std::ptr::write(args_len, 0) };
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {

@@ -149,8 +149,7 @@ class DirectChatRecord {
         if (reactions.isNotEmpty)
           'reactions': reactions.map((k, v) => MapEntry(k, v)),
         if (isEdited) 'is_edited': true,
-        if (editedAt != null)
-          'edited_at': editedAt!.toUtc().toIso8601String(),
+        if (editedAt != null) 'edited_at': editedAt!.toUtc().toIso8601String(),
       };
 
   factory DirectChatRecord.fromJson(Map<String, dynamic> json) {
@@ -402,7 +401,7 @@ class DirectChatRepository {
 
   Future<String> get deviceId async => (await _state()).deviceId;
 
-  Future<DirectChatRecord>     createOutgoing({
+  Future<DirectChatRecord> createOutgoing({
     String? id,
     required String conversationId,
     required DirectChatKind kind,
@@ -566,8 +565,7 @@ class DirectChatRepository {
           record.disposition != DirectChatDisposition.active) {
         return null;
       }
-      final reactions =
-          Map<String, List<String>>.from(record.reactions);
+      final reactions = Map<String, List<String>>.from(record.reactions);
       final users = List<String>.from(reactions[emoji] ?? []);
       if (users.contains(deviceId)) {
         users.remove(deviceId);
@@ -705,6 +703,26 @@ class DirectChatRepository {
     final ids = latest.keys.toList(growable: false);
     ids.sort((a, b) => latest[b]!.compareTo(latest[a]!));
     return ids;
+  }
+
+  /// Returns one newest visible record per conversation using a single
+  /// storage snapshot. This keeps startup work proportional to total history
+  /// instead of re-reading and decoding the same file for every conversation.
+  Future<Map<String, DirectChatRecord>> latestConversations() async {
+    await _pendingWrite;
+    final latest = <String, DirectChatRecord>{};
+    for (final record in (await _freshState()).records.values) {
+      if (record.disposition == DirectChatDisposition.destroyed ||
+          record.isExpired ||
+          record.conversationId.isEmpty) {
+        continue;
+      }
+      final previous = latest[record.conversationId];
+      if (previous == null || record.sentAt.isAfter(previous.sentAt)) {
+        latest[record.conversationId] = record;
+      }
+    }
+    return latest;
   }
 
   Future<Map<String, int>> cursor({String? conversationId}) async {
@@ -851,7 +869,8 @@ const int kMaxInlineChatFileBytes = 5 * 1024 * 1024;
 Future<String?> saveInlineChatFile(String fileName, List<int> bytes) async {
   try {
     final base = await getApplicationDocumentsDirectory();
-    final dir = Directory('${base.path}${Platform.pathSeparator}luoda_chat_received');
+    final dir =
+        Directory('${base.path}${Platform.pathSeparator}luoda_chat_received');
     await dir.create(recursive: true);
     final safeName = fileName.replaceAll(RegExp(r'[^0-9a-zA-Z._\-]'), '_');
     final file = File('${dir.path}${Platform.pathSeparator}$safeName');

@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 import 'package:luoda_flutter/common.dart';
+import 'package:luoda_flutter/common/direct_chat_policy.dart';
 import 'package:luoda_flutter/common/widgets/audio_input.dart';
 import 'package:luoda_flutter/common/widgets/setting_widgets.dart';
 import 'package:luoda_flutter/consts.dart';
@@ -619,11 +620,6 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
         icon: Icons.contacts_outlined,
       ),
       DesktopRailDestination(
-        id: 'history',
-        label: 'Access history devices',
-        icon: Icons.devices_outlined,
-      ),
-      DesktopRailDestination(
         id: 'vip',
         label: 'VIP features',
         icon: Icons.workspace_premium_outlined,
@@ -635,7 +631,6 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
       'favorites': 1,
       'discovered': 2,
       'contacts': 3,
-      'history': 4,
       'vip': 5,
     };
     return DesktopPrimaryRail(

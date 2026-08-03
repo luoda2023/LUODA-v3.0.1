@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:luoda_flutter/common/direct_chat_policy.dart';
 import 'package:luoda_flutter/consts.dart';
 import 'package:luoda_flutter/main.dart';
 import 'package:luoda_flutter/mobile/pages/settings_page.dart';
@@ -188,13 +189,24 @@ class ServerModel with ChangeNotifier {
       updatePasswordModel();
     }
 
+    var timerCallbackRunning = false;
+    guardedTimerCallback() async {
+      if (timerCallbackRunning) return;
+      timerCallbackRunning = true;
+      try {
+        await timerCallback();
+      } finally {
+        timerCallbackRunning = false;
+      }
+    }
+
     if (!isTest) {
       // Fetch ID immediately on construction, BEFORE timer starts.
       // This eliminates the 'Generating...' flash at startup.
       fetchID();
       Future.delayed(Duration.zero, () async {
         if (await bind.optionSynced()) {
-          await timerCallback();
+          await guardedTimerCallback();
         }
       });
       // LUODA 3.1.1 performance fix: poll at 2s on desktop (was 500ms) and 5s
@@ -205,8 +217,8 @@ class ServerModel with ChangeNotifier {
       // event-driven elsewhere, and the password only rotates every few
       // minutes.
       final pollMs = isMobile ? 5000 : 2000;
-      Timer.periodic(Duration(milliseconds: pollMs), (timer) async {
-        await timerCallback();
+      Timer.periodic(Duration(milliseconds: pollMs), (_) async {
+        await guardedTimerCallback();
       });
     }
 
@@ -632,6 +644,9 @@ class ServerModel with ChangeNotifier {
       }
       _addTab(client);
       if (client.authorized && client.isChat) {
+        unawaited(
+          DirectChatAccessController.instance.markAccepted(client.peerId),
+        );
         final chatModel = parent.target?.chatModel;
         if (chatModel != null) {
           unawaited(chatModel.onDirectSessionReady(

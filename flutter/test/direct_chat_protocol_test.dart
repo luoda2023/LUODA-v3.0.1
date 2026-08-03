@@ -228,6 +228,24 @@ void main() {
     );
   });
 
+  test('paired IP resolves through the canonical ID and fingerprint', () {
+    final pairing = DirectPairing(
+      peerId: '980966',
+      displayName: 'VPS',
+      lanEndpoint: '36.134.211.189:21118',
+      publicEndpoint: '',
+      fingerprint: List<String>.filled(64, 'b').join(),
+      updatedAt: DateTime.utc(2026, 8, 3),
+    );
+
+    final target = DirectPairingStore.resolveConnectionTargetValue(
+      '36.134.211.189:21118',
+      pairings: {'980966': pairing},
+    );
+
+    expect(target, startsWith('980966@36.134.211.189:21118?key='));
+  });
+
   test('unpaired device IDs remain valid core connection targets', () {
     expect(DirectPairingStore.isDeviceId('980966'), isTrue);
     expect(DirectPairingStore.isDeviceId('peer-office-01'), isTrue);

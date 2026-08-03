@@ -25,7 +25,7 @@ use std::{
     time::Duration,
 };
 #[cfg(windows)]
-use tokio::runtime::Runtime;
+use tokio::runtime::{Builder, Runtime};
 
 #[cfg(target_os = "android")]
 static CLIPBOARD_SERVICE_OK: AtomicBool = AtomicBool::new(false);
@@ -184,7 +184,7 @@ impl Handler {
     #[cfg(windows)]
     fn read_clipboard_from_cm_ipc(&mut self) -> ResultType<Vec<ClipboardNonFile>> {
         if self.rt.is_none() {
-            self.rt = Some(Runtime::new()?);
+            self.rt = Some(Builder::new_current_thread().enable_all().build()?);
         }
         let Some(rt) = &self.rt else {
             // unreachable!

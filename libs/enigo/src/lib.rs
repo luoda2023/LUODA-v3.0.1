@@ -530,6 +530,10 @@ impl fmt::Debug for Enigo {
 mod tests {
     use super::*;
     #[test]
+    #[cfg_attr(
+        target_os = "windows",
+        ignore = "requires access to an interactive Windows desktop"
+    )]
     fn test_get_key_state() {
         let mut enigo = Enigo::new();
         let keys = [Key::CapsLock, Key::NumLock];

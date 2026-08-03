@@ -11,6 +11,7 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
   @override
   bool get wantKeepAlive => true;
   bool locked = !isWeb && bind.mainIsInstalled();
+  bool _showAdvancedNetworkSettings = false;
 
   final scrollController = ScrollController();
 
@@ -26,22 +27,21 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
         block: locked,
         child: Column(children: [
           directMessaging(context),
-          network(context),
+          _advancedNetworkToggle(context),
+          if (_showAdvancedNetworkSettings) network(context),
         ]),
       ),
     ]).marginOnly(bottom: _kListViewBottomMargin);
   }
 
   Widget directMessaging(BuildContext context) {
-    const alwaysOnKey = 'direct-chat-always-on';
-    const trustedOnlyKey = 'direct-chat-trusted-only';
-    const reconnectKey = 'direct-chat-auto-reconnect';
-    final alwaysOn = bind.mainGetLocalOption(key: alwaysOnKey) == 'Y';
-    final trustedOnly = bind.mainGetLocalOption(key: trustedOnlyKey) != 'N';
-    final autoReconnect = bind.mainGetLocalOption(key: reconnectKey) != 'N';
+    final access = DirectChatAccessController.instance..load();
+    final alwaysOn = access.alwaysOn;
+    final trustedOnly = access.audience == DirectChatAudience.friendsOnly;
+    final autoReconnect = access.autoReconnect;
 
-    Future<void> setLocal(String key, bool value) async {
-      await bind.mainSetLocalOption(key: key, value: value ? 'Y' : 'N');
+    Future<void> update(Future<void> operation) async {
+      await operation;
       if (mounted) setState(() {});
     }
 
@@ -75,7 +75,8 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
           subtitle:
               'Keep the local direct port ready so approved contacts can deliver messages while no remote session is active.',
           value: alwaysOn,
-          onChanged: locked ? null : (value) => setLocal(alwaysOnKey, value),
+          onChanged:
+              locked ? null : (value) => update(access.setAlwaysOn(value)),
         ),
         const Divider(height: 1, indent: 16, endIndent: 16),
         option(
@@ -86,53 +87,74 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
           value: trustedOnly,
           onChanged: locked || !alwaysOn
               ? null
-              : (value) => setLocal(trustedOnlyKey, value),
+              : (value) => update(
+                    access.setAudience(
+                      value
+                          ? DirectChatAudience.friendsOnly
+                          : DirectChatAudience.everyone,
+                    ),
+                  ),
         ),
-        const Divider(height: 1, indent: 16, endIndent: 16),
-        option(
-          icon: Icons.sync_rounded,
-          title: 'Reconnect trusted contacts automatically',
-          subtitle:
-              'Reconnect to the saved IP address when the network becomes available again.',
-          value: autoReconnect,
-          onChanged: locked || !alwaysOn
-              ? null
-              : (value) => setLocal(reconnectKey, value),
-        ),
-        const Divider(height: 1, indent: 16, endIndent: 16),
-        ListTile(
-          minLeadingWidth: 0,
-          horizontalTitleGap: 12,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-          leading:
-              const Icon(Icons.manage_accounts_outlined, color: _accentColor),
-          title: Text(translate('Contact message permissions')),
-          subtitle: Text(
-            translate('Allow or reject always-on messages for each contact.'),
-            style: Theme.of(context).textTheme.bodySmall,
+        if (_showAdvancedNetworkSettings)
+          const Divider(height: 1, indent: 16, endIndent: 16),
+        if (_showAdvancedNetworkSettings)
+          option(
+            icon: Icons.sync_rounded,
+            title: 'Reconnect trusted contacts automatically',
+            subtitle:
+                'Reconnect to the saved IP address when the network becomes available again.',
+            value: autoReconnect,
+            onChanged: locked || !alwaysOn
+                ? null
+                : (value) => update(access.setAutoReconnect(value)),
           ),
-          trailing: const Icon(Icons.chevron_right_rounded),
-          onTap:
-              alwaysOn ? () => _showContactMessagePermissions(context) : null,
+        if (_showAdvancedNetworkSettings)
+          const Divider(height: 1, indent: 16, endIndent: 16),
+        if (_showAdvancedNetworkSettings)
+          ListTile(
+            minLeadingWidth: 0,
+            horizontalTitleGap: 12,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            leading: const Icon(
+              Icons.manage_accounts_outlined,
+              color: _accentColor,
+            ),
+            title: Text(translate('Contact message permissions')),
+            subtitle: Text(
+              translate('Allow or reject always-on messages for each contact.'),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap:
+                alwaysOn ? () => _showContactMessagePermissions(context) : null,
+          ),
+      ],
+    );
+  }
+
+  Widget _advancedNetworkToggle(BuildContext context) {
+    return _Card(
+      title: 'Advanced settings',
+      children: <Widget>[
+        ListTile(
+          leading: const Icon(Icons.tune_rounded, color: _accentColor),
+          title: Text(translate('Network')),
+          trailing: Icon(
+            _showAdvancedNetworkSettings
+                ? Icons.expand_less_rounded
+                : Icons.expand_more_rounded,
+          ),
+          onTap: () => setState(
+            () => _showAdvancedNetworkSettings = !_showAdvancedNetworkSettings,
+          ),
         ),
       ],
     );
   }
 
   Future<void> _showContactMessagePermissions(BuildContext context) async {
-    final policies = <String, String>{};
-    try {
-      final raw = bind.mainGetLocalOption(
-        key: 'direct-chat-contact-policies',
-      );
-      if (raw.isNotEmpty) {
-        policies.addAll(
-          Map<String, dynamic>.from(jsonDecode(raw) as Map).map(
-            (key, value) => MapEntry(key, value.toString()),
-          ),
-        );
-      }
-    } catch (_) {}
+    final access = DirectChatAccessController.instance..load();
+    final policies = <String, String>{...access.peerPolicies};
     final peersById = <String, Peer>{};
     for (final peer in <Peer>[
       ...gFFI.recentPeersModel.peers,
@@ -226,10 +248,9 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
       ),
     );
     if (saved == true) {
-      await bind.mainSetLocalOption(
-        key: 'direct-chat-contact-policies',
-        value: jsonEncode(policies),
-      );
+      for (final entry in policies.entries) {
+        await access.setPeerPolicy(entry.key, entry.value);
+      }
     }
   }
 

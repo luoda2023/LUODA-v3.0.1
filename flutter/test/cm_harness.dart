@@ -17,8 +17,8 @@ final testClients = [
       false)
 ];
 
-/// flutter run -d {platform} -t test/cm_test.dart to test cm
-void main(List<String> args) async {
+/// flutter run -d {platform} -t test/cm_harness.dart to test cm
+void main() async {
   isTest = true;
   WidgetsFlutterBinding.ensureInitialized();
   await windowManager.ensureInitialized();

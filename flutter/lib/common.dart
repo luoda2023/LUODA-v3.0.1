@@ -422,357 +422,351 @@ class MyTheme {
     }),
   );
 
-  static ThemeData lightTheme =
-      ThemeData(
-        useMaterial3: false,
-        brightness: Brightness.light,
-        primaryColor: primary,
-        focusColor: primarySoft,
-        hoverColor: primarySoft,
-        scaffoldBackgroundColor: canvasLight,
-        canvasColor: canvasLight,
-        dialogBackgroundColor: surfaceLight,
-        disabledColor: const Color(0xFF9AA7B8),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: surfaceLight,
-          foregroundColor: textLight,
-          shadowColor: Colors.transparent,
-        ),
-        dialogTheme: DialogTheme(
-          elevation: 8,
-          backgroundColor: surfaceLight,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-            side: const BorderSide(color: borderLight),
-          ),
-        ),
-        dividerTheme: const DividerThemeData(
-          color: borderLight,
-          thickness: 1,
-          space: 1,
-        ),
-        scrollbarTheme: scrollbarTheme,
-        inputDecorationTheme: isDesktop
-            ? InputDecorationTheme(
-                filled: true,
-                fillColor: surfaceLight,
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 13,
-                ),
-                hintStyle: const TextStyle(color: mutedLight, fontSize: 14),
-                labelStyle: const TextStyle(color: mutedLight),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(color: borderLight),
-                ),
-                disabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(color: Color(0xFFE5EAF1)),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(color: primary, width: 2),
-                ),
-                errorBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(color: Color(0xFFD93025)),
-                ),
-                focusedErrorBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(
-                    color: Color(0xFFD93025),
-                    width: 2,
-                  ),
-                ),
-              )
-            : null,
-        textTheme: const TextTheme(
-          titleLarge: TextStyle(
-            fontSize: 19,
-            color: textLight,
-            fontWeight: FontWeight.w600,
-          ),
-          titleSmall: TextStyle(
-            fontSize: 14,
-            color: textLight,
-            fontWeight: FontWeight.w500,
-          ),
-          bodySmall: TextStyle(fontSize: 12, color: mutedLight, height: 1.35),
-          bodyMedium: TextStyle(fontSize: 14, color: textLight, height: 1.4),
-          labelLarge: TextStyle(
-            fontSize: 14,
-            color: primary,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        cardColor: surfaceLight,
-        cardTheme: CardTheme(
-          color: surfaceLight,
-          elevation: 0,
-          margin: EdgeInsets.zero,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-            side: const BorderSide(color: borderLight),
-          ),
-        ),
-        hintColor: mutedLight,
-        visualDensity: VisualDensity.adaptivePlatformDensity,
-        tabBarTheme: const TabBarTheme(labelColor: textLight),
-        tooltipTheme: tooltipTheme(),
-        splashColor: (isDesktop || isWebDesktop) ? Colors.transparent : null,
-        highlightColor: (isDesktop || isWebDesktop) ? Colors.transparent : null,
-        splashFactory: (isDesktop || isWebDesktop)
-            ? NoSplash.splashFactory
-            : null,
-        textButtonTheme: (isDesktop || isWebDesktop)
-            ? TextButtonThemeData(
-                style: TextButton.styleFrom(
-                  foregroundColor: primary,
-                  disabledForegroundColor: const Color(0xFF9AA7B8),
-                  minimumSize: const Size(44, 40),
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  splashFactory: NoSplash.splashFactory,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-              )
-            : mobileTextButtonTheme,
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: primary,
-            foregroundColor: Colors.white,
-            disabledBackgroundColor: const Color(0xFFD7DEE8),
-            disabledForegroundColor: const Color(0xFF7C899B),
-            elevation: 0,
-            minimumSize: const Size(44, 44),
-            padding: const EdgeInsets.symmetric(horizontal: 18),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
+  static ThemeData lightTheme = ThemeData(
+    useMaterial3: false,
+    brightness: Brightness.light,
+    primaryColor: primary,
+    focusColor: primarySoft,
+    hoverColor: primarySoft,
+    scaffoldBackgroundColor: canvasLight,
+    canvasColor: canvasLight,
+    dialogBackgroundColor: surfaceLight,
+    disabledColor: const Color(0xFF9AA7B8),
+    appBarTheme: const AppBarTheme(
+      backgroundColor: surfaceLight,
+      foregroundColor: textLight,
+      shadowColor: Colors.transparent,
+    ),
+    dialogTheme: DialogTheme(
+      elevation: 8,
+      backgroundColor: surfaceLight,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: const BorderSide(color: borderLight),
+      ),
+    ),
+    dividerTheme: const DividerThemeData(
+      color: borderLight,
+      thickness: 1,
+      space: 1,
+    ),
+    scrollbarTheme: scrollbarTheme,
+    inputDecorationTheme: isDesktop
+        ? InputDecorationTheme(
+            filled: true,
+            fillColor: surfaceLight,
+            isDense: true,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: 13,
             ),
-          ),
-        ),
-        outlinedButtonTheme: OutlinedButtonThemeData(
-          style: OutlinedButton.styleFrom(
-            backgroundColor: surfaceLight,
-            foregroundColor: textLight,
-            disabledForegroundColor: const Color(0xFF9AA7B8),
-            minimumSize: const Size(44, 44),
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            side: const BorderSide(color: borderLight),
-            shape: RoundedRectangleBorder(
+            hintStyle: const TextStyle(color: mutedLight, fontSize: 14),
+            labelStyle: const TextStyle(color: mutedLight),
+            enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: borderLight),
             ),
-          ),
+            disabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Color(0xFFE5EAF1)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: primary, width: 2),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Color(0xFFD93025)),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(
+                color: Color(0xFFD93025),
+                width: 2,
+              ),
+            ),
+          )
+        : null,
+    textTheme: const TextTheme(
+      titleLarge: TextStyle(
+        fontSize: 19,
+        color: textLight,
+        fontWeight: FontWeight.w600,
+      ),
+      titleSmall: TextStyle(
+        fontSize: 14,
+        color: textLight,
+        fontWeight: FontWeight.w500,
+      ),
+      bodySmall: TextStyle(fontSize: 12, color: mutedLight, height: 1.35),
+      bodyMedium: TextStyle(fontSize: 14, color: textLight, height: 1.4),
+      labelLarge: TextStyle(
+        fontSize: 14,
+        color: primary,
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+    cardColor: surfaceLight,
+    cardTheme: CardTheme(
+      color: surfaceLight,
+      elevation: 0,
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: const BorderSide(color: borderLight),
+      ),
+    ),
+    hintColor: mutedLight,
+    visualDensity: VisualDensity.adaptivePlatformDensity,
+    tabBarTheme: const TabBarTheme(labelColor: textLight),
+    tooltipTheme: tooltipTheme(),
+    splashColor: (isDesktop || isWebDesktop) ? Colors.transparent : null,
+    highlightColor: (isDesktop || isWebDesktop) ? Colors.transparent : null,
+    splashFactory: (isDesktop || isWebDesktop) ? NoSplash.splashFactory : null,
+    textButtonTheme: (isDesktop || isWebDesktop)
+        ? TextButtonThemeData(
+            style: TextButton.styleFrom(
+              foregroundColor: primary,
+              disabledForegroundColor: const Color(0xFF9AA7B8),
+              minimumSize: const Size(44, 40),
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              splashFactory: NoSplash.splashFactory,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+          )
+        : mobileTextButtonTheme,
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: primary,
+        foregroundColor: Colors.white,
+        disabledBackgroundColor: const Color(0xFFD7DEE8),
+        disabledForegroundColor: const Color(0xFF7C899B),
+        elevation: 0,
+        minimumSize: const Size(44, 44),
+        padding: const EdgeInsets.symmetric(horizontal: 18),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
         ),
-        switchTheme: switchTheme(),
-        radioTheme: radioTheme(),
-        checkboxTheme: checkboxTheme(),
-        listTileTheme: listTileTheme,
-        menuBarTheme: const MenuBarThemeData(
-          style: MenuStyle(
-            backgroundColor: MaterialStatePropertyAll(surfaceLight),
-          ),
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        backgroundColor: surfaceLight,
+        foregroundColor: textLight,
+        disabledForegroundColor: const Color(0xFF9AA7B8),
+        minimumSize: const Size(44, 44),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        side: const BorderSide(color: borderLight),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
         ),
-        colorScheme: const ColorScheme.light(
-          primary: primary,
-          secondary: primary,
-          background: canvasLight,
-          surface: surfaceLight,
-          onSurface: textLight,
-          onBackground: textLight,
-        ),
-        popupMenuTheme: PopupMenuThemeData(
-          color: surfaceLight,
-          shape: RoundedRectangleBorder(
-            side: const BorderSide(color: borderLight),
-            borderRadius: BorderRadius.circular(8),
-          ),
-        ),
-      ).copyWith(
-        extensions: <ThemeExtension<dynamic>>[
-          ColorThemeExtension.light,
-          TabbarTheme.light,
-        ],
-      );
+      ),
+    ),
+    switchTheme: switchTheme(),
+    radioTheme: radioTheme(),
+    checkboxTheme: checkboxTheme(),
+    listTileTheme: listTileTheme,
+    menuBarTheme: const MenuBarThemeData(
+      style: MenuStyle(
+        backgroundColor: MaterialStatePropertyAll(surfaceLight),
+      ),
+    ),
+    colorScheme: const ColorScheme.light(
+      primary: primary,
+      secondary: primary,
+      background: canvasLight,
+      surface: surfaceLight,
+      onSurface: textLight,
+      onBackground: textLight,
+    ),
+    popupMenuTheme: PopupMenuThemeData(
+      color: surfaceLight,
+      shape: RoundedRectangleBorder(
+        side: const BorderSide(color: borderLight),
+        borderRadius: BorderRadius.circular(8),
+      ),
+    ),
+  ).copyWith(
+    extensions: <ThemeExtension<dynamic>>[
+      ColorThemeExtension.light,
+      TabbarTheme.light,
+    ],
+  );
 
-  static ThemeData darkTheme =
-      ThemeData(
-        useMaterial3: false,
-        brightness: Brightness.dark,
-        primaryColor: accentDark,
-        focusColor: const Color(0xFF263750),
-        hoverColor: const Color(0xFF242C38),
-        scaffoldBackgroundColor: canvasDark,
-        canvasColor: canvasDark,
-        dialogBackgroundColor: surfaceDark,
-        disabledColor: const Color(0xFF697386),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: surfaceDark,
-          foregroundColor: textDark,
-          shadowColor: Colors.transparent,
-        ),
-        dialogTheme: DialogTheme(
-          elevation: 8,
-          backgroundColor: surfaceDark,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-            side: const BorderSide(color: borderDark),
-          ),
-        ),
-        dividerTheme: const DividerThemeData(
-          color: borderDark,
-          thickness: 1,
-          space: 1,
-        ),
-        scrollbarTheme: scrollbarThemeDark,
-        inputDecorationTheme: (isDesktop || isWebDesktop)
-            ? InputDecorationTheme(
-                filled: true,
-                fillColor: const Color(0xFF222832),
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 13,
-                ),
-                hintStyle: const TextStyle(color: mutedDark, fontSize: 14),
-                labelStyle: const TextStyle(color: mutedDark),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(color: borderDark),
-                ),
-                disabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(color: Color(0xFF2A303B)),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(color: accentDark, width: 2),
-                ),
-                errorBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(color: Color(0xFFFF7B72)),
-                ),
-                focusedErrorBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(
-                    color: Color(0xFFFF7B72),
-                    width: 2,
-                  ),
-                ),
-              )
-            : null,
-        textTheme: const TextTheme(
-          titleLarge: TextStyle(
-            fontSize: 19,
-            color: textDark,
-            fontWeight: FontWeight.w600,
-          ),
-          titleSmall: TextStyle(
-            fontSize: 14,
-            color: textDark,
-            fontWeight: FontWeight.w500,
-          ),
-          bodySmall: TextStyle(fontSize: 12, color: mutedDark, height: 1.35),
-          bodyMedium: TextStyle(fontSize: 14, color: textDark, height: 1.4),
-          labelLarge: TextStyle(
-            fontSize: 14,
-            color: accentDark,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        cardColor: surfaceDark,
-        cardTheme: CardTheme(
-          color: surfaceDark,
-          elevation: 0,
-          margin: EdgeInsets.zero,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-            side: const BorderSide(color: borderDark),
-          ),
-        ),
-        hintColor: mutedDark,
-        visualDensity: VisualDensity.adaptivePlatformDensity,
-        tabBarTheme: const TabBarTheme(labelColor: textDark),
-        tooltipTheme: tooltipTheme(),
-        splashColor: (isDesktop || isWebDesktop) ? Colors.transparent : null,
-        highlightColor: (isDesktop || isWebDesktop) ? Colors.transparent : null,
-        splashFactory: (isDesktop || isWebDesktop)
-            ? NoSplash.splashFactory
-            : null,
-        textButtonTheme: (isDesktop || isWebDesktop)
-            ? TextButtonThemeData(
-                style: TextButton.styleFrom(
-                  foregroundColor: accentDark,
-                  disabledForegroundColor: const Color(0xFF697386),
-                  minimumSize: const Size(44, 40),
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  splashFactory: NoSplash.splashFactory,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-              )
-            : mobileTextButtonTheme,
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: accentDark,
-            foregroundColor: const Color(0xFF07111F),
-            disabledForegroundColor: const Color(0xFF697386),
-            disabledBackgroundColor: const Color(0xFF2A303B),
-            elevation: 0,
-            minimumSize: const Size(44, 44),
-            padding: const EdgeInsets.symmetric(horizontal: 18),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
+  static ThemeData darkTheme = ThemeData(
+    useMaterial3: false,
+    brightness: Brightness.dark,
+    primaryColor: accentDark,
+    focusColor: const Color(0xFF263750),
+    hoverColor: const Color(0xFF242C38),
+    scaffoldBackgroundColor: canvasDark,
+    canvasColor: canvasDark,
+    dialogBackgroundColor: surfaceDark,
+    disabledColor: const Color(0xFF697386),
+    appBarTheme: const AppBarTheme(
+      backgroundColor: surfaceDark,
+      foregroundColor: textDark,
+      shadowColor: Colors.transparent,
+    ),
+    dialogTheme: DialogTheme(
+      elevation: 8,
+      backgroundColor: surfaceDark,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: const BorderSide(color: borderDark),
+      ),
+    ),
+    dividerTheme: const DividerThemeData(
+      color: borderDark,
+      thickness: 1,
+      space: 1,
+    ),
+    scrollbarTheme: scrollbarThemeDark,
+    inputDecorationTheme: (isDesktop || isWebDesktop)
+        ? InputDecorationTheme(
+            filled: true,
+            fillColor: const Color(0xFF222832),
+            isDense: true,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: 13,
             ),
-          ),
-        ),
-        outlinedButtonTheme: OutlinedButtonThemeData(
-          style: OutlinedButton.styleFrom(
-            backgroundColor: surfaceDark,
-            foregroundColor: textDark,
-            disabledForegroundColor: const Color(0xFF697386),
-            minimumSize: const Size(44, 44),
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            side: const BorderSide(color: borderDark),
-            shape: RoundedRectangleBorder(
+            hintStyle: const TextStyle(color: mutedDark, fontSize: 14),
+            labelStyle: const TextStyle(color: mutedDark),
+            enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: borderDark),
             ),
-          ),
+            disabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Color(0xFF2A303B)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: accentDark, width: 2),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Color(0xFFFF7B72)),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(
+                color: Color(0xFFFF7B72),
+                width: 2,
+              ),
+            ),
+          )
+        : null,
+    textTheme: const TextTheme(
+      titleLarge: TextStyle(
+        fontSize: 19,
+        color: textDark,
+        fontWeight: FontWeight.w600,
+      ),
+      titleSmall: TextStyle(
+        fontSize: 14,
+        color: textDark,
+        fontWeight: FontWeight.w500,
+      ),
+      bodySmall: TextStyle(fontSize: 12, color: mutedDark, height: 1.35),
+      bodyMedium: TextStyle(fontSize: 14, color: textDark, height: 1.4),
+      labelLarge: TextStyle(
+        fontSize: 14,
+        color: accentDark,
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+    cardColor: surfaceDark,
+    cardTheme: CardTheme(
+      color: surfaceDark,
+      elevation: 0,
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: const BorderSide(color: borderDark),
+      ),
+    ),
+    hintColor: mutedDark,
+    visualDensity: VisualDensity.adaptivePlatformDensity,
+    tabBarTheme: const TabBarTheme(labelColor: textDark),
+    tooltipTheme: tooltipTheme(),
+    splashColor: (isDesktop || isWebDesktop) ? Colors.transparent : null,
+    highlightColor: (isDesktop || isWebDesktop) ? Colors.transparent : null,
+    splashFactory: (isDesktop || isWebDesktop) ? NoSplash.splashFactory : null,
+    textButtonTheme: (isDesktop || isWebDesktop)
+        ? TextButtonThemeData(
+            style: TextButton.styleFrom(
+              foregroundColor: accentDark,
+              disabledForegroundColor: const Color(0xFF697386),
+              minimumSize: const Size(44, 40),
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              splashFactory: NoSplash.splashFactory,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+          )
+        : mobileTextButtonTheme,
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: accentDark,
+        foregroundColor: const Color(0xFF07111F),
+        disabledForegroundColor: const Color(0xFF697386),
+        disabledBackgroundColor: const Color(0xFF2A303B),
+        elevation: 0,
+        minimumSize: const Size(44, 44),
+        padding: const EdgeInsets.symmetric(horizontal: 18),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
         ),
-        switchTheme: switchTheme(dark: true),
-        radioTheme: radioTheme(dark: true),
-        checkboxTheme: checkboxTheme(dark: true),
-        listTileTheme: listTileTheme,
-        menuBarTheme: const MenuBarThemeData(
-          style: MenuStyle(
-            backgroundColor: MaterialStatePropertyAll(surfaceDark),
-          ),
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        backgroundColor: surfaceDark,
+        foregroundColor: textDark,
+        disabledForegroundColor: const Color(0xFF697386),
+        minimumSize: const Size(44, 44),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        side: const BorderSide(color: borderDark),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
         ),
-        colorScheme: const ColorScheme.dark(
-          primary: accentDark,
-          secondary: accentDark,
-          background: canvasDark,
-          surface: surfaceDark,
-          onSurface: textDark,
-          onBackground: textDark,
-        ),
-        popupMenuTheme: PopupMenuThemeData(
-          color: surfaceDark,
-          shape: RoundedRectangleBorder(
-            side: const BorderSide(color: borderDark),
-            borderRadius: BorderRadius.circular(8),
-          ),
-        ),
-      ).copyWith(
-        extensions: <ThemeExtension<dynamic>>[
-          ColorThemeExtension.dark,
-          TabbarTheme.dark,
-        ],
-      );
+      ),
+    ),
+    switchTheme: switchTheme(dark: true),
+    radioTheme: radioTheme(dark: true),
+    checkboxTheme: checkboxTheme(dark: true),
+    listTileTheme: listTileTheme,
+    menuBarTheme: const MenuBarThemeData(
+      style: MenuStyle(
+        backgroundColor: MaterialStatePropertyAll(surfaceDark),
+      ),
+    ),
+    colorScheme: const ColorScheme.dark(
+      primary: accentDark,
+      secondary: accentDark,
+      background: canvasDark,
+      surface: surfaceDark,
+      onSurface: textDark,
+      onBackground: textDark,
+    ),
+    popupMenuTheme: PopupMenuThemeData(
+      color: surfaceDark,
+      shape: RoundedRectangleBorder(
+        side: const BorderSide(color: borderDark),
+        borderRadius: BorderRadius.circular(8),
+      ),
+    ),
+  ).copyWith(
+    extensions: <ThemeExtension<dynamic>>[
+      ColorThemeExtension.dark,
+      TabbarTheme.dark,
+    ],
+  );
   static ThemeMode getThemeModePreference() {
     return themeModeFromString(bind.mainGetLocalOption(key: kCommConfKeyTheme));
   }
@@ -848,47 +842,6 @@ final ButtonStyle flatButtonStyle = TextButton.styleFrom(
 List<Locale> supportedLocales = const [
   Locale('en', 'US'),
   Locale('zh', 'CN'),
-  Locale('zh', 'TW'),
-  Locale('zh', 'SG'),
-  Locale('fr'),
-  Locale('de'),
-  Locale('it'),
-  Locale('ja'),
-  Locale('cs'),
-  Locale('pl'),
-  Locale('ko'),
-  Locale('hu'),
-  Locale('pt'),
-  Locale('ru'),
-  Locale('sk'),
-  Locale('id'),
-  Locale('da'),
-  Locale('eo'),
-  Locale('tr'),
-  Locale('kz'),
-  Locale('es'),
-  Locale('nl'),
-  Locale('nb'),
-  Locale('et'),
-  Locale('eu'),
-  Locale('bg'),
-  Locale('be'),
-  Locale('vn'),
-  Locale('uk'),
-  Locale('fa'),
-  Locale('ca'),
-  Locale('el'),
-  Locale('sv'),
-  Locale('sq'),
-  Locale('sr'),
-  Locale('th'),
-  Locale('sl'),
-  Locale('ro'),
-  Locale('lt'),
-  Locale('lv'),
-  Locale('ar'),
-  Locale('he'),
-  Locale('hr'),
 ];
 
 String formatDurationToTime(Duration duration) {
@@ -943,12 +896,11 @@ Future<void> windowOnTop(int? id) async {
   }
 }
 
-typedef DialogBuilder =
-    CustomAlertDialog Function(
-      StateSetter setState,
-      void Function([dynamic]) close,
-      BuildContext context,
-    );
+typedef DialogBuilder = CustomAlertDialog Function(
+  StateSetter setState,
+  void Function([dynamic]) close,
+  BuildContext context,
+);
 
 class Dialog<T> {
   OverlayEntry? entry;
@@ -1027,9 +979,8 @@ class OverlayDialogManager {
     bool useAnimation = true,
     bool forceGlobal = false,
   }) {
-    final overlayState = forceGlobal
-        ? globalKey.currentState?.overlay
-        : _overlayKeyState.state;
+    final overlayState =
+        forceGlobal ? globalKey.currentState?.overlay : _overlayKeyState.state;
 
     if (overlayState == null) {
       return Future.error(
@@ -1451,8 +1402,7 @@ void msgBox(
     }
     buttons.insert(0, btn);
   }
-  hasCancel ??=
-      !type.contains("error") &&
+  hasCancel ??= !type.contains("error") &&
       !type.contains("nocancel") &&
       type != "restarting";
   if (hasCancel) {
@@ -2063,9 +2013,8 @@ Future<void> saveWindowPosition(
       // if is not resizable. The reason is unknown.
       //
       // `setResizable(!bind.isIncomingOnly());` in main.dart
-      isMaximized = bind.isIncomingOnly()
-          ? false
-          : await windowManager.isMaximized();
+      isMaximized =
+          bind.isIncomingOnly() ? false : await windowManager.isMaximized();
       if (isFullscreen || isMaximized) {
         setPreFrame();
       } else {
@@ -2298,16 +2247,14 @@ Future<Offset?> _adjustRestoreMainWindowOffset(
 
   double frameLeft = 0.0;
   double frameTop = 0.0;
-  double frameRight =
-      ((isDesktop || isWebDesktop)
-              ? kDesktopMaxDisplaySize
-              : kMobileMaxDisplaySize)
-          .toDouble();
-  double frameBottom =
-      ((isDesktop || isWebDesktop)
-              ? kDesktopMaxDisplaySize
-              : kMobileMaxDisplaySize)
-          .toDouble();
+  double frameRight = ((isDesktop || isWebDesktop)
+          ? kDesktopMaxDisplaySize
+          : kMobileMaxDisplaySize)
+      .toDouble();
+  double frameBottom = ((isDesktop || isWebDesktop)
+          ? kDesktopMaxDisplaySize
+          : kMobileMaxDisplaySize)
+      .toDouble();
 
   final minWidth = 10.0;
   if ((left + minWidth) > frameRight ||
@@ -2598,9 +2545,7 @@ setEnvTerminalAdmin() {
 bool handleUriLink({List<String>? cmdArgs, Uri? uri, String? uriString}) {
   final viewerUri = uri ??
       (uriString == null ? null : Uri.tryParse(uriString)) ??
-      (cmdArgs == null || cmdArgs.isEmpty
-          ? null
-          : Uri.tryParse(cmdArgs.first));
+      (cmdArgs == null || cmdArgs.isEmpty ? null : Uri.tryParse(cmdArgs.first));
   if (viewerUri != null && publishViewerInvite(viewerUri)) {
     return true;
   }
@@ -3040,10 +2985,10 @@ connect(
           MaterialPageRoute(
             builder: (BuildContext context) =>
                 desktop_file_manager.FileManagerPage(
-                  id: id,
-                  password: password,
-                  isSharedPassword: isSharedPassword,
-                ),
+              id: id,
+              password: password,
+              isSharedPassword: isSharedPassword,
+            ),
           ),
         );
       } else {
@@ -3066,12 +3011,12 @@ connect(
           MaterialPageRoute(
             builder: (BuildContext context) =>
                 desktop_view_camera.ViewCameraPage(
-                  key: ValueKey(id),
-                  id: id,
-                  toolbarState: ToolbarState(),
-                  password: password,
-                  isSharedPassword: isSharedPassword,
-                ),
+              key: ValueKey(id),
+              id: id,
+              toolbarState: ToolbarState(),
+              password: password,
+              isSharedPassword: isSharedPassword,
+            ),
           ),
         );
       } else {
@@ -3268,9 +3213,20 @@ Future<void> onActiveWindowChanged() async {
 }
 
 Timer periodic_immediate(Duration duration, Future<void> Function() callback) {
-  Future.delayed(Duration.zero, callback);
-  return Timer.periodic(duration, (timer) async {
-    await callback();
+  var running = false;
+  Future<void> run() async {
+    if (running) return;
+    running = true;
+    try {
+      await callback();
+    } finally {
+      running = false;
+    }
+  }
+
+  unawaited(run());
+  return Timer.periodic(duration, (_) {
+    unawaited(run());
   });
 }
 
@@ -3367,10 +3323,10 @@ class ServerConfig {
 
   /// from local options
   ServerConfig.fromOptions(Map<String, dynamic> options)
-    : idServer = options['custom-rendezvous-server'] ?? "",
-      relayServer = options['relay-server'] ?? "",
-      apiServer = options['api-server'] ?? "",
-      key = options['key'] ?? "";
+      : idServer = options['custom-rendezvous-server'] ?? "",
+        relayServer = options['relay-server'] ?? "",
+        apiServer = options['api-server'] ?? "",
+        key = options['key'] ?? "";
 }
 
 Widget dialogButton(
@@ -3521,8 +3477,7 @@ Future<bool> callMainCheckSuperUserPermission() async {
 }
 
 Future<void> start_service(bool is_start) async {
-  bool checked =
-      !bind.mainIsInstalled() ||
+  bool checked = !bind.mainIsInstalled() ||
       !isMacOS ||
       await callMainCheckSuperUserPermission();
   if (checked) {
@@ -4296,7 +4251,8 @@ Widget buildPresetPasswordWarning() {
       } else if (snapshot.hasData && snapshot.data == true) {
         return _buildPresetPasswordWarning();
       } else {
-        return SizedBox.shrink(); // Show nothing if the Future completed with false or null
+        return SizedBox
+            .shrink(); // Show nothing if the Future completed with false or null
       }
     },
   );
@@ -4385,9 +4341,8 @@ bool get isCustomClient {
   // legitimately return false during the first call if custom.txt has not
   // been read yet (e.g. when widget construction eagerly touches this getter
   // before bind.mainInit finishes).
-  var result =
-      const bool.fromEnvironment('CLIENT_ONLY', defaultValue: false) ||
-          bind.isCustomClient();
+  var result = const bool.fromEnvironment('CLIENT_ONLY', defaultValue: false) ||
+      bind.isCustomClient();
   // Fallback: ask Rust for the actual app name. When the user has dropped
   // a custom.txt next to portable-x64.exe that sets a non-default app-name,
   // APP_NAME will be something other than "LUODA" — that is the canonical
@@ -4564,8 +4519,7 @@ void updateTextAndPreserveSelection(
   String text,
 ) {
   // Only care about select all for now.
-  final isSelected =
-      controller.selection.isValid &&
+  final isSelected = controller.selection.isValid &&
       controller.selection.end > controller.selection.start;
 
   // Set text will make the selection invalid.

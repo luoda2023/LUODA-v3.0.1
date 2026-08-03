@@ -11,6 +11,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:luoda_flutter/models/peer_model.dart';
 
 import '../../common.dart';
+import '../../common/direct_chat_policy.dart';
 import '../../common/direct_pairing.dart';
 import '../../common/direct_viewer_invite.dart';
 import '../../common/widgets/join_viewer_page.dart';
@@ -24,6 +25,13 @@ import 'home_page.dart';
 
 /// Connection page for connecting to a remote peer.
 enum _ConnectionMode { chat, remote, viewer }
+
+class _MobileContactGroupHeader {
+  const _MobileContactGroupHeader(this.label, this.count);
+
+  final String label;
+  final int count;
+}
 
 class ConnectionPage extends StatefulWidget implements PageShape {
   ConnectionPage({Key? key, required this.appBarActions}) : super(key: key);
@@ -281,6 +289,8 @@ class _ConnectionPageState extends State<ConnectionPage> {
     if (!gFFI.closed && gFFI.connType == ConnType.defaultConn) return;
     final watchPeer = gFFI.chatModel.lastActiveChatPeerId;
     if (watchPeer == null || watchPeer.isEmpty) return;
+    final access = DirectChatAccessController.instance..load();
+    if (!access.shouldAutoReconnect(watchPeer)) return;
     // 无可用连接端点则不重建，避免周期性弹 toast。
     if (DirectPairingStore.resolveConnectionTarget(watchPeer) == null) return;
     // 已是健康的 isChat 连接则无需重建。
@@ -294,77 +304,132 @@ class _ConnectionPageState extends State<ConnectionPage> {
   }
 
   Widget _buildPairedContacts() {
-    return ValueListenableBuilder<int>(
-      valueListenable: DirectPairingStore.revision,
-      builder: (context, _, __) {
+    final access = DirectChatAccessController.instance..load();
+    return AnimatedBuilder(
+      animation: Listenable.merge(<Listenable>[
+        DirectPairingStore.revision,
+        access,
+        gFFI.ffiModel,
+        gFFI.serverModel,
+      ]),
+      builder: (context, _) {
         final pairings = DirectPairingStore.load().values.toList()
           ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
         if (pairings.isEmpty) return const SizedBox.shrink();
-        return AnimatedBuilder(
-          animation: Listenable.merge(<Listenable>[
-            gFFI.ffiModel,
-            gFFI.serverModel,
-          ]),
-          builder: (context, _) => Container(
-            margin: const EdgeInsets.fromLTRB(2, 8, 2, 8),
-            decoration: BoxDecoration(
-              color: Theme.of(context).cardColor,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Column(
-              children: [
-                for (var index = 0; index < pairings.length; index++) ...[
-                  Builder(builder: (context) {
-                    final pairing = pairings[index];
-                    final status = _pairedMessageStatus(pairing);
-                    return ListTile(
-                      minVerticalPadding: 9,
-                      leading: _pairedContactAvatar(pairing),
-                      title: Text(
-                        pairing.displayName.isEmpty
-                            ? pairing.peerId
-                            : pairing.displayName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: <Widget>[
-                          Text(
-                            pairing.preferredEndpoint,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            translate(status.$1),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: status.$2,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                      trailing: const Icon(Icons.chevron_right_rounded),
-                      onTap: () => _startDirectChat(pairing.peerId),
-                    );
-                  }),
-                  if (index != pairings.length - 1)
-                    const Divider(height: 1, indent: 70),
-                ],
+        final friends = pairings
+            .where((pairing) => access.isFriend(pairing.peerId))
+            .toList(growable: false);
+        final strangers = pairings
+            .where((pairing) => !access.isFriend(pairing.peerId))
+            .toList(growable: false);
+        final rows = <Object>[
+          if (friends.isNotEmpty) ...<Object>[
+            _MobileContactGroupHeader('Friends', friends.length),
+            ...friends,
+          ],
+          if (strangers.isNotEmpty) ...<Object>[
+            _MobileContactGroupHeader('Strangers', strangers.length),
+            ...strangers,
+          ],
+        ];
+        return Container(
+          margin: const EdgeInsets.fromLTRB(2, 8, 2, 8),
+          decoration: BoxDecoration(
+            color: Theme.of(context).cardColor,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Column(
+            children: <Widget>[
+              for (var index = 0; index < rows.length; index++) ...<Widget>[
+                if (rows[index] case final _MobileContactGroupHeader group)
+                  _buildPairedGroupHeader(group)
+                else
+                  _buildPairedContactRow(rows[index] as DirectPairing, access),
+                if (index != rows.length - 1 &&
+                    rows[index + 1] is! _MobileContactGroupHeader)
+                  const Divider(height: 1, indent: 70),
               ],
-            ),
+            ],
           ),
         );
       },
+    );
+  }
+
+  Widget _buildPairedGroupHeader(_MobileContactGroupHeader group) {
+    return Container(
+      height: 34,
+      alignment: Alignment.centerLeft,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      color: Theme.of(context).brightness == Brightness.dark
+          ? const Color(0xFF202227)
+          : const Color(0xFFF1F3F5),
+      child: Text(
+        '${translate(group.label)} (${group.count})',
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.62),
+              fontWeight: FontWeight.w600,
+            ),
+      ),
+    );
+  }
+
+  Widget _buildPairedContactRow(
+    DirectPairing pairing,
+    DirectChatAccessController access,
+  ) {
+    final status = _pairedMessageStatus(pairing);
+    final isFriend = access.isFriend(pairing.peerId);
+    return ListTile(
+      minVerticalPadding: 9,
+      leading: _pairedContactAvatar(pairing),
+      title: Text(
+        pairing.displayName.isEmpty ? pairing.peerId : pairing.displayName,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+      ),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            pairing.preferredEndpoint,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 12),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            translate(status.$1),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 12,
+              color: status.$2,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+      trailing: PopupMenuButton<String>(
+        tooltip: translate('Message permission'),
+        onSelected: (value) => unawaited(
+          access.setPeerPolicy(pairing.peerId, value),
+        ),
+        itemBuilder: (_) => <PopupMenuEntry<String>>[
+          PopupMenuItem<String>(
+            value: isFriend ? 'ask' : 'allow',
+            child: Text(
+              translate(isFriend ? 'Move to strangers' : 'Add as friend'),
+            ),
+          ),
+          PopupMenuItem<String>(
+            value: 'deny',
+            child: Text(translate('Reject')),
+          ),
+        ],
+      ),
+      onTap: () => _startDirectChat(pairing.peerId),
     );
   }
 

@@ -543,7 +543,7 @@ class _PinMenu extends StatelessWidget {
     return Obx(
       () => _IconMenuButton(
         assetName: state.pin ? "assets/pinned.svg" : "assets/unpinned.svg",
-        tooltip: state.pin ? 'Unpin Toolbar' : 'Pin Toolbar',
+        tooltip: translate(state.pin ? 'Unpin Toolbar' : 'Pin Toolbar'),
         label: 'Toolbar',
         onPressed: state.switchPin,
         color:

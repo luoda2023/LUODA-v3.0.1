@@ -428,7 +428,7 @@ mod direct_endpoint_tests {
     }
 
     #[test]
-    fn probes_the_requested_direct_port_then_the_vps_fallback_range() {
+    fn bare_ip_probe_uses_the_default_port_then_the_vps_fallback_range() {
         let ip = "192.168.1.20".parse().unwrap();
         let ports: Vec<_> = direct_probe_addresses(ip, 21118)
             .into_iter()

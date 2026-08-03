@@ -132,11 +132,6 @@ impl RendezvousMediator {
         if !crate::is_luoda() {
             crate::hbbs_http::sync::start();
         }
-        #[cfg(target_os = "windows")]
-        // Auto-update disabled for LUODA custom build
-        if false && crate::platform::is_installed() && crate::is_server() {
-            crate::updater::start_auto_update();
-        }
         check_zombie();
         let server = new_server();
         if !crate::is_luoda()

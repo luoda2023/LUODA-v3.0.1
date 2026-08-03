@@ -131,16 +131,12 @@ dependency_overrides:
   record_platform_interface: 1.2.0
 
 # rerun: flutter pub run flutter_launcher_icons
-flutter_icons:
+flutter_launcher_icons:
   image_path: "../res/icon_padded.png"
+  image_path_ios: "../res/icon_ios.png"
   remove_alpha_ios: true
   android: true
   ios: true
-  windows:
-    generate: true
-  macos:
-    image_path: "../res/mac-icon.png"
-    generate: true
   linux: true
   web:
     generate: true

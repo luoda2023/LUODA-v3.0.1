@@ -10,9 +10,9 @@ use crate::{
     common::get_default_sound_input,
     ui_session_interface::{InvokeUiSession, Session},
 };
-use crate::{LOGIN_MSG_VERSION_MISMATCH, MIN_PEER_VERSION};
 #[cfg(feature = "unix-file-copy-paste")]
 use crate::{clipboard::try_empty_clipboard_files, clipboard_file::unix_file_clip};
+use crate::{LOGIN_MSG_VERSION_MISMATCH, MIN_PEER_VERSION};
 #[cfg(any(
     target_os = "windows",
     all(target_os = "macos", feature = "unix-file-copy-paste")
@@ -1171,7 +1171,13 @@ impl<T: InvokeUiSession> Remote<T> {
                 v.fps_control.inactive_counter = 0;
             }
         });
-        let custom_fps = self.handler.lc.read().expect("lc lock poisoned").custom_fps.clone();
+        let custom_fps = self
+            .handler
+            .lc
+            .read()
+            .expect("lc lock poisoned")
+            .custom_fps
+            .clone();
         let custom_fps = custom_fps.lock().expect("custom_fps lock poisoned").clone();
         let mut custom_fps = custom_fps.unwrap_or(30);
         if custom_fps < 5 || custom_fps > 120 {
@@ -1516,14 +1522,37 @@ impl<T: InvokeUiSession> Remote<T> {
                                     fs::transform_windows_path(&mut entries);
                                 }
                             }
-                            self.handler
-                                .update_folder_files(fd.id, &entries, fd.path, false, false);
+                            let mut invalid_file_list = None;
                             if let Some(job) = fs::get_job(fd.id, &mut self.write_jobs) {
                                 log::info!("job set_files: {:?}", entries);
-                                job.set_files(entries);
-                                job.set_finished_size_on_resume();
+                                if let Err(err) = job.set_files(entries) {
+                                    invalid_file_list = Some(err.to_string());
+                                } else {
+                                    self.handler.update_folder_files(
+                                        fd.id,
+                                        job.files(),
+                                        fd.path,
+                                        false,
+                                        false,
+                                    );
+                                    job.set_finished_size_on_resume();
+                                }
                             } else if let Some(job) = self.remove_jobs.get_mut(&fd.id) {
                                 job.files = entries;
+                                self.handler
+                                    .update_folder_files(fd.id, &job.files, fd.path, false, false);
+                            } else {
+                                self.handler
+                                    .update_folder_files(fd.id, &entries, fd.path, false, false);
+                            }
+                            if let Some(err) = invalid_file_list {
+                                log::error!("Rejected invalid remote file list: {err}");
+                                let _ = fs::remove_job(fd.id, &mut self.write_jobs);
+                                self.handle_job_status(
+                                    fd.id,
+                                    -1,
+                                    Some(format!("Invalid remote file list: {err}")),
+                                );
                             }
                         }
                         Some(file_response::Union::Digest(digest)) => {

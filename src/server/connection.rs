@@ -1,4 +1,7 @@
-use super::{chat_broadcast, viewer_direct_channel, viewer_registry};
+use super::{
+    chat_broadcast, direct_chat_policy::direct_chat_access_allowed, viewer_direct_channel,
+    viewer_registry,
+};
 use hbb_common::message_proto::{
     ChatBroadcast, ChatChannel, InviteToken, JoinAsViewer, KickViewer, PromoteViewer,
     RaiseHand, RequestInviteToken,
@@ -1915,27 +1918,14 @@ impl Connection {
     }
 
     fn direct_chat_auto_allowed(&self, peer_id: &str) -> bool {
-        if self.chat_companion_verified {
-            return true;
-        }
-        // Auto-allow if the peer is a known contact (exists in peer config / address book).
-        // Chat, file transfer, and voice connections from known contacts should not
-        // trigger the approval popup — only remote desktop access should.
-        if PeerConfig::exists(peer_id) {
-            return true;
-        }
-        if !self.direct_chat_identity_matches(peer_id) {
-            return false;
-        }
-        // Default: direct-chat-always-on is considered "Y" unless explicitly set to "N".
-        if LocalConfig::get_option("direct-chat-always-on") == "N" {
-            return false;
-        }
-        match self.direct_chat_policy(peer_id).as_str() {
-            "allow" => true,
-            "deny" => false,
-            _ => LocalConfig::get_option("direct-chat-trusted-only") != "Y",
-        }
+        let policy = self.direct_chat_policy(peer_id);
+        direct_chat_access_allowed(
+            self.chat_companion_verified,
+            self.direct_chat_identity_matches(peer_id),
+            LocalConfig::get_option("direct-chat-always-on") != "N",
+            LocalConfig::get_option("direct-chat-trusted-only") != "N",
+            &policy,
+        )
     }
 
     fn direct_chat_identity_matches(&self, peer_id: &str) -> bool {
@@ -2691,18 +2681,9 @@ impl Connection {
                     self.send_login_error(err_msg).await;
                 }
             } else if self.chat_only {
-                // LUODA FIX: chat/file/voice (isChat) direct connections are
-                // auto-approved in the background — no "access your device" popup.
-                // Only real remote-desktop control (non chat_only) still prompts.
-                if err_msg.is_empty() {
-                    if !self.send_logon_response_and_keep_alive().await {
-                        return false;
-                    }
-                    self.try_start_cm(lr.my_id, lr.my_name, self.authorized);
-                } else {
-                    self.send_login_error(err_msg).await;
-                }
-                return true;
+                self.send_login_error("direct-chat-permission-denied")
+                    .await;
+                return false;
             } else if self.file_transfer.is_some()
                 && self.direct_chat_auto_allowed(&lr.my_id)
             {
@@ -3825,7 +3806,7 @@ impl Connection {
     ) -> Option<&'static str> {
         let check_admin_res =
             crate::platform::get_logon_user_token(username, password).map(|token| {
-                let is_token_admin = crate::platform::is_user_token_admin(token);
+                let is_token_admin = unsafe { crate::platform::is_user_token_admin(token) };
                 unsafe {
                     hbb_common::allow_err!(CloseHandle(HANDLE(token as _)));
                 };
@@ -3859,7 +3840,7 @@ impl Connection {
         }
         let token = crate::platform::get_user_token(session_id, true);
         if !token.is_null() {
-            match crate::platform::ensure_primary_token(token) {
+            match unsafe { crate::platform::ensure_primary_token(token) } {
                 Ok(t) => {
                     self.terminal_user_token = Some(TerminalUserToken::CurrentLogonUser(
                         crate::terminal_service::UserToken::new(t as usize),

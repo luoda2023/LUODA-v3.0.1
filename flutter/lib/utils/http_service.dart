@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:luoda_flutter/consts.dart';
@@ -73,6 +74,8 @@ class HttpService {
   }
 
   Future<String> _pollForResponse(String url) async {
+    const timeout = Duration(seconds: 45);
+    final stopwatch = Stopwatch()..start();
     String? responseJson = " ";
     while (responseJson == " ") {
       responseJson = await bind.mainGetHttpStatus(url: url);
@@ -80,6 +83,9 @@ class HttpService {
         throw Exception('The HTTP request failed');
       }
       if (responseJson == " ") {
+        if (stopwatch.elapsed >= timeout) {
+          throw TimeoutException('HTTP request timed out', timeout);
+        }
         await Future.delayed(const Duration(milliseconds: 100));
       }
     }

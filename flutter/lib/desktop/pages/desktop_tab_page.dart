@@ -6,7 +6,6 @@ import 'package:luoda_flutter/desktop/pages/desktop_setting_page.dart';
 import 'package:luoda_flutter/desktop/widgets/desktop_main_title_bar.dart';
 import 'package:luoda_flutter/desktop/widgets/tabbar_widget.dart';
 import 'package:luoda_flutter/models/platform_model.dart';
-import 'package:luoda_flutter/models/state_model.dart';
 import 'package:get/get.dart';
 import 'package:window_manager/window_manager.dart';
 // import 'package:flutter/services.dart';
@@ -164,14 +163,6 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
               showMaximize: !compactClient,
               showClose: true,
             )));
-    return isMacOS || kUseCompatibleUiMode
-        ? tabWidget
-        : Obx(
-            () => DragToResizeArea(
-              resizeEdgeSize: stateGlobal.resizeEdgeSize.value,
-              enableResizeEdges: windowManagerEnableResizeEdges,
-              child: tabWidget,
-            ),
-          );
+    return tabWidget;
   }
 }

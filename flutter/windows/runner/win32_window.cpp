@@ -2,6 +2,7 @@
 
 #include <flutter_windows.h>
 #include <shobjidl_core.h>
+#include <windowsx.h>
 
 #include "resource.h"
 
@@ -12,12 +13,66 @@
 namespace {
 
 constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
+constexpr int kBorderlessResizeEdge = 5;
 
 // The number of Win32Window objects that currently exist.
 static int g_active_window_count = 0;
 
 // Static variable to hold the custom icon (needs cleanup on exit)
 static HICON g_custom_icon_ = nullptr;
+
+bool BorderlessResizeHitTest(HWND window, LPARAM lparam, LRESULT* result) {
+  const LONG_PTR style = GetWindowLongPtr(window, GWL_STYLE);
+  if ((style & WS_THICKFRAME) == 0 || (style & WS_CAPTION) != 0 ||
+      IsZoomed(window)) {
+    return false;
+  }
+
+  RECT window_rect{};
+  if (!GetWindowRect(window, &window_rect)) {
+    return false;
+  }
+  MONITORINFO monitor_info{sizeof(MONITORINFO)};
+  const HMONITOR monitor =
+      MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST);
+  if (GetMonitorInfo(monitor, &monitor_info) &&
+      EqualRect(&window_rect, &monitor_info.rcMonitor)) {
+    return false;
+  }
+
+  const UINT dpi = FlutterDesktopGetDpiForMonitor(monitor);
+  const int edge = MulDiv(kBorderlessResizeEdge, dpi, 96);
+  const POINT cursor = {GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+  const bool left = cursor.x >= window_rect.left &&
+                    cursor.x < window_rect.left + edge;
+  const bool right = cursor.x < window_rect.right &&
+                     cursor.x >= window_rect.right - edge;
+  const bool top = cursor.y >= window_rect.top &&
+                   cursor.y < window_rect.top + edge;
+  const bool bottom = cursor.y < window_rect.bottom &&
+                      cursor.y >= window_rect.bottom - edge;
+
+  if (top && left) {
+    *result = HTTOPLEFT;
+  } else if (top && right) {
+    *result = HTTOPRIGHT;
+  } else if (bottom && left) {
+    *result = HTBOTTOMLEFT;
+  } else if (bottom && right) {
+    *result = HTBOTTOMRIGHT;
+  } else if (left) {
+    *result = HTLEFT;
+  } else if (right) {
+    *result = HTRIGHT;
+  } else if (top) {
+    *result = HTTOP;
+  } else if (bottom) {
+    *result = HTBOTTOM;
+  } else {
+    return false;
+  }
+  return true;
+}
 
 // Try to load icon from data\flutter_assets\assets\icon.ico if it exists.
 // Returns nullptr if the file doesn't exist or can't be loaded.
@@ -232,6 +287,12 @@ LRESULT CALLBACK Win32Window::WndProc(HWND const window,
     that->window_handle_ = window;
     trySetWindowForeground(window);
   } else if (Win32Window* that = GetThisFromHandle(window)) {
+    if (message == WM_NCHITTEST) {
+      LRESULT result = HTCLIENT;
+      if (BorderlessResizeHitTest(window, lparam, &result)) {
+        return result;
+      }
+    }
     return that->MessageHandler(window, message, wparam, lparam);
   }
 

@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:luoda_flutter/common.dart';
 import 'package:path/path.dart' as p;
@@ -12,25 +11,7 @@ import 'package:open_filex/open_filex.dart';
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 
 import '../../consts.dart';
-
-const Set<String> _kImageExts = <String>{
-  'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg',
-};
-const Set<String> _kAudioExts = <String>{
-  'mp3', 'wav', 'flac', 'aac', 'ogg', 'wma', 'm4a',
-};
-const Set<String> _kTextExts = <String>{
-  'txt', 'md', 'log', 'json', 'xml', 'yaml', 'yml', 'toml', 'csv', 'ini',
-};
-
-String _ext(String fileName) {
-  final dot = fileName.lastIndexOf('.');
-  return dot >= 0 ? fileName.substring(dot + 1).toLowerCase() : '';
-}
-
-bool _isImage(String fileName) => _kImageExts.contains(_ext(fileName));
-bool _isAudio(String fileName) => _kAudioExts.contains(_ext(fileName));
-bool _isText(String fileName) => _kTextExts.contains(_ext(fileName));
+import 'file_preview_types.dart';
 
 String formatFileSize(int fileSize) {
   if (fileSize < 1024) return '$fileSize B';
@@ -57,10 +38,8 @@ Future<String?> resolveReceivedFilePath(String fileName, int fileSize) async {
   } catch (_) {}
   try {
     final ext = await ExternalPath.getExternalStorageDirectories();
-    if (ext is List) {
-      for (final e in ext) {
-        if (e is String) dirs.add(Directory(e));
-      }
+    for (final directory in ext) {
+      dirs.add(Directory(directory));
     }
   } catch (_) {}
 
@@ -102,9 +81,9 @@ Future<String?> resolveReceivedFilePath(String fileName, int fileSize) async {
   return fallback;
 }
 
-  /// Open file preview in an independent OS window (desktop) or in-app page
-  /// (mobile). Supports image zoom, audio playback, text display, and
-  /// prev/next navigation via [siblingPaths].
+/// Open file preview in an independent OS window (desktop) or in-app page
+/// (mobile). Supports image zoom, audio playback, text display, and
+/// prev/next navigation via [siblingPaths].
 Future<void> showFileViewer(
   BuildContext context, {
   required String fileName,
@@ -142,7 +121,7 @@ Future<void> showFileViewer(
         builder: (_) => _FileViewerPage(
           fileName: fileName,
           fileSize: fileSize,
-          path: path!,
+          path: path,
         ),
       ),
     );
@@ -154,19 +133,24 @@ Future<void> showFileViewer(
     final windowController = await DesktopMultiWindow.createWindow(
       jsonEncode({
         'type': kAppTypeDesktopFilePreview,
-        'file_path': path!,
+        'file_path': path,
         'file_name': fileName,
         if (siblingPaths != null) 'sibling_paths': siblingPaths,
       }),
     );
-    windowController
-      ..setFrame(const Offset(0, 0) & const Size(960, 720))
-      ..center()
-      ..setTitle(fileName)
-      ..show();
+    await windowController.setTitle(fileName);
+    if (filePreviewKindForName(fileName) == FilePreviewKind.image) {
+      await windowController.setFullscreen(true);
+    } else {
+      await windowController.setFrame(
+        const Offset(0, 0) & const Size(960, 720),
+      );
+      await windowController.center();
+    }
+    await windowController.show();
   } catch (_) {
     // Last resort: open with system app
-    await OpenFilex.open(path!);
+    await OpenFilex.open(path);
   }
 }
 
@@ -184,7 +168,51 @@ class _FileViewerPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final canOpen = path != null && !_isImage(fileName);
+    final kind = filePreviewKindForName(fileName);
+    if (path != null && kind == FilePreviewKind.image) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        body: Stack(
+          fit: StackFit.expand,
+          children: <Widget>[
+            _buildPreview(context),
+            Positioned(
+              left: 12,
+              top: 0,
+              right: 8,
+              child: SafeArea(
+                child: Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: Text(
+                        fileName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          shadows: <Shadow>[
+                            Shadow(color: Colors.black54, blurRadius: 4),
+                          ],
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: translate('Close'),
+                      icon: const Icon(Icons.close_rounded),
+                      color: Colors.white,
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    final canOpen = path != null;
     return Scaffold(
       backgroundColor: dark ? const Color(0xFF15171B) : const Color(0xFFF2F2F2),
       appBar: AppBar(
@@ -211,17 +239,17 @@ class _FileViewerPage extends StatelessWidget {
           ),
         ],
       ),
-      body: path == null
-          ? _buildMissingState(context)
-          : _buildPreview(context),
+      body: path == null ? _buildMissingState(context) : _buildPreview(context),
     );
   }
 
   Widget _buildPreview(BuildContext context) {
-    if (_isImage(fileName)) {
+    final kind = filePreviewKindForName(fileName);
+    if (kind == FilePreviewKind.image) {
       return InteractiveViewer(
         minScale: 0.1,
         maxScale: 10.0,
+        boundaryMargin: const EdgeInsets.all(80),
         child: Center(
           child: Image.file(
             File(path!),
@@ -250,8 +278,10 @@ class _FileViewerPage extends StatelessWidget {
         ),
       );
     }
-    if (_isAudio(fileName)) return _AudioPreview(path!, fileName);
-    if (_isText(fileName)) return _TextPreview(path!, fileName);
+    if (kind == FilePreviewKind.audio) return _AudioPreview(path!, fileName);
+    if (kind == FilePreviewKind.text || kind == FilePreviewKind.code) {
+      return _TextPreview(path!, fileName);
+    }
     return _OtherPreview(path!, fileName, fileSize);
   }
 
@@ -264,8 +294,7 @@ class _FileViewerPage extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            Icon(Icons.folder_open_outlined,
-                size: 56, color: foreground),
+            Icon(filePreviewIcon(fileName), size: 56, color: foreground),
             const SizedBox(height: 16),
             Text(
               translate('File not found on this device'),
@@ -281,7 +310,8 @@ class _FileViewerPage extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              translate('Receive the file via File Transfer to preview it here.'),
+              translate(
+                  'Receive the file via File Transfer to preview it here.'),
               style: TextStyle(fontSize: 12, color: foreground),
               textAlign: TextAlign.center,
             ),
@@ -382,16 +412,17 @@ class _AudioPreviewState extends State<_AudioPreview> {
             ),
             const SizedBox(height: 20),
             // Progress bar with track
-              Slider(
-                value: _duration.inMilliseconds == 0
-                    ? 0
-                    : _position.inMilliseconds
-                        .clamp(0, _duration.inMilliseconds)
-                        .toDouble(),
-                max: _duration.inMilliseconds.toDouble(),
-                activeColor: dark ? const Color(0xFF4CAF50) : const Color(0xFF07C160),
-                onChanged: (v) => _player.seek(Duration(milliseconds: v.toInt())),
-              ),
+            Slider(
+              value: _duration.inMilliseconds == 0
+                  ? 0
+                  : _position.inMilliseconds
+                      .clamp(0, _duration.inMilliseconds)
+                      .toDouble(),
+              max: _duration.inMilliseconds.toDouble(),
+              activeColor:
+                  dark ? const Color(0xFF4CAF50) : const Color(0xFF07C160),
+              onChanged: (v) => _player.seek(Duration(milliseconds: v.toInt())),
+            ),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: <Widget>[
@@ -404,9 +435,12 @@ class _AudioPreviewState extends State<_AudioPreview> {
                   ),
                 ),
                 IconButton(
-                  icon: Icon(_playing ? Icons.pause_circle_filled : Icons.play_circle_filled),
+                  icon: Icon(_playing
+                      ? Icons.pause_circle_filled
+                      : Icons.play_circle_filled),
                   iconSize: 48,
-                  color: dark ? const Color(0xFF4CAF50) : const Color(0xFF07C160),
+                  color:
+                      dark ? const Color(0xFF4CAF50) : const Color(0xFF07C160),
                   onPressed: () {
                     if (_playing) {
                       _player.pause();
@@ -518,40 +552,35 @@ class _OtherPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final ext = fileName.contains('.')
-        ? fileName.split('.').last.toUpperCase()
-        : 'FILE';
+    final ext = fileExtensionLabel(fileName);
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 28),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            // File type badge with colored background
             Container(
               width: 96,
               height: 96,
               decoration: BoxDecoration(
-                color: dark
-                    ? const Color(0xFF2A2D33)
-                    : const Color(0xFFF0F0F2),
-                borderRadius: BorderRadius.circular(20),
+                color: filePreviewColor(fileName, dark ? 0.24 : 0.12),
+                borderRadius: BorderRadius.circular(8),
               ),
               alignment: Alignment.center,
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: <Widget>[
-                  Icon(Icons.insert_drive_file_outlined,
+                  Icon(filePreviewIcon(fileName),
                       size: 36,
-                      color: dark ? Colors.white60 : Colors.black38),
+                      color: filePreviewColor(fileName, dark ? 0.9 : 0.8)),
                   const SizedBox(height: 4),
                   Text(
                     ext,
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
-                      letterSpacing: 0.5,
-                      color: dark ? Colors.white60 : Colors.black38,
+                      letterSpacing: 0,
+                      color: filePreviewColor(fileName, dark ? 0.9 : 0.8),
                     ),
                   ),
                 ],
@@ -582,9 +611,10 @@ class _OtherPreview extends StatelessWidget {
               icon: const Icon(Icons.open_in_new_rounded, size: 18),
               label: Text(translate('Open with system app')),
               style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(8),
                 ),
               ),
               onPressed: () => OpenFilex.open(path),

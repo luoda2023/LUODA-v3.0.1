@@ -74,6 +74,7 @@ pub mod input_service {
 }
 
 mod connection;
+mod direct_chat_policy;
 pub mod display_service;
 #[cfg(windows)]
 pub mod portable_service;
@@ -613,7 +614,7 @@ pub fn check_zombie() {
 /// If true, the server will be started.
 /// Otherwise, client will check if there's already a server and start one if not.
 #[cfg(any(target_os = "android", target_os = "ios"))]
-#[tokio::main]
+#[tokio::main(worker_threads = 2)]
 pub async fn start_server(_is_server: bool) {
     crate::RendezvousMediator::start_all().await;
 }
@@ -627,7 +628,7 @@ pub async fn start_server(_is_server: bool) {
 /// Otherwise, client will check if there's already a server and start one if not.
 /// * `no_server` - If `is_server` is false, whether to start a server if not found.
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-#[tokio::main]
+#[tokio::main(worker_threads = 2)]
 pub async fn start_server(is_server: bool, no_server: bool) {
     use std::sync::Once;
     static ONCE: Once = Once::new();
