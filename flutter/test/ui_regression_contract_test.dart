@@ -1168,6 +1168,15 @@ void main() {
     expect(File('assets/NotoSansCJK-OFL.txt').existsSync(), isTrue);
     expect(File('assets/NotoSansSymbols2-OFL.txt').existsSync(), isTrue);
     expect(File('assets/NotoColorEmoji-OFL.txt').existsSync(), isTrue);
+    for (final workflow in <String>[
+      windowsWorkflowSource,
+      clientWorkflowSource,
+      msiWorkflowSource,
+    ]) {
+      expect(workflow, contains('assets\\NotoSansCJKsc-Regular.otf'));
+      expect(workflow, contains('assets\\NotoSansSymbols2-Regular.ttf'));
+      expect(workflow, contains('assets\\NotoColorEmoji.ttf'));
+    }
     expect(commonSource, contains('fontFamilyFallback: fontFamilyFallback'));
     for (final family in <String>[
       'LDeskNotoSansCJKSC',

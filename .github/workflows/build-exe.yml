@@ -261,7 +261,10 @@ jobs:
             "assets\peer_searchbar.ttf",
             "assets\address_book.ttf",
             "assets\device_group.ttf",
-            "assets\more.ttf"
+            "assets\more.ttf",
+            "assets\NotoSansCJKsc-Regular.otf",
+            "assets\NotoSansSymbols2-Regular.ttf",
+            "assets\NotoColorEmoji.ttf"
           )
           foreach ($font in $requiredFonts) {
             $fontPath = Join-Path $assetRoot $font
