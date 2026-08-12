@@ -136,7 +136,7 @@ jobs:
           while ($attempt -lt 3) {
             $attempt++
             Write-Host "=== vcpkg install attempt $attempt/3 ==="
-            $proc = Start-Process -NoNewWindow -PassThru -FilePath "vcpkg" -ArgumentList "install --triplet x64-windows-static --x-install-root=$env:VCPKG_ROOT\installed --clean-after-build --x-max-download-retries=10"
+            $proc = Start-Process -NoNewWindow -PassThru -FilePath "vcpkg" -ArgumentList "install --triplet x64-windows-static --x-install-root=$env:VCPKG_ROOT\installed --clean-after-build"
             $timeout = 2100  # 35 minutes in seconds
             $sw = [System.Diagnostics.Stopwatch]::StartNew()
             while (-not $proc.HasExited) {

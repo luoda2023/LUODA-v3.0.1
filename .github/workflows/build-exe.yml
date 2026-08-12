@@ -160,7 +160,7 @@ jobs:
           triplet="${{ matrix.arch == 'x86' && 'x86-windows-static' || 'x64-windows-static' }}"
           for attempt in 1 2 3; do
             echo "=== vcpkg install attempt $attempt/3 ==="
-            if vcpkg install --triplet "$triplet" --x-install-root="$VCPKG_ROOT/installed" --x-max-download-retries=10; then
+            if vcpkg install --triplet "$triplet" --x-install-root="$VCPKG_ROOT/installed"; then
               echo "vcpkg install complete"
               exit 0
             fi
