@@ -64,9 +64,25 @@ jobs:
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev || true
 
       - name: Setup vcpkg
-        uses: lukka/run-vcpkg@v11
+        shell: bash
+        run: |
+          # Clone and bootstrap vcpkg natively (pinned commit) instead of
+          # run-vcpkg so the downloads dir is under a stable path we can
+          # cache across runs.
+          if [ ! -d "$HOME/vcpkg/.git" ]; then
+            git clone https://github.com/microsoft/vcpkg.git "$HOME/vcpkg"
+          fi
+          # Full clone so the pinned commit is always reachable.
+          git -C "$HOME/vcpkg" checkout "$VCPKG_COMMIT_ID"
+          "$HOME/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
+          echo "vcpkg ready: $("$HOME/vcpkg/vcpkg" version | head -1)"
+          echo "VCPKG_ROOT=$HOME/vcpkg" >> "$GITHUB_ENV"
+
+      - name: Cache vcpkg downloads
+        uses: actions/cache@v4
         with:
-          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
+          path: ~/vcpkg/downloads
+          key: vcpkg-dl-${{ runner.os }}-${{ env.VCPKG_COMMIT_ID }}
 
       - name: Install vcpkg dependencies
         run: |

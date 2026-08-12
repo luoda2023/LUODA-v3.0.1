@@ -74,6 +74,12 @@ jobs:
         with:
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
 
+      - name: Cache vcpkg downloads
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.tool_cache }}/vcpkg/downloads
+          key: vcpkg-dl-${{ runner.os }}-${{ env.VCPKG_COMMIT_ID }}
+
       - name: Setup Android NDK
         uses: nttld/setup-ndk@v1
         id: setup-ndk

@@ -117,6 +117,11 @@ jobs:
           iconutil -c icns "$ICONSET" -o flutter/macos/Runner/AppIcon.icns
           test -s flutter/macos/Runner/AppIcon.icns
 
+      - name: Cache vcpkg downloads
+        uses: actions/cache@v4
+        with:
+          path: /tmp/vcpkg/downloads
+          key: vcpkg-dl-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
       - name: Install dependencies via vcpkg
         run: |
           # vcpkg replaces homebrew for libyuv (removed from brew)

@@ -153,6 +153,14 @@ jobs:
           esac
           echo "VCPKG_HOST_TRIPLET=$VCPKG_HOST_TRIPLET" >> "$GITHUB_ENV"
           brew install autoconf automake cmake libtool nasm pkg-config yasm
+      - name: Cache vcpkg downloads
+        uses: actions/cache@v4
+        with:
+          path: /tmp/vcpkg/downloads
+          key: vcpkg-dl-${{ runner.os }}-${{ env.VCPKG_COMMIT_ID }}
+      - name: Install vcpkg deps
+        shell: bash
+        run: |
           git clone https://github.com/microsoft/vcpkg.git /tmp/vcpkg
           git -C /tmp/vcpkg checkout "$VCPKG_COMMIT_ID"
           echo 'set(VCPKG_OSX_DEPLOYMENT_TARGET "13.0")' >> /tmp/vcpkg/triplets/community/arm64-ios.cmake
