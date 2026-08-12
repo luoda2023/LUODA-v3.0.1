@@ -96,10 +96,17 @@ jobs:
           head -5 flutter/lib/generated_bridge.dart || echo "ERROR: Cannot read file!"
 
       - name: Setup vcpkg
-        uses: lukka/run-vcpkg@v11
-        with:
-          vcpkgDirectory: C:\vcpkg
-          vcpkgGitCommitId: "120deac3062162151622ca4860575a33844ba10b"
+        shell: bash
+        run: |
+          # run-vcpkg@v11 with vcpkgDirectory:C:\vcpkg fails with
+          # "outside repository at D:/a/..." on windows runners; clone and
+          # bootstrap vcpkg natively instead (same pinned commit as before).
+          if [ ! -d "C:/vcpkg/.git" ]; then
+            git clone --depth 1 https://github.com/microsoft/vcpkg.git C:/vcpkg
+          fi
+          git -C C:/vcpkg checkout "120deac3062162151622ca4860575a33844ba10b" || true
+          C:/vcpkg/bootstrap-vcpkg.bat -disableMetrics
+          echo "vcpkg ready: $(C:/vcpkg/vcpkg.exe version | head -1)"
 
       - name: Cache vcpkg installed packages
         uses: actions/cache@v4
