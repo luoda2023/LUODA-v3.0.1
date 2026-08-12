@@ -134,7 +134,14 @@ jobs:
           export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
           which nasm && nasm --version
           git clone https://github.com/Microsoft/vcpkg.git /tmp/vcpkg
-          /tmp/vcpkg/bootstrap-vcpkg.sh
+          for attempt in 1 2 3; do
+            if /tmp/vcpkg/bootstrap-vcpkg.sh; then
+              break
+            fi
+            echo "vcpkg bootstrap attempt $attempt failed, retrying in 10s..."
+            sleep 10
+          done
+          /tmp/vcpkg/vcpkg version >/dev/null 2>&1 || { echo "vcpkg bootstrap failed after 3 attempts"; exit 1; }
           /tmp/vcpkg/vcpkg install --downloads-root=/tmp/vcpkg-downloads
           echo "VCPKG_ROOT=/tmp/vcpkg" >> $GITHUB_ENV
           # === Diagnostic: verify all static libs exist ===

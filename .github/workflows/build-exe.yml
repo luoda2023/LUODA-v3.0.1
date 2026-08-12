@@ -145,7 +145,14 @@ jobs:
           # Shallow clones cannot reach the pinned commit; use full clone so
           # the overlay ports in ./res/vcpkg match the pinned vcpkg version.
           git -C C:/vcpkg checkout "120deac3062162151622ca4860575a33844ba10b"
-          C:/vcpkg/bootstrap-vcpkg.bat -disableMetrics
+          for attempt in 1 2 3; do
+            if C:/vcpkg/bootstrap-vcpkg.bat -disableMetrics; then
+              break
+            fi
+            echo "vcpkg bootstrap attempt $attempt failed, retrying in 10s..."
+            sleep 10
+          done
+          C:/vcpkg/vcpkg.exe version >/dev/null 2>&1 || { echo "vcpkg bootstrap failed after 3 attempts"; exit 1; }
           echo "vcpkg ready: $(C:/vcpkg/vcpkg.exe version | head -1)"
           echo "VCPKG_ROOT=C:/vcpkg" >> "$GITHUB_ENV"
       - name: Cache vcpkg downloads

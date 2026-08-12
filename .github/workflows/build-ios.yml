@@ -164,7 +164,14 @@ jobs:
           git clone https://github.com/microsoft/vcpkg.git /tmp/vcpkg
           git -C /tmp/vcpkg checkout "$VCPKG_COMMIT_ID"
           echo 'set(VCPKG_OSX_DEPLOYMENT_TARGET "13.0")' >> /tmp/vcpkg/triplets/community/arm64-ios.cmake
-          /tmp/vcpkg/bootstrap-vcpkg.sh
+          for attempt in 1 2 3; do
+            if /tmp/vcpkg/bootstrap-vcpkg.sh; then
+              break
+            fi
+            echo "vcpkg bootstrap attempt $attempt failed, retrying in 10s..."
+            sleep 10
+          done
+          /tmp/vcpkg/vcpkg version >/dev/null 2>&1 || { echo "vcpkg bootstrap failed after 3 attempts"; exit 1; }
           VCPKG_DEFAULT_HOST_TRIPLET="$VCPKG_HOST_TRIPLET" \
             /tmp/vcpkg/vcpkg install \
               --triplet arm64-ios \

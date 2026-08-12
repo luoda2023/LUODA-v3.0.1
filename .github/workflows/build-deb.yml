@@ -85,7 +85,14 @@ jobs:
           fi
           # Full clone so the pinned commit is always reachable.
           git -C "$HOME/vcpkg" checkout "$VCPKG_COMMIT_ID"
-          "$HOME/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
+          for attempt in 1 2 3; do
+            if "$HOME/vcpkg/bootstrap-vcpkg.sh" -disableMetrics; then
+              break
+            fi
+            echo "vcpkg bootstrap attempt $attempt failed, retrying in 10s..."
+            sleep 10
+          done
+          "$HOME/vcpkg/vcpkg" version >/dev/null 2>&1 || { echo "vcpkg bootstrap failed after 3 attempts"; exit 1; }
           echo "vcpkg ready: $("$HOME/vcpkg/vcpkg" version | head -1)"
           echo "VCPKG_ROOT=$HOME/vcpkg" >> "$GITHUB_ENV"
 
