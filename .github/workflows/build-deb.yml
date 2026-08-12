@@ -70,7 +70,18 @@ jobs:
           # run-vcpkg so the downloads dir is under a stable path we can
           # cache across runs.
           if [ ! -d "$HOME/vcpkg/.git" ]; then
+            # Cache restore may create $HOME/vcpkg/downloads before this
+            # step runs; stash it, wipe the dir, clone fresh, then restore.
+            if [ -d "$HOME/vcpkg/downloads" ]; then
+              mv "$HOME/vcpkg/downloads" "$HOME/vcpkg-dl-stash"
+            fi
+            rm -rf "$HOME/vcpkg"
             git clone https://github.com/microsoft/vcpkg.git "$HOME/vcpkg"
+            mkdir -p "$HOME/vcpkg/downloads"
+            if [ -d "$HOME/vcpkg-dl-stash" ]; then
+              mv "$HOME/vcpkg-dl-stash"/* "$HOME/vcpkg/downloads/"
+              rmdir "$HOME/vcpkg-dl-stash"
+            fi
           fi
           # Full clone so the pinned commit is always reachable.
           git -C "$HOME/vcpkg" checkout "$VCPKG_COMMIT_ID"

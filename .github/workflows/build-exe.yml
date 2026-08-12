@@ -129,7 +129,18 @@ jobs:
           # "outside repository at D:/a/..." on windows runners; clone and
           # bootstrap vcpkg natively instead (same pinned commit as before).
           if [ ! -d "C:/vcpkg/.git" ]; then
+            # Cache restore may create C:/vcpkg/downloads before this step
+            # runs; stash it, wipe the dir, clone fresh, then restore.
+            if [ -d "C:/vcpkg/downloads" ]; then
+              mv "C:/vcpkg/downloads" "C:/vcpkg-dl-stash"
+            fi
+            rm -rf "C:/vcpkg"
             git clone https://github.com/microsoft/vcpkg.git C:/vcpkg
+            mkdir -p "C:/vcpkg/downloads"
+            if [ -d "C:/vcpkg-dl-stash" ]; then
+              mv "C:/vcpkg-dl-stash"/* "C:/vcpkg/downloads/"
+              rmdir "C:/vcpkg-dl-stash"
+            fi
           fi
           # Shallow clones cannot reach the pinned commit; use full clone so
           # the overlay ports in ./res/vcpkg match the pinned vcpkg version.

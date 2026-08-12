@@ -120,7 +120,7 @@ jobs:
       - name: Cache vcpkg downloads
         uses: actions/cache@v4
         with:
-          path: /tmp/vcpkg/downloads
+          path: /tmp/vcpkg-downloads
           key: vcpkg-dl-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
       - name: Install dependencies via vcpkg
         run: |
@@ -135,7 +135,7 @@ jobs:
           which nasm && nasm --version
           git clone https://github.com/Microsoft/vcpkg.git /tmp/vcpkg
           /tmp/vcpkg/bootstrap-vcpkg.sh
-          /tmp/vcpkg/vcpkg install
+          /tmp/vcpkg/vcpkg install --downloads-root=/tmp/vcpkg-downloads
           echo "VCPKG_ROOT=/tmp/vcpkg" >> $GITHUB_ENV
           # === Diagnostic: verify all static libs exist ===
           case "$(uname -m)" in

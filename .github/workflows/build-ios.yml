@@ -156,7 +156,7 @@ jobs:
       - name: Cache vcpkg downloads
         uses: actions/cache@v4
         with:
-          path: /tmp/vcpkg/downloads
+          path: /tmp/vcpkg-downloads
           key: vcpkg-dl-${{ runner.os }}-${{ env.VCPKG_COMMIT_ID }}
       - name: Install vcpkg deps
         shell: bash
@@ -168,6 +168,7 @@ jobs:
           VCPKG_DEFAULT_HOST_TRIPLET="$VCPKG_HOST_TRIPLET" \
             /tmp/vcpkg/vcpkg install \
               --triplet arm64-ios \
+              --downloads-root=/tmp/vcpkg-downloads \
               --x-install-root="$GITHUB_WORKSPACE/vcpkg_installed" \
               --clean-after-build
 
