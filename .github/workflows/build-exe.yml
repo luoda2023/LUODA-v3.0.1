@@ -134,6 +134,7 @@ jobs:
           git -C C:/vcpkg checkout "120deac3062162151622ca4860575a33844ba10b" || true
           C:/vcpkg/bootstrap-vcpkg.bat -disableMetrics
           echo "vcpkg ready: $(C:/vcpkg/vcpkg.exe version | head -1)"
+          echo "VCPKG_ROOT=C:/vcpkg" >> "$GITHUB_ENV"
       - name: Cache vcpkg installed packages
         uses: actions/cache@v4
         with:
