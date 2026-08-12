@@ -3,21 +3,11 @@ permissions:
   actions: read
   checks: read
   deployments: write
-  packages: read
-
-name: Build LUODA Web
-
+  packages: readname: Build LUODA Web
+# Web 构建已禁用：本项目是 Rust 原生核心（dart:ffi 调用本地库），
+# Web 平台无法加载 dart:ffi，此 workflow 无法成功。保留手动触发以备评估。
 on:
   workflow_dispatch:
-  push:
-    branches: [3.1.1]
-    paths:
-      - 'src/**'
-      - 'libs/**'
-      - 'flutter/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - '.github/workflows/build-web.yml'
 
 jobs:
   build-web:
