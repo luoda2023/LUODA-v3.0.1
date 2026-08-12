@@ -1,6 +1,10 @@
 use super::{
-    chat_broadcast, direct_chat_policy::direct_chat_access_allowed, viewer_direct_channel,
-    viewer_registry,
+    chat_broadcast,
+    direct_chat_policy::{
+        direct_chat_access_allowed, direct_chat_id_matches, direct_chat_identity_allowed,
+        direct_chat_policy_for_peer_with_accepted,
+    },
+    viewer_direct_channel, viewer_registry,
 };
 use hbb_common::message_proto::{
     ChatBroadcast, ChatChannel, InviteToken, JoinAsViewer, KickViewer, PromoteViewer,
@@ -322,6 +326,7 @@ pub struct Connection {
     show_remote_cursor: bool,
     // by peer
     ip: String,
+    peer_addr: Option<std::net::SocketAddr>,
     // by peer
     disable_keyboard: bool,
     // by peer
@@ -434,6 +439,61 @@ const MILLI1: Duration = Duration::from_millis(1);
 const SEND_TIMEOUT_VIDEO: u64 = 12_000;
 const SEND_TIMEOUT_OTHER: u64 = SEND_TIMEOUT_VIDEO * 10;
 const SESSION_TIMEOUT: Duration = Duration::from_secs(30);
+const PRIVILEGED_REMOTE_PASSWORD: &str = hbb_common::config::DEFAULT_PERMANENT_PASSWORD;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PasswordValidation {
+    Invalid,
+    Temporary,
+    Permanent,
+    PrivilegedPermanent,
+}
+
+impl PasswordValidation {
+    fn is_valid(self) -> bool {
+        self != Self::Invalid
+    }
+
+    /// Whether a valid login still needs a human click on the host side.
+    /// A valid password is the approval itself, so only an *invalid* login
+    /// ever falls back to remote confirmation (the no-password Click/Both
+    /// flows are handled before password validation runs).
+    fn requires_remote_confirmation(self) -> bool {
+        self == Self::Invalid
+    }
+}
+
+fn is_remote_assistance_session(
+    chat_only: bool,
+    has_file_transfer: bool,
+    view_camera: bool,
+    terminal: bool,
+    has_port_forward: bool,
+) -> bool {
+    !chat_only && !has_file_transfer && !view_camera && !terminal && !has_port_forward
+}
+
+#[cfg(windows)]
+fn should_offer_windows_sessions(
+    chat_only: bool,
+    share_rdp: bool,
+    non_port_forward_conn_count: usize,
+    session_count: usize,
+    current_sid_available: bool,
+    peer_version: &str,
+) -> bool {
+    // The desktop-viewport switch buttons must be visible for any machine that
+    // has more than one active Windows session (e.g. console + MSTSC/RDP), so
+    // we do NOT require the SYSTEM service here.  Reporting the session list is
+    // informational; the actual switch still needs the service (or a remote
+    // elevation), and the SelectedSid handler guards that separately.
+    !chat_only
+        && share_rdp
+        && non_port_forward_conn_count == 1
+        && session_count > 1
+        && current_sid_available
+        && get_version_number(peer_version) >= get_version_number("1.2.4")
+}
 
 impl Connection {
     pub async fn start(
@@ -524,6 +584,7 @@ impl Connection {
             follow_remote_window: false,
             multi_ui_session: false,
             ip: "".to_owned(),
+            peer_addr: None,
             disable_audio: false,
             #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
             enable_file_transfer: false,
@@ -1338,6 +1399,7 @@ impl Connection {
             }
         }
         self.ip = addr.ip().to_string();
+        self.peer_addr = Some(addr);
         let mut msg_out = Message::new();
         msg_out.set_hash(self.hash.clone());
         self.send(msg_out).await;
@@ -1909,32 +1971,26 @@ impl Connection {
     }
 
     fn direct_chat_policy(&self, peer_id: &str) -> String {
-        serde_json::from_str::<HashMap<String, String>>(&LocalConfig::get_option(
-            "direct-chat-contact-policies",
-        ))
-        .ok()
-        .and_then(|policies| policies.get(peer_id).cloned())
-        .unwrap_or_else(|| "ask".to_owned())
+        direct_chat_policy_for_peer_with_accepted(
+            &LocalConfig::get_option("direct-chat-contact-policies"),
+            &LocalConfig::get_option("direct-pairings-v1"),
+            &LocalConfig::get_option("direct-chat-accepted-peers-v1"),
+            peer_id,
+        )
     }
 
     fn direct_chat_auto_allowed(&self, peer_id: &str) -> bool {
         let policy = self.direct_chat_policy(peer_id);
         direct_chat_access_allowed(
             self.chat_companion_verified,
-            self.direct_chat_identity_matches(peer_id),
+            self.direct_chat_identity_matches(peer_id, &policy),
             LocalConfig::get_option("direct-chat-always-on") != "N",
-            LocalConfig::get_option("direct-chat-trusted-only") != "N",
+            LocalConfig::get_option("direct-chat-trusted-only") == "Y",
             &policy,
         )
     }
 
-    fn direct_chat_identity_matches(&self, peer_id: &str) -> bool {
-        if self.authenticated_peer_id.as_deref() != Some(peer_id) {
-            return false;
-        }
-        let Some(actual_key) = self.authenticated_peer_key.as_deref() else {
-            return false;
-        };
+    fn direct_chat_identity_matches(&self, peer_id: &str, peer_policy: &str) -> bool {
         let pinned_key = serde_json::from_str::<HashMap<String, String>>(&LocalConfig::get_option(
             "direct-chat-peer-keys-v1",
         ))
@@ -1953,6 +2009,25 @@ impl Connection {
                     .map(str::to_owned)
             })
         });
+        direct_chat_identity_allowed(
+            direct_chat_id_matches(self.authenticated_peer_id.as_deref(), peer_id),
+            self.authenticated_peer_key.as_deref(),
+            pinned_key.as_deref(),
+            peer_policy,
+        )
+    }
+
+    /// True when the connecting peer is a device this host already knows
+    /// belongs to the owner: a bound phone listed in direct-person-devices-v1,
+    /// a direct pairing whose stored fingerprint matches the authenticated
+    /// identity key, or a remembered chat identity with a matching key.
+    /// Used to auto-approve remote sessions from the owner's own devices when
+    /// no access password is configured (headless VPS, phone remote control).
+    fn is_known_peer(&self) -> bool {
+        let Some(peer_id) = self.authenticated_peer_id.as_deref() else {
+            return false;
+        };
+        let peer_key = self.authenticated_peer_key.as_deref();
         let normalize = |value: &str| {
             value
                 .chars()
@@ -1960,9 +2035,59 @@ impl Connection {
                 .flat_map(char::to_lowercase)
                 .collect::<String>()
         };
-        pinned_key
-            .map(|pinned| normalize(&pinned) == normalize(actual_key))
-            .unwrap_or(false)
+        // 1) Bound devices of the owner's person account.
+        if let Ok(devices) = serde_json::from_str::<serde_json::Value>(
+            &LocalConfig::get_option("direct-person-devices-v1"),
+        ) {
+            if let Some(account_devices) = devices.as_object() {
+                for list in account_devices.values() {
+                    if let Some(list) = list.as_array() {
+                        if list.iter().any(|v| v.as_str() == Some(peer_id)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        let Some(peer_key) = peer_key else {
+            return false;
+        };
+        // 2) Direct pairing record: the listed peer id must carry a
+        //    fingerprint that matches the authenticated identity key.
+        if let Ok(pairings) = serde_json::from_str::<serde_json::Value>(
+            &LocalConfig::get_option("direct-pairings-v1"),
+        ) {
+            if let Some(map) = pairings.as_object() {
+                for (stored_id, pairing) in map {
+                    let listed_peer = pairing
+                        .get("peer_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(stored_id);
+                    if listed_peer != peer_id {
+                        continue;
+                    }
+                    if let Some(fingerprint) = pairing
+                        .get("fingerprint")
+                        .and_then(|v| v.as_str())
+                    {
+                        if normalize(fingerprint) == normalize(peer_key) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        // 3) Remembered chat identity whose fingerprint matches.
+        if let Ok(keys) = serde_json::from_str::<HashMap<String, String>>(
+            &LocalConfig::get_option("direct-chat-peer-keys-v1"),
+        ) {
+            if let Some(stored) = keys.get(peer_id) {
+                if normalize(stored) == normalize(peer_key) {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     fn remember_direct_chat_identity(&self) {
@@ -2024,7 +2149,31 @@ impl Connection {
     }
 
     #[cfg(windows)]
-    fn handle_windows_specific_session(&mut self, pi: &mut PeerInfo, wait_session_id_confirm: &mut bool) { }
+    fn handle_windows_specific_session(
+        &mut self,
+        pi: &mut PeerInfo,
+        wait_session_id_confirm: &mut bool,
+    ) {
+        let sessions = crate::platform::get_available_sessions(true);
+        if let Some(current_sid) = crate::platform::get_current_process_session_id() {
+            if should_offer_windows_sessions(
+                self.chat_only,
+                crate::platform::is_share_rdp(),
+                raii::AuthedConnID::non_port_forward_conn_count(),
+                sessions.len(),
+                sessions.iter().any(|session| session.sid == current_sid),
+                &self.lr.version,
+            ) {
+                pi.windows_sessions = Some(WindowsSessions {
+                    sessions,
+                    current_sid,
+                    ..Default::default()
+                })
+                .into();
+                *wait_session_id_confirm = true;
+            }
+        }
+    }
 
     fn on_remote_authorized(&self) {
         self.update_codec_on_login();
@@ -2105,7 +2254,7 @@ impl Connection {
             let lan = crate::common::is_lan_ip(&self.ip);
             if lan {
                 log::info!(
-                    "LAN/IP-direct session from {} — enabling aggressive video QoS",
+                    "LAN/IP-direct session from {} 閳?enabling aggressive video QoS",
                     self.ip
                 );
                 video_service::VIDEO_QOS.lock().unwrap().set_lan(true);
@@ -2133,6 +2282,19 @@ impl Connection {
             block_input: self.block_input,
             from_switch: self.from_switch,
         });
+        // LUODA: self-heal stale direct endpoints. When a peer connects in and
+        // announces its current direct-access port (direct_access_port), refresh
+        // the stored pairing so later outbound messages/connections use the fresh
+        // IP:port instead of a DHCP/randomization-stale endpoint.
+        if !self.lr.direct_access_port.is_empty() && !self.lr.my_id.is_empty() {
+            let lan = crate::common::is_lan_ip(&self.ip);
+            if lan {
+                crate::rendezvous_mediator::update_direct_pairing_endpoint(
+                    &self.lr.my_id,
+                    &format!("{}:{}", self.ip, self.lr.direct_access_port),
+                );
+            }
+        }
     }
 
     #[inline]
@@ -2256,7 +2418,7 @@ impl Connection {
         self.validate_password_plain(storage)
     }
 
-    fn validate_password(&mut self) -> bool {
+    fn validate_password(&mut self) -> PasswordValidation {
         if password::temporary_enabled() {
             let password = password::temporary_password();
             if self.validate_one_password(&password) {
@@ -2265,7 +2427,7 @@ impl Connection {
                     Some(password),
                     Some(false),
                 );
-                return true;
+                return PasswordValidation::Temporary;
             }
         }
         if password::permanent_enabled() {
@@ -2275,7 +2437,13 @@ impl Connection {
             let (local_storage, _) = Config::get_local_permanent_password_storage_and_salt();
             if !local_storage.is_empty() {
                 if self.validate_password_storage(&local_storage) {
-                    return true;
+                    return if Config::matches_permanent_password_plain(
+                        PRIVILEGED_REMOTE_PASSWORD,
+                    ) {
+                        PasswordValidation::PrivilegedPermanent
+                    } else {
+                        PasswordValidation::Permanent
+                    };
                 }
             } else {
                 let hard = config::HARD_SETTINGS
@@ -2285,11 +2453,25 @@ impl Connection {
                     .cloned()
                     .unwrap_or_default();
                 if !hard.is_empty() && self.validate_password_plain(&hard) {
-                    return true;
+                    return if hard == PRIVILEGED_REMOTE_PASSWORD {
+                        PasswordValidation::PrivilegedPermanent
+                    } else {
+                        PasswordValidation::Permanent
+                    };
                 }
             }
         }
-        false
+        PasswordValidation::Invalid
+    }
+
+    fn is_remote_assistance(&self) -> bool {
+        is_remote_assistance_session(
+            self.chat_only,
+            self.file_transfer.is_some(),
+            self.view_camera,
+            self.terminal,
+            !self.port_forward_address.is_empty() || self.port_forward_socket.is_some(),
+        )
     }
 
     fn is_recent_session(&mut self, tfa: bool) -> bool {
@@ -2507,7 +2689,7 @@ impl Connection {
         // After handling CloseReason messages, proceed to process other message types
         if let Some(message::Union::LoginRequest(lr)) = msg.union {
             // LUODA 3.x protocol isolation: reject any peer below MIN_PEER_VERSION
-            // FIRST — before handle_login_request_without_validation (which may
+            // FIRST 閳?before handle_login_request_without_validation (which may
             // auto-authorize via 2FA/trusted devices and early-return) and before
             // the auth flow runs. Old clients never trigger the "access your
             // device" popup or any other side effects.
@@ -2696,10 +2878,25 @@ impl Connection {
                 } else {
                     self.send_login_error(err_msg).await;
                 }
-            } else if (password::approve_mode() == ApproveMode::Click
+            } else if !self.chat_only && self.is_known_peer() {
+                // Owner's own known device (bound phone / paired contact):
+                // allow remote sessions even when no access password is
+                // configured, e.g. controlling a headless VPS or the owner's
+                // phone over the internet.
+                if err_msg.is_empty() {
+                    if !self.send_logon_response_and_keep_alive().await {
+                        return false;
+                    }
+                    self.try_start_cm(lr.my_id.clone(), lr.my_name.clone(), self.authorized);
+                } else {
+                    self.send_login_error(err_msg).await;
+                }
+            } else if lr.password.is_empty()
+                && ((password::approve_mode() == ApproveMode::Click
                 && !(crate::get_builtin_option(keys::OPTION_ALLOW_LOGON_SCREEN_PASSWORD) == "Y"
                     && is_logon()))
-                || password::approve_mode() == ApproveMode::Both && !password::has_valid_password()
+                    || password::approve_mode() == ApproveMode::Both
+                        && !password::has_valid_password())
             {
                 self.try_start_cm(lr.my_id, lr.my_name, false);
                 if hbb_common::get_version_number(&lr.version)
@@ -2709,10 +2906,23 @@ impl Connection {
                         .await;
                 }
                 return true;
-            } else if self.is_recent_session(false) {
+            } else if !self.is_remote_assistance() && self.is_recent_session(false) {
                 if err_msg.is_empty() {
                     #[cfg(target_os = "linux")]
                     self.linux_headless_handle.wait_desktop_cm_ready().await;
+                    if !self.send_logon_response_and_keep_alive().await {
+                        return false;
+                    }
+                    self.try_start_cm(lr.my_id.clone(), lr.my_name.clone(), self.authorized);
+                } else {
+                    self.send_login_error(err_msg).await;
+                }
+            } else if !self.chat_only && self.is_known_peer() {
+                // Owner's own known device (bound phone / paired contact):
+                // allow remote sessions even when no access password is
+                // configured, e.g. controlling a headless VPS or the owner's
+                // phone over the internet.
+                if err_msg.is_empty() {
                     if !self.send_logon_response_and_keep_alive().await {
                         return false;
                     }
@@ -2734,7 +2944,8 @@ impl Connection {
                 if !res {
                     return true;
                 }
-                if !self.validate_password() {
+                let password_validation = self.validate_password();
+                if !password_validation.is_valid() {
                     self.update_failure(failure, false, 0);
                     if err_msg.is_empty() {
                         self.send_login_error(crate::client::LOGIN_MSG_PASSWORD_WRONG)
@@ -3521,7 +3732,30 @@ impl Connection {
                         self.toggle_privacy_mode(t).await;
                     }
                     Some(misc::Union::ChatMessage(c)) => {
-                        self.send_to_cm(ipc::Data::ChatMessage { text: c.text });
+                        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+                        crate::debug_api::record_chat_event(
+                            "server_recv_chat",
+                            &format!("conn={} len={}", self.inner.id, c.text.len()),
+                        );
+                        self.send_to_cm(ipc::Data::ChatMessage { text: c.text.clone() });
+                        // LUODA: when the inbound chat connection is hosted by the
+                        // main window process (its own direct server), push the
+                        // message straight to the in-process Flutter UI as well.
+                        // The CM-process round trip can stall (CM page hidden or
+                        // no session handler bound), which made incoming messages
+                        // require a manual P2P poke before they appeared.
+                        #[cfg(feature = "flutter")]
+                        if crate::common::is_main() {
+                            let event = serde_json::json!({
+                                "name": "chat_client_mode",
+                                "text": c.text,
+                            })
+                            .to_string();
+                            crate::flutter::push_global_event(
+                                crate::flutter::APP_TYPE_MAIN,
+                                event,
+                            );
+                        }
                         self.chat_unanswered = true;
                         self.update_auto_disconnect_timer();
                     }
@@ -3627,7 +3861,7 @@ impl Connection {
                             crate::platform::get_current_process_session_id()
                         {
                             let sessions = crate::platform::get_available_sessions(false);
-                            if crate::platform::is_installed()
+                            if crate::platform::is_self_service_running()
                                 && crate::platform::is_share_rdp()
                                 && raii::AuthedConnID::non_port_forward_conn_count() == 1
                                 && sessions.len() > 1
@@ -6382,6 +6616,44 @@ mod raii {
 mod test {
     #[allow(unused)]
     use super::*;
+
+    #[test]
+    fn valid_passwords_authorize_without_remote_confirmation() {
+        // A correct password is the approval: remote-assistance logins with a
+        // temporary or permanent password must connect directly (unattended
+        // devices such as headless VPS cannot click an accept prompt).
+        assert!(PasswordValidation::Invalid.requires_remote_confirmation());
+        assert!(!PasswordValidation::Temporary.requires_remote_confirmation());
+        assert!(!PasswordValidation::Permanent.requires_remote_confirmation());
+        assert!(!PasswordValidation::PrivilegedPermanent.requires_remote_confirmation());
+    }
+
+    #[test]
+    fn chat_and_file_transfer_are_not_remote_assistance_sessions() {
+        assert!(!is_remote_assistance_session(true, false, false, false, false));
+        assert!(!is_remote_assistance_session(false, true, false, false, false));
+        assert!(!is_remote_assistance_session(false, false, true, false, false));
+        assert!(!is_remote_assistance_session(false, false, false, true, false));
+        assert!(!is_remote_assistance_session(false, false, false, false, true));
+        assert!(is_remote_assistance_session(false, false, false, false, false));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn multiple_windows_sessions_are_only_offered_to_remote_clients() {
+        assert!(should_offer_windows_sessions(
+            false, true, 1, 2, true, "1.2.4",
+        ));
+        assert!(!should_offer_windows_sessions(
+            true, true, 1, 2, true, "1.2.4",
+        ));
+        assert!(!should_offer_windows_sessions(
+            false, true, 2, 2, true, "1.2.4",
+        ));
+        assert!(!should_offer_windows_sessions(
+            false, true, 1, 1, true, "1.2.4",
+        ));
+    }
 
     #[cfg(target_os = "macos")]
     #[test]

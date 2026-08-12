@@ -9,6 +9,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:luoda_flutter/common/formatter/id_formatter.dart';
+import 'package:luoda_flutter/common/wechat_ui_tokens.dart';
 import 'package:luoda_flutter/desktop/widgets/refresh_wrapper.dart';
 import 'package:luoda_flutter/desktop/widgets/tabbar_widget.dart';
 import 'package:luoda_flutter/main.dart';
@@ -168,11 +169,11 @@ class ColorThemeExtension extends ThemeExtension<ColorThemeExtension> {
   final Color? divider;
 
   static final light = ColorThemeExtension(
-    border: Color(0xFFDCE5F2),
-    border2: Color(0xFFAAB8CC),
+    border: Color(0xFFE5E5E5),
+    border2: Color(0xFFB5B5B5),
     border3: Colors.black26,
     highlight: Color(0xFFEBF9F0),
-    drag_indicator: Color(0xFF5D687A),
+    drag_indicator: Color(0xFF8A8A8A),
     shadow: Colors.black,
     errorBannerBg: Color(0xFFFDEEEB),
     me: Colors.green,
@@ -182,11 +183,11 @@ class ColorThemeExtension extends ThemeExtension<ColorThemeExtension> {
   );
 
   static final dark = ColorThemeExtension(
-    border: Color(0xFF333B49),
-    border2: Color(0xFF7D899B),
+    border: Color(0xFF3A3D43),
+    border2: Color(0xFF70747C),
     border3: Colors.white24,
     highlight: Color(0xFF19382A),
-    drag_indicator: Color(0xFFAAB5C5),
+    drag_indicator: Color(0xFF9AA1AC),
     shadow: Colors.grey,
     errorBannerBg: Color(0xFF470F2D),
     me: Colors.greenAccent,
@@ -275,16 +276,17 @@ class MyTheme {
   static const Color primary = Color(0xFF07C160);
   static const Color primaryHover = Color(0xFF06AD56);
   static const Color primarySoft = Color(0xFFEBF9F0);
-  static const Color canvasLight = Color(0xFFF5F8FC);
+  // 颜色锁定（taste-skill）：全应用只用品牌纯绿 + 中性灰，去除任何蓝调。
+  static const Color canvasLight = Color(0xFFF2F3F5);
   static const Color surfaceLight = Color(0xFFFFFFFF);
-  static const Color textLight = Color(0xFF141A24);
-  static const Color mutedLight = Color(0xFF5D687A);
-  static const Color borderLight = Color(0xFFDCE5F2);
-  static const Color canvasDark = Color(0xFF12161D);
-  static const Color surfaceDark = Color(0xFF1B2029);
-  static const Color textDark = Color(0xFFEDF2F8);
-  static const Color mutedDark = Color(0xFFAAB5C5);
-  static const Color borderDark = Color(0xFF333B49);
+  static const Color textLight = Color(0xFF1A1A1A);
+  static const Color mutedLight = Color(0xFF7F7F7F);
+  static const Color borderLight = Color(0xFFE5E5E5);
+  static const Color canvasDark = Color(0xFF111214);
+  static const Color surfaceDark = Color(0xFF1C1E22);
+  static const Color textDark = Color(0xFFE8EAED);
+  static const Color mutedDark = Color(0xFF9AA1AC);
+  static const Color borderDark = Color(0xFF3A3D43);
   static const Color accentDark = Color(0xFF2CCB72);
 
   // Backward-compatible aliases used throughout the application.
@@ -299,7 +301,7 @@ class MyTheme {
   static const Color cmIdColor = Color(0xFF21790B);
   static const Color dark = Colors.black87;
   static const Color button = primary;
-  static const Color hoverBorder = Color(0xFFAAB8CC);
+  static const Color hoverBorder = Color(0xFFB5B5B5);
 
   // ListTile
   static const ListTileThemeData listTileTheme = ListTileThemeData(
@@ -313,12 +315,12 @@ class MyTheme {
       splashRadius: (isDesktop || isWebDesktop) ? 0 : kRadialReactionRadius,
       thumbColor: MaterialStateProperty.resolveWith((states) {
         if (states.contains(MaterialState.disabled)) {
-          return dark ? const Color(0xFF697386) : const Color(0xFFB5C0D0);
+          return dark ? const Color(0xFF6B6B6B) : const Color(0xFF9E9E9E);
         }
         if (states.contains(MaterialState.selected)) {
           return Colors.white;
         }
-        return dark ? const Color(0xFFAAB5C5) : Colors.white;
+        return dark ? const Color(0xFF9AA1AC) : Colors.white;
       }),
       trackColor: MaterialStateProperty.resolveWith((states) {
         if (states.contains(MaterialState.disabled)) {
@@ -467,8 +469,8 @@ class MyTheme {
         side: const BorderSide(color: borderLight),
       ),
     ),
-    dividerTheme: const DividerThemeData(
-      color: borderLight,
+    dividerTheme: DividerThemeData(
+      color: kWeChatDividerColor.withOpacity(0.5),
       thickness: 1,
       space: 1,
     ),
@@ -605,6 +607,7 @@ class MyTheme {
     ),
     popupMenuTheme: PopupMenuThemeData(
       color: surfaceLight,
+      textStyle: const TextStyle(fontSize: 14, color: textLight, height: 1.4),
       shape: RoundedRectangleBorder(
         side: const BorderSide(color: borderLight),
         borderRadius: BorderRadius.circular(8),
@@ -642,7 +645,7 @@ class MyTheme {
       ),
     ),
     dividerTheme: const DividerThemeData(
-      color: borderDark,
+      color: Color(0xFF3A3D43),
       thickness: 1,
       space: 1,
     ),
@@ -779,6 +782,7 @@ class MyTheme {
     ),
     popupMenuTheme: PopupMenuThemeData(
       color: surfaceDark,
+      textStyle: const TextStyle(fontSize: 14, color: textDark, height: 1.4),
       shape: RoundedRectangleBorder(
         side: const BorderSide(color: borderDark),
         borderRadius: BorderRadius.circular(8),
@@ -846,6 +850,48 @@ class MyTheme {
         return ThemeMode.system;
     }
   }
+}
+
+/// ????????????/??/??/?? ????????????
+class MobileText {
+  MobileText._();
+
+  /// ?????ID???????
+  static const double display = 20;
+
+  /// ?????????????????
+  static const double titleLg = 18;
+
+  /// ??/?? AppBar ??
+  static const double title = 17;
+
+  /// ?????????????????
+  static const double titleSm = 16;
+
+  /// ??????????
+  static const double bodyLg = 15;
+
+  /// ????????
+  static const double body = 14;
+
+  /// ?????????
+  static const double bodySm = 13;
+
+  /// ??????????
+  static const double caption = 12;
+
+  /// ?????????
+  static const double captionSm = 11;
+
+  /// ??/??
+  static const double badge = 10;
+}
+
+/// ?????????????????????
+Color mobileMuted(BuildContext context) {
+  return Theme.of(context).brightness == Brightness.dark
+      ? MyTheme.mutedDark
+      : MyTheme.mutedLight;
 }
 
 extension ParseToString on ThemeMode {
@@ -1580,12 +1626,23 @@ void msgBoxCommon(
 }
 
 Color str2color(String str, [alpha = 0xFF]) {
-  var hash = 160 << 16 + 114 << 8 + 91;
+  // 头像色板（taste-skill 颜色锁定）：品牌绿系 + 中性暖色，无蓝/紫。
+  const palette = <Color>[
+    Color(0xFF07C160),
+    Color(0xFF0B7A3B),
+    Color(0xFF4CB050),
+    Color(0xFFF5A623),
+    Color(0xFFE6613C),
+    Color(0xFFE05A5A),
+    Color(0xFF9AA1AC),
+    Color(0xFF8D6E63),
+  ];
+  var hash = 0;
   for (var i = 0; i < str.length; i += 1) {
     hash = str.codeUnitAt(i) + ((hash << 5) - hash);
   }
-  hash = hash % 16777216;
-  return Color((hash & 0xFF7FFF) | (alpha << 24));
+  final c = palette[hash.abs() % palette.length];
+  return Color(((c.value & 0xFFFFFF) | (alpha << 24)) & 0xFFFFFFFF);
 }
 
 Color str2color2(String str, {List<int> existing = const []}) {
@@ -1739,7 +1796,12 @@ class AndroidPermissionManager {
       return Future.value(true);
     }
 
-    gFFI.invokeMethod("request_permission", type);
+    // Fire-and-forget is intentional; completion arrives via the
+    // on_android_permission_result callback. Guard against a native
+    // failure so it can never surface as an unhandled PlatformException.
+    unawaited(gFFI.invokeMethod("request_permission", type).catchError((Object e) {
+      _completer?.complete(false);
+    }));
 
     // clear last task
     if (_completer?.isCompleted == false) {
@@ -3398,8 +3460,15 @@ int versionCmp(String v1, String v2) {
   return bind.versionToNumber(v: v1) - bind.versionToNumber(v: v2);
 }
 
+/// ??????????????????????????????????
+String getProductDisplayName() {
+  final raw = bind.mainGetAppNameSync().trim();
+  if (raw.isEmpty || raw == 'LDesk' || raw == 'LUODA') return '点聊';
+  return raw;
+}
+
 String getWindowName({WindowType? overrideType}) {
-  final name = bind.mainGetAppNameSync();
+  final name = getProductDisplayName();
   switch (overrideType ?? kWindowType) {
     case WindowType.Main:
       return name;
@@ -4374,7 +4443,14 @@ bool get isCustomClient {
   if (!result) {
     try {
       final appName = bind.mainGetAppNameSync();
-      if (appName.isNotEmpty && appName != 'LUODA' && appName != 'LDesk') {
+      // The standard DotChat build reports its display name (DotChat);
+      // that is NOT a custom-client signal. Only a custom.txt that sets a
+      // non-standard internal APP_NAME makes this a custom client build.
+      if (appName.isNotEmpty &&
+          appName != 'LUODA' &&
+          appName != 'LDesk' &&
+          appName != 'DotChat' &&
+          appName != '\u70b9\u804a') {
         result = true;
       }
     } catch (_) {
@@ -4674,5 +4750,90 @@ Widget? buildAvatarWidget({
       fit: BoxFit.cover,
       errorBuilder: (_, __, ___) => fallback ?? SizedBox.shrink(),
     ),
+  );
+}
+
+/// Whether a peer platform string refers to a mobile device (phone/tablet).
+bool isMobilePlatform(String platform) {
+  final p = platform.trim().toLowerCase();
+  return p == 'android' ||
+      p == 'ios' ||
+      p == 'iphone' ||
+      p == 'ipad' ||
+      p == 'mobile';
+}
+
+/// 操作系统小圆标：Windows 桌面 / Android / iOS 等，放在头像左下角。
+/// 传入空 platform 时不显示角标。
+Widget buildPlatformBadge({
+  required String platform,
+  required double size,
+  Color? background,
+  BoxBorder? border,
+}) {
+  final icon = platformOsIcon(platform);
+  if (icon == null) return const SizedBox.shrink();
+  return Container(
+    width: size,
+    height: size,
+    decoration: BoxDecoration(
+      color: background ?? const Color(0xFF2E7D32),
+      shape: BoxShape.circle,
+      border: border ?? Border.all(color: const Color(0xFFFFFFFF), width: 1.5),
+    ),
+    child: Icon(
+      icon,
+      size: size * 0.58,
+      color: Colors.white,
+    ),
+  );
+}
+
+/// 根据平台字符串返回对应的操作系统小图标（Windows/Android/iOS/…）。
+IconData? platformOsIcon(String platform) {
+  final p = platform.trim().toLowerCase();
+  if (p.isEmpty) return null;
+  if (p.contains('windows')) return Icons.desktop_windows_rounded;
+  if (p.contains('android')) return Icons.phone_android_rounded;
+  if (p.contains('ios') || p.contains('iphone') || p.contains('ipad')) {
+    return Icons.phone_iphone_rounded;
+  }
+  if (p.contains('linux')) return Icons.terminal_rounded;
+  if (p.contains('mac')) return Icons.laptop_mac_rounded;
+  if (p.contains('phone') || p.contains('mobile')) {
+    return Icons.phone_iphone_rounded;
+  }
+  if (p.contains('web')) return Icons.language_rounded;
+  return null;
+}
+
+/// Wrap an avatar [child] with an optional OS badge at the bottom-left corner.
+Widget avatarWithPlatformBadge({
+  required Widget child,
+  required String platform,
+  required double badgeSize,
+  bool topLeft = false,
+  Color? background,
+  BoxBorder? border,
+}) {
+  final icon = platformOsIcon(platform);
+  if (icon == null) return child;
+  return Stack(
+    clipBehavior: Clip.none,
+    children: <Widget>[
+      child,
+      Positioned(
+        left: -2,
+        bottom: -2,
+        top: null,
+        right: null,
+        child: buildPlatformBadge(
+          platform: platform,
+          size: badgeSize,
+          background: background,
+          border: border,
+        ),
+      ),
+    ],
   );
 }

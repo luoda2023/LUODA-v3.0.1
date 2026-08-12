@@ -11,6 +11,8 @@ import android.media.MediaFormat
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
+import android.os.Parcel
+import android.util.Base64
 import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
@@ -38,6 +40,7 @@ const val EXT_LOGIN_REQ_NOTIFY = "LOGIN_REQ_NOTIFY"
 // Activity requestCode
 const val REQ_INVOKE_PERMISSION_ACTIVITY_MEDIA_PROJECTION = 101
 const val REQ_REQUEST_MEDIA_PROJECTION = 201
+const val REQ_ENABLE_BLUETOOTH = 301
 
 // Activity responseCode
 const val RES_FAILED = -100
@@ -55,6 +58,7 @@ const val KEY_SHARED_PREFERENCES = "KEY_SHARED_PREFERENCES"
 const val KEY_START_ON_BOOT_OPT = "KEY_START_ON_BOOT_OPT"
 const val KEY_APP_DIR_CONFIG_PATH = "KEY_APP_DIR_CONFIG_PATH"
 const val KEY_DIRECT_CHAT_ALWAYS_ON = "KEY_DIRECT_CHAT_ALWAYS_ON"
+const val KEY_MEDIA_PROJECTION_URI = "KEY_MEDIA_PROJECTION_URI"
 
 @SuppressLint("ConstantLocale")
 val LOCAL_NAME = Locale.getDefault().toString()
@@ -64,22 +68,107 @@ data class Info(
     var width: Int, var height: Int, var scale: Int, var dpi: Int
 )
 
+// ---- MediaProjection token persistence (grant once, reuse later) ----
+// Android cannot persist a MediaProjection grant: the result Intent carries a
+// Binder that dies with the process and cannot be marshalled to disk, so any
+// save attempt fails with "Tried to marshall a Parcel that contains objects".
+// The service therefore stays alive as a foreground service (START_STICKY +
+// boot receiver) so the grant survives normal use; only a device reboot or a
+// force-stop requires the user to grant again.
+/**
+ * Resolve the Rust config dir used by the native core. It must always match
+ * Flutter's getApplicationDocumentsDirectory() (= <dataDir>/app_flutter) or
+ * the seed/device id gets re-rolled and messaging/contacts break.
+ *
+ * The Flutter UI persists this path into prefs (sync_app_dir) on every launch,
+ * but the Kotlin services can start BEFORE Flutter syncs (first launch after
+ * install, boot receiver, force-stop restart). Never start the server with an
+ * empty path: compute the Flutter-compatible fallback and persist it so every
+ * later start in this install uses the same directory.
+ */
+fun resolveAppDirConfigPath(context: Context): String {
+    val prefs = context.getSharedPreferences(KEY_SHARED_PREFERENCES, Context.MODE_PRIVATE)
+    val saved = prefs.getString(KEY_APP_DIR_CONFIG_PATH, "")?.trim().orEmpty()
+    if (saved.isNotEmpty()) return saved
+    val dataDir = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+        context.dataDir?.absolutePath
+    } else {
+        context.filesDir.parentFile?.absolutePath
+    }
+    val fallback = if (dataDir.isNullOrEmpty()) {
+        java.io.File(context.filesDir, "app_flutter").absolutePath
+    } else {
+        java.io.File(dataDir, "app_flutter").absolutePath
+    }
+    prefs.edit().putString(KEY_APP_DIR_CONFIG_PATH, fallback).apply()
+    Log.d("AppDirConfig", "resolved fallback app_dir=$fallback")
+    return fallback
+}
+
+fun saveMediaProjectionIntent(context: Context, data: Intent) {
+    // Intentionally empty: MediaProjection tokens are Binders and cannot be
+    // persisted. Keeping the call site unchanged avoids touching callers.
+}
+
+fun loadMediaProjectionIntent(context: Context): Intent? {
+    return try {
+        val prefs = context.getSharedPreferences(KEY_SHARED_PREFERENCES, Context.MODE_PRIVATE)
+        val encoded = prefs.getString(KEY_MEDIA_PROJECTION_URI, "") ?: return null
+        if (encoded.isEmpty()) return null
+        val bytes = Base64.decode(encoded, Base64.NO_WRAP)
+        val parcel = Parcel.obtain()
+        parcel.unmarshall(bytes, 0, bytes.size)
+        parcel.setDataPosition(0)
+        val intent = Intent.CREATOR.createFromParcel(parcel)
+        parcel.recycle()
+        Log.d("MediaProjectionStore", "loaded projection token len=${encoded.length}")
+        intent
+    } catch (e: Exception) {
+        Log.e("MediaProjectionStore", "load failed: ${e.message}")
+        null
+    }
+}
+
+fun launchMainService(context: Context, mediaProjectionResultIntent: Intent?, fromBoot: Boolean = false) {
+    val serviceIntent = Intent(context, MainService::class.java)
+    serviceIntent.action = ACT_INIT_MEDIA_PROJECTION_AND_SERVICE
+    if (fromBoot) serviceIntent.putExtra(EXT_INIT_FROM_BOOT, true)
+    if (mediaProjectionResultIntent != null) {
+        serviceIntent.putExtra(EXT_MEDIA_PROJECTION_RES_INTENT, mediaProjectionResultIntent)
+    }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        context.startForegroundService(serviceIntent)
+    } else {
+        context.startService(serviceIntent)
+    }
+}
+
 fun isSupportVoiceCall(): Boolean {
     // https://developer.android.com/reference/android/media/MediaRecorder.AudioSource#VOICE_COMMUNICATION
     return Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
 }
 
 fun requestPermission(context: Context, type: String) {
-    XXPermissions.with(context)
-        .permission(type)
-        .request { _, all ->
-            Handler(Looper.getMainLooper()).post {
-                MainActivity.flutterMethodChannel?.invokeMethod(
-                    "on_android_permission_result",
-                    mapOf("type" to type, "result" to all)
-                )
-            }
+    fun notifyResult(result: Boolean) {
+        Handler(Looper.getMainLooper()).post {
+            MainActivity.flutterMethodChannel?.invokeMethod(
+                "on_android_permission_result",
+                mapOf("type" to type, "result" to result)
+            )
         }
+    }
+    try {
+        XXPermissions.with(context)
+            .permission(type)
+            .request { _, all ->
+                notifyResult(all)
+            }
+    } catch (e: Exception) {
+        // e.g. BLUETOOTH_SCAN manifest misuse on Android 12+: never let a
+        // permission-request failure crash the app or hang the caller.
+        android.util.Log.w("LDeskBT", "requestPermission failed for $type: ${e.message}")
+        notifyResult(false)
+    }
 }
 
 fun startAction(context: Context, action: String) {

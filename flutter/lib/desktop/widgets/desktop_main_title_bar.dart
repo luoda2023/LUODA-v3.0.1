@@ -11,7 +11,7 @@ final ValueNotifier<bool> _mainWindowAlwaysOnTop = ValueNotifier<bool>(false);
 
 class LDeskMainTitleBar extends StatelessWidget {
   static const double height = 32;
-  static const String brandName = 'LDesk';
+  static const String brandName = '点聊';
 
   final String title;
   final bool showPin;

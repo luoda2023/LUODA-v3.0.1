@@ -59,6 +59,7 @@ pub(super) fn start_listening() -> ResultType<()> {
                                     hostname,
                                     username: crate::platform::get_active_username(),
                                     platform: whoami::platform().to_string(),
+                                    direct_access_port: Config::get_option("direct-access-port"),
                                     ..Default::default()
                                 };
                                 msg_out.set_peer_discovery(peer);
@@ -271,6 +272,7 @@ fn wait_response(
                                     username: p.username.clone(),
                                     hostname: p.hostname.clone(),
                                     platform: p.platform.clone(),
+                                    direct_access_port: p.direct_access_port.clone(),
                                     online: true,
                                 }));
                             }
@@ -320,6 +322,16 @@ async fn handle_received_peers(mut rx: UnboundedReceiver<config::DiscoveryPeer>)
                         if in_response_set {
                             peer.ip_mac.extend(peer1.ip_mac);
                             peer.online = true;
+                        }
+                    }
+                    if !peer.direct_access_port.is_empty() {
+                        for (ip, _) in peer.ip_mac.iter() {
+                            if !ip.is_empty() && crate::common::is_lan_ip(ip) {
+                                crate::rendezvous_mediator::update_direct_pairing_endpoint(
+                                    &peer.id,
+                                    &format!("{}:{}", ip, peer.direct_access_port),
+                                );
+                            }
                         }
                     }
                     peers.insert(0, peer);

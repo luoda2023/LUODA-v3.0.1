@@ -706,6 +706,8 @@ impl InvokeUiSession for FlutterHandler {
     }
 
     fn set_permission(&self, name: &str, value: bool) {
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        crate::debug_api::record_permission(&self.peer_info.read().unwrap().peer_id, name, value);
         self.push_event("permission", &[(name, &value.to_string())], &[]);
     }
 
@@ -1018,6 +1020,22 @@ impl InvokeUiSession for FlutterHandler {
     }
 
     fn new_message(&self, msg: String) {
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        {
+            crate::debug_api::record_chat_message(&msg);
+            let handlers = self.session_handlers.read().unwrap();
+            let bound = handlers.values().any(|h| h.event_stream.is_some());
+            crate::debug_api::record_chat_event(
+                "single_new_message",
+                &format!(
+                    "peer={} len={} handlers={} bound={}",
+                    self.peer_info.read().unwrap().peer_id,
+                    msg.len(),
+                    handlers.len(),
+                    bound
+                ),
+            );
+        }
         self.push_event("chat_client_mode", &[("text", &msg)], &[]);
     }
 
@@ -1577,6 +1595,16 @@ pub mod connection_manager {
         }
 
         fn new_message(&self, id: i32, text: String) {
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            crate::debug_api::record_chat_event(
+                "cm_new_message",
+                &format!(
+                    "conn={} len={} streams={}",
+                    id,
+                    text.len(),
+                    GLOBAL_EVENT_STREAM.read().unwrap().len()
+                ),
+            );
             #[cfg(target_os = "android")]
             {
                 let payload = json!({ "id": id, "text": &text }).to_string();
@@ -1639,15 +1667,18 @@ pub mod connection_manager {
             debug_assert!(h.get("name").is_none());
             h.insert("name", json!(name));
 
-            if let Some(s) = GLOBAL_EVENT_STREAM.read().unwrap().get(super::APP_TYPE_CM) {
-                s.add(serde_json::ser::to_string(&h).unwrap_or("".to_owned()));
-            } else {
-                println!(
-                    "Push event {} failed. No {} event stream found.",
-                    name,
-                    super::APP_TYPE_CM
-                );
-            };
+            let payload = serde_json::ser::to_string(&h).unwrap_or("".to_owned());
+            let streams = GLOBAL_EVENT_STREAM.read().unwrap();
+            if streams.is_empty() {
+                println!("Push event {} failed. No event stream found.", name);
+                return;
+            }
+            // Broadcast to every registered UI (desktop main window + CM page,
+            // or the single mobile stream). The desktop main window must receive
+            // chat/client events too, otherwise new messages do not refresh.
+            for s in streams.values() {
+                s.add(payload.clone());
+            }
         }
     }
 

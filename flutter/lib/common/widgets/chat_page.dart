@@ -14,12 +14,14 @@ import 'package:provider/provider.dart';
 import '../../mobile/pages/home_page.dart';
 import '../../models/meeting_group_model.dart';
 import 'package:luoda_flutter/common/direct_viewer_invite.dart';
+import 'package:url_launcher/url_launcher_string.dart';
 import '../wechat_ui_tokens.dart';
 import '../email_draft_service.dart';
 import '../string_utils.dart';
 import 'file_viewer.dart';
 import 'file_preview_types.dart';
 import 'message_context_region.dart';
+import 'message_source_label.dart';
 import 'rich_text_builder.dart';
 import 'voice_message_controls.dart';
 import '../../models/ai_config_model.dart';
@@ -47,6 +49,20 @@ enum ChatPageType {
 }
 
 typedef PasteImageCallback = Future<bool> Function(bool notifyIfEmpty);
+
+/// 消息长按菜单项：value 传给 [_handleWeChatContextAction]，
+/// group 相同的项之间不加分隔线（新增分组时 +1）。
+class _ChatMenuAction {
+  const _ChatMenuAction(this.value, this.icon, this.label,
+      {this.color, this.group = 0});
+
+  final String value;
+  final IconData icon;
+  final String label;
+  final Color? color;
+  final int group;
+}
+
 typedef ForwardMessagesCallback = Future<bool> Function(
   String targetPeerId,
   List<ChatForwardItem> items,
@@ -105,15 +121,106 @@ class ChatForwardItem {
       );
 }
 
+/// Shared emoji pack used by both the PC and mobile composers.
+/// WeChat-style chat faces and symbols.
+/// Free Unicode emoji pack — commonly used chat faces and symbols.
+const kDotChatEmojiList = <String>[
+  '😀',
+  '😂',
+  '🤣',
+  '😊',
+  '😍',
+  '🥰',
+  '😘',
+  '😜',
+  '🤔',
+  '😎',
+  '😢',
+  '😭',
+  '😤',
+  '😡',
+  '🥺',
+  '😱',
+  '🤯',
+  '😴',
+  '🤤',
+  '😷',
+  '👍',
+  '👎',
+  '👏',
+  '🙏',
+  '💪',
+  '✌️',
+  '🤝',
+  '👋',
+  '🖐️',
+  '🤞',
+  '❤️',
+  '🧡',
+  '💛',
+  '💚',
+  '💙',
+  '💜',
+  '🖤',
+  '🤍',
+  '💔',
+  '💯',
+  '🔥',
+  '⭐',
+  '🎉',
+  '🎊',
+  '🥇',
+  '✅',
+  '❌',
+  '💡',
+  '📌',
+  '🎯',
+  '🍕',
+  '🍔',
+  '☕',
+  '🍺',
+  '🎂',
+  '🌈',
+  '🌹',
+  '🌸',
+  '☀️',
+  '🌙',
+  '🐶',
+  '🐱',
+  '🦊',
+  '🐼',
+  '🐧',
+  '🦄',
+  '🐝',
+  '🐙',
+  '🐳',
+  '🦋',
+  '😅',
+  '🙃',
+  '😏',
+  '😌',
+  '🤗',
+  '🤩',
+  '😇',
+  '🤐',
+  '🥱',
+  '😈',
+];
+
 class ChatPage extends StatelessWidget implements PageShape {
   late final ChatModel chatModel;
   final ChatPageType? type;
   final VoidCallback? onAttachFile;
   final VoidCallback? onRemoteAssist;
   final VoidCallback? onSendImage;
+  final VoidCallback? onTakePhoto;
+  final VoidCallback? onSendLocation;
+  final VoidCallback? onScreenshot;
   final PasteImageCallback? onPasteImage;
   final ForwardMessagesCallback? onForwardMessages;
   final bool peerOffline;
+  final GlobalKey<_MobileChatComposerState> _mobileComposerKey =
+      GlobalKey<_MobileChatComposerState>();
 
   ChatPage({
     ChatModel? chatModel,
@@ -121,6 +228,9 @@ class ChatPage extends StatelessWidget implements PageShape {
     this.onAttachFile,
     this.onRemoteAssist,
     this.onSendImage,
+    this.onTakePhoto,
+    this.onSendLocation,
+    this.onScreenshot,
     this.onPasteImage,
     this.onForwardMessages,
     this.peerOffline = false,
@@ -197,15 +307,10 @@ class ChatPage extends StatelessWidget implements PageShape {
         '${message.text.hashCode}';
   }
 
-  /// WeChat PC style floating context menu — positioned near the message,
-  /// with rounded corners, icon + text items, and clean dividers.
-  /// Replaces the old bottom sheet that looked nothing like WeChat.
-  Future<String?> _showWeChatContextMenu(
-    BuildContext context,
-    ChatMessage message, {
-    required Offset position,
-    bool alignToAvatarLeft = false,
-  }) async {
+  /// 收集消息的完整操作项（PC 右键与手机端长按共用），
+  /// 返回 (动作列表, 是否显示表情回应行)。
+  ({List<_ChatMenuAction> actions, bool showReactions}) _buildMessageActions(
+      ChatMessage message) {
     final properties = message.customProperties;
     final id = (properties?['ldesk_id'] ?? '').toString();
     final disposition =
@@ -213,7 +318,83 @@ class ChatPage extends StatelessWidget implements PageShape {
     final delivery = (properties?['ldesk_delivery'] ?? '').toString();
     final isOwnMessage = message.user.id == chatModel.me.id;
     final canMutate = id.isNotEmpty && disposition == 'active';
+    final actions = <_ChatMenuAction>[];
 
+    actions.add(const _ChatMenuAction(
+        'copy', Icons.copy_rounded, 'Copy', group: 0));
+    if (disposition == 'active') {
+      actions.add(const _ChatMenuAction(
+          'reply', Icons.reply_rounded, 'Reply', group: 0));
+    }
+    if (id.isNotEmpty && canMutate) {
+      actions.add(const _ChatMenuAction(
+          'select', Icons.checklist_rounded, 'Select', group: 1));
+    }
+    actions.add(const _ChatMenuAction(
+        'info', Icons.info_outline_rounded, 'Info', group: 1));
+
+    // AI Translate — only if configured and message is text
+    if (AiConfig.current.enabled &&
+        (message.text?.isNotEmpty == true ||
+            (properties?['ldesk_kind'] == 'text'))) {
+      actions.add(const _ChatMenuAction(
+          'translate', Icons.translate_rounded, 'Translate', group: 2));
+    }
+
+    // Send to email — only if email is configured
+    if (AiConfig.current.email.isNotEmpty &&
+        RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+            .hasMatch(AiConfig.current.email)) {
+      actions.add(const _ChatMenuAction(
+          'send-email', Icons.email_outlined, 'Send to email', group: 2));
+      actions.add(const _ChatMenuAction('send-email-batch',
+          Icons.archive_outlined, 'Send 20 recent to email', group: 2));
+    }
+
+    if (isOwnMessage && canMutate) {
+      if (properties?['ldesk_kind'] == 'text') {
+        actions.add(const _ChatMenuAction(
+            'edit', Icons.edit_rounded, 'Edit', group: 3));
+      }
+      actions.add(const _ChatMenuAction(
+          'recall', Icons.undo_rounded, 'Recall', group: 3));
+      actions.add(const _ChatMenuAction('destroy',
+          Icons.delete_forever_outlined, 'Destroy',
+          color: Color(0xFFFA5151), group: 3));
+      actions.add(const _ChatMenuAction(
+          'forward', Icons.forward_rounded, 'Forward', group: 3));
+      if (delivery == 'failed') {
+        actions.add(const _ChatMenuAction(
+            'retry', Icons.refresh_rounded, 'Retry send', group: 3));
+      }
+      actions.add(const _ChatMenuAction('expire-60', Icons.timer_outlined,
+          'Self-destruct in 1 minute', group: 4));
+      actions.add(const _ChatMenuAction('expire-300', Icons.timer_outlined,
+          'Self-destruct in 5 minutes', group: 4));
+      actions.add(const _ChatMenuAction('expire-3600', Icons.timer_outlined,
+          'Self-destruct in 1 hour', group: 4));
+    }
+
+    if (canMutate) {
+      actions.add(const _ChatMenuAction('delete',
+          Icons.delete_outline_rounded, 'Delete',
+          color: Color(0xFFFA5151), group: 5));
+    }
+
+    return (
+      actions: actions,
+      showReactions: id.isNotEmpty && canMutate,
+    );
+  }
+
+  /// WeChat PC style floating context menu — positioned near the message,
+  /// with rounded corners, icon + text items, and clean dividers.
+  Future<String?> _showWeChatContextMenu(
+    BuildContext context,
+    ChatMessage message, {
+    required Offset position,
+    bool alignToAvatarLeft = false,
+  }) async {
     final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
     final localPos = overlay.globalToLocal(position);
     final overlaySize = overlay.size;
@@ -227,101 +408,57 @@ class ChatPage extends StatelessWidget implements PageShape {
       Offset.zero & overlaySize,
     );
 
-    // Build menu items — keep it clean like WeChat PC
+    final built = _buildMessageActions(message);
     final items = <PopupMenuEntry<String>>[];
-    void addItem(String value, IconData icon, String label, {Color? color}) {
+    int? lastGroup;
+    void addItem(_ChatMenuAction action) {
+      if (lastGroup != null && action.group != lastGroup) {
+        items.add(const PopupMenuDivider(height: 1));
+      }
+      lastGroup = action.group;
       items.add(PopupMenuItem<String>(
-        value: value,
+        value: action.value,
         height: 34,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         child: Row(
           children: [
-            Icon(icon, size: 18, color: color),
+            Icon(action.icon, size: 18, color: action.color),
             const SizedBox(width: 10),
-            Text(label, style: TextStyle(fontSize: 13, color: color)),
+            Text(translate(action.label),
+                style: TextStyle(fontSize: 13, color: action.color)),
           ],
         ),
       ));
     }
 
-    addItem('copy', Icons.copy_rounded, translate('Copy'));
-    if (disposition == 'active') {
-      addItem('reply', Icons.reply_rounded, translate('Reply'));
-    }
-    if (id.isNotEmpty) {
-      if (canMutate) {
-        items.add(const PopupMenuDivider(height: 1));
-        items.add(
-          PopupMenuItem<String>(
-            enabled: false,
-            height: 40,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: _reactionEmojis.map((emoji) {
-                  return GestureDetector(
-                    onTap: () => Navigator.pop(context, 'react:$emoji'),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: Text(emoji, style: const TextStyle(fontSize: 22)),
-                    ),
-                  );
-                }).toList(),
-              ),
+    if (built.showReactions) {
+      items.add(const PopupMenuDivider(height: 1));
+      items.add(
+        PopupMenuItem<String>(
+          enabled: false,
+          height: 40,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: _reactionEmojis.map((emoji) {
+                return GestureDetector(
+                  onTap: () => Navigator.pop(context, 'react:$emoji'),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: Text(emoji, style: const TextStyle(fontSize: 22)),
+                  ),
+                );
+              }).toList(),
             ),
           ),
-        );
-        items.add(const PopupMenuDivider(height: 1));
-        addItem('select', Icons.checklist_rounded, translate('Select'));
-      }
+        ),
+      );
+      items.add(const PopupMenuDivider(height: 1));
     }
-    addItem('info', Icons.info_outline_rounded, translate('Info'));
-
-    // AI Translate — only if configured and message is text
-    if (AiConfig.current.enabled &&
-        (message.text?.isNotEmpty == true ||
-            (properties?['ldesk_kind'] == 'text'))) {
-      items.add(const PopupMenuDivider(height: 1));
-      addItem('translate', Icons.translate_rounded, translate('Translate'));
-    }
-
-    // Send to email — only if email is configured
-    if (AiConfig.current.email.isNotEmpty &&
-        RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
-            .hasMatch(AiConfig.current.email)) {
-      items.add(const PopupMenuDivider(height: 1));
-      addItem('send-email', Icons.email_outlined, translate('Send to email'));
-      addItem('send-email-batch', Icons.archive_outlined,
-          translate('Send 20 recent to email'));
-    }
-
-    if (isOwnMessage && canMutate) {
-      items.add(const PopupMenuDivider(height: 1));
-      if (properties?['ldesk_kind'] == 'text') {
-        addItem('edit', Icons.edit_rounded, translate('Edit'));
-      }
-      addItem('recall', Icons.undo_rounded, translate('Recall'));
-      addItem('destroy', Icons.delete_forever_outlined, translate('Destroy'),
-          color: Colors.redAccent);
-      addItem('forward', Icons.forward_rounded, translate('Forward'));
-      if (delivery == 'failed') {
-        addItem('retry', Icons.refresh_rounded, translate('Retry send'));
-      }
-      items.add(const PopupMenuDivider(height: 1));
-      addItem('expire-60', Icons.timer_outlined,
-          translate('Self-destruct in 1 minute'));
-      addItem('expire-300', Icons.timer_outlined,
-          translate('Self-destruct in 5 minutes'));
-      addItem('expire-3600', Icons.timer_outlined,
-          translate('Self-destruct in 1 hour'));
-    }
-
-    if (canMutate) {
-      items.add(const PopupMenuDivider(height: 1));
-      addItem('delete', Icons.delete_outline_rounded, translate('Delete'),
-          color: Colors.redAccent);
+    for (final action in built.actions) {
+      addItem(action);
     }
 
     return showMenu<String>(
@@ -334,6 +471,140 @@ class ChatPage extends StatelessWidget implements PageShape {
           ? const Color(0xFF2B2D32)
           : Colors.white,
     );
+  }
+
+  /// 手机端长按操作面板：微信手机版风格底部面板，
+  /// 功能与 PC 右键菜单完全一致（撤回/销毁/转发/编辑/阅后即焚/删除等）。
+  Future<String?> _showMobileMessageActions(
+      BuildContext context, ChatMessage message) async {
+    final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
+    final surface = dark ? const Color(0xFF23262B) : Colors.white;
+    final built = _buildMessageActions(message);
+
+    final rows = <Widget>[];
+    int? lastGroup;
+    for (final action in built.actions) {
+      if (lastGroup != null && action.group != lastGroup) {
+        rows.add(Container(
+          height: 6,
+          color: dark ? const Color(0xFF1B1E23) : const Color(0xFFF2F3F5),
+        ));
+      }
+      lastGroup = action.group;
+      rows.add(InkWell(
+        onTap: () => Navigator.pop(context, action.value),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+          child: Row(
+            children: <Widget>[
+              Icon(action.icon,
+                  size: 21,
+                  color: action.color ??
+                      theme.colorScheme.onSurface.withOpacity(0.85)),
+              const SizedBox(width: 14),
+              Text(
+                translate(action.label),
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                  color: action.color ?? theme.colorScheme.onSurface,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ));
+    }
+
+    return showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (sheetContext) {
+        Widget reactionRow() {
+          return Container(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: _reactionEmojis.map((emoji) {
+                return InkWell(
+                  onTap: () => Navigator.pop(sheetContext, 'react:$emoji'),
+                  borderRadius: BorderRadius.circular(20),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 6, vertical: 4),
+                    child: Text(emoji, style: const TextStyle(fontSize: 26)),
+                  ),
+                );
+              }).toList(),
+            ),
+          );
+        }
+
+        return SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              const SizedBox(height: 8),
+              Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: dark
+                      ? Colors.white.withOpacity(0.2)
+                      : Colors.black.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      if (built.showReactions) reactionRow(),
+                      ...rows,
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// 打开消息操作菜单（桌面端右键与手机端长按共用入口）：
+  /// - mobileMain：微信手机版风格底部面板
+  /// - 其他（desktopHome 等）：浮动弹出菜单
+  /// 多选模式下不弹菜单，避免与勾选操作冲突。
+  Future<void> _openMessageActions(
+    BuildContext context,
+    ChatMessage message, {
+    required Offset position,
+    required bool alignToAvatarLeft,
+  }) async {
+    if (chatModel.isMultiSelectMode) return;
+    final String? action;
+    if (type == ChatPageType.mobileMain) {
+      action = await _showMobileMessageActions(context, message);
+    } else {
+      action = await _showWeChatContextMenu(
+        context,
+        message,
+        position: position,
+        alignToAvatarLeft: alignToAvatarLeft,
+      );
+    }
+    if (context.mounted) {
+      await _handleWeChatContextAction(context, action, message);
+    }
   }
 
   /// WeChat PC clean delete confirmation — minimal, no heavy icon decorations.
@@ -780,7 +1051,7 @@ class ChatPage extends StatelessWidget implements PageShape {
   ) async {
     final ensureConnection = chatModel.ensureChatConnection;
     if (ensureConnection == null) return false;
-    await ensureConnection(targetPeerId);
+    await ensureConnection(targetPeerId, force: false);
     if (chatModel.currentKey.peerId != targetPeerId) return false;
     if (merged) {
       final senders = items
@@ -1091,7 +1362,7 @@ class ChatPage extends StatelessWidget implements PageShape {
         color: dark ? kWeChatCanvasColorDark : const Color(0xFFF8F8F8),
         border: Border(
             top: BorderSide(
-          color: dark ? const Color(0xFF3A3D43) : const Color(0xFFDDDDDD),
+          color: dark ? const Color(0xFF3A3D43) : const Color(0x80E5E5E5),
         )),
         boxShadow: [
           BoxShadow(
@@ -1357,7 +1628,162 @@ class ChatPage extends StatelessWidget implements PageShape {
       text: text,
       foreground: foreground,
       defaultSize: isDesktopHome ? 14 : 15,
+      // PC 端保留文字选择（右键弹消息菜单）；手机端关闭选择，
+      // 长按消息统一弹出微信手机版风格的操作面板。
+      enableSelection: isDesktopHome,
       contextMenuBuilder: (_, __) => const SizedBox.shrink(),
+    );
+  }
+
+  /// 定位消息卡片：地点名 + 坐标，点击弹出高德/百度/腾讯/系统地图选择。
+  Widget _buildLocationCard(
+    BuildContext context,
+    DirectChatLocation loc,
+    Color foreground,
+  ) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final name = loc.name.isNotEmpty ? loc.name : translate('Location');
+    return GestureDetector(
+      onTap: () => _openLocationMaps(context, loc),
+      child: Container(
+        width: 220,
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: dark ? const Color(0xFF2A3A33) : const Color(0xFFEFF6F1),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: dark ? const Color(0xFF3A6A50) : const Color(0xFFB8E8C8),
+          ),
+        ),
+        child: Row(
+          children: <Widget>[
+            Icon(
+              Icons.location_on_rounded,
+              size: 22,
+              color: dark ? const Color(0xFF7AE89A) : const Color(0xFF1A8E4A),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                      color: foreground,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${loc.latitude.toStringAsFixed(5)}, '
+                    '${loc.longitude.toStringAsFixed(5)}',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: foreground.withOpacity(0.55),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: <Widget>[
+                      Icon(
+                        Icons.map_outlined,
+                        size: 11,
+                        color: foreground.withOpacity(0.4),
+                      ),
+                      const SizedBox(width: 3),
+                      Text(
+                        translate('View on map'),
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: foreground.withOpacity(0.5),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 弹出地图选择：高德 / 百度 / 腾讯 / 系统地图，用浏览器或 App 打开。
+  Future<void> _openLocationMaps(
+    BuildContext context,
+    DirectChatLocation loc,
+  ) async {
+    final theme = Theme.of(context);
+    final name = Uri.encodeComponent(
+      loc.name.isNotEmpty ? loc.name : '${loc.latitude},${loc.longitude}',
+    );
+    final lat = loc.latitude.toStringAsFixed(6);
+    final lng = loc.longitude.toStringAsFixed(6);
+    final options = <(IconData, String, String)>[
+      (
+        Icons.map_rounded,
+        translate('Amap'),
+        'https://uri.amap.com/marker?position=$lng,$lat&name=$name',
+      ),
+      (
+        Icons.public_rounded,
+        translate('Baidu Maps'),
+        'https://api.map.baidu.com/marker?location=$lat,$lng&title=$name',
+      ),
+      (
+        Icons.location_city_rounded,
+        translate('Tencent Maps'),
+        'https://apis.map.qq.com/uri/v1/marker?marker=coord:$lat,$lng;title:$name',
+      ),
+      (
+        Icons.explore_outlined,
+        translate('System Map'),
+        'geo:$lat,$lng?q=$lat,$lng($name)',
+      ),
+    ];
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: theme.colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
+              child: Text(
+                translate('Open location in'),
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: theme.colorScheme.onSurface,
+                ),
+              ),
+            ),
+            for (final option in options)
+              ListTile(
+                leading: Icon(option.$1, color: const Color(0xFF07C160)),
+                title: Text(option.$2),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  launchUrlString(
+                    option.$3,
+                    mode: LaunchMode.externalApplication,
+                  );
+                },
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1380,6 +1806,32 @@ class ChatPage extends StatelessWidget implements PageShape {
             final currentKey = chatModel.currentKey;
             final isDesktopHome = type == ChatPageType.desktopHome;
             final dark = Theme.of(context).brightness == Brightness.dark;
+            debugPrint('CHATPAGE_DIAG isDesktopHome=' +
+                isDesktopHome.toString() +
+                ' peer=' +
+                chatModel.currentKey.peerId +
+                ' msgs=' +
+                (chatModel.messages[chatModel.currentKey]?.chatMessages
+                            ?.length ??
+                        0)
+                    .toString() +
+                ' multi=' +
+                chatModel.isMultiSelectMode.toString() +
+                ' search=' +
+                chatModel.chatSearchVisible.toString());
+            debugPrint('WINDOW_DIAG mqw=' +
+                MediaQuery.sizeOf(context).width.toStringAsFixed(1) +
+                ' mqh=' +
+                MediaQuery.sizeOf(context).height.toStringAsFixed(1) +
+                ' dpr=' +
+                MediaQuery.devicePixelRatioOf(context).toString());
+            final pv = WidgetsBinding.instance.platformDispatcher.views.first;
+            debugPrint('PHYS_DIAG pw=' +
+                pv.physicalSize.width.toStringAsFixed(1) +
+                ' ph=' +
+                pv.physicalSize.height.toStringAsFixed(1) +
+                ' dpr=' +
+                pv.devicePixelRatio.toString());
             final readOnly = currentKey.peerId.isEmpty ||
                 type == ChatPageType.desktopCM &&
                     gFFI.serverModel.clients
@@ -1440,6 +1892,39 @@ class ChatPage extends StatelessWidget implements PageShape {
                   fallback;
             }
 
+            /// Overlays a small phone badge on the bottom-right corner when
+            /// the peer message was sent from a mobile client.
+            Widget maybePhoneBadge(ChatMessage message, Widget avatar) {
+              final isPeerMobile = message.user.id != chatModel.me.id &&
+                  message.customProperties?['ldesk_src_platform'] == 'mobile';
+              if (!isPeerMobile) return avatar;
+              return SizedBox(
+                width: 48,
+                height: 48,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: <Widget>[
+                    Positioned.fill(child: avatar),
+                    Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: Container(
+                        width: 17,
+                        height: 17,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF2E7D32),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 1.5),
+                        ),
+                        child: const Icon(Icons.phone_android_rounded,
+                            size: 10, color: Colors.white),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }
+
             bool hasDelivery(ChatMessage message) {
               final d = (message.customProperties?['ldesk_delivery'] ?? '')
                   .toString();
@@ -1459,12 +1944,26 @@ class ChatPage extends StatelessWidget implements PageShape {
               return '';
             }
 
-            /// Connection source label: "via IP" for IP-originated messages.
-            String _connSourceLabel(ChatMessage message) {
-              final source =
-                  message.customProperties?['ldesk_conn_source']?.toString();
-              if (source == 'ip') return 'via IP';
-              return '';
+            String connSourceEndpointOf(ChatMessage message) {
+              final raw = message.customProperties?['ldesk_conn_endpoint']
+                      ?.toString()
+                      .trim() ??
+                  '';
+              return DirectPairingStore.connEndpointOf(raw);
+            }
+
+            String connSourceLabelOf(ChatMessage message) {
+              if (chatModel.isFileHelperConversation) return '';
+              final props = message.customProperties;
+              return messageSourceLabel(
+                srcPlatform: props?['ldesk_src_platform']?.toString(),
+                connMode: props?['ldesk_conn_mode']?.toString() ?? '',
+                connEndpoint: connSourceEndpointOf(message),
+                connPort:
+                    int.tryParse('${props?['ldesk_conn_port'] ?? ''}') ?? 0,
+                fallbackTarget: chatModel.currentKey.peerId,
+                ipSource: props?['ldesk_conn_source']?.toString(),
+              );
             }
 
             Widget deliveryWidget(ChatMessage message) {
@@ -1477,7 +1976,7 @@ class ChatPage extends StatelessWidget implements PageShape {
               switch (d) {
                 case 'queued':
                   icon = Icons.access_time_rounded;
-                  label = translate('Sending...');
+                  label = translate('Waiting to send');
                   break;
                 case 'sent':
                   icon = Icons.done_rounded;
@@ -1498,11 +1997,13 @@ class ChatPage extends StatelessWidget implements PageShape {
               return Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(icon, size: 13, color: color ?? Colors.grey),
+                  Icon(icon,
+                      size: 13, color: (color ?? Colors.grey).withOpacity(0.5)),
                   const SizedBox(width: 3),
                   Text(label,
-                      style:
-                          TextStyle(fontSize: 11, color: color ?? Colors.grey)),
+                      style: TextStyle(
+                          fontSize: 10,
+                          color: (color ?? Colors.grey).withOpacity(0.5))),
                 ],
               );
             }
@@ -1728,6 +2229,9 @@ class ChatPage extends StatelessWidget implements PageShape {
                   0;
               final localPath =
                   (properties?['ldesk_local_path'] ?? '').toString();
+              final isImageAttachment = isFile &&
+                  filePreviewKindForName(fileName) == FilePreviewKind.image &&
+                  localPath.isNotEmpty;
               final replyToText =
                   (properties?['ldesk_reply_to_text'] ?? '').toString();
               final replyToSender =
@@ -1783,6 +2287,45 @@ class ChatPage extends StatelessWidget implements PageShape {
                       messageId: recordId,
                       durationMs: voiceDurationMs,
                     )
+                  else if (isImageAttachment)
+                    InkWell(
+                      onTap: () {
+                        unawaited(_openMessageFilePreview(
+                          context,
+                          fileName: fileName,
+                          fileSize: fileSize,
+                          localPath: localPath,
+                        ));
+                      },
+                      borderRadius: BorderRadius.circular(5),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(5),
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxWidth: isDesktopHome ? 280 : 240,
+                            maxHeight: isDesktopHome ? 240 : 220,
+                          ),
+                          child: Image.file(
+                            File(localPath),
+                            fit: BoxFit.contain,
+                            cacheWidth: 560,
+                            filterQuality: FilterQuality.high,
+                            errorBuilder: (_, __, ___) => Container(
+                              width: 160,
+                              height: 96,
+                              alignment: Alignment.center,
+                              color: dark
+                                  ? const Color(0xFF303238)
+                                  : const Color(0xFFF0F0F0),
+                              child: Icon(
+                                Icons.broken_image_outlined,
+                                color: foreground.withOpacity(0.55),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    )
                   else if (isFile && fileName.isNotEmpty)
                     InkWell(
                       onTap: () {
@@ -1794,95 +2337,88 @@ class ChatPage extends StatelessWidget implements PageShape {
                         ));
                       },
                       borderRadius: BorderRadius.circular(8),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 2),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
+                      child: SizedBox(
+                        width: isDesktopHome ? 270 : 236,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: <Widget>[
-                            Container(
-                              width: 48,
-                              height: 48,
-                              decoration: BoxDecoration(
-                                color: filePreviewColor(
-                                  fileName,
-                                  dark ? 0.22 : 0.14,
-                                ),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Stack(
-                                alignment: Alignment.center,
-                                children: [
-                                  if (filePreviewKindForName(fileName) ==
-                                          FilePreviewKind.image &&
-                                      localPath.isNotEmpty)
-                                    ClipRRect(
-                                      borderRadius: BorderRadius.circular(10),
-                                      child: Image.file(
-                                        File(localPath),
-                                        width: 48,
-                                        height: 48,
-                                        fit: BoxFit.cover,
-                                        cacheWidth: 96,
-                                        filterQuality: FilterQuality.low,
-                                        errorBuilder: (_, __, ___) => Icon(
-                                          filePreviewIcon(fileName),
-                                          size: 26,
-                                          color:
-                                              filePreviewColor(fileName, 0.72),
-                                        ),
-                                      ),
-                                    )
-                                  else ...[
-                                    Icon(
-                                      filePreviewIcon(fileName),
-                                      size: 26,
-                                      color: filePreviewColor(fileName, 0.72),
-                                    ),
-                                    Positioned(
-                                      bottom: 5,
-                                      child: Text(
-                                        fileExtensionLabel(fileName),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: <Widget>[
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: <Widget>[
+                                      Text(
+                                        fileName,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
                                         style: TextStyle(
-                                          color: filePreviewColor(
-                                            fileName,
-                                            dark ? 0.95 : 0.85,
-                                          ),
-                                          fontSize: 9.5,
-                                          fontWeight: FontWeight.w700,
-                                          letterSpacing: 0,
+                                          color: foreground,
+                                          fontSize: isDesktopHome ? 14 : 15,
+                                          fontWeight: FontWeight.w500,
+                                          height: 1.35,
                                         ),
                                       ),
-                                    ),
-                                  ],
-                                ],
-                              ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        fileSizeLabel(fileSize),
+                                        style: TextStyle(
+                                          color: foreground.withOpacity(0.5),
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                SizedBox(
+                                  width: 48,
+                                  height: 52,
+                                  child: Stack(
+                                    alignment: Alignment.center,
+                                    children: <Widget>[
+                                      Icon(
+                                        Icons.insert_drive_file_rounded,
+                                        size: 48,
+                                        color: filePreviewColor(fileName, 0.88),
+                                      ),
+                                      Positioned(
+                                        bottom: 8,
+                                        child: Text(
+                                          fileExtensionLabel(fileName),
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 8.5,
+                                            fontWeight: FontWeight.w700,
+                                            letterSpacing: 0,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ),
-                            const SizedBox(width: 10),
-                            Flexible(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: <Widget>[
-                                  Text(
-                                    fileName,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: foreground,
-                                      fontSize: isDesktopHome ? 14 : 15,
-                                      fontWeight: FontWeight.w500,
-                                      height: 1.35,
-                                    ),
+                            const Divider(height: 18),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: <Widget>[
+                                Icon(
+                                  Icons.desktop_windows_rounded,
+                                  size: 12,
+                                  color: foreground.withOpacity(0.38),
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  '点聊',
+                                  style: TextStyle(
+                                    color: foreground.withOpacity(0.42),
+                                    fontSize: 10,
                                   ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    fileSizeLabel(fileSize),
-                                    style: TextStyle(
-                                      color: foreground.withOpacity(0.56),
-                                      fontSize: 11,
-                                    ),
-                                  ),
-                                ],
-                              ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
@@ -1891,6 +2427,9 @@ class ChatPage extends StatelessWidget implements PageShape {
                   else if (message.text.trim().startsWith('luoda://join/') ||
                       message.text.trim().startsWith('luoda://meeting/'))
                     _buildInviteCard(context, message.text.trim(), foreground)
+                  else if (DirectChatLocation.tryParse(message.text)
+                      case final DirectChatLocation loc)
+                    _buildLocationCard(context, loc, foreground)
                   else
                     _buildRichText(message.text, foreground, isDesktopHome),
                   if (translating || translated?.isNotEmpty == true)
@@ -1997,8 +2536,8 @@ class ChatPage extends StatelessWidget implements PageShape {
                           '${message.createdAt.hour.toString().padLeft(2, '0')}:'
                           '${message.createdAt.minute.toString().padLeft(2, '0')}',
                           style: TextStyle(
-                            color: foreground.withOpacity(0.52),
-                            fontSize: 11,
+                            color: foreground.withOpacity(0.2),
+                            fontSize: 10,
                           ),
                         ),
                         if (isOwnMessage && hasDelivery(message)) ...<Widget>[
@@ -2013,110 +2552,142 @@ class ChatPage extends StatelessWidget implements PageShape {
 
             Widget weChatMessageRow(
               ChatMessage message,
+              ChatMessage? previousMessage,
+              ChatMessage? nextMessage,
+              bool isAfterDateSeparator,
+              bool isBeforeDateSeparator,
               double maxBubbleWidth,
             ) {
               final isOwnMessage = message.user.id == chatModel.me.id;
+              final properties = message.customProperties;
+              final attachmentName =
+                  (properties?['ldesk_file_name'] ?? '').toString();
+              final isFileAttachment =
+                  properties?['ldesk_kind'] == DirectChatKind.file.name;
+              final isImageAttachment = isFileAttachment &&
+                  filePreviewKindForName(attachmentName) ==
+                      FilePreviewKind.image &&
+                  (properties?['ldesk_local_path'] ?? '').toString().isNotEmpty;
               final isAiReply = !isOwnMessage &&
                   (message.customProperties?['ldesk_ai_reply'] == 'true' ||
                       message.customProperties?['ldesk_ai_loading'] == 'true');
-              final bubbleColor = isOwnMessage
-                  ? dark
-                      ? kWeChatOutgoingBubbleColorDark
-                      : kWeChatOutgoingBubbleColor
-                  : dark
-                      ? kWeChatIncomingBubbleColorDark
-                      : kWeChatIncomingBubbleColor;
-              final name = (message.user.firstName ?? '').trim();
+              final attachmentBubbleColor =
+                  dark ? const Color(0xFF2B2D32) : const Color(0xFFF1F1F1);
+              final bubbleColor = isFileAttachment
+                  ? attachmentBubbleColor
+                  : isOwnMessage
+                      ? dark
+                          ? kWeChatOutgoingBubbleColorDark
+                          : kWeChatOutgoingBubbleColor
+                      : dark
+                          ? kWeChatIncomingBubbleColorDark
+                          : kWeChatIncomingBubbleColor;
+              final connSourceLabel = connSourceLabelOf(message);
+              // 每条消息前置一条灰色小字：标明该消息来自哪个端口、哪种连接方式
+              // （PC/手机 + ID连接/公网IP/局域网IP/蓝牙），PC 与手机端显示一致。
+              final showMessageSource = connSourceLabel.isNotEmpty &&
+                  connSourceLabel != translate('Source not recorded');
               final content = messageBody(
                 message,
                 isOwnMessage: isOwnMessage,
                 includeMetadata: false,
               );
-              final bubble = isAiReply
-                  ? Container(
+              final bubble = isImageAttachment
+                  ? ConstrainedBox(
                       constraints: BoxConstraints(maxWidth: maxBubbleWidth),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 9,
-                      ),
                       child: content,
                     )
-                  : Stack(
-                      clipBehavior: Clip.none,
-                      children: <Widget>[
-                        Container(
+                  : isAiReply
+                      ? Container(
                           constraints: BoxConstraints(maxWidth: maxBubbleWidth),
                           padding: const EdgeInsets.symmetric(
                             horizontal: 12,
                             vertical: 9,
                           ),
-                          decoration: BoxDecoration(
-                            // LUODA FIX: light-mode incoming bubbles are white on a
-                            // near-white canvas (#F7F7F7) — invisible. Add a 1px
-                            // border in light mode so peer messages have clear edges.
-                            // Dark mode keeps the original flat fill (no border) so
-                            // the bubble doesn't feel "outlined" against dark canvas.
-                            color: bubbleColor,
-                            borderRadius: BorderRadius.circular(5),
-                            border: !dark && !isOwnMessage
-                                ? Border.all(
-                                    color: kWeChatIncomingBubbleBorder,
-                                    width: 1,
-                                  )
-                                : null,
-                          ),
                           child: content,
-                        ),
-                        Positioned(
-                          top: 11,
-                          left: isOwnMessage ? null : -6,
-                          right: isOwnMessage ? -6 : null,
-                          child: CustomPaint(
-                            size: const Size(7, 10),
-                            painter: _ChatBubbleTailPainter(
-                              color: bubbleColor,
-                              pointsRight: isOwnMessage,
+                        )
+                      : Stack(
+                          clipBehavior: Clip.none,
+                          children: <Widget>[
+                            Container(
+                              constraints:
+                                  BoxConstraints(maxWidth: maxBubbleWidth),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 9,
+                              ),
+                              decoration: BoxDecoration(
+                                // LUODA FIX: light-mode incoming bubbles are white on a
+                                // near-white canvas (#F7F7F7) — invisible. Add a 1px
+                                // border in light mode so peer messages have clear edges.
+                                // Dark mode keeps the original flat fill (no border) so
+                                // the bubble doesn't feel "outlined" against dark canvas.
+                                color: bubbleColor,
+                                borderRadius: BorderRadius.circular(5),
+                                border: !dark && !isOwnMessage
+                                    ? Border.all(
+                                        color: kWeChatIncomingBubbleBorder,
+                                        width: 1,
+                                      )
+                                    : null,
+                              ),
+                              child: content,
                             ),
-                          ),
-                        ),
-                      ],
-                    );
+                            Positioned(
+                              top: 11,
+                              left: isOwnMessage ? null : -6,
+                              right: isOwnMessage ? -6 : null,
+                              child: CustomPaint(
+                                size: const Size(7, 10),
+                                painter: _ChatBubbleTailPainter(
+                                  color: bubbleColor,
+                                  pointsRight: isOwnMessage,
+                                ),
+                              ),
+                            ),
+                          ],
+                        );
               final messageColumn = Flexible(
                 child: MessageContextRegion(
-                  onSecondaryTap: (position) async {
-                    final action = await _showWeChatContextMenu(
+                  // 桌面端右键 / 移动端长按：都弹出消息操作菜单。
+                  onSecondaryTap: (position) {
+                    unawaited(_openMessageActions(
                       context,
                       message,
                       position: position,
                       alignToAvatarLeft: isOwnMessage,
-                    );
-                    if (context.mounted) {
-                      await _handleWeChatContextAction(
-                          context, action, message);
-                    }
+                    ));
+                  },
+                  onLongPress: (position) {
+                    unawaited(_openMessageActions(
+                      context,
+                      message,
+                      position: position,
+                      alignToAvatarLeft: isOwnMessage,
+                    ));
                   },
                   child: Column(
                     crossAxisAlignment: isOwnMessage
                         ? CrossAxisAlignment.end
                         : CrossAxisAlignment.start,
                     children: <Widget>[
-                      if (!isOwnMessage && name.isNotEmpty) ...<Widget>[
+                      if (showMessageSource)
                         Padding(
-                          padding: const EdgeInsets.only(left: 2, bottom: 5),
+                          padding:
+                              const EdgeInsets.only(bottom: 4, left: 2, right: 2),
                           child: Text(
-                            name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                            connSourceLabel,
+                            textAlign: TextAlign.center,
                             style: TextStyle(
-                              color: dark
-                                  ? const Color(0xFFA8AAAE)
-                                  : const Color(0xFF888888),
-                              fontSize: isDesktopHome ? 12 : 13,
+                              fontSize: 10,
                               height: 1.2,
+                              color: (dark
+                                      ? const Color(0xFFA9ADB5)
+                                      : const Color(0xFF6B7280))
+                                  .withOpacity(0.2),
                             ),
                           ),
                         ),
-                      ],
                       bubble,
                       if (isAiReply && aiReplyLabel(message).isNotEmpty)
                         Padding(
@@ -2174,18 +2745,6 @@ class ChatPage extends StatelessWidget implements PageShape {
                                         color: kWeChatPrimaryColor,
                                         fontWeight: FontWeight.w500,
                                       )),
-                                // Connection source badge (IP/ID)
-                                if (_connSourceLabel(message).isNotEmpty)
-                                  Padding(
-                                    padding: const EdgeInsets.only(left: 4),
-                                    child: Text(_connSourceLabel(message),
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          color: dark
-                                              ? const Color(0xFF777A80)
-                                              : const Color(0xFFAAAAAA),
-                                        )),
-                                  ),
                               ],
                             ),
                           ),
@@ -2194,7 +2753,8 @@ class ChatPage extends StatelessWidget implements PageShape {
                   ),
                 ),
               );
-              final avatar = messageAvatar(message.user, null, null);
+              final avatar = maybePhoneBadge(
+                  message, messageAvatar(message.user, null, null));
               final avatarKey = GlobalKey();
               final inMultiSelect = chatModel.isMultiSelectMode;
               final messageId =
@@ -2229,7 +2789,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                   ),
                 );
               }
-              return Padding(
+              final messageRow = Padding(
                 padding: EdgeInsets.fromLTRB(
                   isDesktopHome ? 24 : 12,
                   isDesktopHome ? 10 : 8,
@@ -2256,6 +2816,19 @@ class ChatPage extends StatelessWidget implements PageShape {
                         ],
                 ),
               );
+              final rowWidget = messageRow;
+              if (!chatModel.chatSearchVisible ||
+                  !chatModel.isChatSearchMatch(message)) {
+                return rowWidget;
+              }
+              return AnimatedContainer(
+                key: chatModel.chatSearchKeyFor(message),
+                duration: const Duration(milliseconds: 180),
+                color: chatModel.isCurrentChatSearchResult(message)
+                    ? kWeChatPrimaryColor.withOpacity(dark ? 0.16 : 0.1)
+                    : Colors.transparent,
+                child: rowWidget,
+              );
             }
 
             return Stack(
@@ -2273,21 +2846,12 @@ class ChatPage extends StatelessWidget implements PageShape {
                   final chat = DashChat(
                     onSend: chatModel.send,
                     currentUser: chatModel.me,
-                    messages: (() {
-                      final allMessages = chatModel
-                              .messages[chatModel.currentKey]?.chatMessages ??
-                          <ChatMessage>[];
-                      final searchTextLower =
-                          chatModel.chatSearchText.trim().toLowerCase();
-                      return searchTextLower.isEmpty
-                          ? allMessages
-                          : allMessages.where((m) {
-                              return m.text
-                                  .toLowerCase()
-                                  .contains(searchTextLower);
-                            }).toList();
-                    })(),
-                    readOnly: isDesktopHome || readOnly,
+                    messages: chatModel
+                            .messages[chatModel.currentKey]?.chatMessages ??
+                        <ChatMessage>[],
+                    readOnly: isDesktopHome ||
+                        readOnly ||
+                        type == ChatPageType.mobileMain,
                     inputOptions: InputOptions(
                       focusNode: chatModel.inputNode,
                       textController: chatModel.textController,
@@ -2315,6 +2879,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                           : null,
                       inputTextStyle: TextStyle(
                           fontSize: isDesktopHome ? 14 : 15,
+                          fontFamilyFallback: kChatEmojiFontFallback,
                           color: Theme.of(context).textTheme.titleLarge?.color),
                       inputDecoration: InputDecoration(
                         isDense: true,
@@ -2409,10 +2974,11 @@ class ChatPage extends StatelessWidget implements PageShape {
                             label,
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              color: dark
-                                  ? const Color(0xFF999CA2)
-                                  : const Color(0xFF999999),
-                              fontSize: 12,
+                              color: (dark
+                                      ? const Color(0xFF999CA2)
+                                      : const Color(0xFF999999))
+                                  .withOpacity(0.2),
+                              fontSize: 10,
                               height: 1.2,
                             ),
                           ),
@@ -2426,11 +2992,18 @@ class ChatPage extends StatelessWidget implements PageShape {
                           isDesktopHome || type == ChatPageType.mobileMain,
                       showOtherUsersName: false,
                       onLongPressMessage: (message) async {
-                        final action = await _showWeChatContextMenu(
-                          context,
-                          message,
-                          position: Offset.zero,
-                        );
+                        final String? action;
+                        if (type == ChatPageType.mobileMain) {
+                          // 手机端：微信手机版风格底部操作面板。
+                          action = await _showMobileMessageActions(
+                              context, message);
+                        } else {
+                          action = await _showWeChatContextMenu(
+                            context,
+                            message,
+                            position: Offset.zero,
+                          );
+                        }
                         if (context.mounted) {
                           await _handleWeChatContextAction(
                               context, action, message);
@@ -2448,6 +3021,10 @@ class ChatPage extends StatelessWidget implements PageShape {
                                   isBeforeDateSeparator) =>
                               weChatMessageRow(
                                 message,
+                                previousMessage,
+                                nextMessage,
+                                isAfterDateSeparator,
+                                isBeforeDateSeparator,
                                 responsiveBubbleWidth,
                               )
                           : null,
@@ -2641,15 +3218,32 @@ class ChatPage extends StatelessWidget implements PageShape {
                       children: <Widget>[
                         loadOlderBar,
                         Expanded(
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () =>
+                                _mobileComposerKey.currentState?.closePanels(),
                             child: _buildMessageArea(
-                          context: context,
-                          dark: dark,
-                          messageList: messageList,
-                          chatModel: chatModel,
-                          isDesktopHome: isDesktopHome,
-                        )),
+                              context: context,
+                              dark: dark,
+                              messageList: messageList,
+                              chatModel: chatModel,
+                              isDesktopHome: isDesktopHome,
+                            ),
+                          ),
+                        ),
                         replyBar,
                         typingBar,
+                        _MobileChatComposer(
+                          key: _mobileComposerKey,
+                          chatModel: chatModel,
+                          enabled: !readOnly,
+                          dark: dark,
+                          onAttachFile: onAttachFile,
+                          onRemoteAssist: onRemoteAssist,
+                          onSendImage: onSendImage,
+                          onTakePhoto: onTakePhoto,
+                          onSendLocation: onSendLocation,
+                        ),
                       ],
                     );
                   }
@@ -2673,6 +3267,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                         onAttachFile: onAttachFile,
                         onRemoteAssist: onRemoteAssist,
                         onSendImage: onSendImage,
+                        onScreenshot: onScreenshot,
                         onPasteImage: onPasteImage,
                       ),
                     ],
@@ -2726,7 +3321,8 @@ class ChatPage extends StatelessWidget implements PageShape {
                         children: [
                           Expanded(
                             child: TextField(
-                              autofocus: true,
+                              autofocus: false,
+                              focusNode: chatModel.chatSearchFocusNode,
                               decoration: InputDecoration(
                                 isDense: true,
                                 hintText: translate('Search messages...'),
@@ -2753,10 +3349,56 @@ class ChatPage extends StatelessWidget implements PageShape {
                             ),
                           ),
                           const SizedBox(width: 8),
+                          SizedBox(
+                            width: 52,
+                            child: Text(
+                              chatModel.chatSearchText.trim().isEmpty
+                                  ? ''
+                                  : chatModel.chatSearchMatches.isEmpty
+                                      ? translate('No results')
+                                      : '${chatModel.chatSearchMatchIndex + 1}/${chatModel.chatSearchMatches.length}',
+                              textAlign: TextAlign.center,
+                              maxLines: 1,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .labelMedium
+                                  ?.copyWith(letterSpacing: 0),
+                            ),
+                          ),
                           IconButton(
+                            constraints: const BoxConstraints.tightFor(
+                              width: 34,
+                              height: 34,
+                            ),
+                            padding: EdgeInsets.zero,
+                            icon: const Icon(Icons.keyboard_arrow_up_rounded),
+                            tooltip: translate('Previous result'),
+                            onPressed:
+                                chatModel.canSelectPreviousChatSearchResult
+                                    ? chatModel.selectPreviousChatSearchResult
+                                    : null,
+                          ),
+                          IconButton(
+                            constraints: const BoxConstraints.tightFor(
+                              width: 34,
+                              height: 34,
+                            ),
+                            padding: EdgeInsets.zero,
+                            icon: const Icon(Icons.keyboard_arrow_down_rounded),
+                            tooltip: translate('Next result'),
+                            onPressed: chatModel.canSelectNextChatSearchResult
+                                ? chatModel.selectNextChatSearchResult
+                                : null,
+                          ),
+                          IconButton(
+                            constraints: const BoxConstraints.tightFor(
+                              width: 34,
+                              height: 34,
+                            ),
+                            padding: EdgeInsets.zero,
                             icon: const Icon(Icons.close_rounded),
                             tooltip: translate('Close search'),
-                            onPressed: () => chatModel.toggleChatSearch(),
+                            onPressed: chatModel.closeChatSearch,
                           ),
                         ],
                       ),
@@ -2808,7 +3450,7 @@ class ChatPage extends StatelessWidget implements PageShape {
         : translate('Type a message below to start the conversation');
     // Use a solid background instead of stacking on the grey DashChat canvas,
     // which was previously the primary source of the "everything is grey" look.
-    return Center(
+    final emptyCard = Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 32),
         child: Container(
@@ -2857,6 +3499,512 @@ class ChatPage extends StatelessWidget implements PageShape {
         ),
       ),
     );
+    if (isDesktopHome) return emptyCard;
+    // Mobile: keep the custom WeChat-style composer visible below the empty
+    // card so a first message can be typed without needing to receive one.
+    return Stack(
+      children: <Widget>[
+        Positioned.fill(child: messageList),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: emptyCard,
+        ),
+      ],
+    );
+  }
+}
+
+/// WeChat-style composer for the mobile chat page.
+///
+/// Layout mirrors WeChat's chat input: a voice button on the left, a rounded
+/// text field in the middle, and emoji / "+" buttons (or a send button while
+/// text is present) on the right. The emoji panel shares the exact same emoji
+/// pack as the PC composer (kDotChatEmojiList).
+class _MobileChatComposer extends StatefulWidget {
+  const _MobileChatComposer({
+    super.key,
+    required this.chatModel,
+    required this.enabled,
+    required this.dark,
+    this.onAttachFile,
+    this.onRemoteAssist,
+    this.onSendImage,
+    this.onTakePhoto,
+    this.onSendLocation,
+  });
+
+  final ChatModel chatModel;
+  final bool enabled;
+  final bool dark;
+  final VoidCallback? onAttachFile;
+  final VoidCallback? onRemoteAssist;
+  final VoidCallback? onSendImage;
+  final VoidCallback? onTakePhoto;
+  final VoidCallback? onSendLocation;
+
+  @override
+  State<_MobileChatComposer> createState() => _MobileChatComposerState();
+}
+
+class _MobileChatComposerState extends State<_MobileChatComposer> {
+  bool _showEmojiPanel = false;
+  bool _showMorePanel = false;
+
+  /// Closes any open panel (used when the message area is tapped).
+  void closePanels() {
+    if (!_showEmojiPanel && !_showMorePanel) return;
+    setState(() {
+      _showEmojiPanel = false;
+      _showMorePanel = false;
+    });
+  }
+
+  void _toggleEmoji() {
+    setState(() {
+      _showEmojiPanel = !_showEmojiPanel;
+      _showMorePanel = false;
+    });
+    if (_showEmojiPanel) {
+      widget.chatModel.inputNode.unfocus();
+    } else {
+      widget.chatModel.inputNode.requestFocus();
+    }
+  }
+
+  void _toggleMore() {
+    setState(() {
+      _showMorePanel = !_showMorePanel;
+      _showEmojiPanel = false;
+    });
+    if (_showMorePanel) {
+      widget.chatModel.inputNode.unfocus();
+    } else {
+      widget.chatModel.inputNode.requestFocus();
+    }
+  }
+
+  void _closePanelsOnInputTap() {
+    if (!_showEmojiPanel && !_showMorePanel) return;
+    setState(() {
+      _showEmojiPanel = false;
+      _showMorePanel = false;
+    });
+  }
+
+  void _insertEmoji(String emoji) {
+    final controller = widget.chatModel.textController;
+    final text = controller.text;
+    final sel = controller.selection;
+    final start = sel.isValid ? sel.start : text.length;
+    final end = sel.isValid ? sel.end : text.length;
+    final newText = text.replaceRange(start, end, emoji);
+    controller.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: start + emoji.length),
+    );
+  }
+
+  void _deleteLastEmoji() {
+    final controller = widget.chatModel.textController;
+    final text = controller.text;
+    if (text.isEmpty) return;
+    final sel = controller.selection;
+    if (sel.isValid && !sel.isCollapsed) {
+      controller.value = TextEditingValue(
+        text: text.replaceRange(sel.start, sel.end, ''),
+        selection: TextSelection.collapsed(offset: sel.start),
+      );
+      return;
+    }
+    final graphemes = text.characters;
+    if (graphemes.isEmpty) return;
+    final remaining = graphemes.take(graphemes.length - 1).toString();
+    controller.value = TextEditingValue(
+      text: remaining,
+      selection: TextSelection.collapsed(offset: remaining.length),
+    );
+  }
+
+  void _send() {
+    final text = widget.chatModel.textController.text.trim();
+    if (!widget.enabled || text.isEmpty) return;
+    widget.chatModel.sendText(text);
+    widget.chatModel.textController.clear();
+    if (_showEmojiPanel || _showMorePanel) {
+      setState(() {
+        _showEmojiPanel = false;
+        _showMorePanel = false;
+      });
+    } else {
+      widget.chatModel.inputNode.requestFocus();
+    }
+  }
+
+  void _runTool(VoidCallback action) {
+    closePanels();
+    action();
+  }
+
+  Widget _toolButton(IconData icon, bool active, VoidCallback onPressed) {
+    final dark = widget.dark;
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: onPressed,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        child: Icon(
+          icon,
+          size: 26,
+          color: active
+              ? kWeChatPrimaryColor
+              : dark
+                  ? const Color(0xFFB8BBC2)
+                  : const Color(0xFF555555),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmojiPanel() {
+    final dark = widget.dark;
+    final bg = dark ? const Color(0xFF1E2024) : const Color(0xFFF7F7F7);
+    final border = dark ? const Color(0xFF3A3D43) : const Color(0xFFE5E5E5);
+    return Container(
+      height: 238,
+      decoration: BoxDecoration(
+        color: bg,
+        border: Border(top: BorderSide(color: border, width: 0.5)),
+      ),
+      child: Column(
+        children: <Widget>[
+          Container(
+            height: 34,
+            alignment: Alignment.centerLeft,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              decoration: BoxDecoration(
+                color: kWeChatPrimaryColor.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                translate('Emoji'),
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: kWeChatPrimaryColor,
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: GridView.builder(
+              padding: const EdgeInsets.fromLTRB(8, 2, 8, 2),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 8,
+                childAspectRatio: 1.05,
+              ),
+              itemCount: kDotChatEmojiList.length,
+              itemBuilder: (_, i) => InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: () => _insertEmoji(kDotChatEmojiList[i]),
+                child: Center(
+                  child: Text(
+                    kDotChatEmojiList[i],
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontFamilyFallback: kChatEmojiFontFallback,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Container(
+            height: 42,
+            padding: const EdgeInsets.fromLTRB(10, 4, 10, 8),
+            child: Row(
+              children: <Widget>[
+                _panelBarButton(
+                  icon: Icons.backspace_outlined,
+                  onTap: _deleteLastEmoji,
+                ),
+                const Spacer(),
+                _panelBarButton(
+                  label: translate('Send'),
+                  filled: true,
+                  onTap: _send,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _panelBarButton({
+    IconData? icon,
+    String? label,
+    bool filled = false,
+    required VoidCallback onTap,
+  }) {
+    final dark = widget.dark;
+    return InkWell(
+      borderRadius: BorderRadius.circular(6),
+      onTap: onTap,
+      child: Container(
+        width: icon != null ? 44 : 64,
+        height: 32,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: filled
+              ? kWeChatPrimaryColor
+              : dark
+                  ? const Color(0xFF2B2D32)
+                  : Colors.white,
+          borderRadius: BorderRadius.circular(6),
+          border: filled
+              ? null
+              : Border.all(
+                  color:
+                      dark ? const Color(0xFF3A3D43) : const Color(0xFFE2E2E2),
+                  width: 0.5,
+                ),
+        ),
+        child: icon != null
+            ? Icon(
+                icon,
+                size: 22,
+                color: dark ? const Color(0xFFB8BBC2) : const Color(0xFF555555),
+              )
+            : Text(
+                label ?? '',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+      ),
+    );
+  }
+
+  Widget _buildMorePanel() {
+    final dark = widget.dark;
+    final bg = dark ? const Color(0xFF1E2024) : const Color(0xFFF7F7F7);
+    final border = dark ? const Color(0xFF3A3D43) : const Color(0xFFE5E5E5);
+    final items = <(IconData, String, VoidCallback)>[
+      if (widget.onAttachFile != null)
+        (
+          Icons.folder_outlined,
+          translate('File Transfer'),
+          () => _runTool(widget.onAttachFile!),
+        ),
+      if (widget.onSendImage != null)
+        (
+          Icons.image_outlined,
+          translate('Send Image'),
+          () => _runTool(widget.onSendImage!),
+        ),
+      if (widget.onTakePhoto != null)
+        (
+          Icons.camera_alt_outlined,
+          translate('Take Photo'),
+          () => _runTool(widget.onTakePhoto!),
+        ),
+      if (widget.onSendLocation != null)
+        (
+          Icons.location_on_outlined,
+          translate('Location'),
+          () => _runTool(widget.onSendLocation!),
+        ),
+      if (widget.onRemoteAssist != null)
+        (
+          Icons.desktop_windows_outlined,
+          translate('Remote Desktop'),
+          () => _runTool(widget.onRemoteAssist!),
+        ),
+    ];
+    return Container(
+      height: 118,
+      decoration: BoxDecoration(
+        color: bg,
+        border: Border(top: BorderSide(color: border, width: 0.5)),
+      ),
+      padding: const EdgeInsets.fromLTRB(18, 14, 18, 10),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.start,
+        children: <Widget>[
+          for (final item in items)
+            Padding(
+              padding: const EdgeInsets.only(right: 22),
+              child: _moreItem(item.$1, item.$2, item.$3),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _moreItem(IconData icon, String label, VoidCallback onTap) {
+    final dark = widget.dark;
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Container(
+            width: 54,
+            height: 54,
+            decoration: BoxDecoration(
+              color: dark ? const Color(0xFF2B2D32) : Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: dark ? const Color(0xFF3A3D43) : const Color(0xFFE2E2E2),
+                width: 0.5,
+              ),
+            ),
+            child: Icon(
+              icon,
+              size: 26,
+              color: dark ? const Color(0xFFB8BBC2) : const Color(0xFF555555),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: dark ? const Color(0xFF999CA2) : const Color(0xFF777777),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInputBar() {
+    final dark = widget.dark;
+    final fieldBg = dark ? const Color(0xFF2B2D32) : Colors.white;
+    final border = dark ? const Color(0xFF3A3D43) : const Color(0xFFE2E2E2);
+    return Container(
+      color: dark ? const Color(0xFF1F2125) : const Color(0xFFF7F7F7),
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: <Widget>[
+          VoiceMessageRecorderButton(
+            chatModel: widget.chatModel,
+            enabled: widget.enabled,
+            onInteractionStart: closePanels,
+          ),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Container(
+              constraints: const BoxConstraints(minHeight: 40, maxHeight: 92),
+              decoration: BoxDecoration(
+                color: fieldBg,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: border, width: 0.5),
+              ),
+              child: TextField(
+                controller: widget.chatModel.textController,
+                focusNode: widget.chatModel.inputNode,
+                enabled: widget.enabled,
+                minLines: 1,
+                maxLines: 4,
+                textInputAction: TextInputAction.send,
+                onSubmitted: (_) => _send(),
+                onTap: _closePanelsOnInputTap,
+                style: TextStyle(
+                  fontSize: 15,
+                  height: 1.35,
+                  color:
+                      dark ? const Color(0xFFF2F2F2) : const Color(0xFF222222),
+                  fontFamilyFallback: kChatEmojiFontFallback,
+                ),
+                decoration: InputDecoration(
+                  isDense: true,
+                  hintText: translate('Write a message'),
+                  border: InputBorder.none,
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                  hintStyle: TextStyle(
+                    fontSize: 15,
+                    color: dark
+                        ? const Color(0xFF999CA2)
+                        : const Color(0xFF999999),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 2),
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: widget.chatModel.textController,
+            builder: (context, value, _) {
+              final hasText = widget.enabled && value.text.trim().isNotEmpty;
+              if (hasText) {
+                return GestureDetector(
+                  onTap: _send,
+                  child: Container(
+                    width: 54,
+                    height: 36,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: kWeChatPrimaryColor,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      translate('Send'),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                );
+              }
+              return Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  _toolButton(
+                    Icons.emoji_emotions_outlined,
+                    _showEmojiPanel,
+                    _toggleEmoji,
+                  ),
+                  _toolButton(
+                    Icons.add_circle_outline,
+                    _showMorePanel,
+                    _toggleMore,
+                  ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        if (_showEmojiPanel) _buildEmojiPanel(),
+        if (_showMorePanel) _buildMorePanel(),
+        if (AiConfig.current.profiles.isNotEmpty)
+          _AiModelSelector(
+            dark: Theme.of(context).brightness == Brightness.dark,
+            chatModel: widget.chatModel,
+            onOpen: closePanels,
+          ),
+        _buildInputBar(),
+      ],
+    );
   }
 }
 
@@ -2868,6 +4016,7 @@ class _DesktopChatComposer extends StatefulWidget {
     this.onAttachFile,
     this.onRemoteAssist,
     this.onSendImage,
+    this.onScreenshot,
     this.onPasteImage,
   });
 
@@ -2877,6 +4026,7 @@ class _DesktopChatComposer extends StatefulWidget {
   final VoidCallback? onAttachFile;
   final VoidCallback? onRemoteAssist;
   final VoidCallback? onSendImage;
+  final VoidCallback? onScreenshot;
   final PasteImageCallback? onPasteImage;
 
   @override
@@ -2902,91 +4052,8 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
   VoidCallback? get onAttachFile => widget.onAttachFile;
   VoidCallback? get onRemoteAssist => widget.onRemoteAssist;
   VoidCallback? get onSendImage => widget.onSendImage;
+  VoidCallback? get onScreenshot => widget.onScreenshot;
   PasteImageCallback? get onPasteImage => widget.onPasteImage;
-
-  /// Free Unicode emoji pack — commonly used chat faces and symbols.
-  static const _emojiList = <String>[
-    '😀',
-    '😂',
-    '🤣',
-    '😊',
-    '😍',
-    '🥰',
-    '😘',
-    '😜',
-    '🤔',
-    '😎',
-    '😢',
-    '😭',
-    '😤',
-    '😡',
-    '🥺',
-    '😱',
-    '🤯',
-    '😴',
-    '🤤',
-    '😷',
-    '👍',
-    '👎',
-    '👏',
-    '🙏',
-    '💪',
-    '✌️',
-    '🤝',
-    '👋',
-    '🖐️',
-    '🤞',
-    '❤️',
-    '🧡',
-    '💛',
-    '💚',
-    '💙',
-    '💜',
-    '🖤',
-    '🤍',
-    '💔',
-    '💯',
-    '🔥',
-    '⭐',
-    '🎉',
-    '🎊',
-    '🥇',
-    '✅',
-    '❌',
-    '💡',
-    '📌',
-    '🎯',
-    '🍕',
-    '🍔',
-    '☕',
-    '🍺',
-    '🎂',
-    '🌈',
-    '🌹',
-    '🌸',
-    '☀️',
-    '🌙',
-    '🐶',
-    '🐱',
-    '🦊',
-    '🐼',
-    '🐧',
-    '🦄',
-    '🐝',
-    '🐙',
-    '🐳',
-    '🦋',
-    '😅',
-    '🙃',
-    '😏',
-    '😌',
-    '🤗',
-    '🤩',
-    '😇',
-    '🤐',
-    '🥱',
-    '😈',
-  ];
 
   void _insertEmoji(String emoji) {
     final controller = chatModel.textController;
@@ -2999,7 +4066,6 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
       text: newText,
       selection: TextSelection.collapsed(offset: start + emoji.length),
     );
-    setState(() => _showEmojiPicker = false);
   }
 
   @override
@@ -3145,12 +4211,18 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
           mainAxisSpacing: 0,
           crossAxisSpacing: 0,
         ),
-        itemCount: _emojiList.length,
+        itemCount: kDotChatEmojiList.length,
         itemBuilder: (_, i) => InkWell(
           borderRadius: BorderRadius.circular(6),
-          onTap: () => _insertEmoji(_emojiList[i]),
+          onTap: () => _insertEmoji(kDotChatEmojiList[i]),
           child: Center(
-            child: Text(_emojiList[i], style: const TextStyle(fontSize: 22)),
+            child: Text(
+              kDotChatEmojiList[i],
+              style: const TextStyle(
+                fontSize: 22,
+                fontFamilyFallback: kChatEmojiFontFallback,
+              ),
+            ),
           ),
         ),
       ),
@@ -3200,203 +4272,239 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
 
   @override
   Widget build(BuildContext context) {
-    final border = dark
-        ? const Color(0x473A3D43) // 28% opacity
-        : const Color(0x47E2E2E2); // 28% opacity
-    final focusedBorder = dark
-        ? const Color(
-            0x4D4CAF50) // 30% opacity (slightly more visible when focused)
-        : const Color(0x4707C160); // 28% opacity
+    debugPrint('COMPOSER_DIAG build enabled=' +
+        enabled.toString() +
+        ' expanded=' +
+        _inputExpanded.toString());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final box = context.findRenderObject() as RenderBox?;
+      if (box != null && box.hasSize) {
+        final pos = box.localToGlobal(Offset.zero);
+        debugPrint('COMPOSER_POS w=' +
+            box.size.width.toStringAsFixed(1) +
+            ' h=' +
+            box.size.height.toStringAsFixed(1) +
+            ' x=' +
+            pos.dx.toStringAsFixed(1) +
+            ' y=' +
+            pos.dy.toStringAsFixed(1));
+      } else {
+        debugPrint('COMPOSER_POS null box');
+      }
+    });
+    final border = dark ? const Color(0xFF3A3D43) : const Color(0xFFE2E2E2);
+    final focusedBorder = dark ? const Color(0xFF4CAF50) : kWeChatPrimaryColor;
     final foreground = dark ? const Color(0xFFF2F2F2) : const Color(0xFF222222);
     final muted = dark ? const Color(0xFF999CA2) : const Color(0xFF777777);
     final composerHeight = _inputExpanded ? _expandedHeight : _collapsedHeight;
-    final composer = AnimatedContainer(
-      duration: const Duration(milliseconds: 180),
-      curve: Curves.easeOutCubic,
-      height: composerHeight,
-      margin: const EdgeInsets.fromLTRB(8, 2, 8, 8),
-      decoration: BoxDecoration(
-        color: dark ? const Color(0xFF25272C) : kWeChatCanvasColor,
-        border: Border.all(
-          color: _inputFocused ? focusedBorder : border,
-          width: _inputFocused ? 1.5 : 1.0,
+    final composerIconButtonTheme = IconButtonThemeData(
+      style: ButtonStyle(
+        overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+        backgroundColor: const WidgetStatePropertyAll(Colors.transparent),
+        side: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.hovered) ||
+              states.contains(WidgetState.focused)) {
+            return const BorderSide(color: kWeChatPrimaryColor, width: 0.5);
+          }
+          return const BorderSide(color: Colors.transparent, width: 0.5);
+        }),
+        shape: WidgetStatePropertyAll(
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
         ),
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: _inputFocused
-            ? [
-                BoxShadow(
-                  color: focusedBorder.withOpacity(0.15),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ]
-            : null,
       ),
-      child: Column(
-        children: <Widget>[
-          Expanded(
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: Focus(
-                    onKeyEvent: _handleComposerKeyEvent,
-                    child: Scrollbar(
-                      controller: _inputScrollController,
-                      thumbVisibility: true,
-                      trackVisibility: true,
-                      interactive: true,
-                      thickness: 6,
-                      radius: const Radius.circular(3),
-                      child: TextField(
-                        controller: chatModel.textController,
-                        focusNode: chatModel.inputNode,
-                        scrollController: _inputScrollController,
-                        enabled: enabled,
-                        onTap: _closeTransientPanels,
-                        expands: true,
-                        minLines: null,
-                        maxLines: null,
-                        textAlignVertical: TextAlignVertical.top,
-                        style: TextStyle(
-                          color: foreground,
-                          fontSize: 14,
-                          height: 1.45,
-                          letterSpacing: 0,
-                        ),
-                        decoration: InputDecoration(
-                          hintText: translate('Write a message'),
-                          hintStyle: TextStyle(
-                            color: muted,
+    );
+    final composer = IconButtonTheme(
+      data: composerIconButtonTheme,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        height: composerHeight,
+        margin: const EdgeInsets.fromLTRB(8, 2, 8, 8),
+        decoration: BoxDecoration(
+          color: dark ? const Color(0xFF25272C) : kWeChatCanvasColor,
+          border: Border.all(
+            color: _inputFocused ? focusedBorder : border,
+            width: 0.25,
+          ),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          children: <Widget>[
+            Expanded(
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: Focus(
+                      onKeyEvent: _handleComposerKeyEvent,
+                      child: Scrollbar(
+                        controller: _inputScrollController,
+                        thumbVisibility: true,
+                        trackVisibility: true,
+                        interactive: true,
+                        thickness: 6,
+                        radius: const Radius.circular(3),
+                        child: TextField(
+                          controller: chatModel.textController,
+                          focusNode: chatModel.inputNode,
+                          scrollController: _inputScrollController,
+                          enabled: enabled,
+                          onTap: _closeTransientPanels,
+                          expands: true,
+                          minLines: null,
+                          maxLines: null,
+                          textAlignVertical: TextAlignVertical.top,
+                          style: TextStyle(
+                            color: foreground,
                             fontSize: 14,
                             height: 1.45,
-                          ),
-                          contentPadding:
-                              const EdgeInsets.fromLTRB(14, 10, 52, 8),
-                          border: InputBorder.none,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  top: 4,
-                  right: 12,
-                  child: Tooltip(
-                    message: translate(_inputExpanded ? 'Collapse' : 'Expand'),
-                    child: IconButton(
-                      onPressed: _toggleInputExpanded,
-                      constraints:
-                          const BoxConstraints.tightFor(width: 32, height: 32),
-                      padding: EdgeInsets.zero,
-                      splashRadius: 17,
-                      icon: Icon(
-                        _inputExpanded
-                            ? Icons.fullscreen_exit_rounded
-                            : Icons.fullscreen_rounded,
-                        size: 21,
-                        color: muted,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          SizedBox(
-            height: 42,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(8, 2, 10, 5),
-              child: Row(
-                children: <Widget>[
-                  if (onAttachFile != null)
-                    _ComposerToolButton(
-                      icon: Icons.folder_outlined,
-                      tooltip: translate('File Transfer'),
-                      enabled: enabled,
-                      onPressed: () => _runToolAction(onAttachFile!),
-                    ),
-                  if (onSendImage != null)
-                    _ComposerToolButton(
-                      icon: Icons.image_outlined,
-                      tooltip: translate('Send Image'),
-                      enabled: enabled,
-                      onPressed: () => _runToolAction(onSendImage!),
-                    ),
-                  if (onRemoteAssist != null)
-                    _ComposerToolButton(
-                      icon: Icons.desktop_windows_outlined,
-                      tooltip: translate('Remote Desktop'),
-                      enabled: enabled,
-                      onPressed: () => _runToolAction(onRemoteAssist!),
-                    ),
-                  _ComposerToolButton(
-                    icon: Icons.emoji_emotions_outlined,
-                    tooltip: translate('Emoji'),
-                    enabled: enabled,
-                    onPressed: () => setState(() {
-                      _showEmojiPicker = !_showEmojiPicker;
-                      _atOverlayVisible = false;
-                    }),
-                  ),
-                  VoiceMessageRecorderButton(
-                    chatModel: chatModel,
-                    enabled: enabled,
-                    onInteractionStart: _closeTransientPanels,
-                  ),
-                  if (AiConfig.current.profiles.isNotEmpty)
-                    _AiModelSelector(
-                      dark: dark,
-                      chatModel: chatModel,
-                      onOpen: _closeTransientPanels,
-                    ),
-                  const Spacer(),
-                  ValueListenableBuilder<TextEditingValue>(
-                    valueListenable: chatModel.textController,
-                    builder: (context, value, _) {
-                      final canSend = enabled && value.text.trim().isNotEmpty;
-                      return TextButton(
-                        onPressed: canSend ? _send : null,
-                        style: TextButton.styleFrom(
-                          fixedSize: const Size(72, 32),
-                          minimumSize: const Size(72, 32),
-                          padding: EdgeInsets.zero,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          backgroundColor: canSend
-                              ? kWeChatPrimaryColor
-                              : dark
-                                  ? const Color(0xFF35383E)
-                                  : const Color(0xFFF0F0F0),
-                          foregroundColor: canSend
-                              ? Colors.white
-                              : dark
-                                  ? const Color(0xFF777A80)
-                                  : const Color(0xFFB5B5B5),
-                          disabledForegroundColor: dark
-                              ? const Color(0xFF777A80)
-                              : const Color(0xFFB5B5B5),
-                          elevation: canSend ? 1 : 0,
-                          shadowColor: canSend
-                              ? kWeChatPrimaryColor.withOpacity(0.4)
-                              : Colors.transparent,
-                        ),
-                        child: Text(
-                          translate('Send'),
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
                             letterSpacing: 0,
+                            fontFamilyFallback: kChatEmojiFontFallback,
+                          ),
+                          decoration: InputDecoration(
+                            hintText: translate('Write a message'),
+                            hoverColor: Colors.transparent,
+                            hintStyle: TextStyle(
+                              color: muted,
+                              fontSize: 14,
+                              height: 1.45,
+                            ),
+                            contentPadding:
+                                const EdgeInsets.fromLTRB(14, 10, 52, 8),
+                            border: InputBorder.none,
                           ),
                         ),
-                      );
-                    },
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: 4,
+                    right: 12,
+                    child: Tooltip(
+                      message:
+                          translate(_inputExpanded ? 'Collapse' : 'Expand'),
+                      child: IconButton(
+                        onPressed: _toggleInputExpanded,
+                        constraints: const BoxConstraints.tightFor(
+                            width: 32, height: 32),
+                        padding: EdgeInsets.zero,
+                        splashRadius: 17,
+                        icon: Icon(
+                          _inputExpanded
+                              ? Icons.fullscreen_exit_rounded
+                              : Icons.fullscreen_rounded,
+                          size: 21,
+                          color: muted,
+                        ),
+                      ),
+                    ),
                   ),
                 ],
               ),
             ),
-          ),
-        ],
+            SizedBox(
+              height: 42,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(8, 2, 10, 5),
+                child: Row(
+                  children: <Widget>[
+                    if (onScreenshot != null)
+                      _ComposerToolButton(
+                        // PC端截图按钮用剪刀图标（桌面输入栏专用）
+                        icon: Icons.content_cut_rounded,
+                        tooltip: translate('Screenshot'),
+                        enabled: enabled,
+                        onPressed: () => _runToolAction(onScreenshot!),
+                      ),
+                    if (onAttachFile != null)
+                      _ComposerToolButton(
+                        icon: Icons.folder_outlined,
+                        tooltip: translate('File Transfer'),
+                        enabled: enabled,
+                        onPressed: () => _runToolAction(onAttachFile!),
+                      ),
+                    if (onSendImage != null)
+                      _ComposerToolButton(
+                        icon: Icons.image_outlined,
+                        tooltip: translate('Send Image'),
+                        enabled: enabled,
+                        onPressed: () => _runToolAction(onSendImage!),
+                      ),
+                    if (onRemoteAssist != null)
+                      _ComposerToolButton(
+                        icon: Icons.desktop_windows_outlined,
+                        tooltip: translate('Remote Desktop'),
+                        enabled: enabled,
+                        onPressed: () => _runToolAction(onRemoteAssist!),
+                      ),
+                    _ComposerToolButton(
+                      icon: Icons.emoji_emotions_outlined,
+                      tooltip: translate('Emoji'),
+                      enabled: enabled,
+                      onPressed: () => setState(() {
+                        _showEmojiPicker = !_showEmojiPicker;
+                        _atOverlayVisible = false;
+                      }),
+                    ),
+                    VoiceMessageRecorderButton(
+                      chatModel: chatModel,
+                      enabled: enabled,
+                      onInteractionStart: _closeTransientPanels,
+                    ),
+                    if (AiConfig.current.profiles.isNotEmpty)
+                      _AiModelSelector(
+                        dark: dark,
+                        chatModel: chatModel,
+                        onOpen: _closeTransientPanels,
+                      ),
+                    const Spacer(),
+                    ValueListenableBuilder<TextEditingValue>(
+                      valueListenable: chatModel.textController,
+                      builder: (context, value, _) {
+                        final canSend = enabled && value.text.trim().isNotEmpty;
+                        return TextButton(
+                          onPressed: canSend ? _send : null,
+                          style: TextButton.styleFrom(
+                            fixedSize: const Size(72, 32),
+                            minimumSize: const Size(72, 32),
+                            padding: EdgeInsets.zero,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            backgroundColor: canSend
+                                ? kWeChatPrimaryColor
+                                : dark
+                                    ? const Color(0xFF35383E)
+                                    : const Color(0xFFF0F0F0),
+                            foregroundColor: canSend
+                                ? Colors.white
+                                : dark
+                                    ? const Color(0xFF777A80)
+                                    : const Color(0xFFB5B5B5),
+                            disabledForegroundColor: dark
+                                ? const Color(0xFF777A80)
+                                : const Color(0xFFB5B5B5),
+                            elevation: canSend ? 1 : 0,
+                            shadowColor: canSend
+                                ? kWeChatPrimaryColor.withOpacity(0.4)
+                                : Colors.transparent,
+                          ),
+                          child: Text(
+                            translate('Send'),
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 0,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
     final withEmoji = Column(
@@ -3429,9 +4537,10 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
                   separatorBuilder: (_, __) => Divider(
                     height: 1,
                     indent: 52,
-                    color: dark
-                        ? const Color(0xFF3A3D43)
-                        : const Color(0xFFEEEEEE),
+                    color: (dark
+                            ? const Color(0xFF3A3D43)
+                            : const Color(0xFFEEEEEE))
+                        .withOpacity(0.5),
                   ),
                   itemBuilder: (_, i) {
                     final m = _atCandidates[i];

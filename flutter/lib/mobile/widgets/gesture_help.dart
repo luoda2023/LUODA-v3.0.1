@@ -102,7 +102,7 @@ class _GestureHelpState extends State<GestureHelp> {
                         inactiveBgColor: Theme.of(context).hintColor,
                         totalSwitches: 2,
                         minWidth: 150,
-                        fontSize: 15,
+                        fontSize: MobileText.bodyLg,
                         iconSize: 18,
                         labels: [
                           translate("Mouse mode"),
@@ -378,12 +378,12 @@ class GestureInfo extends StatelessWidget {
             Text(fromText,
                 textAlign: TextAlign.center,
                 style:
-                    TextStyle(fontSize: 9, color: Theme.of(context).hintColor)),
+                    TextStyle(fontSize: MobileText.badge, color: Theme.of(context).hintColor)),
             SizedBox(height: 3),
             Text(toText,
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                    fontSize: 12,
+                    fontSize: MobileText.caption,
                     color: Theme.of(context).textTheme.bodySmall?.color))
           ],
         ));

@@ -250,9 +250,12 @@ class DraggableMobileActions extends StatelessWidget {
 class DraggableKeyPosition {
   final String key;
   Offset _pos;
-  late Debouncer<int> _debouncerStore;
+  Debouncer<int>? _debouncerStore;
   DraggableKeyPosition(this.key)
-      : _pos = DraggablePositions.kInvalidDraggablePosition;
+      : _pos = DraggablePositions.kInvalidDraggablePosition {
+    _debouncerStore = Debouncer<int>(const Duration(milliseconds: 500),
+        onChanged: (v) => _store(), initialValue: 0);
+  }
 
   get pos => _pos;
 
@@ -269,8 +272,6 @@ class DraggableKeyPosition {
 
   load() {
     _pos = _loadPosition(key);
-    _debouncerStore = Debouncer<int>(const Duration(milliseconds: 500),
-        onChanged: (v) => _store(), initialValue: 0);
   }
 
   update(Offset pos) {
@@ -308,7 +309,11 @@ class DraggableKeyPosition {
     return _pos == DraggablePositions.kInvalidDraggablePosition;
   }
 
-  _triggerStore() => _debouncerStore.value = _debouncerStore.value + 1;
+  _triggerStore() {
+    final store = _debouncerStore;
+    if (store != null) store.value = store.value + 1;
+  }
+
   _store() {
     bind.setLocalFlutterOption(k: key, v: '${_pos.dx},${_pos.dy}');
   }

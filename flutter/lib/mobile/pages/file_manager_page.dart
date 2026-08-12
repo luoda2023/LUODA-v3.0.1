@@ -131,7 +131,7 @@ class _FileManagerPageState extends State<FileManagerPage> {
                 : null,
             totalSwitches: 2,
             minWidth: 100,
-            fontSize: 15,
+            fontSize: MobileText.bodyLg,
             iconSize: 18,
             labels: [translate("Local"), translate("Remote")],
             icons: [Icons.phone_android_sharp, Icons.screen_share],
@@ -495,7 +495,7 @@ class _FileManagerViewState extends State<FileManagerView> {
                     ? null
                     : Text(
                         "${entries[index].lastModified().toString().replaceAll(".000", "")}   $sizeStr",
-                        style: TextStyle(fontSize: 12, color: MyTheme.darkGray),
+                        style: TextStyle(fontSize: MobileText.caption, color: mobileMuted(context)),
                       ),
                 trailing: entries[index].isDrive
                     ? null
@@ -670,14 +670,14 @@ class _FileManagerViewState extends State<FileManagerView> {
               padding: EdgeInsets.fromLTRB(30, 5, 30, 0),
               child: Text(
                 controller.directory.value.path,
-                style: TextStyle(color: MyTheme.darkGray),
+                style: TextStyle(color: mobileMuted(context)),
               ),
             ),
             Padding(
               padding: EdgeInsets.all(2),
               child: Text(
                 "${translate("Total")}: ${controller.directory.value.entries.length} ${translate("items")}",
-                style: TextStyle(color: MyTheme.darkGray),
+                style: TextStyle(color: mobileMuted(context)),
               ),
             )
           ],
@@ -743,9 +743,9 @@ class BottomSheetBody extends StatelessWidget {
                         mainAxisAlignment: MainAxisAlignment.center,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(title, style: TextStyle(fontSize: 18)),
+                          Text(title, style: TextStyle(fontSize: MobileText.titleLg)),
                           Text(text,
-                              style: TextStyle(fontSize: 14)) // TODO color
+                              style: TextStyle(fontSize: MobileText.body)) // TODO color
                         ],
                       )
                     ],

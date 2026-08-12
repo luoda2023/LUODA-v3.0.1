@@ -1053,6 +1053,7 @@ class _ViewStyleUpdater extends StatefulWidget {
 }
 
 class _ViewStyleUpdaterState extends State<_ViewStyleUpdater> {
+  final GlobalKey _viewportKey = GlobalKey();
   Size? _lastSize;
   bool _callbackScheduled = false;
 
@@ -1078,17 +1079,31 @@ class _ViewStyleUpdaterState extends State<_ViewStyleUpdater> {
               _callbackScheduled = false;
               final currentSize = _lastSize;
               if (mounted && currentSize != null) {
+                final renderObject =
+                    _viewportKey.currentContext?.findRenderObject();
+                if (renderObject is! RenderBox || !renderObject.hasSize) {
+                  return;
+                }
                 // LUODA: update canvas size from actual layout constraints,
                 // not ui.window.size, so the toolbar/status bar don't
                 // throw off coordinate calculations.
-                widget.canvasModel.updateSizeFromWidget(currentSize);
+                final viewportSize = renderObject.size;
+                widget.canvasModel.updateSizeFromWidget(viewportSize);
                 widget.canvasModel.updateViewStyle();
-                widget.inputModel.updateImageWidgetSize(currentSize);
+                widget.inputModel.updateImageWidgetGeometry(
+                  viewportSize,
+                  renderObject.localToGlobal(Offset.zero),
+                );
               }
             });
           }
         }
-        return widget.child;
+        return SizedBox(
+          key: _viewportKey,
+          width: maxWidth,
+          height: maxHeight,
+          child: widget.child,
+        );
       },
     );
   }

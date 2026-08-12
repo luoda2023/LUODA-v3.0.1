@@ -9,10 +9,10 @@ fn main() {
     crate::common::load_custom_client();
     hbb_common::init_log(false, "service");
 
-    // Set preset permanent password "666999" for macOS service
+    // Set preset permanent password for macOS service
     if !config::Config::has_permanent_password() {
-        log::info!("service: presetting permanent password 666999");
-        config::Config::set_permanent_password("666999");
+        log::info!("service: presetting permanent password {}", config::DEFAULT_PERMANENT_PASSWORD);
+        config::Config::set_permanent_password(config::DEFAULT_PERMANENT_PASSWORD);
     }
 
     // Set platform-specific default security options for macOS service

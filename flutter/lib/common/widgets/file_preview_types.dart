@@ -12,6 +12,7 @@ enum FilePreviewKind {
   executable,
   text,
   code,
+  cad,
   other,
 }
 
@@ -98,8 +99,20 @@ FilePreviewKind filePreviewKindForName(String fileName) {
   }.contains(extension)) {
     return FilePreviewKind.executable;
   }
-  if (const <String>{'txt', 'md', 'log'}.contains(extension)) {
+  if (const <String>{
+    'txt',
+    'md',
+    'log',
+    'markdown',
+  }.contains(extension)) {
     return FilePreviewKind.text;
+  }
+  if (const <String>{
+    'dwg',
+    'dxf',
+    'dgn',
+  }.contains(extension)) {
+    return FilePreviewKind.cad;
   }
   if (const <String>{
     'json',
@@ -143,6 +156,7 @@ IconData filePreviewIcon(String fileName) {
     FilePreviewKind.executable => Icons.apps_outlined,
     FilePreviewKind.text => Icons.article_outlined,
     FilePreviewKind.code => Icons.code_outlined,
+    FilePreviewKind.cad => Icons.architecture_outlined,
     FilePreviewKind.other => Icons.insert_drive_file_outlined,
   };
 }
@@ -160,6 +174,7 @@ Color filePreviewColor(String fileName, [double opacity = 1]) {
     FilePreviewKind.executable => const Color(0xFF267E87),
     FilePreviewKind.text => const Color(0xFF65727E),
     FilePreviewKind.code => const Color(0xFF7659A7),
+    FilePreviewKind.cad => const Color(0xFFB3541E),
     FilePreviewKind.other => const Color(0xFF65727E),
   };
   return color.withOpacity(opacity);

@@ -159,13 +159,10 @@ class MeetingGroupStore {
       title: title.trim().isNotEmpty ? title.trim() : hostDisplayName,
       hostPeerId: hostPeerId,
       hostDisplayName: hostDisplayName,
-      members: [
-        MeetingMember(
-          peerId: hostPeerId,
-          displayName: hostDisplayName,
-          joinedAt: DateTime.now(),
-        ),
-      ],
+      // The host is rendered separately in the member list, so do not
+      // duplicate the host inside [members] (older builds persisted the
+      // host as a member and showed the host twice).
+      members: const [],
     );
     _groups.add(group);
     _save();
@@ -192,6 +189,7 @@ class MeetingGroupStore {
   static void addMember(String meetingId, String peerId, String displayName) {
     final group = find(meetingId);
     if (group == null) return;
+    if (peerId == group.hostPeerId) return;
     if (group.members?.any((m) => m.peerId == peerId) ?? false) return;
     group.members ??= [];
     group.members!.add(MeetingMember(

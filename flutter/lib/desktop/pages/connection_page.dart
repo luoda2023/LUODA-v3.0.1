@@ -13,6 +13,7 @@ import 'package:get/get.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:luoda_flutter/models/peer_model.dart';
+import '../../mobile/pages/bt_chat_page.dart';
 
 import '../../common.dart';
 import '../../common/formatter/id_formatter.dart';
@@ -44,12 +45,13 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
   final _svcIsUsingPublicServer = true.obs;
   Timer? _updateTimer;
   bool _initialListenerStatusShown = false;
+  int _serverStatusNum = 0;
 
   double get em => 14.0;
   double? get height => bind.isIncomingOnly() ? null : em * 3;
 
   void onUsePublicServerGuide() {
-    const url = "https://dicad.cn/pricing";
+    const url = "https://www.dotchat.app/pricing";
     canLaunchUrlString(url).then((can) {
       if (can) {
         launchUrlString(url);
@@ -87,11 +89,13 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
         final status = stateGlobal.svcStatus.value;
         final message = stopped
             ? translate('Service is not running')
-            : status == SvcStatus.connecting
-                ? translate('connecting_status')
-                : status == SvcStatus.notReady
-                    ? translate('not_ready_status')
-                    : translate('Direct listening');
+            : _serverStatusNum > 0
+                ? translate('Online')
+                : status == SvcStatus.connecting
+                    ? translate('connecting_status')
+                    : status == SvcStatus.notReady
+                        ? translate('not_ready_status')
+                        : translate('Direct listening');
         final color = stopped || status == SvcStatus.notReady
             ? const Color(0xFF667085)
             : status == SvcStatus.connecting
@@ -213,11 +217,13 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
     return Text(
       _svcStopped.value
           ? translate("Service is not running")
-          : stateGlobal.svcStatus.value == SvcStatus.connecting
-              ? translate("connecting_status")
-              : stateGlobal.svcStatus.value == SvcStatus.notReady
-                  ? translate("not_ready_status")
-                  : translate('Direct listening'),
+          : _serverStatusNum > 0
+              ? translate("Online")
+              : stateGlobal.svcStatus.value == SvcStatus.connecting
+                  ? translate("connecting_status")
+                  : stateGlobal.svcStatus.value == SvcStatus.notReady
+                      ? translate("not_ready_status")
+                      : translate('Direct listening'),
       style: TextStyle(fontSize: em),
     );
   }
@@ -233,6 +239,9 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
     } catch (_) {
       status = <String, dynamic>{};
     }
+    _serverStatusNum = status['status_num'] is int
+        ? status['status_num'] as int
+        : _serverStatusNum;
     final listenerStatus =
         bind.mainGetOptionSync(key: kOptionDirectListenerStatus);
     var svcStatus = switch (listenerStatus) {
@@ -388,9 +397,9 @@ class _ConnectionPageState extends State<ConnectionPage>
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final surface = dark ? const Color(0xFF20252E) : Colors.white;
-    final border = dark ? const Color(0xFF343B47) : const Color(0xFFDCE5F2);
+    final border = dark ? const Color(0xFF3A3D43) : const Color(0xFFE5E5E5);
     return ColoredBox(
-      color: dark ? const Color(0xFF171B22) : const Color(0xFFF5F8FC),
+      color: dark ? const Color(0xFF171B22) : const Color(0xFFF2F3F5),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
         child: Column(
@@ -680,6 +689,35 @@ class _ConnectionPageState extends State<ConnectionPage>
                     },
                     icon: const Icon(Icons.arrow_forward_rounded, size: 18),
                     label: Text(translate("Connect")),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  height: 44,
+                  width: 44,
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Theme.of(context).dividerColor),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Tooltip(
+                    message: translate('Bluetooth scan'),
+                    child: Center(
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(8),
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => const BluetoothChatPage(),
+                            ),
+                          );
+                        },
+                        child: Icon(
+                          Icons.bluetooth_rounded,
+                          size: 18,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),

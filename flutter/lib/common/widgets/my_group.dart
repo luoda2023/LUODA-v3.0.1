@@ -3,6 +3,8 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:luoda_flutter/common/hbbs/hbbs.dart';
 import 'package:luoda_flutter/common/widgets/login.dart';
+import 'local_contacts_view.dart';
+import '../../consts.dart';
 import 'package:luoda_flutter/common/widgets/peers_view.dart';
 import 'package:luoda_flutter/models/state_model.dart';
 import 'package:get/get.dart';
@@ -29,6 +31,11 @@ class _MyGroupState extends State<MyGroup> {
 
   @override
   Widget build(BuildContext context) {
+    // DotChat ?????????????????????????
+    // ??? Obx ??????? Obx ??????????? GetX ???
+    if (kLocalProfileOnly && isMobile) {
+      return const LocalContactsView();
+    }
     return Obx(() {
       if (!gFFI.userModel.isLogin) {
         return Center(
@@ -227,7 +234,9 @@ class _MyGroupState extends State<MyGroup> {
             border: Border(
                 bottom: BorderSide(
                     width: 0.7,
-                    color: Theme.of(context).dividerColor.withOpacity(0.1))),
+                    color: Theme.of(context).brightness == Brightness.dark
+                        ? const Color(0xFF3A3D43)
+                        : const Color(0x80E5E5E5))),
           ),
           child: Container(
             child: Row(
@@ -295,7 +304,9 @@ class _MyGroupState extends State<MyGroup> {
             border: Border(
                 bottom: BorderSide(
                     width: 0.7,
-                    color: Theme.of(context).dividerColor.withOpacity(0.1))),
+                    color: Theme.of(context).brightness == Brightness.dark
+                        ? const Color(0xFF3A3D43)
+                        : const Color(0x80E5E5E5))),
           ),
           child: Container(
             child: Row(

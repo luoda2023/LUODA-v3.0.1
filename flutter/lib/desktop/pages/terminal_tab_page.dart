@@ -210,10 +210,10 @@ class _TerminalTabPageState extends State<TerminalTabPage> {
             return p != null && p.$1 == peerId;
           }).length;
       if (effectivePeerTabCount <= 1) {
-        // Last tab for this peer 鈥?persist the session
+        // Last tab for this peer - persist the session
         return;
       }
-      // Not the last tab 鈥?fall through to close the session
+      // Not the last tab - fall through to close the session
     }
 
     final terminalModel = ffi.terminalModels[terminalId];

@@ -11,13 +11,13 @@ void main() {
     for (final target in <String>[
       '423 727',
       '423727/r',
-      '423727@192.168.1.20:21118?key=test',
-      'localhost:21118',
-      '127.0.0.1:21118',
-      '[::1]:21118',
-      '0.0.0.0:21118',
-      '192.168.1.20:21118',
-      '198.51.100.44:21118',
+      '423727@192.168.1.20:24567?key=test',
+      'localhost:24567',
+      '127.0.0.1:24567',
+      '[::1]:24567',
+      '0.0.0.0:24567',
+      '192.168.1.20:24567',
+      '198.51.100.44:24567',
     ]) {
       expect(
         DirectPairingStore.isSelfTargetValue(
@@ -32,8 +32,8 @@ void main() {
 
     for (final target in <String>[
       '423728',
-      '192.168.1.21:21118',
-      '36.134.211.190:21118',
+      '192.168.1.21:24567',
+      '36.134.211.190:24567',
     ]) {
       expect(
         DirectPairingStore.isSelfTargetValue(
@@ -72,6 +72,93 @@ void main() {
     expect(restored.originSequence, 7);
     expect(restored.text, 'hello \u4f60\u597d');
     expect(restored.delivery, DirectChatDelivery.queued);
+  });
+
+  test('message source metadata survives history and companion sync', () {
+    final record = DirectChatRecord(
+      id: 'message-source-1',
+      conversationId: 'contact-1',
+      originDeviceId: 'phone-device-1',
+      originSequence: 8,
+      direction: DirectChatDirection.outgoing,
+      kind: DirectChatKind.text,
+      text: 'from phone over LAN',
+      senderId: 'sender-1',
+      senderName: 'Phone',
+      senderAvatar: '',
+      sentAt: DateTime.utc(2026, 8, 11, 8, 30),
+      delivery: DirectChatDelivery.delivered,
+      connMode: 'lan',
+      connEndpoint: '192.168.31.42:24567',
+      connPort: 21118,
+      srcPlatform: 'mobile',
+    );
+
+    final restored = DirectChatRecord.fromJson(
+      DirectChatEnvelope.decode(DirectChatEnvelope.message(record).encode())!
+          .data,
+    );
+
+    expect(restored.connMode, 'lan');
+    expect(restored.connEndpoint, '192.168.31.42:24567');
+    expect(restored.connPort, 21118);
+    expect(restored.srcPlatform, 'mobile');
+    expect(restored.toJson()['conn_endpoint'], '192.168.31.42:24567');
+
+    final replica = DirectChatEnvelope.decode(
+      DirectChatEnvelope.replicaMessage(record, 'sync-secret').encode(),
+    )!;
+    final replicated = DirectChatRecord.fromJson(
+      Map<String, dynamic>.from(replica.data['record'] as Map),
+    );
+    expect(replica.type, 'replica_message');
+    expect(replicated.connMode, 'lan');
+    expect(replicated.connEndpoint, '192.168.31.42:24567');
+    expect(replicated.srcPlatform, 'mobile');
+  });
+
+  test('connection source classification covers ID IP and Bluetooth routes',
+      () {
+    expect(DirectPairingStore.classifyConnMode('814012'), 'id');
+    expect(
+      DirectPairingStore.classifyConnMode('814012@192.168.1.8:24567'),
+      'id',
+    );
+    expect(
+      DirectPairingStore.connEndpointOf('814012@192.168.1.8:24567'),
+      '814012',
+    );
+    expect(
+      DirectPairingStore.connEndpointOf(
+        '423727?key=secret&sync=replica-secret',
+      ),
+      '423727',
+    );
+    expect(
+      DirectPairingStore.classifyConnMode('192.168.1.8:24567'),
+      'lan',
+    );
+    expect(
+      DirectPairingStore.classifyConnMode('203.0.113.8:24567'),
+      'public',
+    );
+    expect(
+      DirectPairingStore.classifyConnMode('bt:AABBCCDDEEFF'),
+      'ble',
+    );
+    expect(
+      DirectPairingStore.connEndpointOf('bt:AABBCCDDEEFF'),
+      'AABBCCDDEEFF',
+    );
+  });
+
+  test('local self labels never replace a remote device identity', () {
+    expect(normalizeDirectPeerName('我', fallback: '423727'), '423727');
+    expect(normalizeDirectPeerName('Me', fallback: 'Office PC'), 'Office PC');
+    expect(
+      normalizeDirectPeerName('Remote user', fallback: '423727'),
+      'Remote user',
+    );
   });
 
   test('persisted chat text replaces malformed UTF-16 before rendering', () {
@@ -128,6 +215,13 @@ void main() {
     expect(record.fileName, 'report.pdf');
     expect(record.fileSize, 4096);
     expect(record.delivery, DirectChatDelivery.delivered);
+  });
+
+  test('small chat attachments do not require a file transfer session', () {
+    expect(canInlineDirectChatFile(1), isTrue);
+    expect(canInlineDirectChatFile(kMaxInlineChatFileBytes), isTrue);
+    expect(canInlineDirectChatFile(0), isFalse);
+    expect(canInlineDirectChatFile(kMaxInlineChatFileBytes + 1), isFalse);
   });
 
   test('recalled and destroyed messages keep mutation state on the wire', () {
@@ -310,16 +404,16 @@ void main() {
     final pairing = DirectPairing(
       peerId: 'peer-3',
       displayName: 'PC',
-      lanEndpoint: '192.168.1.8:21118',
-      publicEndpoint: '203.0.113.8:21118',
+      lanEndpoint: '192.168.1.8:24567',
+      publicEndpoint: '203.0.113.8:24567',
       fingerprint: List<String>.filled(64, 'a').join(),
       updatedAt: DateTime.utc(2026, 7, 17),
     );
 
-    expect(pairing.connectionTarget, contains('192.168.1.8:21118'));
+    expect(pairing.connectionTarget, contains('192.168.1.8:24567'));
     expect(
       pairing.connectionTarget,
-      contains('fallback=203.0.113.8:21118'),
+      contains('fallback=203.0.113.8:24567'),
     );
   });
 
@@ -327,25 +421,25 @@ void main() {
     final pairing = DirectPairing(
       peerId: '654321',
       displayName: 'Direct peer',
-      lanEndpoint: '198.51.100.44:21118',
+      lanEndpoint: '198.51.100.44:24567',
       publicEndpoint: '',
       fingerprint: List<String>.filled(64, 'b').join(),
       updatedAt: DateTime.utc(2026, 8, 3),
     );
 
     final target = DirectPairingStore.resolveConnectionTargetValue(
-      '198.51.100.44:21118',
+      '198.51.100.44:24567',
       pairings: {'654321': pairing},
     );
 
-    expect(target, startsWith('654321@198.51.100.44:21118?key='));
+    expect(target, startsWith('654321@198.51.100.44:24567?key='));
   });
 
-  test('paired device ID prefers its latest direct IP endpoint', () {
+  test('paired device ID resolves to its signed direct target', () {
     final pairing = DirectPairing(
       peerId: '654321',
       displayName: 'Direct peer',
-      lanEndpoint: '198.51.100.44:21118',
+      lanEndpoint: '198.51.100.44:24567',
       publicEndpoint: '',
       fingerprint: List<String>.filled(64, 'b').join(),
       updatedAt: DateTime.utc(2026, 8, 3),
@@ -356,13 +450,210 @@ void main() {
       pairings: {'654321': pairing},
     );
 
-    expect(target, startsWith('654321@198.51.100.44:21118?key='));
+    expect(target, startsWith('654321@198.51.100.44:24567?key='));
+  });
+
+  test('paired device falls back to a previously verified LAN endpoint', () {
+    final pairing = DirectPairing(
+      peerId: '423727',
+      displayName: 'LAN peer',
+      lanEndpoint: '192.168.31.147:24567',
+      publicEndpoint: '',
+      fingerprint: List<String>.filled(64, 'b').join(),
+      updatedAt: DateTime.utc(2026, 8, 7),
+      endpointHistory: <DirectEndpointObservation>[
+        DirectEndpointObservation(
+          endpoint: '192.168.31.199:24567',
+          firstSeenAt: DateTime.utc(2026, 8, 4),
+          lastSeenAt: DateTime.utc(2026, 8, 4),
+          connectionCount: 1,
+          secure: true,
+          streamType: 'TCP',
+        ),
+        DirectEndpointObservation(
+          endpoint: '192.168.31.147:24567',
+          firstSeenAt: DateTime.utc(2026, 8, 5),
+          lastSeenAt: DateTime.utc(2026, 8, 5),
+          connectionCount: 13,
+          secure: true,
+          streamType: 'TCP',
+        ),
+      ],
+    );
+
+    expect(pairing.connectionTarget, contains('192.168.31.147:24567'));
+    expect(
+      pairing.connectionTarget,
+      contains('fallback=192.168.31.199:24567'),
+    );
+  });
+
+  test('legacy display-name conversations resolve to the verified peer', () {
+    final pairing = DirectPairing(
+      peerId: '980966',
+      displayName: '2233',
+      lanEndpoint: '36.134.211.189:24567',
+      publicEndpoint: '',
+      fingerprint: List<String>.filled(64, 'c').join(),
+      updatedAt: DateTime.utc(2026, 8, 4),
+    );
+    final pairings = <String, DirectPairing>{'980966': pairing};
+
+    expect(
+      DirectPairingStore.canonicalConversationIdValue(
+        '2233',
+        pairings: pairings,
+      ),
+      '980966',
+    );
+    expect(
+      DirectPairingStore.resolveConnectionTargetValue(
+        '2233',
+        pairings: pairings,
+      ),
+      startsWith('980966@36.134.211.189:24567?key='),
+    );
+  });
+
+  test('signed connection targets expose their direct endpoint', () {
+    final fingerprint = List<String>.filled(64, 'c').join();
+
+    expect(
+      DirectPairingStore.extractDirectEndpoint(
+        '654321@36.134.211.189:24567?key=$fingerprint',
+      ),
+      '36.134.211.189:24567',
+    );
+    expect(
+      DirectPairingStore.extractDirectEndpoint('192.168.1.8:24567'),
+      '192.168.1.8:24567',
+    );
+    expect(DirectPairingStore.extractDirectEndpoint('654321'), isEmpty);
+  });
+
+  test('verified IP observations preserve every network time period', () {
+    final pairing = DirectPairing(
+      peerId: 'mobile-device',
+      accountId: 'contact-a',
+      displayName: 'Phone',
+      deviceName: 'Phone',
+      platform: 'Android',
+      lanEndpoint: '',
+      publicEndpoint: '198.51.100.10:24567',
+      fingerprint: List<String>.filled(64, 'd').join(),
+      updatedAt: DateTime.utc(2026, 8, 4, 8),
+    );
+
+    final first = pairing.recordVerifiedEndpoint(
+      endpoint: '198.51.100.10:24567',
+      observedAt: DateTime.utc(2026, 8, 4, 8),
+      secure: true,
+      streamType: 'TCP',
+    );
+    final repeated = first.recordVerifiedEndpoint(
+      endpoint: '198.51.100.10:24567',
+      observedAt: DateTime.utc(2026, 8, 4, 9),
+      secure: true,
+      streamType: 'TCP',
+    );
+    final roaming = repeated.recordVerifiedEndpoint(
+      endpoint: '203.0.113.25:24567',
+      observedAt: DateTime.utc(2026, 8, 4, 10),
+      secure: true,
+      streamType: 'TCP',
+    );
+    final returned = roaming.recordVerifiedEndpoint(
+      endpoint: '198.51.100.10:24567',
+      observedAt: DateTime.utc(2026, 8, 4, 11),
+      secure: true,
+      streamType: 'TCP',
+    );
+
+    expect(repeated.endpointHistory, hasLength(1));
+    expect(repeated.endpointHistory.single.connectionCount, 2);
+    expect(returned.endpointHistory, hasLength(3));
+    expect(returned.endpointHistory.last.endpoint, '198.51.100.10:24567');
+    expect(returned.currentVerifiedEndpoint, '198.51.100.10:24567');
+  });
+
+  test('bound PC and mobile devices share one canonical conversation', () {
+    final fingerprint = List<String>.filled(64, 'e').join();
+    final pairings = <String, DirectPairing>{
+      'pc-device': DirectPairing(
+        peerId: 'pc-device',
+        accountId: 'contact-a',
+        displayName: 'Office PC',
+        deviceName: 'Office PC',
+        platform: 'Windows',
+        lanEndpoint: '',
+        publicEndpoint: '198.51.100.40:24567',
+        fingerprint: fingerprint,
+        updatedAt: DateTime.utc(2026, 8, 4, 8),
+      ),
+      'mobile-device': DirectPairing(
+        peerId: 'mobile-device',
+        accountId: 'contact-a',
+        displayName: 'Phone',
+        deviceName: 'Phone',
+        platform: 'Android',
+        lanEndpoint: '',
+        publicEndpoint: '203.0.113.60:24567',
+        fingerprint: fingerprint.replaceFirst('e', 'f'),
+        updatedAt: DateTime.utc(2026, 8, 4, 9),
+      ),
+    };
+
+    expect(
+      DirectPairingStore.canonicalConversationIdValue(
+        'pc-device',
+        pairings: pairings,
+      ),
+      'contact-a',
+    );
+    expect(
+      DirectPairingStore.canonicalConversationIdValue(
+        '203.0.113.60:24567',
+        pairings: pairings,
+      ),
+      'contact-a',
+    );
+    expect(
+      DirectPairingStore.boundDevicesValue(
+        'contact-a',
+        pairings: pairings,
+      ).map((device) => device.peerId),
+      containsAll(<String>['pc-device', 'mobile-device']),
+    );
+    expect(
+      DirectPairingStore.conversationPeerIdsValue(
+        'contact-a',
+        pairings: pairings,
+      ),
+      containsAll(<String>['contact-a', 'pc-device', 'mobile-device']),
+    );
+    expect(
+      DirectPairingStore.conversationPeerIdsValue(
+        'pc-device',
+        pairings: pairings,
+      ),
+      containsAll(<String>['contact-a', 'pc-device', 'mobile-device']),
+    );
+    expect(
+      DirectPairingStore.resolveConnectionTargetValue(
+        'contact-a',
+        pairings: pairings,
+      ),
+      startsWith('mobile-device@203.0.113.60:24567?key='),
+    );
+
+    final unbound = pairings['mobile-device']!.withAccountId('');
+    expect(unbound.conversationId, 'mobile-device');
   });
 
   test('unpaired device IDs remain valid core connection targets', () {
     expect(DirectPairingStore.isDeviceId('654321'), isTrue);
     expect(DirectPairingStore.isDeviceId('peer-office-01'), isTrue);
-    expect(DirectPairingStore.isDeviceId('192.168.1.8:21118'), isFalse);
+    expect(DirectPairingStore.isDeviceId('192.168.1.8:24567'), isFalse);
     expect(DirectPairingStore.isDeviceId(''), isFalse);
   });
 
@@ -374,8 +665,8 @@ void main() {
         'v': '2',
         'id': 'peer-qr',
         'name': 'Office PC',
-        'lan': '192.168.1.8:21118',
-        'wan': '203.0.113.8:21118',
+        'lan': '192.168.1.8:24567',
+        'wan': '203.0.113.8:24567',
         'fp': List<String>.filled(64, 'a').join(),
         'role': 'companion',
         'sync': 'companion-secret',
@@ -387,8 +678,8 @@ void main() {
     expect(pairing, isNotNull);
     expect(pairing!.peerId, 'peer-qr');
     expect(pairing.displayName, 'Office PC');
-    expect(pairing.connectionTarget, contains('192.168.1.8:21118'));
-    expect(pairing.connectionTarget, contains('fallback=203.0.113.8:21118'));
+    expect(pairing.connectionTarget, contains('192.168.1.8:24567'));
+    expect(pairing.connectionTarget, contains('fallback=203.0.113.8:24567'));
     expect(pairing.companion, isTrue);
   });
 
@@ -399,7 +690,7 @@ void main() {
       queryParameters: <String, String>{
         'v': '2',
         'id': 'peer-qr',
-        'lan': '192.168.1.8:21118',
+        'lan': '192.168.1.8:24567',
       },
     ).toString();
     final fingerprint = List<String>.filled(64, 'a').join();

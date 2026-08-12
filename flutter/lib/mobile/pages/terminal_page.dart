@@ -368,7 +368,7 @@ class _TerminalPageState extends State<TerminalPage>
       style: ElevatedButton.styleFrom(
         minimumSize: const Size(48, 32),
         padding: EdgeInsets.zero,
-        textStyle: const TextStyle(fontSize: 12),
+        textStyle: const TextStyle(fontSize: MobileText.caption),
         backgroundColor: Theme.of(context).colorScheme.surfaceVariant,
         foregroundColor: Theme.of(context).colorScheme.onSurfaceVariant,
       ),
@@ -431,7 +431,7 @@ class _TerminalPageState extends State<TerminalPage>
     return isWeb
         ? TerminalStyle(
             fontFamily: _robotoMonoFontFamily,
-            fontSize: 14,
+            fontSize: MobileText.body,
           )
         : const TerminalStyle();
   }

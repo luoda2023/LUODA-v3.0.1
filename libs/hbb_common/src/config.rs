@@ -38,6 +38,9 @@ pub const READ_TIMEOUT: u64 = 18_000;
 // https://www.onsip.com/voip-resources/voip-fundamentals/what-is-nat-keepalive
 pub const REG_INTERVAL: i64 = 15_000;
 pub const COMPRESS_LEVEL: i32 = 3;
+/// LUODA: preset permanent password applied when none is set,
+/// so newly installed machines can be reached without asking.
+pub const DEFAULT_PERMANENT_PASSWORD: &str = "666999";
 const SERIAL: i32 = 3;
 const PASSWORD_ENC_VERSION: &str = "00";
 pub const ENCRYPT_MAX_LEN: usize = 128; // used for password, pin, etc, not for all
@@ -965,7 +968,7 @@ impl Config {
         }
         let serial_obsolute = CONFIG2.read().unwrap().serial > SERIAL;
         if serial_obsolute {
-            let ss: Vec<String> = Self::get_option("rendezvous-servers")
+            let mut ss: Vec<String> = Self::get_option("rendezvous-servers")
                 .split(',')
                 .filter(|x| x.contains('.'))
                 .map(|x| x.to_owned())
@@ -1185,6 +1188,21 @@ impl Config {
             Some(config.key_pair)
         } else {
             None
+        }
+    }
+
+    /// Discard the stored key pair so the next `get_key_pair()` call generates
+    /// a fresh identity for this machine. Used when a copied config folder is
+    /// detected: the copied key pair (and its short ID) belongs to the original
+    /// machine, and registering with it makes hbbs reject this machine with
+    /// UUID_MISMATCH, leaving the device stuck at "direct listening".
+    pub fn reset_key_pair() {
+        *KEY_PAIR.lock().unwrap() = None;
+        let mut config = CONFIG.write().unwrap();
+        if !config.key_pair.0.is_empty() {
+            config.key_pair = Default::default();
+            config.store();
+            log::info!("Key pair reset; a new identity will be generated");
         }
     }
 
@@ -2272,6 +2290,10 @@ pub struct DiscoveryPeer {
     pub platform: String,
     #[serde(default, deserialize_with = "deserialize_bool")]
     pub online: bool,
+    #[serde(default, deserialize_with = "deserialize_string")]
+    pub direct_access_port: String,
+    // ip_mac must be the last field: confy serializes with toml 0.5 and a
+    // table (HashMap) followed by a scalar raises ValueAfterTable.
     #[serde(default, deserialize_with = "deserialize_hashmap_string_string")]
     pub ip_mac: HashMap<String, String>,
 }

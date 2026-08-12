@@ -29,6 +29,13 @@ class _PeerGroupHeader {
   final int count;
 }
 
+class _PeerGroup {
+  const _PeerGroup(this.label, this.peers);
+
+  final String label;
+  final List<Peer> peers;
+}
+
 class PeerSortType {
   static const String remoteId = 'Remote ID';
   static const String remoteHost = 'Remote Host';
@@ -82,12 +89,14 @@ class _PeersView extends StatefulWidget {
   final PeerCardBuilder peerCardBuilder;
   final PeerTabIndex peerTabIndex;
   final bool groupByDirectChatPolicy;
+  final bool friendsOnly;
 
   const _PeersView({
     required this.peers,
     required this.peerCardBuilder,
     required this.peerTabIndex,
     required this.groupByDirectChatPolicy,
+    required this.friendsOnly,
     this.peerFilter,
     Key? key,
   }) : super(key: key);
@@ -128,7 +137,7 @@ class _PeersViewState extends State<_PeersView>
     super.initState();
     windowManager.addListener(this);
     WidgetsBinding.instance.addObserver(this);
-    if (widget.groupByDirectChatPolicy) {
+    if (widget.groupByDirectChatPolicy || widget.friendsOnly) {
       _directChatAccess.load();
       _directChatAccess.addListener(_onDirectChatPolicyChanged);
     }
@@ -139,7 +148,7 @@ class _PeersViewState extends State<_PeersView>
   void dispose() {
     windowManager.removeListener(this);
     WidgetsBinding.instance.removeObserver(this);
-    if (widget.groupByDirectChatPolicy) {
+    if (widget.groupByDirectChatPolicy || widget.friendsOnly) {
       _directChatAccess.removeListener(_onDirectChatPolicyChanged);
     }
     _scrollController.dispose();
@@ -308,54 +317,57 @@ class _PeersViewState extends State<_PeersView>
             : visibilityChild;
       }
 
-      final Widget child = Obx(
-        () => stateGlobal.isPortrait.isTrue
-            ? _buildPortraitList(matchedPeers, buildOnePeer)
-            : peerCardUiType.value == PeerUiType.list
-                ? ListView.builder(
-                    controller: _scrollController,
-                    itemCount: matchedPeers.length,
-                    itemBuilder: (BuildContext context, int index) {
-                      return buildOnePeer(matchedPeers[index], false)
-                          .marginOnly(
-                        right: space,
-                        top: index == 0 ? 0 : space / 2,
-                        bottom: space / 2,
-                      );
-                    },
-                  )
-                : peerCardUiType.value == PeerUiType.grid
-                    ? LayoutBuilder(
-                        builder: (context, constraints) {
-                          final columns = constraints.maxWidth >= 680 ? 2 : 1;
-                          return GridView.builder(
-                            controller: _scrollController,
-                            padding: EdgeInsets.only(right: space),
-                            gridDelegate:
-                                SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: columns,
-                              childAspectRatio: 1.55,
-                              mainAxisSpacing: space,
-                              crossAxisSpacing: space,
-                            ),
-                            itemCount: matchedPeers.length,
-                            itemBuilder: (BuildContext context, int index) {
-                              return buildOnePeer(matchedPeers[index], false);
-                            },
-                          );
-                        },
-                      )
-                    : DynamicGridView.builder(
-                        gridDelegate: SliverGridDelegateWithWrapping(
-                          mainAxisSpacing: space / 2,
+      final Widget child = Obx(() {
+        if (stateGlobal.isPortrait.isTrue) {
+          return _buildPortraitList(matchedPeers, buildOnePeer);
+        }
+        final uiType = peerCardUiType.value;
+        if (widget.groupByDirectChatPolicy) {
+          return _buildWideGroupedPeers(matchedPeers, uiType, buildOnePeer);
+        }
+        return uiType == PeerUiType.list
+            ? ListView.builder(
+                controller: _scrollController,
+                itemCount: matchedPeers.length,
+                itemBuilder: (BuildContext context, int index) {
+                  return buildOnePeer(matchedPeers[index], false).marginOnly(
+                    right: space,
+                    top: index == 0 ? 0 : space / 2,
+                    bottom: space / 2,
+                  );
+                },
+              )
+            : uiType == PeerUiType.grid
+                ? LayoutBuilder(
+                    builder: (context, constraints) {
+                      final columns = constraints.maxWidth >= 680 ? 2 : 1;
+                      return GridView.builder(
+                        controller: _scrollController,
+                        padding: EdgeInsets.only(right: space),
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: columns,
+                          childAspectRatio: 1.55,
+                          mainAxisSpacing: space,
                           crossAxisSpacing: space,
                         ),
                         itemCount: matchedPeers.length,
                         itemBuilder: (BuildContext context, int index) {
                           return buildOnePeer(matchedPeers[index], false);
                         },
-                      ),
-      );
+                      );
+                    },
+                  )
+                : DynamicGridView.builder(
+                    gridDelegate: SliverGridDelegateWithWrapping(
+                      mainAxisSpacing: space / 2,
+                      crossAxisSpacing: space,
+                    ),
+                    itemCount: matchedPeers.length,
+                    itemBuilder: (BuildContext context, int index) {
+                      return buildOnePeer(matchedPeers[index], false);
+                    },
+                  );
+      });
 
       if (updateEvent == UpdateEvent.load) {
         _curPeers
@@ -406,22 +418,131 @@ class _PeersViewState extends State<_PeersView>
     );
   }
 
+  Widget _buildWideGroupedPeers(
+    List<Peer> peers,
+    PeerUiType uiType,
+    Widget Function(Peer peer, bool isPortrait) buildOnePeer,
+  ) {
+    if (uiType == PeerUiType.list) {
+      final rows = _groupedRows(peers);
+      return ListView.builder(
+        controller: _scrollController,
+        itemCount: rows.length,
+        itemBuilder: (BuildContext context, int index) {
+          final row = rows[index];
+          if (row is _PeerGroupHeader) return _buildPeerGroupHeader(row);
+          return buildOnePeer(row as Peer, false).marginOnly(
+            right: space,
+            top: index == 0 || rows[index - 1] is _PeerGroupHeader
+                ? 0
+                : space / 2,
+            bottom: space / 2,
+          );
+        },
+      );
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final groups = _peerGroups(peers);
+        final slivers = <Widget>[];
+        for (final group in groups) {
+          slivers.add(
+            SliverToBoxAdapter(
+              child: _buildPeerGroupHeader(
+                _PeerGroupHeader(group.label, group.peers.length),
+              ),
+            ),
+          );
+          slivers.add(
+            SliverPadding(
+              padding: EdgeInsets.only(right: space, bottom: space),
+              sliver: SliverGrid(
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) => buildOnePeer(group.peers[index], false),
+                  childCount: group.peers.length,
+                ),
+                gridDelegate: uiType == PeerUiType.grid
+                    ? SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: constraints.maxWidth >= 680 ? 2 : 1,
+                        childAspectRatio: 1.55,
+                        mainAxisSpacing: space,
+                        crossAxisSpacing: space,
+                      )
+                    : SliverGridDelegateWithMaxCrossAxisExtent(
+                        maxCrossAxisExtent: 220,
+                        mainAxisExtent: 42,
+                        mainAxisSpacing: space / 2,
+                        crossAxisSpacing: space,
+                      ),
+              ),
+            ),
+          );
+        }
+        return CustomScrollView(
+          controller: _scrollController,
+          slivers: slivers,
+        );
+      },
+    );
+  }
+
+  Widget _buildPeerGroupHeader(_PeerGroupHeader row) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 16, 4, 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: <Widget>[
+          Container(
+            width: 3,
+            height: 14,
+            decoration: BoxDecoration(
+              color: Theme.of(context)
+                  .colorScheme
+                  .primary
+                  .withOpacity(0.55),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            '${translate(row.label)} (${row.count})',
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withOpacity(0.6),
+                  fontWeight: FontWeight.w600,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+
   List<Object> _mobileGroupedRows(List<Peer> peers) {
     if (!widget.groupByDirectChatPolicy) return peers.cast<Object>();
+    return _groupedRows(peers);
+  }
+
+  List<_PeerGroup> _peerGroups(List<Peer> peers) {
     final friends = peers
         .where((peer) => _directChatAccess.isFriend(peer.id))
         .toList(growable: false);
     final strangers = peers
         .where((peer) => !_directChatAccess.isFriend(peer.id))
         .toList(growable: false);
+    return <_PeerGroup>[
+      if (friends.isNotEmpty) _PeerGroup('Friends', friends),
+      if (strangers.isNotEmpty) _PeerGroup('Strangers', strangers),
+    ];
+  }
+
+  List<Object> _groupedRows(List<Peer> peers) {
     return <Object>[
-      if (friends.isNotEmpty) ...<Object>[
-        _PeerGroupHeader('Friends', friends.length),
-        ...friends,
-      ],
-      if (strangers.isNotEmpty) ...<Object>[
-        _PeerGroupHeader('Strangers', strangers.length),
-        ...strangers,
+      for (final group in _peerGroups(peers)) ...<Object>[
+        _PeerGroupHeader(group.label, group.peers.length),
+        ...group.peers,
       ],
     ];
   }
@@ -483,6 +604,10 @@ class _PeersViewState extends State<_PeersView>
     if (widget.peerFilter != null) {
       peers = peers.where((peer) => widget.peerFilter!(peer)).toList();
     }
+    if (widget.friendsOnly) {
+      peers =
+          peers.where((peer) => _directChatAccess.isFriend(peer.id)).toList();
+    }
 
     // fallback to id sorting
     if (!PeerSortType.values.contains(sortedBy)) {
@@ -542,6 +667,7 @@ abstract class BasePeersView extends StatelessWidget {
   final PeerFilter? peerFilter;
   final PeerCardBuilder peerCardBuilder;
   final bool groupByDirectChatPolicy;
+  final bool friendsOnly;
 
   const BasePeersView({
     Key? key,
@@ -549,6 +675,7 @@ abstract class BasePeersView extends StatelessWidget {
     this.peerFilter,
     required this.peerCardBuilder,
     this.groupByDirectChatPolicy = false,
+    this.friendsOnly = false,
   }) : super(key: key);
 
   @override
@@ -580,6 +707,7 @@ abstract class BasePeersView extends StatelessWidget {
       peerCardBuilder: peerCardBuilder,
       peerTabIndex: peerTabIndex,
       groupByDirectChatPolicy: groupByDirectChatPolicy,
+      friendsOnly: friendsOnly,
     );
   }
 }
@@ -592,7 +720,7 @@ class RecentPeersView extends BasePeersView {
   }) : super(
           key: key,
           peerTabIndex: PeerTabIndex.recent,
-          groupByDirectChatPolicy: isMobile,
+          groupByDirectChatPolicy: true,
           peerCardBuilder: (Peer peer) =>
               RecentPeerCard(peer: peer, menuPadding: menuPadding),
         );
@@ -606,7 +734,7 @@ class FavoritePeersView extends BasePeersView {
   }) : super(
           key: key,
           peerTabIndex: PeerTabIndex.fav,
-          groupByDirectChatPolicy: isMobile,
+          groupByDirectChatPolicy: true,
           peerCardBuilder: (Peer peer) =>
               FavoritePeerCard(peer: peer, menuPadding: menuPadding),
         );
@@ -633,7 +761,7 @@ class AddressBookPeersView extends BasePeersView {
   }) : super(
           key: key,
           peerTabIndex: PeerTabIndex.ab,
-          groupByDirectChatPolicy: isMobile,
+          friendsOnly: true,
           peerFilter: (Peer peer) =>
               _hitTag(gFFI.abModel.selectedTags, peer.tags),
           peerCardBuilder: (Peer peer) =>

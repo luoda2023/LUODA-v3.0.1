@@ -31,13 +31,13 @@ abstract class CustomScaleControls<T extends StatefulWidget> extends State<T> {
   static const int minPercent = kScaleCustomMinPercent;
   static const int pivotPercent = kScaleCustomPivotPercent; // 100% should be at 1/3 of track
   static const int maxPercent = kScaleCustomMaxPercent;
-  static const double pivotPos = kScaleCustomPivotPos; // first 1/3 鈫?up to 100%
+  static const double pivotPos = kScaleCustomPivotPos; // first 1/3 →up to 100%
   static const double detentEpsilon = kScaleCustomDetentEpsilon; // snap range around pivot (~0.6%)
 
   // Clamp helper for local use
   int _clampScale(int v) => clampCustomScalePercent(v);
 
-  // Map normalized position [0,1] 鈫?percent [5,1000] with 100 at 1/3 width.
+  // Map normalized position [0,1] →percent [5,1000] with 100 at 1/3 width.
   int _mapPosToPercent(double p) {
     if (p <= 0.0) return minPercent;
     if (p >= 1.0) return maxPercent;
@@ -52,7 +52,7 @@ abstract class CustomScaleControls<T extends StatefulWidget> extends State<T> {
     }
   }
 
-  // Map percent [5,1000] 鈫?normalized position [0,1]
+  // Map percent [5,1000] →normalized position [0,1]
   double _mapPercentToPos(int percent) {
     final p = _clampScale(percent);
     if (p <= pivotPercent) {

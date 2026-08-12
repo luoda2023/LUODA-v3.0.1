@@ -17,10 +17,53 @@ pub fn start_tray() {
         }
     }
 
+    // Only one tray icon per user session, even when the same build is
+    // launched from two different folders or an older build is still
+    // resident (its --tray child is not matched by check_process because
+    // that compares executable paths). Without the mutex, users see two
+    // DotChat icons in the tray.
+    #[cfg(target_os = "windows")]
+    if !acquire_tray_icon_lock() {
+        log::warn!(
+            "another {} tray icon already exists; skipping duplicate",
+            crate::get_app_name()
+        );
+        return;
+    }
+
     #[cfg(target_os = "linux")]
     crate::server::check_zombie();
 
     allow_err!(make_tray());
+}
+
+/// Windows: hold a named mutex while this process owns the tray icon. If the
+/// mutex already exists, another live process owns the tray icon and this
+/// process must not create a second one.
+#[cfg(target_os = "windows")]
+fn acquire_tray_icon_lock() -> bool {
+    use std::hash::{Hash, Hasher};
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS};
+    use windows::Win32::System::Threading::CreateMutexW;
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    crate::get_app_name().hash(&mut hasher);
+    let name = format!("LUODA_TrayIcon_{:016x}", hasher.finish());
+    let wide: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+    let handle = unsafe { CreateMutexW(None, false, PCWSTR(wide.as_ptr())) };
+    let Ok(handle) = handle else {
+        // Mutex creation failed; do not block the tray on that.
+        log::warn!("failed to create tray mutex {name}; continuing");
+        return true;
+    };
+    if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
+        let _ = unsafe { CloseHandle(handle) };
+        return false;
+    }
+    // Keep the mutex handle alive for the whole process lifetime.
+    std::mem::forget(handle);
+    true
 }
 
 fn make_tray() -> hbb_common::ResultType<()> {
@@ -90,13 +133,13 @@ fn make_tray() -> hbb_common::ResultType<()> {
         if count == 0 {
             format!(
                 "{} {}",
-                crate::get_app_name(),
+                crate::get_display_name(),
                 translate("Service is running".to_owned()),
             )
         } else {
             format!(
                 "{} - {}\n{}",
-                crate::get_app_name(),
+                crate::get_display_name(),
                 translate("Ready".to_owned()),
                 translate("{".to_string() + &format!("{count}") + "} sessions"),
             )

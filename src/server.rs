@@ -653,13 +653,27 @@ pub async fn start_server(is_server: bool, no_server: bool) {
         // VPS / remote server with no physical display attached, automatically
         // plug in a virtual display so remote-control sessions have something
         // to render. Runs on the server process only (not the controller).
+        //
+        // A periodic watchdog is used instead of a one-shot check: when an RDP
+        // session (MSTSC) is disconnected, the session display disappears and a
+        // previously present display count drops to zero. The watchdog re-plugs
+        // the virtual display within a few seconds so remote control keeps
+        // working on headless VPS boxes.
         #[cfg(target_os = "windows")]
         {
-            if crate::virtual_display_manager::is_virtual_display_supported()
-                && crate::virtual_display_manager::active_physical_display_count() == 0
-            {
-                let _ = crate::virtual_display_manager::auto_plug_headless_if_needed();
-            }
+            let _ = crate::virtual_display_manager::auto_plug_headless_if_needed();
+            std::thread::spawn(|| loop {
+                std::thread::sleep(Duration::from_secs(15));
+                if crate::virtual_display_manager::is_virtual_display_supported()
+                    && crate::virtual_display_manager::active_physical_display_count() == 0
+                    && !crate::virtual_display_manager::has_headless_display()
+                {
+                    log::warn!(
+                        "Headless watchdog: no display detected, plugging in virtual display"
+                    );
+                    let _ = crate::virtual_display_manager::auto_plug_headless_if_needed();
+                }
+            });
         }
         std::thread::spawn(move || {
             // Retry IPC start up to 3 times before giving up.

@@ -470,99 +470,126 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
 
   Widget getBottomAppBar() {
     final ffiModel = Provider.of<FfiModel>(context);
+    Widget actionButton({
+      required Widget icon,
+      required String tooltip,
+      required VoidCallback? onPressed,
+      Color color = Colors.white,
+    }) {
+      return IconButton(
+        tooltip: translate(tooltip),
+        color: color,
+        constraints: const BoxConstraints.tightFor(width: 48, height: 48),
+        icon: icon,
+        onPressed: onPressed,
+      );
+    }
+
+    final actions = <Widget>[
+      actionButton(
+        icon: const Icon(Icons.close_rounded),
+        tooltip: 'Close',
+        color: const Color(0xFFFF7B72),
+        onPressed: () => clientClose(sessionId, gFFI),
+      ),
+      actionButton(
+        icon: const Icon(Icons.tune_rounded),
+        tooltip: 'Display',
+        onPressed: () {
+          setState(() => _showEdit = false);
+          showOptions(context, widget.id, gFFI.dialogManager);
+        },
+      ),
+    ];
+    if (!isWebDesktop && !ffiModel.viewOnly && ffiModel.keyboard) {
+      actions.add(actionButton(
+        icon: const Icon(Icons.keyboard_rounded),
+        tooltip: 'Keyboard',
+        onPressed: openKeyboard,
+      ));
+      if (gFFI.ffiModel.isPeerAndroid) {
+        actions.add(actionButton(
+          icon: const Icon(Icons.touch_app_rounded),
+          tooltip: 'Actions',
+          onPressed: () =>
+              gFFI.dialogManager.toggleMobileActionsOverlay(ffi: gFFI),
+        ));
+      } else {
+        actions.add(actionButton(
+          icon: Icon(
+            gFFI.ffiModel.touchMode
+                ? Icons.touch_app_rounded
+                : Icons.mouse_rounded,
+          ),
+          tooltip: gFFI.ffiModel.touchMode ? 'Touch mode' : 'Mouse mode',
+          onPressed: () => setState(() => _showGestureHelp = !_showGestureHelp),
+        ));
+      }
+    }
+    if (!isWeb) {
+      actions.add(futureBuilder(
+        future: gFFI.invokeMethod(
+          'get_value',
+          'KEY_IS_SUPPORT_VOICE_CALL',
+        ),
+        hasData: (isSupportVoiceCall) => actionButton(
+          icon: isAndroid && isSupportVoiceCall
+              ? SvgPicture.asset(
+                  'assets/chat.svg',
+                  colorFilter: const ColorFilter.mode(
+                    Colors.white,
+                    BlendMode.srcIn,
+                  ),
+                )
+              : const Icon(Icons.chat_bubble_outline_rounded),
+          tooltip: 'Text chat',
+          onPressed: () => isAndroid && isSupportVoiceCall
+              ? showChatOptions(widget.id)
+              : onPressedTextChat(widget.id),
+        ),
+      ));
+    }
+    actions.add(actionButton(
+      icon: const Icon(Icons.more_horiz_rounded),
+      tooltip: 'More',
+      onPressed: () {
+        setState(() => _showEdit = false);
+        showActions(widget.id);
+      },
+    ));
+
     return BottomAppBar(
-      elevation: 10,
-      color: MyTheme.accent,
-      child: Row(
-        mainAxisSize: MainAxisSize.max,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: <Widget>[
-          Row(
-              children: <Widget>[
-                    IconButton(
-                      color: Colors.white,
-                      icon: Icon(Icons.clear),
-                      onPressed: () {
-                        clientClose(sessionId, gFFI);
-                      },
-                    ),
-                    IconButton(
-                      color: Colors.white,
-                      icon: Icon(Icons.tv),
-                      onPressed: () {
-                        setState(() => _showEdit = false);
-                        showOptions(context, widget.id, gFFI.dialogManager);
-                      },
-                    )
-                  ] +
-                  (isWebDesktop || ffiModel.viewOnly || !ffiModel.keyboard
-                      ? []
-                      : gFFI.ffiModel.isPeerAndroid
-                          ? [
-                              IconButton(
-                                  color: Colors.white,
-                                  icon: Icon(Icons.keyboard),
-                                  onPressed: openKeyboard),
-                              IconButton(
-                                color: Colors.white,
-                                icon: const Icon(Icons.build),
-                                onPressed: () => gFFI.dialogManager
-                                    .toggleMobileActionsOverlay(ffi: gFFI),
-                              )
-                            ]
-                          : [
-                              IconButton(
-                                  color: Colors.white,
-                                  icon: Icon(Icons.keyboard),
-                                  onPressed: openKeyboard),
-                              IconButton(
-                                color: Colors.white,
-                                icon: Icon(gFFI.ffiModel.touchMode
-                                    ? Icons.touch_app
-                                    : Icons.mouse),
-                                onPressed: () => setState(
-                                    () => _showGestureHelp = !_showGestureHelp),
-                              ),
-                            ]) +
-                  (isWeb
-                      ? []
-                      : <Widget>[
-                          futureBuilder(
-                              future: gFFI.invokeMethod(
-                                  "get_value", "KEY_IS_SUPPORT_VOICE_CALL"),
-                              hasData: (isSupportVoiceCall) => IconButton(
-                                    color: Colors.white,
-                                    icon: isAndroid && isSupportVoiceCall
-                                        ? SvgPicture.asset('assets/chat.svg',
-                                            colorFilter: ColorFilter.mode(
-                                                Colors.white, BlendMode.srcIn))
-                                        : Icon(Icons.message),
-                                    onPressed: () =>
-                                        isAndroid && isSupportVoiceCall
-                                            ? showChatOptions(widget.id)
-                                            : onPressedTextChat(widget.id),
-                                  ))
-                        ]) +
-                  [
-                    IconButton(
-                      color: Colors.white,
-                      icon: Icon(Icons.more_vert),
-                      onPressed: () {
-                        setState(() => _showEdit = false);
-                        showActions(widget.id);
-                      },
-                    ),
-                  ]),
-          Obx(() => IconButton(
-                color: Colors.white,
-                icon: Icon(Icons.expand_more),
-                onPressed: gFFI.ffiModel.waitForFirstImage.isTrue
-                    ? null
-                    : () {
-                        setState(() => _showBar = !_showBar);
-                      },
-              )),
-        ],
+      elevation: 4,
+      color: const Color(0xFF20252E),
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          height: 56,
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(children: actions),
+                ),
+              ),
+              Container(
+                width: 1,
+                height: 24,
+                color: Colors.white.withOpacity(0.16),
+              ),
+              Obx(
+                () => actionButton(
+                  icon: const Icon(Icons.expand_more_rounded),
+                  tooltip: 'Collapse',
+                  onPressed: gFFI.ffiModel.waitForFirstImage.isTrue
+                      ? null
+                      : () => setState(() => _showBar = !_showBar),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -878,7 +905,8 @@ class _KeyHelpToolsState extends State<KeyHelpTools> {
         child: icon != null
             ? Icon(icon, size: 14, color: Colors.white)
             : Text(translate(text),
-                style: TextStyle(color: Colors.white, fontSize: 11)),
+                style: TextStyle(
+                    color: Colors.white, fontSize: MobileText.captionSm)),
         onPressed: onPressed);
   }
 
@@ -1115,7 +1143,7 @@ class _MobileConnectionRouteBadge extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 11,
+                    fontSize: MobileText.captionSm,
                     fontWeight: FontWeight.w500,
                   ),
                 ),

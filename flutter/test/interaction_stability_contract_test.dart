@@ -37,15 +37,19 @@ void main() {
       File('lib/mobile/pages/home_page.dart').readAsStringSync();
   final scanSource = File('lib/mobile/pages/scan_page.dart').readAsStringSync();
   final modelSource = File('lib/models/model.dart').readAsStringSync();
+  final chatModelSource = File('lib/models/chat_model.dart').readAsStringSync();
   final nativeModelSource =
       File('lib/models/native_model.dart').readAsStringSync();
   final chatPageSource =
       File('lib/common/widgets/chat_page.dart').readAsStringSync();
+  final overlaySource =
+      File('lib/common/widgets/overlay.dart').readAsStringSync();
   final peersViewSource =
       File('lib/common/widgets/peers_view.dart').readAsStringSync();
   final sharedStateSource =
       File('lib/common/shared_state.dart').readAsStringSync();
   final flutterFfiSource = File('../src/flutter_ffi.rs').readAsStringSync();
+  final rustFlutterSource = File('../src/flutter.rs').readAsStringSync();
   final hbbCommonLibSource =
       File('../libs/hbb_common/src/lib.rs').readAsStringSync();
   final remotePageSource =
@@ -56,6 +60,12 @@ void main() {
       File('lib/utils/multi_window_manager.dart').readAsStringSync();
   final androidBuildSource =
       File('android/app/build.gradle.kts').readAsStringSync();
+  final androidBuildScriptSource = File('build_android.ps1').readAsStringSync();
+  final rustBuildScriptSource = File('../build.rs').readAsStringSync();
+  final androidAomPortSource =
+      File('../res/vcpkg/aom/portfile.cmake').readAsStringSync();
+  final androidFfmpegPortSource =
+      File('../res/vcpkg/ffmpeg/portfile.cmake').readAsStringSync();
   final androidManifestSource =
       File('android/app/src/main/AndroidManifest.xml').readAsStringSync();
   final adaptiveIconSource = File(
@@ -77,6 +87,16 @@ void main() {
     expect(common, contains('if (running) return;'));
     expect(common, contains('running = true;'));
     expect(common, contains('running = false;'));
+  });
+
+  test('draggable chat position is initialized before its first update', () {
+    final constructor = methodBody(
+      overlaySource,
+      'DraggableKeyPosition(this.key)',
+      '  get pos',
+    );
+    expect(constructor, contains('_debouncerStore = Debouncer<int>'));
+    expect(overlaySource, isNot(contains('late Debouncer<int>')));
   });
 
   test('desktop resize edges use native Windows hit testing', () {
@@ -143,6 +163,18 @@ void main() {
     );
   });
 
+  test('desktop direct chat retries stale unconnected sessions', () {
+    final startChat = methodBody(
+      desktopHomeSource,
+      'Future<void> _startDirectChat(',
+      'Peer? _findContact(',
+    );
+    expect(startChat, contains('_directChatAttemptedAt'));
+    expect(startChat, contains('ffiModel.pi.isSet.isTrue'));
+    expect(startChat, contains('await existing.close()'));
+    expect(startChat, contains('_removeDirectChatSession(existing)'));
+  });
+
   test('desktop background chat retries are bounded and do not scan history',
       () {
     final refresh = methodBody(
@@ -157,6 +189,7 @@ void main() {
     expect(refresh, isNot(contains('_maintainChatKeepAlive()')));
     expect(desktopHomeSource, contains('const Duration(seconds: 15)'));
     expect(desktopHomeSource, contains('_backgroundChatRetryDelays'));
+    expect(desktopHomeSource, contains('latestPairingByConversation'));
   });
 
   test('desktop navigation and search update only the contact pane', () {
@@ -201,8 +234,25 @@ void main() {
 
     expect(contactSection, contains('final directPairings ='));
     expect(contactSection,
-        contains('row as Peer,\n              directPairings,'));
+        contains('row as _DesktopPersonGroup,\n              directPairings,'));
     expect(contactItem, isNot(contains('DirectPairingStore.load()')));
+  });
+
+  test('desktop contacts contain friends only and omit trust group headers',
+      () {
+    final contactSection = methodBody(
+      desktopHomeSource,
+      'Widget _buildContactSection(BuildContext context)',
+      'Widget _buildPeopleGroupHeader(',
+    );
+
+    expect(
+      contactSection,
+      contains("final friendsOnly = _selectedRailId == 'contacts';"),
+    );
+    expect(contactSection, contains('if (friendsOnly &&'));
+    expect(contactSection, contains('if (friendsOnly) {'));
+    expect(contactSection, contains('rows.addAll(personGroups)'));
   });
 
   test('peer tabs load once and filter synchronously', () {
@@ -219,11 +269,33 @@ void main() {
     );
   });
 
-  test('mobile peer tabs group recent favorites and contacts by trust', () {
+  test('peer tabs group recents and favorites but keep contacts friends-only',
+      () {
+    final recentView = methodBody(
+      peersViewSource,
+      'class RecentPeersView extends BasePeersView',
+      'class FavoritePeersView extends BasePeersView',
+    );
+    final favoriteView = methodBody(
+      peersViewSource,
+      'class FavoritePeersView extends BasePeersView',
+      'class DiscoveredPeersView extends BasePeersView',
+    );
+    final addressBookView = methodBody(
+      peersViewSource,
+      'class AddressBookPeersView extends BasePeersView',
+      'class MyGroupPeerView extends BasePeersView',
+    );
+
     expect(peersViewSource, contains('groupByDirectChatPolicy'));
-    expect(peersViewSource, contains('_mobileGroupedRows'));
-    expect(peersViewSource, contains("_PeerGroupHeader('Friends'"));
-    expect(peersViewSource, contains("_PeerGroupHeader('Strangers'"));
+    expect(peersViewSource, contains('final bool friendsOnly;'));
+    expect(peersViewSource, contains('_buildWideGroupedPeers'));
+    expect(peersViewSource, contains("_PeerGroup('Friends'"));
+    expect(peersViewSource, contains("_PeerGroup('Strangers'"));
+    expect(recentView, contains('groupByDirectChatPolicy: true'));
+    expect(favoriteView, contains('groupByDirectChatPolicy: true'));
+    expect(addressBookView, contains('friendsOnly: true'));
+    expect(addressBookView, isNot(contains('groupByDirectChatPolicy: true')));
   });
 
   test('background chat reconnects only accepted friends on both clients', () {
@@ -285,6 +357,53 @@ void main() {
     expect(transitions, isNot(contains('_WorkspaceNoticeTone.error')));
   });
 
+  test('failed direct chat sessions stay offline and keep messages queued', () {
+    final deliveryStatus = methodBody(
+      desktopHomeSource,
+      '(String, Color) _directDeliveryStatus(',
+      'String _contactName(',
+    );
+    final sendWire = methodBody(
+      chatModelSource,
+      'bool _sendWire(',
+      'Future<void> _restoreConversation(',
+    );
+    final deliveryWidget = methodBody(
+      chatPageSource,
+      'Widget deliveryWidget(',
+      'return Row(',
+    );
+
+    expect(deliveryStatus, contains('if (error.trim().isNotEmpty)'));
+    expect(deliveryStatus, contains("return ('Offline'"));
+    // Direct-chat sending no longer depends on remote-desktop state; only an
+    // explicit peer rejection (permission denied) blocks sending.
+    expect(sendWire, contains('isDirectChatPermissionDenied'));
+    expect(sendWire.indexOf('isDirectChatPermissionDenied'),
+        lessThan(sendWire.indexOf('bind.sessionSendChat(')));
+    expect(sendWire, isNot(contains('pi.isSet.isTrue')));
+    expect(deliveryWidget, contains("label = translate('Waiting to send')"));
+    expect(deliveryWidget, isNot(contains("label = translate('Sending...')")));
+  });
+
+  test('clicking a failed direct chat session starts a fresh connection', () {
+    final openConversation = methodBody(
+      desktopHomeSource,
+      'void _openConversation(',
+      'Widget _buildConversationList(',
+    );
+    final openContact = methodBody(
+      desktopHomeSource,
+      'void _openContactConversation(',
+      '(String, Color) _contactDeliveryStatus(',
+    );
+
+    for (final source in <String>[openConversation, openContact]) {
+      expect(source, contains('registered.ffiModel.lastConnectionError'));
+      expect(source, contains('_startDirectChat('));
+    }
+  });
+
   test('conversation switching reuses loaded messages and stable identity', () {
     final chatModelSource =
         File('lib/models/chat_model.dart').readAsStringSync();
@@ -293,7 +412,7 @@ void main() {
     final changeKey = methodBody(
       chatModelSource,
       'changeCurrentKey(MessageKey key)',
-      'receive(int id, String rawText)',
+      'receive(int id, String rawText,',
     );
     final updateIdentity = methodBody(
       chatModelSource,
@@ -422,14 +541,38 @@ void main() {
     expect(openContact, contains('_conversationPeerId(requestedId)'));
     expect(openContact, contains('_selectedConversationPeerId = peerId'));
     expect(openContact, contains('MessageKey('));
-    expect(openContact, contains('_startDirectChat(requestedId)'));
+    expect(openContact, contains('_startDirectChat(connectTarget)'));
     expect(
       startChat,
       contains('DirectPairingStore.findByEndpoint(requestedId)'),
     );
+    expect(
+      startChat,
+      contains('DirectPairingStore.canonicalConversationId(requestedId)'),
+    );
   });
 
-  test('successful IP chat sessions rekey to the canonical device ID', () {
+  test('desktop mobile and incoming messages share the account conversation',
+      () {
+    expect(
+      desktopHomeSource,
+      contains('DirectPairingStore.canonicalConversationIdValue('),
+    );
+    expect(
+      mobileConnectionSource,
+      contains('DirectPairingStore.canonicalConversationId(id)'),
+    );
+    expect(
+      chatModelSource,
+      contains('DirectPairingStore.canonicalConversationId(key.peerId)'),
+    );
+    expect(
+      chatModelSource,
+      contains('DirectPairingStore.canonicalConversationId(peerId)'),
+    );
+  });
+
+  test('successful IP chat sessions rekey to the canonical account ID', () {
     final canonicalize = methodBody(
       desktopHomeSource,
       'void _canonicalizeDirectChatSessions()',
@@ -467,7 +610,19 @@ void main() {
     expect(persistPairing, contains('sessionPeerId.trim()'));
     expect(persistPairing, contains('cachedPeerData.peerInfo'));
     expect(persistPairing, contains('FingerprintState.ensure'));
+    expect(
+      persistPairing,
+      contains('DirectPairingStore.extractDirectEndpoint'),
+    );
     expect(persistPairing, contains('DirectPairingStore.saveDiscovered('));
+    expect(persistPairing, contains('accountId: conversationPeerId'));
+    expect(persistPairing, contains('deviceName: _pi.hostname'));
+    expect(persistPairing, contains('platform: _pi.platform'));
+    expect(persistPairing, contains('secure: true'));
+    expect(
+      peerInfoHandler,
+      contains('DirectPairingStore.canonicalConversationId(actualPeerId)'),
+    );
     expect(fingerprintEvent,
         contains('await _persistDiscoveredDirectPairing(peerId)'));
     expect(peerInfoHandler,
@@ -498,7 +653,10 @@ void main() {
     expect(contextMenu, contains('RelativeRect.fromRect('));
     expect(contextMenu, isNot(contains('RelativeRect.fromLTRB(')));
     expect(chatPageSource, contains('MessageContextRegion('));
-    expect(chatPageSource, contains('onSecondaryTap: (position) async'));
+    // 桌面右键与手机长按共用消息操作菜单（_openMessageActions）。
+    expect(chatPageSource, contains('onSecondaryTap: (position)'));
+    expect(chatPageSource, contains('onLongPress: (position)'));
+    expect(chatPageSource, contains('_openMessageActions('));
     expect(chatPageSource, contains('contextMenuBuilder: (_, __)'));
   });
 
@@ -512,12 +670,15 @@ void main() {
   });
 
   test('desktop conversations exclude the local device identity', () {
+    // 会话列表过滤掉本机身份与文件助手会话。
+    final filter = desktopHomeSource.split('peerId == gFFI.chatModel.me.id')[0];
+    expect(filter, contains('if (peerId.isEmpty ||'));
     expect(
       desktopHomeSource,
-      contains(
-        'if (peerId.isEmpty || peerId == gFFI.chatModel.me.id) return false;',
-      ),
+      contains('peerId == gFFI.chatModel.me.id'),
     );
+    expect(desktopHomeSource, contains('peerId == kFileHelperId'));
+    expect(desktopHomeSource, contains('return false;'));
   });
 
   test('desktop conversation preview localizes stored voice labels', () {
@@ -565,18 +726,176 @@ void main() {
         "          _isEnvironmentError(text?.toString() ?? '')",
       ),
     );
-    expect(handleMsgBox, contains('_lastConnectionError = text?.toString();'));
+    expect(handleMsgBox, contains('_lastConnectionError ='));
+    expect(
+      handleMsgBox,
+      contains('directChatRejected ? directChatPermissionDeniedKey'),
+    );
     expect(handleMsgBox, contains('notifyListeners();'));
   });
 
   test('android packaging refuses to omit the luoda native library', () {
     expect(androidBuildSource, contains('requiredLuodaAbis'));
+    expect(androidBuildSource, contains('LUODA_ANDROID_ABIS'));
     expect(androidBuildSource, contains('verifyLuodaNativeLibraries'));
     expect(androidBuildSource, contains('libluoda.so'));
     expect(
         androidBuildSource, contains('dependsOn(verifyLuodaNativeLibraries)'));
     expect(
         androidBuildSource, isNot(contains('abiFilters += requiredLuodaAbis')));
+    expect(
+      androidBuildScriptSource,
+      contains(r'$env:LUODA_ANDROID_ABIS = $Abi -join ","'),
+    );
+  });
+
+  test('Flutter 3.24 Android assemble uses the AGP 8 copy fallback', () {
+    expect(androidBuildSource, contains('needsFlutter324ApkCopyFallback'));
+    expect(androidBuildSource, contains('gradle.projectsEvaluated'));
+    expect(androidBuildSource, contains('assembleTask.actions.clear()'));
+    expect(androidBuildSource, contains('outputs/apk/\$mode/app-\$mode.apk'));
+    expect(androidBuildSource, contains('outputs/flutter-apk'));
+  });
+
+  test('Windows Android builds link the matching libsodium ABI', () {
+    expect(
+      androidBuildScriptSource,
+      contains('function Resolve-AndroidSodiumLibDir'),
+    );
+    expect(androidBuildScriptSource, contains('"arm64-v8a" = "arm64-android"'));
+    expect(
+      androidBuildScriptSource,
+      contains('"armeabi-v7a" = "arm-neon-android"'),
+    );
+    expect(
+      androidBuildScriptSource,
+      contains(r'$env:SODIUM_LIB_DIR = Resolve-AndroidSodiumLibDir'),
+    );
+    expect(androidBuildScriptSource, contains('"liblibsodium.a"'));
+  });
+
+  test('Windows Android toolchain candidates remain arrays', () {
+    expect(
+      RegExp(r'\$candidates = @\(\r?\n\s+@\(')
+          .allMatches(androidBuildScriptSource)
+          .length,
+      3,
+    );
+    expect(
+      androidBuildScriptSource,
+      contains(r'.toolchains\android-sdk'),
+    );
+    expect(
+      androidBuildScriptSource,
+      contains(r'$env:CARGO_HOME = $workspaceCargoHome'),
+    );
+    expect(
+      androidBuildScriptSource,
+      contains(r'$env:RUSTUP_HOME = $workspaceRustupHome'),
+    );
+    expect(
+      androidBuildScriptSource,
+      contains(r'$env:ANDROID_HOME = $androidSdk'),
+    );
+  });
+
+  test('Windows Android builds configure vcpkg and legacy bindgen', () {
+    expect(androidBuildScriptSource, contains('function Resolve-VcpkgRoot'));
+    expect(
+      androidBuildScriptSource,
+      contains(r'$env:VCPKG_ROOT = Resolve-VcpkgRoot'),
+    );
+    expect(
+      androidBuildScriptSource,
+      contains(r'$env:BINDGEN_EXTRA_CLANG_ARGS ='),
+    );
+    expect(androidBuildScriptSource, contains(r".Replace('\', '/')"));
+    expect(androidBuildScriptSource, isNot(contains('"--bindgen"')));
+    expect(androidBuildScriptSource, contains(r'include\stddef.h'));
+    expect(androidBuildScriptSource, isNot(contains(r'[version]$_.Name')));
+    expect(
+      androidBuildScriptSource,
+      contains(r'-resource-dir=$bindgenResourceDir'),
+    );
+    expect(
+      androidBuildScriptSource,
+      contains(r'--target=$($target.Bindgen)23'),
+    );
+    expect(androidBuildScriptSource, contains('-D__ANDROID_API__=23'));
+    expect(
+      androidBuildScriptSource,
+      contains('Features = "flutter,use_dasp,mediacodec"'),
+    );
+    expect(
+      androidBuildScriptSource,
+      isNot(contains('Features = "flutter,hwcodec"')),
+    );
+    expect(
+      androidBuildScriptSource,
+      contains(r'$env:VCPKG_INSTALLED_ROOT ='),
+    );
+    expect(
+      androidBuildScriptSource,
+      contains('"build", "--lib", "--features", \$target.Features'),
+    );
+    expect(androidBuildScriptSource, contains('function Resolve-JavaHome'));
+    expect(
+      androidBuildScriptSource,
+      contains(r'$env:JAVA_HOME = Resolve-JavaHome'),
+    );
+    expect(
+      androidBuildScriptSource,
+      contains(r'$env:APPDATA = $flutterAppData'),
+    );
+    expect(androidBuildScriptSource, contains(r'.runtime\flutter-appdata'));
+    expect(
+      androidBuildScriptSource,
+      contains(r'$env:GRADLE_USER_HOME = $gradleUserHome'),
+    );
+    expect(androidBuildScriptSource, contains('"--no-pub"'));
+  });
+
+  test('Rust build script gates Windows native code by the target OS', () {
+    expect(
+      rustBuildScriptSource,
+      contains('std::env::var("CARGO_CFG_TARGET_OS")'),
+    );
+    expect(rustBuildScriptSource, contains('if target_os == "windows"'));
+    expect(
+      rustBuildScriptSource,
+      isNot(contains('#[cfg(windows)]\n    build_windows();')),
+    );
+  });
+
+  test('mobile Flutter builds omit desktop-only debug chat recording', () {
+    final newMessage = methodBody(
+      rustFlutterSource,
+      'fn new_message(&self, msg: String)',
+      'fn switch_display(&self, display: &SwitchDisplay)',
+    );
+    expect(
+      newMessage,
+      contains(
+        '#[cfg(not(any(target_os = "android", target_os = "ios")))]',
+      ),
+    );
+    expect(newMessage, contains('crate::debug_api::record_chat_message'));
+  });
+
+  test('Windows Android AOM builds avoid unavailable GNU assembler', () {
+    expect(
+      androidAomPortSource,
+      contains('VCPKG_TARGET_IS_ANDROID AND VCPKG_HOST_IS_WINDOWS'),
+    );
+    expect(androidAomPortSource, contains('-DAOM_TARGET_CPU=generic'));
+  });
+
+  test('Windows FFmpeg pkg-config option stays separate from target OS', () {
+    expect(
+      androidFfmpegPortSource,
+      contains(r'pkgconf${VCPKG_HOST_EXECUTABLE_SUFFIX} ")'),
+    );
+    expect(androidFfmpegPortSource, contains('--target-os=android'));
   });
 
   test('launcher icons use the padded LUODA artwork on every platform', () {

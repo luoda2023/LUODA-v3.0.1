@@ -24,7 +24,18 @@ if (localPropertiesFile.exists()) {
 
 val flutterVersionCode = localProperties.getProperty("flutter.versionCode") ?: "1"
 val flutterVersionName = localProperties.getProperty("flutter.versionName") ?: "2.0"
-val requiredLuodaAbis = listOf("arm64-v8a", "armeabi-v7a")
+val needsFlutter324ApkCopyFallback = localProperties.getProperty("flutter.sdk")
+    ?.let { File(it, "version") }
+    ?.takeIf(File::isFile)
+    ?.readText()
+    ?.trim()
+    ?.startsWith("3.24.") == true
+val requiredLuodaAbis = System.getenv("LUODA_ANDROID_ABIS")
+    ?.split(',')
+    ?.map(String::trim)
+    ?.filter(String::isNotEmpty)
+    ?.takeIf(List<String>::isNotEmpty)
+    ?: listOf("arm64-v8a", "armeabi-v7a")
 val luodaJniLibsDir = file("src/main/jniLibs")
 
 val verifyLuodaNativeLibraries by tasks.registering {
@@ -172,6 +183,30 @@ android {
 tasks.configureEach {
     if (name.startsWith("merge") && name.endsWith("NativeLibs")) {
         dependsOn(verifyLuodaNativeLibraries)
+    }
+}
+
+if (needsFlutter324ApkCopyFallback) {
+    gradle.projectsEvaluated {
+        listOf("debug", "profile", "release").forEach { mode ->
+            val variantName = mode.replaceFirstChar(Char::uppercaseChar)
+            val assembleTask = tasks.findByName("assemble$variantName")
+                ?: return@forEach
+            assembleTask.actions.clear()
+            assembleTask.doLast {
+                val sourceApk = layout.buildDirectory
+                    .file("outputs/apk/$mode/app-$mode.apk")
+                    .get()
+                    .asFile
+                if (!sourceApk.isFile) {
+                    throw GradleException("Android packaging did not produce ${sourceApk.absolutePath}")
+                }
+                project.copy {
+                    from(sourceApk)
+                    into(layout.buildDirectory.dir("outputs/flutter-apk"))
+                }
+            }
+        }
     }
 }
 

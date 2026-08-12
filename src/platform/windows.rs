@@ -1466,6 +1466,7 @@ pub fn install_me(options: &str, path: String, silent: bool, debug: bool) -> Res
         version_build = versions[2];
     }
     let app_name = crate::get_app_name();
+    let display_name = crate::get_display_name();
 
     let current_exe = std::env::current_exe()?;
 
@@ -1476,7 +1477,7 @@ pub fn install_me(options: &str, path: String, silent: bool, debug: bool) -> Res
         format!(
             "
 Set oWS = WScript.CreateObject(\"WScript.Shell\")
-sLinkFile = \"{tmp_path}\\{app_name}.lnk\"
+sLinkFile = \"{tmp_path}\\{display_name}.lnk\"
 
 Set oLink = oWS.CreateShortcut(sLinkFile)
     oLink.TargetPath = \"{exe}\"
@@ -1495,7 +1496,7 @@ oLink.Save
         format!(
             "
 Set oWS = WScript.CreateObject(\"WScript.Shell\")
-sLinkFile = \"{tmp_path}\\Uninstall {app_name}.lnk\"
+sLinkFile = \"{tmp_path}\\Uninstall {display_name}.lnk\"
 Set oLink = oWS.CreateShortcut(sLinkFile)
     oLink.TargetPath = \"{exe}\"
     oLink.Arguments = \"--uninstall\"
@@ -1518,7 +1519,7 @@ oLink.Save
         shortcuts = format!(
             "copy /Y \"{}\\{}.lnk\" \"%PUBLIC%\\Desktop\\\"",
             tmp_path,
-            crate::get_app_name()
+            crate::get_display_name()
         );
         reg_value_desktop_shortcuts = "1".to_owned();
     }
@@ -1526,8 +1527,8 @@ oLink.Save
         shortcuts = format!(
             "{shortcuts}
 md \"{start_menu}\"
-copy /Y \"{tmp_path}\\{app_name}.lnk\" \"{start_menu}\\\"
-copy /Y \"{tmp_path}\\Uninstall {app_name}.lnk\" \"{start_menu}\\\"
+copy /Y \"{tmp_path}\\{display_name}.lnk\" \"{start_menu}\\\"
+copy /Y \"{tmp_path}\\Uninstall {display_name}.lnk\" \"{start_menu}\\\"
      "
         );
         reg_value_start_menu_shortcuts = "1".to_owned();
@@ -1553,8 +1554,8 @@ copy /Y \"{tmp_path}\\Uninstall {app_name}.lnk\" \"{start_menu}\\\"
 if exist \"{mk_shortcut}\" del /f /q \"{mk_shortcut}\"
 if exist \"{uninstall_shortcut}\" del /f /q \"{uninstall_shortcut}\"
 if exist \"{tray_shortcut}\" del /f /q \"{tray_shortcut}\"
-if exist \"{tmp_path}\\{app_name}.lnk\" del /f /q \"{tmp_path}\\{app_name}.lnk\"
-if exist \"{tmp_path}\\Uninstall {app_name}.lnk\" del /f /q \"{tmp_path}\\Uninstall {app_name}.lnk\"
+if exist \"{tmp_path}\\{display_name}.lnk\" del /f /q \"{tmp_path}\\{display_name}.lnk\"
+if exist \"{tmp_path}\\Uninstall {display_name}.lnk\" del /f /q \"{tmp_path}\\Uninstall {display_name}.lnk\"
 if exist \"{tmp_path}\\{app_name} Tray.lnk\" del /f /q \"{tmp_path}\\{app_name} Tray.lnk\"
         "
     );
@@ -1597,12 +1598,12 @@ md \"{path}\"
 {copy_exe}
 reg add {subkey} /f
 reg add {subkey} /f /v DisplayIcon /t REG_SZ /d \"{display_icon}\"
-reg add {subkey} /f /v DisplayName /t REG_SZ /d \"{app_name}\"
+reg add {subkey} /f /v DisplayName /t REG_SZ /d \"{display_name}\"
 reg add {subkey} /f /v DisplayVersion /t REG_SZ /d \"{version}\"
 reg add {subkey} /f /v Version /t REG_SZ /d \"{version}\"
 reg add {subkey} /f /v BuildDate /t REG_SZ /d \"{build_date}\"
 reg add {subkey} /f /v InstallLocation /t REG_SZ /d \"{path}\"
-reg add {subkey} /f /v Publisher /t REG_SZ /d \"{app_name}\"
+reg add {subkey} /f /v Publisher /t REG_SZ /d \"{display_name}\"
 reg add {subkey} /f /v VersionMajor /t REG_DWORD /d {version_major}
 reg add {subkey} /f /v VersionMinor /t REG_DWORD /d {version_minor}
 reg add {subkey} /f /v VersionBuild /t REG_DWORD /d {version_build}
@@ -1613,7 +1614,7 @@ cscript \"{mk_shortcut}\"
 cscript \"{uninstall_shortcut}\"
 {tray_shortcuts}
 {shortcuts}
-copy /Y \"{tmp_path}\\Uninstall {app_name}.lnk\" \"{path}\\\"
+copy /Y \"{tmp_path}\\Uninstall {display_name}.lnk\" \"{path}\\\"
 {dels}
 {import_config}
 {after_install}
@@ -1714,11 +1715,13 @@ fn get_uninstall(kill_self: bool, uninstall_printer: bool) -> String {
     if exist \"{path}\" rd /s /q \"{path}\"
     if exist \"{start_menu}\" rd /s /q \"{start_menu}\"
     if exist \"%PUBLIC%\\Desktop\\{app_name}.lnk\" del /f /q \"%PUBLIC%\\Desktop\\{app_name}.lnk\"
+if exist \"%PUBLIC%\\Desktop\\{display_name}.lnk\" del /f /q \"%PUBLIC%\\Desktop\\{display_name}.lnk\"
     if exist \"%PROGRAMDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\{app_name} Tray.lnk\" del /f /q \"%PROGRAMDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\{app_name} Tray.lnk\"
     ",
         before_uninstall=get_before_uninstall(kill_self),
         uninstall_amyuni_idd=get_uninstall_amyuni_idd(),
         app_name = crate::get_app_name(),
+        display_name = crate::get_display_name(),
     )
 }
 
@@ -3698,6 +3701,99 @@ fn get_uninstall_amyuni_idd() -> String {
 #[inline]
 pub fn is_self_service_running() -> bool {
     is_service_running(&crate::get_app_name())
+}
+
+/// Run sc.exe synchronously and report success. Best-effort helper used by
+/// ensure_server_service; errors are logged, never fatal.
+fn run_sc(args: &[&str]) -> bool {
+    match std::process::Command::new("sc.exe").args(args).output() {
+        Ok(out) => {
+            if !out.status.success() {
+                log::debug!(
+                    "sc {} -> {} {}",
+                    args.join(" "),
+                    out.status,
+                    String::from_utf8_lossy(&out.stderr).trim()
+                );
+            }
+            out.status.success()
+        }
+        Err(e) => {
+            log::error!("run_sc {:?} failed: {}", args, e);
+            false
+        }
+    }
+}
+
+/// Best-effort install & start of the SYSTEM server service.
+///
+/// Capturing the screen of a locked session (screen locked, or a headless VPS
+/// whose RDP session was disconnected) requires opening the secure Winlogon
+/// desktop, which is only allowed for the SYSTEM account.  The service runs as
+/// SYSTEM in session 0 and launches --server into the user session through
+/// the winlogon token, so remote desktop keeps working after lock / MSTSC
+/// logout.  Without it, capture fails with access denied and the remote side
+/// sees a black screen.
+///
+/// Returns true when the service is running when the call returns.  When the
+/// current process is not elevated, one UAC prompt is triggered to perform the
+/// install and alse is returned immediately.
+pub fn ensure_server_service() -> bool {
+    let app_name = crate::get_app_name();
+    if is_self_service_running() {
+        return true;
+    }
+    if !is_elevated(None).unwrap_or(false) {
+        // Only ask once; if the user declines, do not nag on every launch.
+        // The flag is cleared again once the service is actually running.
+        if hbb_common::config::Config::get_option("ensure-service-asked") == "Y" {
+            return false;
+        }
+        hbb_common::config::Config::set_option(
+            "ensure-service-asked".to_string(),
+            "Y".to_string(),
+        );
+        if let Ok(exe) = std::env::current_exe() {
+            log::info!("ensure_server_service: requesting elevation to install service");
+            let _ = run_uac(&exe.to_string_lossy(), "--ensure-server-service");
+        }
+        return false;
+    }
+    let exe = match std::env::current_exe() {
+        Ok(p) => p.to_string_lossy().to_string(),
+        Err(e) => {
+            log::error!("ensure_server_service: cannot locate current exe: {}", e);
+            return false;
+        }
+    };
+    // Recreate with the current exe path so moved/copied installations do not
+    // keep pointing at an old binary.
+    let _ = run_sc(&["stop", &app_name]);
+    let _ = run_sc(&["delete", &app_name]);
+    let display_name = format!("{} Service", app_name);
+    let created = run_sc(&[
+        "create",
+        &app_name,
+        "binPath=",
+        &format!("\"{}\" --service", exe),
+        "start=",
+        "auto",
+        "DisplayName=",
+        &display_name,
+    ]);
+    if !created {
+        log::error!("ensure_server_service: failed to create service {}", app_name);
+        return false;
+    }
+    if !run_sc(&["start", &app_name]) {
+        log::error!("ensure_server_service: failed to start service {}", app_name);
+        return false;
+    }
+    let running = is_self_service_running();
+    if running {
+        hbb_common::config::Config::set_option("ensure-service-asked".to_string(), "".to_string());
+    }
+    running
 }
 
 pub fn is_service_running(service_name: &str) -> bool {

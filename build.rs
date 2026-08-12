@@ -1,6 +1,7 @@
 #[cfg(windows)]
 fn build_windows() {
     // Link libsodium for Windows
+    println!("cargo:rerun-if-env-changed=SODIUM_LIB_DIR");
     if let Ok(sodium_lib_dir) = std::env::var("SODIUM_LIB_DIR") {
         println!("cargo:rustc-link-search=native={}", sodium_lib_dir);
     }
@@ -34,10 +35,13 @@ fn build_mac() {
 }
 
 fn main() {
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     #[cfg(windows)]
-    build_windows();
+    if target_os == "windows" {
+        build_windows();
+    }
     #[cfg(target_os = "macos")]
-    if std::env::var("CARGO_CFG_TARGET_OS").ok().as_deref() == Some("macos") {
+    if target_os == "macos" {
         build_mac();
     }
 
@@ -46,7 +50,7 @@ fn main() {
     println!("cargo:rerun-if-changed=res/icon.ico");
 
     #[cfg(windows)]
-    {
+    if target_os == "windows" {
         let mut res = winres::WindowsResource::new();
         res.set_icon("res/icon.ico");
         res.set("FileDescription", "LDesk Direct Chat and Remote Assistance");

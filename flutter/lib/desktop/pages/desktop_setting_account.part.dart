@@ -25,7 +25,7 @@ class _AccountState extends State<_Account> {
                     ),
                     title: Text(translate('Local profile only')),
                     subtitle: Text(translate(
-                      'LDesk stores the name, avatar, contacts, and pairing data on this device only.',
+                      'DotChat stores the name, avatar, contacts, and pairing data on this device only.',
                     )),
                   ),
                 ]

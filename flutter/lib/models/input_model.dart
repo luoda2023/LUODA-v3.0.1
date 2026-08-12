@@ -17,6 +17,7 @@ import '../../models/platform_model.dart';
 import '../../models/state_model.dart';
 import 'relative_mouse_model.dart';
 import '../common.dart';
+import '../common/remote_viewport_geometry.dart';
 import '../consts.dart';
 
 /// Mouse button enum.
@@ -393,6 +394,7 @@ class InputModel {
   bool _queryOtherWindowCoords = false;
   Rect? _windowRect;
   List<RemoteWindowCoords> _remoteWindowCoords = [];
+  RemoteViewportGeometry? _imageViewport;
 
   late final SessionID sessionId;
 
@@ -1047,6 +1049,14 @@ class InputModel {
     _relativeMouse.updateImageWidgetSize(size);
   }
 
+  void updateImageWidgetGeometry(Size size, Offset globalOrigin) {
+    _imageViewport = RemoteViewportGeometry(
+      globalOrigin: globalOrigin,
+      size: size,
+    );
+    updateImageWidgetSize(size);
+  }
+
   void toggleRelativeMouseMode() {
     _relativeMouse.toggleRelativeMouseMode();
   }
@@ -1416,8 +1426,7 @@ class InputModel {
 
   static Future<Rect?> fillRemoteCoordsAndGetCurFrame(
       List<RemoteWindowCoords> remoteWindowCoords) async {
-    final coords =
-        await luodaWinManager.getOtherRemoteWindowCoordsFromMain();
+    final coords = await luodaWinManager.getOtherRemoteWindowCoordsFromMain();
     final wc = WindowController.fromWindowId(kWindowId!);
     try {
       final frame = await wc.getFrame();
@@ -1445,7 +1454,8 @@ class InputModel {
     if (e is PointerScrollEvent) {
       final rawDx = e.scrollDelta.dx;
       final rawDy = e.scrollDelta.dy;
-      final dominantDelta = rawDx.abs() > rawDy.abs() ? rawDx.abs() : rawDy.abs();
+      final dominantDelta =
+          rawDx.abs() > rawDy.abs() ? rawDx.abs() : rawDy.abs();
       final isSmooth = dominantDelta < 1;
       final nowUs = DateTime.now().microsecondsSinceEpoch;
       final dtUs = _lastWheelTsUs == 0 ? 0 : nowUs - _lastWheelTsUs;
@@ -1699,6 +1709,7 @@ class InputModel {
     CanvasCoords canvas =
         CanvasCoords.fromCanvasModel(parent.target!.canvasModel);
     Rect? rect = ffiModel.rect;
+    var useCurrentViewport = true;
 
     if (isMove) {
       if (_remoteWindowCoords.isNotEmpty &&
@@ -1708,6 +1719,7 @@ class InputModel {
             findRemoteCoords(x, y, _remoteWindowCoords, devicePixelRatio);
         if (coords != null) {
           isMove = false;
+          useCurrentViewport = false;
           canvas = coords.canvas;
           rect = coords.remoteRect;
           x -= isWindows
@@ -1720,8 +1732,14 @@ class InputModel {
       }
     }
 
-    y -= CanvasModel.topToEdge;
-    x -= CanvasModel.leftToEdge;
+    if (useCurrentViewport && _imageViewport != null) {
+      final local = _imageViewport!.globalToLocal(Offset(x, y));
+      x = local.dx;
+      y = local.dy;
+    } else {
+      y -= CanvasModel.topToEdge;
+      x -= CanvasModel.leftToEdge;
+    }
     if (isMove) {
       final canvasModel = parent.target!.canvasModel;
 
@@ -1805,13 +1823,19 @@ class InputModel {
       if (canvas.size.height > imageHeight) {
         y -= ((canvas.size.height - imageHeight) / 2);
       }
+      x /= canvas.scale;
+      y /= canvas.scale;
+      x += rect.left;
+      y += rect.top;
     } else {
-      x -= canvas.x;
-      y -= canvas.y;
+      final remotePosition = RemoteFramebufferTransform(
+        imageOrigin: Offset(canvas.x, canvas.y),
+        scale: canvas.scale,
+        remoteFrameOrigin: rect.topLeft,
+      ).viewportToRemote(Offset(x, y));
+      x = remotePosition.dx;
+      y = remotePosition.dy;
     }
-
-    x /= canvas.scale;
-    y /= canvas.scale;
     if (canvas.scale > 0 && canvas.scale < 1) {
       final step = 1.0 / canvas.scale - 1;
       if (nearRight) {
@@ -1821,8 +1845,6 @@ class InputModel {
         y += step;
       }
     }
-    x += rect.left;
-    y += rect.top;
 
     if (onExit) {
       final pos = setNearestEdge(x, y, rect);

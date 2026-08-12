@@ -500,10 +500,10 @@ impl Client {
         interface.update_direct(None);
         interface.update_received(false);
 
-        // ── IP/ID:port direct connection ──
+        // 鈹€鈹€ IP/ID:port direct connection 鈹€鈹€
         // IP:port (e.g. 192.168.31.39:25488) and bare IP (e.g. 192.168.31.39)
         // are handled directly by _start() which supports both TCP connect paths.
-        // No two-phase (IP→ID→rendezvous) scheme: it adds latency and fails in
+        // No two-phase (IP鈫扞D鈫抮endezvous) scheme: it adds latency and fails in
         // pure-LAN scenarios without internet access.
 
         match Self::_start(peer, key, token, conn_type, interface.clone()).await {
@@ -552,7 +552,7 @@ impl Client {
         if config::is_incoming_only() {
             bail!("Incoming only mode");
         }
-        let (other_server, direct_fallback_endpoint) = {
+        let (mut other_server, direct_fallback_endpoint) = {
             let lch = interface.get_lch();
             let lch = lch.read().unwrap();
             (
@@ -560,9 +560,9 @@ impl Client {
                 lch.direct_fallback_endpoint.clone(),
             )
         };
-        if let Some((expected_id, endpoint, fingerprint)) = other_server.as_ref() {
-            if let Some(endpoint) = direct_endpoint(endpoint) {
-                let expected_pk = fingerprint_public_key(fingerprint)
+        if let Some((expected_id, endpoint, fingerprint)) = other_server.clone() {
+            if let Some(endpoint) = direct_endpoint(&endpoint) {
+                let expected_pk = fingerprint_public_key(&fingerprint)
                     .ok_or_else(|| anyhow!("Invalid direct peer fingerprint"))?;
                 let mut endpoints = vec![endpoint];
                 if let Some(fallback) = direct_endpoint(&direct_fallback_endpoint) {
@@ -574,13 +574,18 @@ impl Client {
                 for endpoint in endpoints {
                     match connect_tcp_local(endpoint.as_str(), None, CONNECT_TIMEOUT).await {
                         Ok(mut conn) => match Self::secure_direct_connection(
-                            expected_id,
+                            &expected_id,
                             Some(expected_pk.as_slice()),
                             &mut conn,
                         )
                         .await
                         {
                             Ok(pk) => {
+                                interface
+                                    .get_lch()
+                                    .write()
+                                    .unwrap()
+                                    .direct_connected_endpoint = endpoint.clone();
                                 return Ok((
                                     (conn, true, pk, None, "TCP"),
                                     (0, String::new()),
@@ -592,10 +597,12 @@ impl Client {
                         Err(error) => errors.push(format!("{endpoint}: {error}")),
                     }
                 }
-                bail!(
-                    "Failed to connect to direct endpoints: {}",
+                log::warn!(
+                    "Direct endpoints failed; falling back to device ID {}: {}",
+                    expected_id,
                     errors.join("; ")
                 );
+                other_server = None;
             }
         }
         match connection_route(peer) {
@@ -603,6 +610,11 @@ impl Client {
                 let (conn, pk, connected) =
                     connect_direct_candidates(endpoint.ip(), endpoint.port()).await?;
                 log::info!("Direct connection established through {connected}");
+                interface
+                    .get_lch()
+                    .write()
+                    .unwrap()
+                    .direct_connected_endpoint = format!("{}:{}", endpoint.ip(), endpoint.port());
                 return Ok(((conn, true, pk, None, "TCP"), (0, String::new()), false));
             }
             ConnectionRoute::BareIp(ip) => {
@@ -1060,10 +1072,6 @@ impl Client {
         };
 
         let mut direct = !conn.is_err();
-        if conn_type == ConnType::CHAT && conn.is_err() {
-            interface.update_direct(Some(false));
-            bail!("Direct chat requires a reachable peer address; relay fallback is disabled");
-        }
         if interface.is_force_relay() || conn.is_err() {
             if !relay_server.is_empty() {
                 conn = Self::request_relay(
@@ -1219,11 +1227,38 @@ impl Client {
                                 let (asymmetric_value, symmetric_value, key) =
                                     create_symmetric_key_msg(their_pk_b);
                                 let mut msg_out = Message::new();
-                                msg_out.set_public_key(PublicKey {
+                                let mut public_key = PublicKey {
                                     asymmetric_value,
                                     symmetric_value,
                                     ..Default::default()
-                                });
+                                };
+                                let (identity_secret, identity_public) = Config::get_key_pair();
+                                if identity_secret.len() == sign::SECRETKEYBYTES
+                                    && identity_public.len() == sign::PUBLICKEYBYTES
+                                {
+                                    let mut identity_secret_key = [0u8; sign::SECRETKEYBYTES];
+                                    identity_secret_key.copy_from_slice(&identity_secret);
+                                    let identity_secret_key = sign::SecretKey(identity_secret_key);
+                                    #[cfg(any(target_os = "android", target_os = "ios"))]
+                                    let local_id = Config::get_id_or(
+                                        crate::DEVICE_ID.lock().unwrap().clone(),
+                                    );
+                                    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+                                    let local_id = Config::get_id();
+                                    let signed_id = sign::sign(
+                                        &IdPk {
+                                            id: local_id,
+                                            pk: public_key.asymmetric_value.clone(),
+                                            ..Default::default()
+                                        }
+                                        .write_to_bytes()
+                                        .unwrap_or_default(),
+                                        &identity_secret_key,
+                                    );
+                                    public_key.signed_id = signed_id.into();
+                                    public_key.identity_public_key = identity_public.into();
+                                }
+                                msg_out.set_public_key(public_key);
                                 timeout(CONNECT_TIMEOUT, conn.send(&msg_out)).await??;
                                 conn.set_key(key);
                             } else {
@@ -1752,7 +1787,7 @@ impl AudioHandler {
 
         self.simple = Some(Simple::new(
             None,                   // Use the default server
-            &crate::get_app_name(), // Our application’s name
+            &crate::get_app_name(), // Our application's name
             Direction::Playback,    // We want a playback stream
             None,                   // Use the default device
             "playback",             // Description of our stream
@@ -2169,6 +2204,8 @@ pub struct LoginConfigHandler {
     pub other_server: Option<(String, String, String)>,
     direct_pairing_secret: String,
     direct_fallback_endpoint: String,
+    /// The IP:port endpoint that succeeded for a direct TCP connection (if any).
+    direct_connected_endpoint: String,
     config_id: String,
     pub custom_fps: Arc<Mutex<Option<usize>>>,
     pub last_auto_fps: Option<usize>,
@@ -2211,6 +2248,7 @@ impl LoginConfigHandler {
         let mut id = id;
         self.direct_pairing_secret.clear();
         self.direct_fallback_endpoint.clear();
+        self.direct_connected_endpoint.clear();
         if id.contains("@") {
             let mut v = id.split("@");
             let raw_id: &str = v.next().unwrap_or_default();
@@ -2954,6 +2992,20 @@ impl LoginConfigHandler {
         if !pi.peer_id.is_empty() {
             self.id = pi.peer_id.clone();
         }
+        // LUODA: self-heal stale direct endpoints. The remote advertises its
+        // current direct-access port in peer info; combine it with the IP we
+        // actually connected to (direct TCP only) to refresh the stored pairing
+        // so later messages/connections use the fresh IP:port.
+        if !pi.peer_id.is_empty() && !pi.direct_access_port.is_empty() {
+            if let Some((ip, _)) = self.direct_connected_endpoint.rsplit_once(':') {
+                if !ip.is_empty() {
+                    crate::rendezvous_mediator::update_direct_pairing_endpoint(
+                        &pi.peer_id,
+                        &format!("{}:{}", ip, pi.direct_access_port),
+                    );
+                }
+            }
+        }
         if !pi.version.is_empty() {
             self.version = hbb_common::get_version_number(&pi.version);
         }
@@ -3157,6 +3209,7 @@ impl LoginConfigHandler {
             .into(),
             hwid,
             avatar,
+            direct_access_port: Config::get_option("direct-access-port"),
             ..Default::default()
         };
         match self.conn_type {
@@ -4413,7 +4466,7 @@ pub mod peer_online {
     use super::{online_rendezvous_endpoint, rendezvous_fallback_servers};
     use hbb_common::{
         anyhow::bail,
-        config::{Config, CONNECT_TIMEOUT, READ_TIMEOUT},
+        config::{self, Config, CONNECT_TIMEOUT, READ_TIMEOUT},
         log,
         rendezvous_proto::*,
         sleep,
@@ -4431,7 +4484,17 @@ pub mod peer_online {
         } else {
             let query_timeout = std::time::Duration::from_millis(3_000);
             match query_online_states_(&ids, query_timeout).await {
-                Ok((onlines, offlines)) => {
+                Ok((mut onlines, mut offlines)) => {
+                    // 联网即在线: peers discovered on the LAN are online even if
+                    // they have not registered with the rendezvous server yet.
+                    for peer in config::LanPeers::load().peers {
+                        if peer.online && ids.contains(&peer.id) {
+                            if !onlines.contains(&peer.id) {
+                                onlines.push(peer.id.clone());
+                            }
+                            offlines.retain(|x| x != &peer.id);
+                        }
+                    }
                     f(onlines, offlines);
                 }
                 Err(e) => {
@@ -4474,7 +4537,8 @@ pub mod peer_online {
             Ok(s) => s,
             Err(e) => {
                 log::debug!("Failed to create peers online stream, {e}");
-                return Ok((vec![], ids.clone()));
+                // Keep previous online states instead of marking every peer offline.
+                return Ok((vec![], vec![]));
             }
         };
         // TODO: Use long connections to avoid socket creation
@@ -4483,7 +4547,8 @@ pub mod peer_online {
         // An established connection was aborted by the software in your host machine. (os error 10053)
         if let Err(e) = socket.send(&msg_out).await {
             log::debug!("Failed to send peers online states query, {e}");
-            return Ok((vec![], ids.clone()));
+            // Keep previous online states instead of marking every peer offline.
+            return Ok((vec![], vec![]));
         }
         // Retry for 2 times to get the online response
         for _ in 0..2 {
@@ -4664,3 +4729,5 @@ async fn udp_nat_connect(
         })?;
     Ok((res.1, Some(res.0), typ))
 }
+
+

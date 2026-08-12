@@ -1,4 +1,4 @@
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+﻿#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use crate::keyboard::input_source::{change_input_source, get_cur_session_input_source};
 #[cfg(target_os = "linux")]
 use crate::platform::linux::is_x11;
@@ -37,7 +37,250 @@ lazy_static::lazy_static! {
     static ref TEXTURE_RENDER_KEY: Arc<AtomicI32> = Arc::new(AtomicI32::new(0));
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+lazy_static::lazy_static! {
+    static ref CM_IPC_RUNTIME: Option<hbb_common::tokio::runtime::Runtime> =
+        hbb_common::tokio::runtime::Runtime::new().ok();
+}
+
+
+/// Prevent two processes from running the same app profile at the same time.
+///
+/// Two instances sharing one config dir register the same ID with the
+/// rendezvous server; the server then routes ID connections to whichever
+/// registered last, which may be a zombie/headless process ("A rejects
+/// messages", "?????" while actually online). A per-process mutex/lock
+/// keeps exactly one main instance alive per machine.
+#[cfg(target_os = "windows")]
+fn acquire_single_instance_lock(app_dir: &str) {
+    use std::hash::{Hash, Hasher};
+    use windows::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS};
+    use windows::core::PCWSTR;
+    use windows::Win32::System::Threading::CreateMutexW;
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    app_dir.hash(&mut hasher);
+    let name = format!("LUODA_SingleInstance_{:016x}", hasher.finish());
+    let wide: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+    let handle = unsafe { CreateMutexW(None, false, PCWSTR(wide.as_ptr())) };
+    let Ok(handle) = handle else {
+        log::warn!("Failed to create single-instance mutex; continuing");
+        return;
+    };
+    unsafe {
+        if GetLastError() == ERROR_ALREADY_EXISTS {
+            // Another instance (usually a stale process from an older build)
+            // holds the lock. Take over instead of silently exiting, otherwise
+            // an upgraded build never starts its main window on machines where
+            // an older build is still running (symptom: listening but never
+            // online, messages rejected).
+            log::warn!(
+                "Another instance holds single-instance lock {}; taking over",
+                name
+            );
+            let _ = CloseHandle(handle);
+            takeover_stale_instances();
+            let mut acquired = false;
+            for _ in 0..10 {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                if let Ok(retry) = unsafe { CreateMutexW(None, false, PCWSTR(wide.as_ptr())) } {
+                    if unsafe { GetLastError() } != ERROR_ALREADY_EXISTS {
+                        // Acquired: keep this handle alive for the process lifetime.
+                        std::mem::forget(retry);
+                        acquired = true;
+                        break;
+                    }
+                    let _ = CloseHandle(retry);
+                }
+            }
+            if !acquired {
+                log::warn!("Another instance still holds the lock; exiting");
+                std::process::exit(0);
+            }
+            return;
+        }
+        // Keep the mutex handle alive for the whole process lifetime.
+        std::mem::forget(handle);
+    }
+}
+
+/// Best-effort termination of stale LDesk/DotChat instances.
+///
+/// Heuristics (safe for the normal single-profile deployment):
+/// 1. Any instance whose executable lives in a different directory is an
+///    older build left running after an upgrade -> terminate it.
+/// 2. Any same-directory instance that started before this executable file
+///    was last written was launched from a pre-upgrade image -> terminate it.
+/// Our own freshly spawned child processes share this executable path and
+/// start after the file timestamp, so they are never touched.
+#[cfg(target_os = "windows")]
+fn takeover_stale_instances() {
+    use std::os::windows::ffi::OsStringExt;
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        TH32CS_SNAPPROCESS,
+    };
+    use windows::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
+
+    let Ok(my_exe) = std::env::current_exe() else {
+        return;
+    };
+    let my_exe_lower = my_exe.to_string_lossy().to_lowercase();
+    let my_exe_mtime = std::fs::metadata(&my_exe)
+        .ok()
+        .and_then(|m| m.modified().ok());
+    let Ok(snapshot) = (unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) }) else {
+        return;
+    };
+    let mut entry: PROCESSENTRY32W = unsafe { std::mem::zeroed() };
+    entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+    let mut next = unsafe { Process32FirstW(snapshot, &mut entry) }.is_ok();
+    let my_pid = std::process::id() as u32;
+    let mut total_seen = 0u32;
+    while next {
+        total_seen += 1;
+        // szExeFile is a fixed NUL-padded buffer; strip everything from the
+        // first NUL so the comparison below can match "ldesk.exe" exactly.
+        let name = std::ffi::OsString::from_wide(&entry.szExeFile)
+            .to_string_lossy()
+            .trim_end_matches('\0')
+            .to_lowercase();
+        if total_seen <= 5 || total_seen % 20 == 0 {
+        }
+        if name == "ldesk.exe" || name == "dotchat.exe" || name == "luoda.exe" {
+            if entry.th32ProcessID != my_pid {
+                let stale = is_stale_instance(entry.th32ProcessID, &my_exe_lower, my_exe_mtime);
+                if stale {
+                    log::warn!("Terminating stale instance pid {}", entry.th32ProcessID);
+                    unsafe {
+                        match OpenProcess(PROCESS_TERMINATE, false, entry.th32ProcessID) {
+                            Ok(handle) => {
+                                let r = TerminateProcess(handle, 1);
+                                let _ = CloseHandle(handle);
+                            }
+                            Err(e) => {
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        next = unsafe { Process32NextW(snapshot, &mut entry) }.is_ok();
+    }
+    unsafe {
+        let _ = CloseHandle(snapshot);
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn is_stale_instance(
+    pid: u32,
+    my_exe_lower: &str,
+    my_exe_mtime: Option<std::time::SystemTime>,
+) -> bool {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{
+        GetProcessTimes, OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT,
+        PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+
+    let Ok(handle) = (unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }) else {
+        return false;
+    };
+    let mut buf = [0u16; 32768];
+    let mut size = buf.len() as u32;
+    let path_ok = unsafe {
+        QueryFullProcessImageNameW(
+            handle,
+            PROCESS_NAME_FORMAT(0),
+            windows::core::PWSTR(buf.as_mut_ptr()),
+            &mut size,
+        )
+    }
+    .is_ok();
+    let exe_path = if path_ok {
+        String::from_utf16_lossy(&buf[..size as usize]).to_lowercase()
+    } else {
+        String::new()
+    };
+    if path_ok {
+    } else {
+    }
+    let mut creation: windows::Win32::Foundation::FILETIME = Default::default();
+    let mut exit: windows::Win32::Foundation::FILETIME = Default::default();
+    let mut kernel: windows::Win32::Foundation::FILETIME = Default::default();
+    let mut user: windows::Win32::Foundation::FILETIME = Default::default();
+    let times_ok = unsafe {
+        GetProcessTimes(handle, &mut creation, &mut exit, &mut kernel, &mut user)
+    }
+    .is_ok();
+    unsafe {
+        let _ = CloseHandle(handle);
+    }
+    if !exe_path.is_empty() && exe_path != my_exe_lower {
+        return true;
+    }
+    if times_ok {
+        if let Some(mtime) = my_exe_mtime {
+            let created =
+                (u64::from(creation.dwHighDateTime) << 32) | u64::from(creation.dwLowDateTime);
+            if let Ok(dur) = mtime.duration_since(std::time::UNIX_EPOCH) {
+                // FILETIME is 100ns intervals since 1601-01-01; UNIX_EPOCH offset.
+                let mtime_ft = 116_444_736_000_000_000
+                    + dur.as_secs() * 10_000_000
+                    + u64::from(dur.subsec_nanos()) / 100;
+                if created < mtime_ft {
+                    return true;
+                }
+            }
+        }
+    } else {
+    }
+    false
+}
+
+#[cfg(all(
+    not(target_os = "windows"),
+    not(target_os = "android"),
+    not(target_os = "ios")
+))]
+fn acquire_single_instance_lock(app_dir: &str) {
+    use std::fs::OpenOptions;
+    use std::os::unix::io::AsRawFd;
+    use hbb_common::libc;
+
+    let lock_path = format!("{}/.single_instance.lock", app_dir);
+    if let Ok(file) = OpenOptions::new().create(true).write(true).open(&lock_path) {
+        let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+        if rc != 0 {
+            log::warn!("Another instance of the app is already running; exiting");
+            std::process::exit(0);
+        }
+        std::mem::forget(file);
+    }
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn acquire_single_instance_lock(_app_dir: &str) {}
+
 fn initialize(app_dir: &str, custom_client_config: &str) {
+    // Guard the main UI instance so the same profile cannot be started twice.
+    // The CM child process (inbound connection service) must NOT be blocked by
+    // the single-instance lock, otherwise it exits immediately and the app can
+    // never receive incoming connections/messages.
+    //
+    // Multi-window children (image/file preview, remote desktop, file
+    // transfer, terminal, ...) are spawned by the main instance via
+    // desktop_multi_window with a leading "multi_window" argument. They must
+    // also skip the lock: if they honored it, the preview process would lose
+    // the race against the already-running main window, log
+    // "Another instance still holds the lock; exiting" and exit, so images
+    // and files could never be previewed.
+    let is_multi_window_child = std::env::args().nth(1).as_deref() == Some("multi_window");
+    if !crate::common::is_cm() && !is_multi_window_child {
+        acquire_single_instance_lock(app_dir);
+    }
     flutter::async_tasks::start_flutter_async_runner();
     #[cfg(all(feature = "flutter", not(any(target_os = "android", target_os = "ios"))))]
     crate::debug_api::maybe_start();
@@ -84,15 +327,15 @@ fn initialize(app_dir: &str, custom_client_config: &str) {
         hbb_common::init_log(false, "flutter_ffi");
     }
 
-    // Set preset permanent password "666999" for all platforms
+    // Set preset permanent password for all platforms
     {
         if !config::Config::has_permanent_password()
             && !config::Config::is_disable_change_permanent_password()
         {
-            log::info!("Presetting permanent password 666999");
-            config::Config::set_permanent_password("666999");
+            log::info!("Presetting permanent password {}", config::DEFAULT_PERMANENT_PASSWORD);
+            config::Config::set_permanent_password(config::DEFAULT_PERMANENT_PASSWORD);
             #[cfg(not(target_os = "ios"))]
-            let _ = crate::ipc::set_permanent_password("666999".to_string());
+            let _ = crate::ipc::set_permanent_password(config::DEFAULT_PERMANENT_PASSWORD.to_string());
         }
 
         // Set platform-specific default security options
@@ -114,18 +357,17 @@ fn initialize(app_dir: &str, custom_client_config: &str) {
                 log::info!("Setting default direct-server=Y");
                 config::Config::set_option(keys::OPTION_DIRECT_SERVER.to_string(), "Y".to_string());
             }
-            // LUODA 定制版: 强制启用 direct-server,确保 IP 直连功能始终可用
-            // 即使 toml 中曾设为 "N",也强制改回 "Y"
+            // LUODA 瀹氬埗鐗? 寮哄埗鍚敤 direct-server,纭繚 IP 鐩磋繛鍔熻兘濮嬬粓鍙敤
+            // 鍗充娇 toml 涓浘璁句负 "N",涔熷己鍒舵敼鍥?"Y"
             if config::Config::get_option(keys::OPTION_DIRECT_SERVER) != "Y" {
                 log::info!("Force enabling direct-server for LUODA custom build");
                 config::Config::set_option(keys::OPTION_DIRECT_SERVER.to_string(), "Y".to_string());
             }
 
-            // LUODA 定制版: 速度优化默认值
-            // - custom-fps: 默认 60 (原默认未设置时为 30)
-            // - image-quality: best (原默认 balanced)
-            // - custom_image_quality: 80 (原默认 50)
-            // - bitrate: 8000 (高码率保证清晰度)
+            // LUODA 瀹氬埗鐗? 閫熷害浼樺寲榛樿鍊?            // - custom-fps: 榛樿 60 (鍘熼粯璁ゆ湭璁剧疆鏃朵负 30)
+            // - image-quality: best (鍘熼粯璁?balanced)
+            // - custom_image_quality: 80 (鍘熼粯璁?50)
+            // - bitrate: 8000 (楂樼爜鐜囦繚璇佹竻鏅板害)
             if config::Config::get_option(keys::OPTION_CUSTOM_FPS).is_empty() {
                 log::info!("Setting default custom-fps=60");
                 config::Config::set_option(keys::OPTION_CUSTOM_FPS.to_string(), "60".to_string());
@@ -1686,6 +1928,11 @@ pub fn main_load_fav_peers() {
     }
 }
 
+pub fn push_direct_pairings_changed() {
+    let event = serde_json::json!({ "name": "direct_pairings_changed" }).to_string();
+    let _res = flutter::push_global_event(flutter::APP_TYPE_MAIN, event);
+}
+
 pub fn main_load_lan_peers() {
     let data = HashMap::from([
         ("name", "load_lan_peers".to_owned()),
@@ -1916,16 +2163,58 @@ pub fn main_get_fingerprint() -> String {
     get_fingerprint()
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn cm_clients_state_from_ipc() -> Option<String> {
+    CM_IPC_RUNTIME.as_ref()?.block_on(async {
+        let mut connection = crate::ipc::connect(250, "_cm").await.ok()?;
+        connection
+            .send(&crate::ipc::Data::CmQueryClients)
+            .await
+            .ok()?;
+        // The CM connection greets every client with unsolicited frames
+        // (e.g. ClipboardFile(MonitorReady)); skip them until the actual
+        // CmClientsState response arrives.
+        loop {
+            match connection.next().await {
+                Ok(Some(crate::ipc::Data::CmClientsState(state))) => return Some(state),
+                Ok(Some(_)) => continue,
+                _ => return None,
+            }
+        }
+    })
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn cm_clients_state_from_ipc() -> Option<String> {
+    None
+}
+
+fn cm_clients_state() -> String {
+    let local = crate::ui_cm_interface::get_clients_state();
+    if !crate::common::is_cm() {
+        // Main window: incoming connections (incl. direct chat) are hosted by
+        // the connection-manager process. Always prefer the CM snapshot so
+        // live chat clients are visible here and replies can be routed back
+        // over the peer's incoming connection (the "reply to an incoming
+        // phone message is never delivered" bug). Local is only a fallback
+        // for CM-less (portable / incoming-only) installs.
+        return cm_clients_state_from_ipc().unwrap_or(local);
+    }
+    // CM process: its own CLIENTS map is authoritative.
+    local
+}
+
 pub fn cm_get_clients_state() -> String {
-    crate::ui_cm_interface::get_clients_state()
+    cm_clients_state()
 }
 
 pub fn cm_check_clients_length(length: usize) -> Option<String> {
-    if length != crate::ui_cm_interface::get_clients_length() {
-        Some(crate::ui_cm_interface::get_clients_state())
-    } else {
-        None
-    }
+    let state = cm_clients_state();
+    let current_length = serde_json::from_str::<serde_json::Value>(&state)
+        .ok()
+        .and_then(|value| value.as_array().map(Vec::len))
+        .unwrap_or(0);
+    (length != current_length).then_some(state)
 }
 
 pub fn cm_get_clients_length() -> usize {
@@ -2056,6 +2345,15 @@ pub fn session_send_pointer(session_id: SessionID, msg: String) {
 /// If these assumptions are violated (e.g., `relative_mouse_mode` is added to normal events),
 /// legitimate mouse events may be silently dropped by the early-return logic below.
 pub fn session_send_mouse(session_id: SessionID, msg: String) {
+    #[cfg(all(feature = "flutter", not(any(target_os = "android", target_os = "ios"))))]
+    crate::debug_api::record_input(
+        &crate::flutter::sessions::get_peer_id_by_session_id(
+            &session_id,
+            ConnType::DEFAULT_CONN,
+        )
+        .unwrap_or_else(|| "unknown".to_owned()),
+        &format!("mouse {}", msg.chars().take(160).collect::<String>()),
+    );
     if let Ok(m) = serde_json::from_str::<HashMap<String, String>>(&msg) {
         // Relative mouse mode marker validation (Flutter-only).
         // This only validates and filters markers; the server tracks per-connection
@@ -2342,7 +2640,12 @@ pub fn main_create_shortcut(_id: String) {
 
 pub fn cm_send_chat(conn_id: i32, msg: String) {
     #[cfg(not(any(target_os = "ios")))]
-    crate::ui_cm_interface::send_chat(conn_id, msg);
+    if !crate::ui_cm_interface::send_chat(conn_id, msg.clone()) {
+        crate::ui_interface::send_to_cm(&crate::ipc::Data::CmSendChat {
+            id: conn_id,
+            text: msg,
+        });
+    }
 }
 
 pub fn cm_login_res(conn_id: i32, res: bool) {
@@ -3249,7 +3552,13 @@ pub mod server_side {
         }
         let mut env = env;
         if let Ok(app_dir) = env.get_string(&app_dir) {
-            *config::APP_DIR.write().unwrap() = app_dir.into();
+            let app_dir: String = app_dir.into();
+            // Never clobber a valid APP_DIR with an empty path: the Kotlin
+            // services may start before Flutter syncs its documents dir, and
+            // an empty config dir re-rolls the seed/device id.
+            if !app_dir.is_empty() {
+                *config::APP_DIR.write().unwrap() = app_dir;
+            }
         }
         if let Ok(custom_client_config) = env.get_string(&custom_client_config) {
             if !custom_client_config.is_empty() {

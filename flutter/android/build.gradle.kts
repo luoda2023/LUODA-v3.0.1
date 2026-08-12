@@ -24,7 +24,29 @@ allprojects {
 }
 
 subprojects {
-    // Java 17 is the default for Android Gradle Plugin 8.x
-    // The whenPluginAdded block was removed because it conflicts with
-    // newer Gradle Kotlin DSL versions.
+    buildscript {
+        configurations.configureEach {
+            resolutionStrategy.eachDependency {
+                if (requested.group == "com.android.tools.build" && requested.name == "gradle") {
+                    useVersion("8.1.0")
+                }
+            }
+        }
+    }
+
+    plugins.withId("com.android.library") {
+        extensions.configure<com.android.build.gradle.LibraryExtension> {
+            val androidExtensions =
+                (this as org.gradle.api.plugins.ExtensionAware).extensions
+            if (androidExtensions.findByName("flutter") == null) {
+                androidExtensions.add(
+                    "flutter",
+                    mapOf("compileSdkVersion" to 35),
+                )
+            }
+            if (namespace == null) {
+                namespace = project.group.toString()
+            }
+        }
+    }
 }

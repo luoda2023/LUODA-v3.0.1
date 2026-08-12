@@ -1,4 +1,4 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -448,8 +448,7 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
     }
 
     toolbarItems.add(Obx(() {
-      if (PrivacyModeState.find(widget.id).isEmpty &&
-          pi.displaysCount.value > 1) {
+      if (PrivacyModeState.find(widget.id).isEmpty && pi.displays.length > 1) {
         return _MonitorMenu(
             id: widget.id,
             ffi: widget.ffi,
@@ -458,6 +457,9 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
         return Offstage();
       }
     }));
+    toolbarItems.add(Obx(() => pi.windowsSessionsJson.isNotEmpty
+        ? _WindowsSessionMenu(id: widget.id, ffi: widget.ffi)
+        : const Offstage()));
 
     toolbarItems
         .add(_ControlMenu(id: widget.id, ffi: widget.ffi, state: widget.state));
@@ -469,6 +471,12 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
       state: widget.state,
       setFullscreen: _setFullscreen,
     ));
+    // Quick desktop viewport switch: shown to the right of the Display menu.
+    // Always visible so users can find it; enabled only when the remote host
+    // reports multiple displays or multiple Windows sessions (e.g. a PC with 2 desktops).
+    if (PrivacyModeState.find(widget.id).isEmpty) {
+      toolbarItems.add(_QuickDisplaySwitchButton(id: widget.id, ffi: widget.ffi));
+    }
     // Do not show keyboard for camera connection type.
     if (widget.ffi.connType == ConnType.defaultConn) {
       toolbarItems.add(_KeyboardMenu(id: widget.id, ffi: widget.ffi));
@@ -716,6 +724,27 @@ class _MobileActionMenu extends StatelessWidget {
   }
 }
 
+class _WindowsSessionMenu extends StatelessWidget {
+  const _WindowsSessionMenu({
+    required this.id,
+    required this.ffi,
+  });
+
+  final String id;
+  final FFI ffi;
+
+  @override
+  Widget build(BuildContext context) => _IconMenuButton(
+        icon: const Icon(Icons.desktop_windows_outlined),
+        tooltip: 'Switch Windows session',
+        label: 'Desktop',
+        onPressed: () =>
+            ffi.ffiModel.showWindowsSessionsSelector(ffi.sessionId, id),
+        color: _ToolbarTheme.blueColor,
+        hoverColor: _ToolbarTheme.hoverBlueColor,
+      );
+}
+
 class _MonitorMenu extends StatelessWidget {
   final String id;
   final FFI ffi;
@@ -727,8 +756,14 @@ class _MonitorMenu extends StatelessWidget {
     required this.setRemoteState,
   }) : super(key: key);
 
-  bool get showMonitorsToolbar =>
-      bind.mainGetUserDefaultOption(key: kKeyShowMonitorsToolbar) == 'Y';
+  bool get showMonitorsToolbar {
+    // Default ON: the display-viewport switch buttons should be visible for
+    // multi-monitor hosts out of the box; users can still turn it off in
+    // settings (value becomes 'N').
+    final value =
+        bind.mainGetUserDefaultOption(key: kKeyShowMonitorsToolbar);
+    return value == 'Y' || value.isEmpty;
+  }
 
   bool get supportIndividualWindows =>
       !isWeb && ffi.ffiModel.pi.isSupportMultiDisplay;
@@ -945,6 +980,162 @@ class _MonitorMenu extends StatelessWidget {
         openMonitorInTheSameTab(i, ffi, pi, updateCursorPos: !isMulti);
       }
     }
+  }
+}
+
+/// Quick switch button that cycles the remote desktop viewport between
+/// multiple displays or multiple Windows sessions. Shown to the right of
+/// the Display menu when the remote host has more than one display or more
+/// than one Windows session (e.g. a PC with 2 desktops).
+class _QuickDisplaySwitchButton extends StatelessWidget {
+  final String id;
+  final FFI ffi;
+  const _QuickDisplaySwitchButton(
+      {Key? key, required this.id, required this.ffi})
+      : super(key: key);
+
+  List<Map<String, dynamic>> _sessions(String json) {
+    try {
+      final decoded = jsonDecode(json);
+      if (decoded is List) {
+        return decoded.cast<Map<String, dynamic>>();
+      }
+    } catch (e) {
+      debugPrint('Failed to parse windows sessions: $e');
+    }
+    return const [];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ffiModel = Provider.of<FfiModel>(context);
+    final pi = ffiModel.pi;
+    return Obx(() {
+      final current = CurrentDisplayState.find(id).value;
+      final displayCount = pi.displays.length;
+      final sessions = _sessions(pi.windowsSessionsJson.value);
+      final hasSessions = sessions.length > 1;
+      if (hasSessions || displayCount >= 2) {
+        // Show one switch button per desktop viewport (Windows session or
+        // monitor), so users can jump directly to any remote desktop.
+        final children = <Widget>[];
+        if (hasSessions) {
+          final cursor = CurrentSessionState.find(id).value;
+          for (var i = 0; i < sessions.length; i++) {
+            final s = sessions[i];
+            children.add(_DesktopViewportButton(
+              label: _sessionButtonLabel(s, i),
+              active: cursor % sessions.length == i,
+              onTap: () {
+                if (CurrentSessionState.find(id).value % sessions.length ==
+                    i) {
+                  return;
+                }
+                CurrentSessionState.find(id).value = i;
+                final sid = s['sid'];
+                if (sid != null) {
+                  showToast(translate('Switching desktop'));
+                  bind.sessionSendSelectedSessionId(
+                      sessionId: ffi.sessionId, sid: sid.toString());
+                }
+              },
+            ));
+          }
+        } else {
+          for (var i = 0; i < displayCount; i++) {
+            children.add(_DesktopViewportButton(
+              label: '${translate('Display')} ${i + 1}',
+              active: current == i,
+              onTap: () => openMonitorInTheSameTab(i, ffi, pi),
+            ));
+          }
+          children.add(_DesktopViewportButton(
+            label: translate('All'),
+            active: current == kAllDisplayValue,
+            onTap: () => openMonitorInTheSameTab(kAllDisplayValue, ffi, pi),
+          ));
+        }
+        return Row(mainAxisSize: MainAxisSize.min, children: children);
+      }
+      // Keep a single entry point so the feature stays discoverable.
+      return _IconMenuButton(
+        tooltip: 'Switch desktop viewport',
+        label: 'Switch Desktop',
+        icon: const Icon(Icons.swap_horiz),
+        onPressed: () => showToast(translate('No other desktop available')),
+        color: _ToolbarTheme.blueColor,
+        hoverColor: _ToolbarTheme.hoverBlueColor,
+      );
+    });
+  }
+
+  String _sessionButtonLabel(Map<String, dynamic> s, int index) {
+    final name = (s['name'] ?? '').toString().trim();
+    if (name.isNotEmpty) return name;
+    final user = (s['user'] ?? '').toString().trim();
+    if (user.isNotEmpty) return user;
+    return '${translate('Desktop')} ${index + 1}';
+  }
+}
+
+class _DesktopViewportButton extends StatelessWidget {
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  const _DesktopViewportButton({
+    Key? key,
+    required this.label,
+    required this.active,
+    required this.onTap,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    final background = active
+        ? _ToolbarTheme.blueColor
+        : _ToolbarTheme.surfaceColor(context);
+    final foreground = active
+        ? Colors.white
+        : _ToolbarTheme.resolveForeground(context, background);
+    final radius = _ToolbarTheme.menuButtonBorderRadius;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 7),
+      child: Tooltip(
+        message: label,
+        child: Material(
+          color: background,
+          borderRadius: BorderRadius.circular(radius),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(radius),
+            onTap: onTap,
+            child: Container(
+              height: 44,
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(radius),
+                border: Border.all(
+                  color: active
+                      ? _ToolbarTheme.blueColor
+                      : _ToolbarTheme.borderColor(context),
+                ),
+              ),
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w600,
+                  color: foreground,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -2308,7 +2499,19 @@ class _ChatMenuState extends State<_ChatMenu> {
   }
 
   _textChatOnPressed() {
-    DesktopHomePage.selectSection('chat');
+    final peerId = widget.id;
+    if (peerId.isEmpty) {
+      DesktopHomePage.selectSection('chat');
+      return;
+    }
+    // The remote window is a separate multi-window isolate: DesktopHomePage
+    // does not exist here, so ask the main window to open the direct chat
+    // conversation for this session instead of silently doing nothing.
+    unawaited(luodaWinManager.call(
+      WindowType.Main,
+      kWindowEventOpenDirectChat,
+      {'id': peerId},
+    ));
   }
 
   voiceCall() {

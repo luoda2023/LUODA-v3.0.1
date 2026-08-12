@@ -1,4 +1,7 @@
 class DirectChatStorage {
+  /// Web stub: no filesystem, so external-process change detection is N/A.
+  Future<DateTime?> modifiedTime() async => null;
+
   String? _value;
 
   Future<String?> read() async => _value;

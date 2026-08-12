@@ -10,8 +10,12 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 
-import '../../consts.dart';
+import '../../utils/multi_window_manager.dart';
+import 'docx_native_preview.dart';
+import 'dwg_preview_view.dart';
 import 'file_preview_types.dart';
+import 'office_preview_view.dart';
+import 'pdf_native_preview.dart';
 
 String formatFileSize(int fileSize) {
   if (fileSize < 1024) return '$fileSize B';
@@ -23,6 +27,8 @@ String formatFileSize(int fileSize) {
 
 /// Best-effort resolution of an incoming file's on-disk path by matching the
 /// file name (and optionally size) inside well-known download/storage folders.
+/// Files larger than the inline limit arrive through the transfer subsystem
+/// and land in the peer's home directory, so that location is searched too.
 Future<String?> resolveReceivedFilePath(String fileName, int fileSize) async {
   if (fileName.isEmpty) return null;
   final dirs = <Directory>[];
@@ -40,6 +46,25 @@ Future<String?> resolveReceivedFilePath(String fileName, int fileSize) async {
     final ext = await ExternalPath.getExternalStorageDirectories();
     for (final directory in ext) {
       dirs.add(Directory(directory));
+    }
+  } catch (_) {}
+  // Transfer-subsystem files land in the peer home dir: `~` on desktop,
+  // external storage root on Android (already covered above), and the
+  // internal data dir on iOS (covered by getApplicationDocumentsDirectory).
+  try {
+    final home = Platform.environment['USERPROFILE'] ??
+        Platform.environment['HOME'];
+    if (home != null && home.trim().isNotEmpty) {
+      final homeDir = Directory(home);
+      if (!dirs.contains(homeDir)) dirs.add(homeDir);
+    }
+  } catch (_) {}
+  // The "DotChat" folder used by the Rust core as the Android receive root.
+  try {
+    final ext = await ExternalPath.getExternalStorageDirectories();
+    for (final directory in ext) {
+      final dotChat = Directory('${directory}${Platform.pathSeparator}DotChat');
+      if (await dotChat.exists() && !dirs.contains(dotChat)) dirs.add(dotChat);
     }
   } catch (_) {}
 
@@ -132,7 +157,7 @@ Future<void> showFileViewer(
   try {
     final windowController = await DesktopMultiWindow.createWindow(
       jsonEncode({
-        'type': kAppTypeDesktopFilePreview,
+        'type': WindowType.FilePreview.index,
         'file_path': path,
         'file_name': fileName,
         if (siblingPaths != null) 'sibling_paths': siblingPaths,
@@ -140,7 +165,10 @@ Future<void> showFileViewer(
     );
     await windowController.setTitle(fileName);
     if (filePreviewKindForName(fileName) == FilePreviewKind.image) {
-      await windowController.setFullscreen(true);
+      await windowController.setFrame(
+        const Offset(0, 0) & const Size(1120, 760),
+      );
+      await windowController.center();
     } else {
       await windowController.setFrame(
         const Offset(0, 0) & const Size(960, 720),
@@ -281,6 +309,34 @@ class _FileViewerPage extends StatelessWidget {
     if (kind == FilePreviewKind.audio) return _AudioPreview(path!, fileName);
     if (kind == FilePreviewKind.text || kind == FilePreviewKind.code) {
       return _TextPreview(path!, fileName);
+    }
+    if (kind == FilePreviewKind.pdf) {
+      return PdfNativePreview(
+        path: path!,
+        fileName: fileName,
+        fileSize: fileSize,
+      );
+    }
+    if (kind == FilePreviewKind.document) {
+      return DocxNativePreview(
+        path: path!,
+        fileName: fileName,
+        fileSize: fileSize,
+      );
+    }
+    if (isOfficeTextPreviewKind(kind)) {
+      return OfficeTextPreviewView(
+        path: path!,
+        fileName: fileName,
+        fileSize: fileSize,
+      );
+    }
+    if (kind == FilePreviewKind.cad) {
+      return DwgPreviewView(
+        path: path!,
+        fileName: fileName,
+        fileSize: fileSize,
+      );
     }
     return _OtherPreview(path!, fileName, fileSize);
   }

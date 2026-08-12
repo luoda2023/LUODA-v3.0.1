@@ -1,3 +1,8 @@
+// bt_windows.h must be included before flutter_window.h so WIN32_LEAN_AND_MEAN
+// is defined before <windows.h> is first seen (avoids winsock.h/winsock2.h
+// redefinition errors).
+#include "bt_windows.h"
+
 #include "flutter_window.h"
 
 #include <desktop_multi_window/desktop_multi_window_plugin.h>
@@ -40,6 +45,12 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+
+  // Classic Bluetooth (RFCOMM) bridge for DotChat: mirrors the Android
+  // BluetoothService.kt protocol so the same Dart BluetoothService works on
+  // both PC and phone.
+  luoda::BtWindows::instance().Init(flutter_controller_->engine()->messenger(),
+                                    GetHandle());
 
   flutter::MethodChannel<> channel(
     flutter_controller_->engine()->messenger(),
@@ -96,6 +107,7 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  luoda::BtWindows::instance().Shutdown();
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
@@ -121,6 +133,10 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     case WM_FONTCHANGE:
       flutter_controller_->engine()->ReloadSystemFonts();
       break;
+    case luoda::kLuodaBtEventMessage:
+      luoda::BtWindows::instance().DeliverEvent(
+          reinterpret_cast<flutter::EncodableMap*>(lparam));
+      return 0;
   }
 
   return Win32Window::MessageHandler(hwnd, message, wparam, lparam);

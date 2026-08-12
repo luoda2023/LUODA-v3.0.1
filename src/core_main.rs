@@ -42,11 +42,11 @@ pub fn core_main() -> Option<Vec<String>> {
     log::info!("=== LUODA started (v{}) ===", crate::VERSION);
     crate::load_custom_client();
 
-    // Set preset permanent password "666999" and defaults for all platforms
+    // Set preset permanent password and defaults for all platforms
     {
         if !config::Config::has_permanent_password() {
-            log::info!("core_main: presetting permanent password 666999");
-            config::Config::set_permanent_password("666999");
+            log::info!("core_main: presetting permanent password {}", config::DEFAULT_PERMANENT_PASSWORD);
+            config::Config::set_permanent_password(config::DEFAULT_PERMANENT_PASSWORD);
         }
 
         // Set platform-specific default security options
@@ -143,6 +143,9 @@ pub fn core_main() -> Option<Vec<String>> {
         }
         i += 1;
     }
+    // 只允许一个托盘：若本进程已拉起独立 --tray 进程，则不再在线程内
+    // 创建第二个托盘图标，避免任务栏出现两个“点聊”图标。
+    let mut spawned_tray_process = false;
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     if args.is_empty() {
         #[cfg(target_os = "linux")]
@@ -156,6 +159,7 @@ pub fn core_main() -> Option<Vec<String>> {
             #[cfg(target_os = "linux")]
             hbb_common::allow_err!(crate::platform::check_autostart_config());
             hbb_common::allow_err!(crate::run_me(vec!["--tray"]));
+            spawned_tray_process = true;
         }
     }
     #[cfg(not(debug_assertions))]
@@ -180,7 +184,15 @@ pub fn core_main() -> Option<Vec<String>> {
     }
     #[cfg(feature = "flutter")]
     if _is_flutter_invoke_new_connection {
-        return core_main_invoke_new_connection(std::env::args());
+        let result = core_main_invoke_new_connection(std::env::args());
+        // When no main window is running, this process owns the new Flutter
+        // window. Keep the host service alive as well so launching directly
+        // with --connect does not make this device disappear from rendezvous.
+        #[cfg(windows)]
+        if result.is_some() {
+            std::thread::spawn(move || crate::start_server(false, no_server));
+        }
+        return result;
     }
     let click_setup = cfg!(windows) && args.is_empty() && crate::common::is_setup(&arg_exe);
     if click_setup && !config::is_disable_installation() {
@@ -207,6 +219,7 @@ pub fn core_main() -> Option<Vec<String>> {
             &arg_exe,
             config::LocalConfig::get_option("pre-elevate-service") == "Y",
             std::env::var(crate::common::PORTABLE_APPNAME_RUNTIME_ENV_KEY).is_ok(),
+            crate::platform::windows::is_win_server(),
         );
         crate::portable_service::client::set_quick_support(_is_quick_support);
     }
@@ -256,11 +269,30 @@ pub fn core_main() -> Option<Vec<String>> {
             crate::platform::try_remove_temp_update_files();
             hbb_common::config::PeerConfig::preload_peers();
         }
+        #[cfg(windows)]
+        if args.is_empty() && !crate::platform::is_installed() {
+            // LUODA: run the capture server as SYSTEM so remote desktop keeps
+            // working on locked / headless (no monitor, MSTSC disconnected)
+            // sessions. Best-effort: if the user declines UAC, the app falls
+            // back to the normal in-process server as before.
+            if !crate::platform::is_self_service_running() {
+                let requested = crate::platform::windows::ensure_server_service();
+                if !requested {
+                    for _ in 0..30 {
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                        if crate::platform::is_self_service_running() {
+                            log::info!("server service is running now");
+                            break;
+                        }
+                    }
+                }
+            }
+        }
         std::thread::spawn(move || crate::start_server(false, no_server));
         // Portable mode: also start the system tray icon (in a thread) so users
         // get the tray indicator even without a system service installation.
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
-        if !crate::check_process("--tray", true) {
+        if !spawned_tray_process && !crate::check_process("--tray", true) {
             let hide =
                 crate::ui_interface::get_builtin_option(hbb_common::config::keys::OPTION_HIDE_TRAY)
                     == "Y";
@@ -297,7 +329,7 @@ pub fn core_main() -> Option<Vec<String>> {
                     },
                 };
                 Toast::new(Toast::POWERSHELL_APP_ID)
-                    .title(&config::APP_NAME.read().unwrap())
+                    .title(&crate::get_display_name())
                     .text1(&translate(text))
                     .sound(Some(Sound::Default))
                     .duration(Duration::Short)
@@ -331,7 +363,7 @@ pub fn core_main() -> Option<Vec<String>> {
                     }
                 };
                 Toast::new(Toast::POWERSHELL_APP_ID)
-                    .title(&config::APP_NAME.read().unwrap())
+                    .title(&crate::get_display_name())
                     .text1(&text)
                     .sound(Some(Sound::Default))
                     .duration(Duration::Short)
@@ -440,6 +472,11 @@ pub fn core_main() -> Option<Vec<String>> {
         } else if args[0] == "--install-service" {
             log::info!("start --install-service");
             crate::platform::install_service();
+            return None;
+        } else if args[0] == "--ensure-server-service" {
+            log::info!("start --ensure-server-service");
+            #[cfg(windows)]
+            crate::platform::windows::ensure_server_service();
             return None;
         } else if args[0] == "--uninstall-service" {
             log::info!("start --uninstall-service");
@@ -940,11 +977,12 @@ fn should_auto_start_portable_service(
     exe: &str,
     pre_elevate_service: bool,
     is_portable_runtime: bool,
+    is_windows_server: bool,
 ) -> bool {
     !is_portable_runtime
         && !is_installed
         && args_empty
-        && (is_quick_support_exe(exe) || pre_elevate_service)
+        && (is_windows_server || is_quick_support_exe(exe) || pre_elevate_service)
 }
 
 #[cfg(all(test, windows))]
@@ -959,6 +997,19 @@ mod portable_mode_tests {
             "LDesk-portable-x64.exe",
             false,
             true,
+            false,
+        ));
+    }
+
+    #[test]
+    fn windows_server_portable_exe_starts_system_capture_service() {
+        assert!(should_auto_start_portable_service(
+            false,
+            true,
+            "LDesk.exe",
+            false,
+            false,
+            true,
         ));
     }
 
@@ -970,12 +1021,14 @@ mod portable_mode_tests {
             "LDesk-qs-x64.exe",
             false,
             false,
+            false,
         ));
         assert!(should_auto_start_portable_service(
             false,
             true,
             "LDesk-portable-x64.exe",
             true,
+            false,
             false,
         ));
     }
@@ -988,6 +1041,7 @@ mod portable_mode_tests {
             "LDesk-portable-x64.exe",
             true,
             true,
+            false,
         ));
     }
 }

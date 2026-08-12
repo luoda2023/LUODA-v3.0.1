@@ -13,8 +13,8 @@ use hbb_common::{
     allow_err,
     anyhow::{self, bail},
     config::{
-        self, keys::*, option2bool, use_ws, Config, CONNECT_TIMEOUT, DEFAULT_DIRECT_PORT,
-        REG_INTERVAL, RENDEZVOUS_PORT,
+        self, keys::*, option2bool, use_ws, Config, LocalConfig, CONNECT_TIMEOUT,
+        DEFAULT_DIRECT_PORT, REG_INTERVAL, RENDEZVOUS_PORT,
     },
     futures::future::join_all,
     log,
@@ -38,6 +38,13 @@ use crate::{
 
 type Message = RendezvousMessage;
 
+/// Safe elapsed that never panics even if the monotonic clock jumps backwards
+/// (e.g. on VMs or after sleep/hibernate), where `Instant::elapsed()` would
+/// abort the whole process under `panic = "abort"`.
+fn elapsed_safe(t: Instant) -> Duration {
+    Instant::now().checked_duration_since(t).unwrap_or(Duration::ZERO)
+}
+
 lazy_static::lazy_static! {
     static ref SOLVING_PK_MISMATCH: Mutex<String> = Default::default();
     static ref LAST_MSG: Mutex<(SocketAddr, Instant)> = Mutex::new((SocketAddr::new([0; 4].into(), 0), Instant::now()));
@@ -51,7 +58,6 @@ fn normalize_transport_options() {
     #[cfg(target_os = "windows")]
     if crate::platform::windows::is_win_server() {
         Config::set_option(OPTION_ALLOW_WEBSOCKET.to_owned(), "N".to_owned());
-        Config::set_option(OPTION_DISABLE_UDP.to_owned(), "Y".to_owned());
         // Ensure direct IP access listener is always enabled on Windows Server
         // so that remote peers can connect via IP:port without a rendezvous server.
         if Config::get_option(OPTION_DIRECT_SERVER).is_empty() {
@@ -91,6 +97,17 @@ impl RendezvousMediator {
 
     pub async fn start_all() {
         normalize_transport_options();
+        // LUODA fix: a stale `serverless-direct-only=Y` (left by earlier serverless
+        // experiments or a cloned config) skips rendezvous registration AND the
+        // proactive --cm connection-manager start, leaving the device stuck at
+        // "direct listening" and unreachable by ID for chat and remote assistance.
+        // Clear it at the very top of start_all so every downstream check runs in
+        // normal online mode.
+        if Config::get_option(OPTION_SERVERLESS_DIRECT_ONLY) == "Y" {
+            log::warn!("start_all: clearing stale serverless-direct-only=Y so the device registers");
+            Config::set_option(OPTION_SERVERLESS_DIRECT_ONLY.to_owned(), String::new());
+        }
+
         #[cfg(target_os = "windows")]
         if std::env::var_os(crate::common::PORTABLE_APPNAME_RUNTIME_ENV_KEY).is_some() {
             // Portable mode: only attempt headless virtual display when no
@@ -129,11 +146,14 @@ impl RendezvousMediator {
                 sleep(1.).await;
             }
         }
-        if !crate::is_luoda() {
-            crate::hbbs_http::sync::start();
-        }
+        // LUODA builds also report presence to the API server (device registry),
+        // so peers that consult the server-side peer list see this device online.
+        log::info!("DBG start_all: after test_nat_type/outgoing check");
+        crate::hbbs_http::sync::start();
+        log::info!("DBG start_all: hbbs_http started");
         check_zombie();
         let server = new_server();
+        log::info!("DBG start_all: new_server done");
         if !crate::is_luoda()
             && config::option2bool("stop-service", &Config::get_option("stop-service"))
         {
@@ -143,23 +163,89 @@ impl RendezvousMediator {
         tokio::spawn(async move {
             direct_server(server_cloned).await;
         });
+        // LUODA: proactively start the connection manager (--cm) so the app is
+        // immediately reachable and the UI shows "Online" right away. Without
+        // this, the _cm IPC server only comes up after the first inbound
+        // connection, leaving the status stuck at "Direct listening" and
+        // inbound messages unprocessed until then.
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        if !crate::is_serverless_direct_only()
+            && !crate::common::is_cm()
+            && !crate::check_process("--cm", false)
+        {
+            match crate::run_me(vec!["--cm"]) {
+                Ok(child) => {
+                    crate::server::CHILD_PROCESS.lock().unwrap().push(child);
+                    log::info!("start_all: proactively started --cm connection manager");
+                }
+                Err(err) => {
+                    log::warn!("start_all: failed to start --cm: {}", err);
+                }
+            }
+        }
+        // LUODA: watchdog keeps the connection manager (--cm) resident. If the
+        // CM window is closed or the process exits for any reason, inbound
+        // chat/remote requests silently stall ("direct listening" forever,
+        // messages need a manual P2P poke to arrive). Probe the _cm IPC pipe
+        // every 10s and relaunch the CM when it is gone.
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        if !crate::is_serverless_direct_only() && !crate::common::is_cm() {
+            tokio::spawn(async move {
+                loop {
+                    sleep(10.).await;
+                    let cm_reachable = crate::ipc::connect(1000, "_cm").await.is_ok();
+                    if cm_reachable || crate::check_process("--cm", false) {
+                        continue;
+                    }
+                    log::warn!("cm watchdog: connection manager not reachable, restarting --cm");
+                    if let Ok(child) = crate::run_me(vec!["--cm"]) {
+                        crate::server::CHILD_PROCESS.lock().unwrap().push(child);
+                    }
+                }
+            });
+        }
         #[cfg(target_os = "android")]
         let start_lan_listening = true;
         #[cfg(target_os = "ios")]
         let start_lan_listening = false;
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
-        let start_lan_listening = crate::platform::is_installed();
+        let start_lan_listening = true;
         if start_lan_listening {
             std::thread::spawn(move || {
                 allow_err!(super::lan::start_listening());
             });
+            // LUODA: periodic LAN discovery keeps direct pairings fresh when
+            // direct-access ports are randomized per machine (DHCP changes too).
+            // Without it, stored ip:port endpoints go stale and ID connections
+            // degrade to relay/punch, which may fail for LAN peers.
+            if config::option2bool(
+                "enable-lan-discovery",
+                &Config::get_option("enable-lan-discovery"),
+            ) {
+                std::thread::spawn(|| loop {
+                    std::thread::sleep(std::time::Duration::from_secs(30));
+                    allow_err!(super::lan::discover());
+                });
+            }
         }
+        log::info!("DBG start_all: lan spawned");
         // It is ok to run xdesktop manager when the headless function is not allowed.
         #[cfg(target_os = "linux")]
         if crate::is_server() {
             crate::platform::linux_desktop_manager::start_xdesktop();
         }
         scrap::codec::test_av1();
+                // LUODA fix: a stale `stop-service=Y` (left by an earlier uninstall or
+        // a previous "stop service" toggle) must not silently cripple a freshly
+        // started server. The UI toggle still stops the *current* session via
+        // RendezvousMediator::restart(); on the next start the device should be
+        // online again, otherwise B/C devices stay stuck at "direct listening"
+        // forever and incoming chat/remote requests never arrive.
+        if Config::get_option("stop-service") == "Y" {
+            log::warn!("start_all: clearing stale stop-service=Y so the server registers");
+            Config::set_option("stop-service".to_owned(), String::new());
+        }
+        log::info!("DBG start_all: test_av1 done, entering loop");
         loop {
             if crate::is_serverless_direct_only() {
                 log::info!("LDesk serverless mode: direct listener and LAN discovery only");
@@ -176,6 +262,7 @@ impl RendezvousMediator {
             {
                 let mut futs = Vec::new();
                 let servers = Config::get_rendezvous_servers();
+                log::info!("DBG loop: rendezvous servers = {:?}, stop-service={}, installing={}", servers, config::option2bool("stop-service", &Config::get_option("stop-service")), crate::platform::installing_service());
                 SHOULD_EXIT.store(false, Ordering::SeqCst);
                 MANUAL_RESTARTED.store(false, Ordering::SeqCst);
                 for host in servers.clone() {
@@ -204,7 +291,7 @@ impl RendezvousMediator {
             Config::reset_online();
             let timeout = *timeout.read().unwrap();
             if !MANUAL_RESTARTED.load(Ordering::SeqCst) {
-                let elapsed = conn_start_time.elapsed().as_millis() as u64;
+                let elapsed = elapsed_safe(conn_start_time).as_millis() as u64;
                 if elapsed < timeout {
                     sleep(((timeout - elapsed) / 1000) as _).await;
                 }
@@ -258,7 +345,7 @@ impl RendezvousMediator {
                 fails = 0;
                 reg_timeout = MIN_REG_TIMEOUT;
                 let mut latency = last_register_sent
-                    .map(|x| x.elapsed().as_micros() as i64)
+                    .map(|x| elapsed_safe(x).as_micros() as i64)
                     .unwrap_or(0);
                 last_register_sent = None;
                 if latency < 0 || latency > 1_000_000 {
@@ -303,9 +390,9 @@ impl RendezvousMediator {
                     let now = Some(Instant::now());
                     // Use shorter interval when re-registering after disconnect
                     let expired = last_register_resp
-                        .map(|x| x.elapsed().as_millis() as i64 >= REG_INTERVAL_RECOVERY)
+                        .map(|x| elapsed_safe(x).as_millis() as i64 >= REG_INTERVAL_RECOVERY)
                         .unwrap_or(true);
-                    let timeout = last_register_sent.map(|x| x.elapsed().as_millis() as i64 >= reg_timeout).unwrap_or(false);
+                    let timeout = last_register_sent.map(|x| elapsed_safe(x).as_millis() as i64 >= reg_timeout).unwrap_or(false);
                     // temporarily disable exponential backoff for android before we add wakeup trigger to force connect in android
                     #[cfg(not(any(target_os = "android", target_os = "ios")))]
                     if crate::using_public_server() { // only turn on this for public server, may help DDNS self-hosting user.
@@ -319,7 +406,11 @@ impl RendezvousMediator {
                             if fails >= MAX_FAILS2 {
                                 Config::update_latency(&host, -1);
                                 old_latency = 0;
-                                if last_dns_check.elapsed().as_millis() as i64 > DNS_INTERVAL {
+                                log::warn!(
+                                    "Rendezvous server {} not responding over UDP after {} attempts, switching to TCP",
+                                    host, fails
+                                );
+                                if elapsed_safe(last_dns_check).as_millis() as i64 > DNS_INTERVAL {
                                     // in some case of network reconnect (dial IP network),
                                     // old UDP socket not work any more after network recover
                                     if let Some((s, new_addr)) = socket_client::rebind_udp_for(&rz.host).await? {
@@ -329,6 +420,7 @@ impl RendezvousMediator {
                                     }
                                     last_dns_check = Instant::now();
                                 }
+                                bail!("UDP rendezvous registration timed out");
                             } else if fails >= MAX_FAILS1 {
                                 Config::update_latency(&host, 0);
                                 old_latency = 0;
@@ -448,7 +540,7 @@ impl RendezvousMediator {
         loop {
             let mut update_latency = || {
                 let latency = last_register_sent
-                    .map(|x| x.elapsed().as_micros() as i64)
+                    .map(|x| elapsed_safe(x).as_micros() as i64)
                     .unwrap_or(0);
                 Config::update_latency(&host, latency);
                 log::debug!("Latency of {}: {}ms", host, latency as f64 / 1000.);
@@ -471,12 +563,12 @@ impl RendezvousMediator {
                         break;
                     }
                     // https://www.emqx.com/en/blog/mqtt-keep-alive
-                    if last_recv_msg.elapsed().as_millis() as u64 > rz.keep_alive as u64 * 3 / 2 {
+                    if elapsed_safe(last_recv_msg).as_millis() as u64 > rz.keep_alive as u64 * 3 / 2 {
                         log::error!("Rendezvous connection to {} timed out (no response for {}ms)",
                             host, rz.keep_alive as u64 * 3 / 2);
                         bail!("Rendezvous connection is timeout");
                     }
-                    if last_register_sent.map(|x| x.elapsed().as_millis() as i64).unwrap_or(REG_INTERVAL_RECOVERY) >= REG_INTERVAL_RECOVERY {
+                    if last_register_sent.map(|x| elapsed_safe(x).as_millis() as i64).unwrap_or(REG_INTERVAL_RECOVERY) >= REG_INTERVAL_RECOVERY {
                         let key_confirmed = Config::get_key_confirmed();
                         let host_key_confirmed = Config::get_host_key_confirmed(&rz.host_prefix);
                         if !key_confirmed || !host_key_confirmed {
@@ -514,16 +606,27 @@ impl RendezvousMediator {
         let windows_server = crate::platform::windows::is_win_server();
         #[cfg(not(target_os = "windows"))]
         let windows_server = false;
-        //If the investment agent type is http or https, then tcp forwarding is enabled.
-        if windows_server
-            || (cfg!(debug_assertions) && option_env!("TEST_TCP").is_some())
-            || Config::is_proxy()
-            || use_ws()
-            || crate::is_udp_disabled()
-        {
+        if should_use_tcp_rendezvous(
+            windows_server,
+            cfg!(debug_assertions) && option_env!("TEST_TCP").is_some(),
+            Config::is_proxy(),
+            use_ws(),
+            crate::is_udp_disabled(),
+        ) {
             Self::start_tcp(server, host).await
         } else {
-            Self::start_udp(server, host).await
+            // Try UDP first (lower latency, enables hole punching). Some
+            // networks/cloud firewalls silently drop outbound UDP, which would
+            // leave the device permanently "offline" (status 0 -> direct
+            // listening only). Fall back to TCP registration in that case so
+            // presence and ID-based discovery keep working everywhere.
+            match Self::start_udp(server.clone(), host.clone()).await {
+                Ok(()) => Ok(()),
+                Err(err) => {
+                    log::warn!("UDP rendezvous failed, falling back to TCP: {}", err);
+                    Self::start_tcp(server, host).await
+                }
+            }
         }
     }
 
@@ -532,7 +635,7 @@ impl RendezvousMediator {
         let last = *LAST_RELAY_MSG.lock().await;
         *LAST_RELAY_MSG.lock().await = (addr, Instant::now());
         // skip duplicate relay request messages
-        if last.0 == addr && last.1.elapsed().as_millis() < 100 {
+        if last.0 == addr && elapsed_safe(last.1).as_millis() < 100 {
             return Ok(());
         }
 
@@ -603,7 +706,7 @@ impl RendezvousMediator {
         let last = *LAST_MSG.lock().await;
         *LAST_MSG.lock().await = (addr, Instant::now());
         // skip duplicate punch hole messages
-        if last.0 == addr && last.1.elapsed().as_millis() < 100 {
+        if last.0 == addr && elapsed_safe(last.1).as_millis() < 100 {
             return Ok(());
         }
         let peer_addr_v6 = hbb_common::AddrMangle::decode(&fla.socket_addr_v6);
@@ -699,7 +802,7 @@ impl RendezvousMediator {
         let last = *LAST_MSG.lock().await;
         *LAST_MSG.lock().await = (peer_addr, Instant::now());
         // skip duplicate punch hole messages
-        if last.0 == peer_addr && last.1.elapsed().as_millis() < 100 {
+        if last.0 == peer_addr && elapsed_safe(last.1).as_millis() < 100 {
             return Ok(());
         }
         let peer_addr_v6 = hbb_common::AddrMangle::decode(&ph.socket_addr_v6);
@@ -716,10 +819,16 @@ impl RendezvousMediator {
             .await;
         }
         let relay_server = self.get_relay_server(ph.relay_server);
+        // LUODA: a punching peer whose address is not on a private LAN can never
+        // reach our direct listener (most routers have no port forwarding / UPnP).
+        // Always relay for such remote peers, otherwise the initiator wastes its
+        // whole direct-attempt timeout and the relay handshake times out.
+        let peer_is_remote = !crate::common::is_lan_ip(&peer_addr.ip().to_string());
         // for ensure, websocket go relay directly
         if ph.nat_type.enum_value() == Ok(NatType::SYMMETRIC)
             || Config::get_nat_type() == NatType::SYMMETRIC as i32
             || relay
+            || peer_is_remote
             || (config::is_disable_tcp_listen() && ph.udp_port <= 0)
         {
             let uuid = Uuid::new_v4().to_string();
@@ -879,14 +988,82 @@ impl RendezvousMediator {
     }
 }
 
+fn should_use_tcp_rendezvous(
+    windows_server: bool,
+    test_tcp: bool,
+    proxy: bool,
+    websocket: bool,
+    udp_disabled: bool,
+) -> bool {
+    windows_server || test_tcp || proxy || websocket || udp_disabled
+}
+
 static DIRECT_PORT: std::sync::OnceLock<std::sync::Mutex<i32>> = std::sync::OnceLock::new();
 const OPTION_DIRECT_LISTENER_STATUS: &str = "direct-listener-status";
 
 fn set_direct_listener_status(status: &str) {
     if Config::get_option(OPTION_DIRECT_LISTENER_STATUS) != status {
         Config::set_option(OPTION_DIRECT_LISTENER_STATUS.to_owned(), status.to_owned());
+        // The Flutter UI reads options through the in-memory cache
+        // (ui_interface::get_option), so push the fresh value through it too.
+        crate::ui_interface::refresh_options();
     }
 }
+
+/// Best-effort Windows firewall self-heal for the randomized direct port.
+///
+/// The legacy fixed port 20830 was covered by installer rules (21118-21128),
+/// but a per-machine random port (20000-40000) is not. Without an inbound rule
+/// the listener accepts nothing from other machines, which showed up as
+/// "peer offline" / "A rejects messages" even though the rendezvous server
+/// saw the peer online. Runs at most once per process; silently ignores
+/// failures (needs elevation, which is available when installed).
+#[cfg(windows)]
+fn ensure_dynamic_firewall_rule() {
+    use std::sync::OnceLock;
+    static DONE: OnceLock<()> = OnceLock::new();
+    if DONE.get().is_some() {
+        return;
+    }
+    for (name, proto) in [
+        ("LUODA Direct Access Dynamic TCP", "TCP"),
+        ("LUODA Direct Access Dynamic UDP", "UDP"),
+    ] {
+        let status = std::process::Command::new("netsh")
+            .args([
+                "advfirewall",
+                "firewall",
+                "add",
+                "rule",
+                &format!("name={}", name),
+                "dir=in",
+                "action=allow",
+                &format!("protocol={}", proto),
+                "localport=20000-40000",
+                "enable=yes",
+            ])
+            .output();
+        match status {
+            Ok(out) if out.status.success() => {
+                log::info!("Firewall rule {} ensured", name);
+            }
+            Ok(out) => {
+                log::warn!(
+                    "Failed to ensure firewall rule {}: {}",
+                    name,
+                    String::from_utf8_lossy(&out.stderr).trim()
+                );
+            }
+            Err(err) => {
+                log::warn!("Failed to ensure firewall rule {}: {}", name, err);
+            }
+        }
+    }
+    let _ = DONE.set(());
+}
+
+#[cfg(not(windows))]
+fn ensure_dynamic_firewall_rule() {}
 
 fn parse_direct_port(value: &str) -> i32 {
     value
@@ -896,13 +1073,164 @@ fn parse_direct_port(value: &str) -> i32 {
         .unwrap_or(DEFAULT_DIRECT_PORT)
 }
 
+/// Stable per-machine identity used to derive the direct-access port.
+///
+/// The rendezvous server keys peers by ID but routes direct traffic by the
+/// endpoint each peer publishes. Machines that share a copied config would
+/// otherwise publish the *same* port behind the same public IP, which breaks
+/// online status and direct routing. Deriving the port from a machine-scoped
+/// seed (never part of the copied config) gives every machine a stable,
+/// practically-unique port even when the whole config folder is cloned.
+fn machine_port_seed() -> String {
+    #[cfg(windows)]
+    {
+        use winreg::enums::HKEY_LOCAL_MACHINE;
+        use winreg::RegKey;
+        if let Ok(hk) = RegKey::predef(HKEY_LOCAL_MACHINE)
+            .open_subkey("SOFTWARE\\Microsoft\\Cryptography")
+        {
+            if let Ok(guid) = hk.get_value::<String, _>("MachineGuid") {
+                let guid = guid.trim();
+                if !guid.is_empty() {
+                    return format!("mguid:{guid}");
+                }
+            }
+        }
+        let hn = std::env::var("COMPUTERNAME").unwrap_or_default();
+        let profile = std::env::var("USERPROFILE").unwrap_or_default();
+        format!("host:{hn}:{profile}")
+    }
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        // Mobile network interface addresses (wlan0 MAC) change due to MAC
+        // randomization, which would re-roll the direct port on every Wi-Fi
+        // reconnect and leave published endpoints out of sync with the actual
+        // listener (peers then see the device as "rejecting" or "offline").
+        // Persist a random seed in local config on first use so the port stays
+        // stable across restarts, app updates and network changes.
+        // The in-memory LocalConfig cache can be initialized before APP_DIR is
+        // set (early Kotlin/Dart getLocalOption calls race with startServer),
+        // which makes it look empty and re-rolls the seed/device id on every
+        // cold start. When the app dir is valid, prefer the persisted file
+        // value and adopt it into the cache so the identity stays stable.
+        if !config::APP_DIR.read().unwrap().is_empty() {
+            let from_file = LocalConfig::get_option_from_file("direct-port-machine-seed");
+            let cached = LocalConfig::get_option("direct-port-machine-seed");
+            if !from_file.is_empty() && from_file != cached {
+                LocalConfig::set_option("direct-port-machine-seed".to_owned(), from_file.clone());
+                return format!("seed:{from_file}");
+            }
+            if !cached.is_empty() {
+                return format!("seed:{cached}");
+            }
+            if !from_file.is_empty() {
+                return format!("seed:{from_file}");
+            }
+        } else {
+            let cached = LocalConfig::get_option("direct-port-machine-seed");
+            if !cached.is_empty() {
+                return format!("seed:{cached}");
+            }
+        }
+        let bytes: [u8; 16] = rand::thread_rng().gen();
+        let generated = crate::encode64(bytes);
+        LocalConfig::set_option("direct-port-machine-seed".to_owned(), generated.clone());
+        log::info!("Assigned stable mobile direct-port seed");
+        format!("seed:{generated}")
+    }
+    #[cfg(not(any(windows, target_os = "android", target_os = "ios")))]
+    {
+        for path in ["/etc/machine-id", "/sys/class/net/wlan0/address"] {
+            if let Ok(s) = std::fs::read_to_string(path) {
+                let s = s.trim().to_string();
+                if !s.is_empty() {
+                    return format!("seed:{s}");
+                }
+            }
+        }
+        std::env::var("HOSTNAME")
+            .or_else(|_| std::env::var("COMPUTERNAME"))
+            .unwrap_or_default()
+    }
+}
+
+/// Map a machine seed to a stable port in 20000..40000 (FNV-1a).
+fn machine_derived_port(seed: &str) -> i32 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in seed.bytes() {
+        hash ^= u64::from(b);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    20000 + (hash % 20000) as i32
+}
+
+const OPTION_DIRECT_PORT_MACHINE_ID: &str = "direct-port-machine-id";
+
 fn configured_direct_port() -> i32 {
-    parse_direct_port(&Config::get_option(OPTION_DIRECT_ACCESS_PORT))
+    let stored = Config::get_option(OPTION_DIRECT_ACCESS_PORT);
+    let port = parse_direct_port(&stored);
+    let seed = machine_port_seed();
+    let marker = Config::get_option(OPTION_DIRECT_PORT_MACHINE_ID);
+    // The whole config folder was cloned from another machine when this marker
+    // (written with a foreign machine seed) is present but does not match the
+    // current machine. Cloned configs also carry the original machine's
+    // rendezvous ID, so on hbbs only one of the machines stays online (the
+    // others get stuck at "direct listening"), and inbound chat is dropped as
+    // "self" because the copied chat device id matches. Re-roll the ID once so
+    // every machine registers under its own identity.
+    let config_cloned = !marker.is_empty() && !marker.eq_ignore_ascii_case(&seed);
+    // Re-roll when: no port stored yet, the port is one of the legacy shared
+    // fixed ports (20830 / 21118-21128), or the config was copied from another
+    // machine (its machine marker does not match this machine's seed).
+    if stored.is_empty()
+        || port == 20830
+        || (DEFAULT_DIRECT_PORT..=DEFAULT_DIRECT_PORT + 10).contains(&port)
+        || !marker.eq_ignore_ascii_case(&seed)
+    {
+        let generated = machine_derived_port(&seed);
+        Config::set_option(OPTION_DIRECT_ACCESS_PORT.to_owned(), generated.to_string());
+        Config::set_option(OPTION_DIRECT_PORT_MACHINE_ID.to_owned(), seed.clone());
+        if config_cloned && Config::get_option("id-machine-uid") != seed {
+            let old_id = Config::get_id();
+            Config::update_id();
+            Config::set_option("id-machine-uid".to_owned(), seed.clone());
+            // Tell the Flutter chat layer to re-roll its device id as well,
+            // otherwise the cloned device keeps the original machine's device
+            // id and the owner drops its messages as "self".
+            LocalConfig::set_option(
+                "direct-chat-identity-reset".to_owned(),
+                "Y".to_owned(),
+            );
+            // Cloned configs can also carry the original machine's
+            // serverless/stop-service flags and key pair. The serverless flag
+            // skips rendezvous registration entirely (forever stuck at
+            // "direct listening"); the copied key pair makes hbbs answer
+            // UUID_MISMATCH. Force all of them off so this machine registers
+            // under its own fresh identity.
+            Config::set_option(OPTION_SERVERLESS_DIRECT_ONLY.to_owned(), String::new());
+            Config::set_option("stop-service".to_owned(), String::new());
+            Config::reset_key_pair();
+            Config::set_key_confirmed(false);
+            log::warn!(
+                "config cloned from another machine: re-rolled rendezvous ID {} -> {} and chat identity",
+                old_id,
+                Config::get_id()
+            );
+        }
+        ensure_dynamic_firewall_rule();
+        log::info!(
+            "Assigned machine-unique direct port {} (replacing {})",
+            generated, port
+        );
+        generated
+    } else {
+        port
+    }
 }
 
 #[cfg(test)]
 mod direct_port_tests {
-    use super::parse_direct_port;
+    use super::{parse_direct_port, should_use_tcp_rendezvous};
     use hbb_common::config::DEFAULT_DIRECT_PORT;
 
     #[test]
@@ -917,9 +1245,29 @@ mod direct_port_tests {
         assert_eq!(parse_direct_port("0"), DEFAULT_DIRECT_PORT);
         assert_eq!(parse_direct_port("65536"), DEFAULT_DIRECT_PORT);
     }
+
+    #[test]
+    fn normal_client_keeps_udp_rendezvous_registration() {
+        assert!(!should_use_tcp_rendezvous(
+            false, false, false, false, false
+        ));
+        assert!(should_use_tcp_rendezvous(
+            true, false, false, false, false
+        ));
+        assert!(should_use_tcp_rendezvous(
+            false, false, true, false, false
+        ));
+        assert!(should_use_tcp_rendezvous(
+            false, false, false, true, false
+        ));
+        assert!(should_use_tcp_rendezvous(
+            false, false, false, false, true
+        ));
+    }
 }
 
 fn get_direct_port() -> i32 {
+    ensure_dynamic_firewall_rule();
     let mtx = DIRECT_PORT.get_or_init(|| std::sync::Mutex::new(configured_direct_port()));
     *mtx.lock().unwrap()
 }
@@ -964,6 +1312,97 @@ pub fn ensure_direct_port() -> i32 {
     get_direct_port()
 }
 
+/// Refresh a stored direct pairing with a freshly observed endpoint (IP:port).
+///
+/// Called whenever an authorized/direct connection confirms the peer's current
+/// direct-access port, so DHCP IP changes or per-machine port randomization do
+/// not leave stale endpoints that make messages look "rejected" or "offline".
+/// Only LAN endpoints are updated (never relay servers), and only pairings that
+/// already carry a verified fingerprint are touched; no pairings are created.
+pub fn update_direct_pairing_endpoint(peer_id: &str, endpoint: &str) {
+    use hbb_common::config::LocalConfig;
+    const PAIRING_KEY: &str = "direct-pairings-v1";
+    let raw = LocalConfig::get_option(PAIRING_KEY);
+    if raw.is_empty() {
+        return;
+    }
+    let Ok(mut pairings) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return;
+    };
+    let Some(obj) = pairings.as_object_mut() else {
+        return;
+    };
+    let trimmed = endpoint.trim().to_lowercase();
+    let Some((ip, _port)) = trimmed.rsplit_once(':') else {
+        return;
+    };
+    if ip.is_empty() || !crate::common::is_lan_ip(ip) {
+        return;
+    }
+    // my_id may carry an "@rendezvous" suffix; pairings are keyed by the bare ID.
+    let bare_id = peer_id.split('@').next().unwrap_or(peer_id);
+    let mut target = None;
+    for (key, value) in obj.iter() {
+        let pid = value.get("peer_id").and_then(|v| v.as_str()).unwrap_or(key);
+        let aid = value.get("account_id").and_then(|v| v.as_str());
+        if pid == bare_id || aid == Some(bare_id) {
+            target = Some(key.clone());
+            break;
+        }
+    }
+    let Some(key) = target else {
+        return;
+    };
+    let Some(pairing) = obj.get_mut(&key) else {
+        return;
+    };
+    if pairing
+        .get("fingerprint")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .is_empty()
+    {
+        return;
+    }
+    let current = pairing
+        .get("lan_endpoint")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if current.eq_ignore_ascii_case(&trimmed) {
+        return; // unchanged: avoid needless disk writes from periodic LAN discovery
+    }
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Nanos, true);
+    pairing["lan_endpoint"] = serde_json::json!(trimmed);
+    pairing["updated_at"] = serde_json::json!(now);
+    let mut history = pairing
+        .get("endpoint_history")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    history.retain(|entry| {
+        entry.get("endpoint").and_then(|v| v.as_str()) != Some(trimmed.as_str())
+    });
+    history.insert(
+        0,
+        serde_json::json!({
+            "endpoint": trimmed,
+            "first_seen_at": now,
+            "last_seen_at": now,
+            "connection_count": 1,
+            "secure": true,
+            "stream_type": "TCP",
+        }),
+    );
+    history.truncate(8);
+    pairing["endpoint_history"] = serde_json::json!(history);
+    if let Ok(out) = serde_json::to_string(&pairings) {
+        LocalConfig::set_option(PAIRING_KEY.to_owned(), out);
+        log::info!("Direct pairing {} endpoint refreshed to {}", bare_id, trimmed);
+        #[cfg(feature = "flutter")]
+        crate::flutter_ffi::push_direct_pairings_changed();
+    }
+}
+
 async fn direct_server(server: ServerPtr) {
     let mut listener = None;
     let mut port = 0;
@@ -985,7 +1424,7 @@ async fn direct_server(server: ServerPtr) {
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         if !disabled {
             if let (Some(current_port), Some(last_refresh)) = (mapped_port, mapped_at) {
-                if last_refresh.elapsed() >= mapping_refresh_after {
+                if elapsed_safe(last_refresh) >= mapping_refresh_after {
                     let renewed = crate::upnp::add_port_mapping(current_port);
                     Config::set_option(
                         "upnp-status".to_owned(),
@@ -1019,9 +1458,6 @@ async fn direct_server(server: ServerPtr) {
                     // Sync the actual port to UI option so the IP:port display stays correct
                     // even when the default port was unavailable and we fell back.
                     Config::set_option("direct-access-port".to_owned(), port.to_string());
-                    // 尝试 UPnP 自动端口映射，使外网能直接通过 公网IP:端口 访问本机。
-                    // 路由器需要支持并开启 UPnP（大部分家用路由器默认启用）。
-                    // 移动端（android/ios）没有 upnp 模块，跳过。
                     #[cfg(not(any(target_os = "android", target_os = "ios")))]
                     {
                         let upnp_port = port as u16;
@@ -1045,15 +1481,10 @@ async fn direct_server(server: ServerPtr) {
                         );
                         if ret {
                             log::info!(
-                                "UPnP: 端口 {} 映射成功，外网可通过公网IP:{} 直连",
-                                port,
-                                port
-                            );
+                                "UPnP: port {} mapped successfully", port);
                         } else {
                             log::warn!(
-                                "UPnP: 端口 {} 映射失败，外网直连需要手动配置路由器端口转发",
-                                port
-                            );
+                                "UPnP: port {} mapping failed; open the port manually if needed", port);
                         }
                     }
                     #[cfg(any(target_os = "android", target_os = "ios"))]
@@ -1071,7 +1502,13 @@ async fn direct_server(server: ServerPtr) {
                         port,
                         err
                     );
+                    #[cfg(not(any(target_os = "android", target_os = "ios")))]
                     invalidate_direct_port();
+                    #[cfg(any(target_os = "android", target_os = "ios"))]
+                    log::warn!(
+                        "Mobile direct server keeps retrying port {} to avoid endpoint drift",
+                        port
+                    );
                     sleep(1.).await;
                 }
             }
@@ -1194,7 +1631,7 @@ async fn udp_nat_listen(
         anyhow::anyhow!(
             "Stop listening on {:?} for remote {peer_addr} with KCP, {:?} elapsed: {e}",
             socket_cloned.local_addr(),
-            tm.elapsed()
+            elapsed_safe(tm)
         )
     })?;
     Ok(())

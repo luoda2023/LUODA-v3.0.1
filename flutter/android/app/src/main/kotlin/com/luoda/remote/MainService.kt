@@ -46,7 +46,7 @@ import java.nio.ByteBuffer
 import kotlin.math.max
 import kotlin.math.min
 
-const val DEFAULT_NOTIFY_TITLE = "LDesk"
+const val DEFAULT_NOTIFY_TITLE = "DotChat"
 const val DEFAULT_NOTIFY_TEXT = "Service is running"
 const val DEFAULT_NOTIFY_ID = 1
 const val NOTIFY_ID_OFFSET = 100
@@ -242,8 +242,7 @@ class MainService : Service() {
         initNotification()
 
         // keep the config dir same with flutter
-        val prefs = applicationContext.getSharedPreferences(KEY_SHARED_PREFERENCES, FlutterActivity.MODE_PRIVATE)
-        val configPath = prefs.getString(KEY_APP_DIR_CONFIG_PATH, "") ?: ""
+        val configPath = resolveAppDirConfigPath(applicationContext)
         FFI.startServer(configPath, "")
 
         createForegroundNotification()
@@ -338,15 +337,23 @@ class MainService : Service() {
                 getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
 
             intent.getParcelableExtra<Intent>(EXT_MEDIA_PROJECTION_RES_INTENT)?.let {
-                mediaProjection =
-                    mediaProjectionManager.getMediaProjection(Activity.RESULT_OK, it)
-                checkMediaPermission()
-                _isReady = true
-                // If capture was started but VirtualDisplay creation failed (e.g. single-app mode),
-                // retry with the new full MediaProjection
-                if (_isStart && virtualDisplay == null) {
-                    Log.d(logTag, "Retrying VirtualDisplay creation with new MediaProjection")
-                    retryVirtualDisplay()
+                try {
+                    mediaProjection =
+                        mediaProjectionManager.getMediaProjection(Activity.RESULT_OK, it)
+                    checkMediaPermission()
+                    _isReady = true
+                    // If capture was started but VirtualDisplay creation failed (e.g. single-app mode),
+                    // retry with the new full MediaProjection
+                    if (_isStart && virtualDisplay == null) {
+                        Log.d(logTag, "Retrying VirtualDisplay creation with new MediaProjection")
+                        retryVirtualDisplay()
+                    }
+                } catch (e: Exception) {
+                    // The persisted token was revoked (e.g. reboot). Ask the
+                    // user again so the service can still start.
+                    Log.e(logTag, "reused media projection rejected: ${e.message}")
+                    mediaProjection = null
+                    requestMediaProjection()
                 }
             } ?: let {
                 Log.d(logTag, "getParcelableExtra intent null, invoke requestMediaProjection")
@@ -565,7 +572,7 @@ class MainService : Service() {
                 it.setSurface(s)
             } ?: let {
                 virtualDisplay = mp.createVirtualDisplay(
-                    "LDesk",
+                    "DotChat",
                     SCREEN_INFO.width, SCREEN_INFO.height, SCREEN_INFO.dpi, VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
                     s, null, null
                 )
@@ -628,12 +635,12 @@ class MainService : Service() {
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationChannel = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channelId = "LDesk"
-            val channelName = "LDesk Service"
+            val channelName = "点聊服务"
             val channel = NotificationChannel(
                 channelId,
                 channelName, NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "LDesk Service Channel"
+                description = "点聊服务通知"
             }
             channel.lightColor = Color.BLUE
             channel.lockscreenVisibility = Notification.VISIBILITY_PRIVATE

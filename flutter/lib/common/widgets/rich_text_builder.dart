@@ -3,6 +3,57 @@ import 'package:flutter/services.dart';
 import 'package:luoda_flutter/common.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+const List<String> kChatEmojiFontFallback = <String>[
+  'Segoe UI Emoji',
+  'Apple Color Emoji',
+  'Noto Color Emoji',
+  'LDeskNotoColorEmoji',
+  'LDeskNotoSansCJKSC',
+];
+
+bool isEmojiOnlyMessage(String value) {
+  final text = value.trim();
+  if (text.isEmpty) return false;
+
+  var sawEmoji = false;
+  final hasKeycap = text.runes.contains(0x20E3);
+  for (final rune in text.runes) {
+    if (rune == 0x20 || rune == 0x09 || rune == 0x0A || rune == 0x0D) {
+      continue;
+    }
+    if (rune == 0x200D ||
+        rune == 0xFE0E ||
+        rune == 0xFE0F ||
+        rune == 0x20E3 ||
+        (rune >= 0xE0020 && rune <= 0xE007F)) {
+      continue;
+    }
+    final isKeycapBase = hasKeycap &&
+        (rune == 0x23 ||
+            rune == 0x2A ||
+            (rune >= 0x30 && rune <= 0x39));
+    final isEmoji = isKeycapBase ||
+        rune == 0x00A9 ||
+        rune == 0x00AE ||
+        rune == 0x203C ||
+        rune == 0x2049 ||
+        rune == 0x2122 ||
+        rune == 0x2139 ||
+        (rune >= 0x2190 && rune <= 0x21FF) ||
+        (rune >= 0x2300 && rune <= 0x23FF) ||
+        (rune >= 0x2600 && rune <= 0x27BF) ||
+        (rune >= 0x2B00 && rune <= 0x2BFF) ||
+        rune == 0x3030 ||
+        rune == 0x303D ||
+        rune == 0x3297 ||
+        rune == 0x3299 ||
+        (rune >= 0x1F000 && rune <= 0x1FAFF);
+    if (!isEmoji) return false;
+    sawEmoji = true;
+  }
+  return sawEmoji;
+}
+
 /// Lightweight rich text renderer for chat messages.
 /// Parses a simple markdown-like syntax into styled Flutter widgets.
 ///
@@ -23,12 +74,18 @@ class RichChatText extends StatelessWidget {
   final double defaultSize;
   final EditableTextContextMenuBuilder? contextMenuBuilder;
 
+  /// 是否允许长按选择文字。
+  /// 手机端消息列表关闭选择（默认），让长按手势让给消息操作菜单
+  /// （撤回/销毁/转发等，与微信手机版一致）；PC 端保留文字选择。
+  final bool enableSelection;
+
   const RichChatText({
     super.key,
     required this.text,
     required this.foreground,
     this.defaultSize = 14,
     this.contextMenuBuilder,
+    this.enableSelection = false,
   });
 
   /// Small LRU cache: maps text → parsed block list.
@@ -57,6 +114,8 @@ class RichChatText extends StatelessWidget {
     // Use cached block extraction
     final blocks = _cachedBlocks(text);
     if (blocks.isEmpty) return const SizedBox.shrink();
+    final inlineSize =
+        isEmojiOnlyMessage(text) ? defaultSize * 1.5 : defaultSize;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -67,7 +126,7 @@ class RichChatText extends StatelessWidget {
         if (block is _ListData) return _buildList(block);
         if (block is _HorizontalRule) return _buildHR();
         // String → inline rendered text
-        return _buildInline(block as String, foreground, defaultSize);
+        return _buildInline(block as String, foreground, inlineSize);
       }).toList(),
     );
   }
@@ -269,15 +328,24 @@ class RichChatText extends StatelessWidget {
   Widget _buildInline(String text, Color fg, double size) {
     final spans = _parseInline(text, fg, size);
     if (spans.isEmpty) return const SizedBox.shrink();
-    return SelectableText.rich(
+    final style = TextStyle(
+      color: fg,
+      fontSize: size,
+      height: 1.42,
+      letterSpacing: 0,
+      fontFamilyFallback: kChatEmojiFontFallback,
+    );
+    if (enableSelection) {
+      return SelectableText.rich(
+        TextSpan(children: spans),
+        contextMenuBuilder: contextMenuBuilder,
+        style: style,
+      );
+    }
+    // 不可选：避免 SelectableText 的长按文字选择吞掉消息操作菜单的长按。
+    return Text.rich(
       TextSpan(children: spans),
-      contextMenuBuilder: contextMenuBuilder,
-      style: TextStyle(
-        color: fg,
-        fontSize: size,
-        height: 1.42,
-        letterSpacing: 0,
-      ),
+      style: style,
     );
   }
 
@@ -414,14 +482,40 @@ class RichChatText extends StatelessWidget {
         tokens.add(earliest);
         pos += earliest.length;
       } else {
-        // Plain character
-        tokens.add(_Token.text(text[pos], fg, size));
-        pos++;
+        final first = text.codeUnitAt(pos);
+        final hasSurrogatePair = first >= 0xD800 &&
+            first <= 0xDBFF &&
+            pos + 1 < text.length &&
+            text.codeUnitAt(pos + 1) >= 0xDC00 &&
+            text.codeUnitAt(pos + 1) <= 0xDFFF;
+        final character = text.substring(
+          pos,
+          pos + (hasSurrogatePair ? 2 : 1),
+        );
+        tokens.add(_Token.text(character, fg, size));
+        pos += character.length;
       }
     }
 
-    // Convert tokens to InlineSpans
+    final mergedTokens = <_Token>[];
     for (final token in tokens) {
+      if (token.type == _TokenType.plain &&
+          mergedTokens.isNotEmpty &&
+          mergedTokens.last.type == _TokenType.plain &&
+          mergedTokens.last.color == token.color &&
+          mergedTokens.last.size == token.size) {
+        final previous = mergedTokens.removeLast();
+        mergedTokens.add(
+          _Token.text(previous.text + token.text, token.color, token.size),
+        );
+      } else {
+        mergedTokens.add(token);
+      }
+    }
+
+    // Keep adjacent Unicode scalars in one span so emoji variation selectors
+    // and ZWJ sequences are shaped as a single glyph run.
+    for (final token in mergedTokens) {
       result.addAll(token.toSpans());
     }
 

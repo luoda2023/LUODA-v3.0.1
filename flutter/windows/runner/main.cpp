@@ -67,7 +67,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   std::vector<std::string> rust_args(c_args, c_args + args_len);
   free_c_args(c_args, args_len);
 
-  std::wstring app_name = L"LDesk";
+  std::wstring app_name = L"\u70B9\u804A";
   FUNC_LUODA_GET_APP_NAME get_luoda_app_name = (FUNC_LUODA_GET_APP_NAME)GetProcAddress(hInstance, "get_luoda_app_name");
   if (get_luoda_app_name) {
     wchar_t app_name_buffer[512] = {0};
@@ -90,16 +90,44 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                     whitelist_param) != command_line_arguments.end();
     }
     if (!allow_multiple_instances) {
-      if (!command_line_arguments.empty()) {
-        // Dispatch command line arguments
-        DispatchToUniLinksDesktop(hwnd);
-      } else {
-        // Not called with arguments, or just open the app shortcut on desktop.
-        // So we just show the main window instead.
-        ::ShowWindow(hwnd, SW_NORMAL);
-        ::SetForegroundWindow(hwnd);
+      // Only treat this as a duplicate launch when the existing window belongs
+      // to a process running from the SAME executable. If it comes from a
+      // different build (users upgrade by replacing/copying a new folder while
+      // the old build is still running), let this instance start so the Rust
+      // single-instance takeover can terminate the stale processes. Otherwise
+      // an upgraded build would exit right here and the machine would stay
+      // "listening but never online".
+      bool same_exe = false;
+      DWORD pid = 0;
+      ::GetWindowThreadProcessId(hwnd, &pid);
+      if (pid != 0) {
+        HANDLE h = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+        if (h != NULL) {
+          wchar_t path[MAX_PATH] = {0};
+          DWORD size = MAX_PATH;
+          if (::QueryFullProcessImageNameW(h, 0, path, &size)) {
+            wchar_t self[MAX_PATH] = {0};
+            DWORD self_size = MAX_PATH;
+            if (::GetModuleFileNameW(nullptr, self, self_size) > 0) {
+              same_exe = (::_wcsicmp(path, self) == 0);
+            }
+          }
+          ::CloseHandle(h);
+        }
       }
-      return EXIT_FAILURE;
+      if (same_exe) {
+        if (!command_line_arguments.empty()) {
+          // Dispatch command line arguments
+          DispatchToUniLinksDesktop(hwnd);
+        } else {
+          // Not called with arguments, or just open the app shortcut on desktop.
+          // So we just show the main window instead.
+          ::ShowWindow(hwnd, SW_NORMAL);
+          ::SetForegroundWindow(hwnd);
+        }
+        return EXIT_FAILURE;
+      }
+      // Different executable: fall through and start a new main instance.
     }
   }
 

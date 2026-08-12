@@ -244,6 +244,12 @@ pub enum Data {
     ChatMessage {
         text: String,
     },
+    CmQueryClients,
+    CmClientsState(String),
+    CmSendChat {
+        id: i32,
+        text: String,
+    },
     SwitchPermission {
         name: String,
         enabled: bool,

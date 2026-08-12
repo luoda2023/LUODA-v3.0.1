@@ -76,6 +76,8 @@
 	<string>LDesk uses the microphone to record direct voice messages.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
   <string>This app needs photo library access to get QR codes from image</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>LDesk uses your location to share your current position in chat.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>LDesk uses the local network to connect directly to your approved devices.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>

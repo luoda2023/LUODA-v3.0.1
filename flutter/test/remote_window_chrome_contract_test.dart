@@ -13,6 +13,8 @@ void main() {
       File('lib/desktop/pages/desktop_home_page.dart').readAsStringSync();
   final constantsSource = File('lib/consts.dart').readAsStringSync();
   final commonSource = File('lib/common.dart').readAsStringSync();
+  final dialogSource =
+      File('lib/common/widgets/dialog.dart').readAsStringSync();
   final chineseSource = File('../src/lang/cn.rs').readAsStringSync();
 
   test('remote window uses the dedicated two-level chrome and status bar', () {
@@ -54,6 +56,34 @@ void main() {
     expect(remoteToolbarSource, contains('isTerminal: true'));
     expect(remoteToolbarSource, contains('sessionTakeScreenshot('));
     expect(remoteToolbarSource, contains("value: _option"));
+  });
+
+  test('multiple remote displays expose the self-service monitor switcher', () {
+    final monitorGate = remoteToolbarSource
+        .split('toolbarItems.add(Obx(() {')[1]
+        .split('toolbarItems')[0];
+    expect(monitorGate, contains('pi.displays.length > 1'));
+    expect(monitorGate, isNot(contains('displaysCount')));
+    expect(remoteToolbarSource, contains('openMonitorInTheSameTab('));
+    expect(commonSource, contains('bind.sessionSwitchDisplay('));
+    expect(
+        remoteToolbarSource, contains('buildMonitorButton(kAllDisplayValue)'));
+  });
+
+  test('multiple Windows sessions remain switchable from the toolbar', () {
+    expect(remoteToolbarSource, contains('_WindowsSessionMenu('));
+    expect(remoteToolbarSource, contains('pi.windowsSessionsJson.isNotEmpty'));
+    expect(remoteToolbarSource, contains('showWindowsSessionsSelector('));
+    expect(remotePageSource, isNot(contains('windowsSessionsJson')));
+
+    final modelSource = File('lib/models/model.dart').readAsStringSync();
+    expect(modelSource, contains('windowsSessionsJson'));
+    expect(modelSource, contains('_pi.windowsSessionsJson.value = sessions'));
+    expect(modelSource, contains('void showWindowsSessionsSelector('));
+    expect(dialogSource, contains('bind.sessionSendSelectedSessionId('));
+    expect(remoteToolbarSource, contains('CurrentSessionState.find(id)'));
+    expect(remoteToolbarSource, contains('sessionSendSelectedSessionId('));
+    expect(remoteToolbarSource, contains('_sessions(pi.windowsSessionsJson.value)'));
   });
 
   test('remote chat can float or return to the main conversation', () {

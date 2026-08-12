@@ -1,35 +1,33 @@
-# Product
+# PRODUCT.md
 
 ## Register
-
 product
 
-## Users
+## What this is
+点聊 / DotChat - a peer-to-peer direct-chat and remote-assistance app (Rust core + Flutter UI).
+Primary surfaces: chat list (Messages), contacts, chat conversation, remote control.
 
-Individuals and support operators who need to connect to, manage, or receive access from remote computers. They use LUODA repeatedly in a focused desktop workflow and need identity, connection state, remote devices, and security controls to be immediately understandable.
+## Who uses it
+Individuals and small teams who want to chat, transfer files and remotely assist each other
+over LAN or the public Internet without a centralized server. Used on Windows, Android phone/tablet.
 
-## Product Purpose
+## Primary task
+Send/receive messages, see who is online, start a direct (ID/IP/Bluetooth) chat, and assist or be assisted remotely.
 
-LUODA provides secure self-hosted remote access across desktop and mobile platforms. The desktop application succeeds when a user can identify the local device, start a remote session, find a known device, and configure access policy without uncertainty or unnecessary navigation.
-
-## Brand Personality
-
-Calm, trustworthy, and efficient. The interface should communicate technical confidence without feeling dense, dated, or decorative.
+## Brand personality
+Trustworthy, minimal, warm, familiar (WeChat-grade polish).
+Three words: clean, reliable, friendly.
 
 ## Anti-references
+- Cluttered permission banners stacked above content
+- ID numbers dumped into list rows
+- Mixed/inconsistent font sizes and colors
+- Heavy borders and shadows on cards
+- English labels leaking into a Chinese UI
 
-- The current fragmented legacy layout with weak hierarchy and inconsistent control styling.
-- Marketing-style dashboards, oversized typography, decorative glass effects, or excessive gradients.
-- Security interfaces that hide important state behind vague labels or low-contrast controls.
-
-## Design Principles
-
-- Put the next remote-access action first.
-- Keep identity, connectivity, and security state explicit and copyable.
-- Preserve familiar desktop controls and predictable navigation.
-- Use one consistent component vocabulary across every settings category.
-- Keep platform-specific behavior and permission constraints visible rather than silently removing them.
-
-## Accessibility & Inclusion
-
-Target WCAG 2.1 AA contrast for text and controls. Do not rely on color alone for online, offline, selected, warning, or disabled states. Preserve keyboard focus, readable scaling, reduced-motion behavior, and layouts that remain usable in the application's supported compact desktop window sizes.
+## Strategic design principles
+1. The list IS the home: minimal chrome, WeChat-like rows (avatar, name, time, preview, badge).
+2. Permissions and status belong in settings / subtle indicators, never a blocking banner.
+3. Same person = one row; connection details (ID/IP/port) live in the details dialog, not the list.
+4. Chinese-first: every customer-visible string shows 中文 when the UI language is Chinese.
+5. Green accent (#057A3A) is the brand color; backgrounds stay light and quiet.

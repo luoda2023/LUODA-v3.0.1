@@ -4,14 +4,14 @@ import 'package:luoda_flutter/common/direct_viewer_invite.dart';
 void main() {
   test('viewer invite link carries a direct endpoint and invite code', () {
     final invite = ViewerInviteLink(
-      endpoint: '203.0.113.8:21118',
+      endpoint: '203.0.113.8:24567',
       token: 'ABCD-EFGH-JKMN',
     );
 
     final uri = invite.toUri();
 
     expect(uri.toString(),
-        'luoda://join/ABCD-EFGH-JKMN?endpoint=203.0.113.8%3A21118');
+        'luoda://join/ABCD-EFGH-JKMN?endpoint=203.0.113.8%3A24567');
     expect(ViewerInviteLink.tryParse(uri), invite);
   });
 

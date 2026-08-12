@@ -9,6 +9,7 @@ import 'package:zxing2/qrcode.dart';
 
 import '../../common.dart';
 import '../../common/direct_pairing.dart';
+import '../../common/formatter/id_formatter.dart';
 import '../../models/platform_model.dart';
 import '../widgets/dialog.dart';
 
@@ -44,7 +45,77 @@ class _ScanPageState extends State<ScanPage> {
           _buildCameraSwitchButton(),
         ],
       ),
-      body: _buildQrView(context),
+      body: Column(
+        children: [
+          ValueListenableBuilder<int>(
+            valueListenable: DirectPairingStore.revision,
+            builder: (context, _, __) {
+              final pc = DirectPairingStore.companionDevice();
+              if (pc == null) return const SizedBox.shrink();
+              return _buildBoundPcBanner(context, pc);
+            },
+          ),
+          Expanded(child: _buildQrView(context)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBoundPcBanner(BuildContext context, DirectPairing pc) {
+    final name = pc.displayName.trim().isEmpty
+        ? pc.peerId
+        : pc.displayName.trim();
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: MyTheme.accent.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: MyTheme.accent.withOpacity(0.4)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.desktop_windows_rounded,
+              size: 22, color: MyTheme.accent),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  translate('Bound PC'),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: MyTheme.mutedLight,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (pc.accountId.isNotEmpty)
+                  Text(
+                    '${translate('ID')}: ${formatID(pc.accountId)}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: MyTheme.mutedLight,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -145,6 +216,30 @@ class _ScanPageState extends State<ScanPage> {
     );
   }
 
+  Widget _boundPcLine(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 72,
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 13, color: MyTheme.mutedLight),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   void dispose() {
     scanSubscription?.cancel();
@@ -159,7 +254,44 @@ class _ScanPageState extends State<ScanPage> {
       final pairing = DirectPairingStore.parsePayload(data);
       if (pairing != null) {
         await controller?.pauseCamera();
+        final existing = DirectPairingStore.companionDevice();
+        if (existing != null && existing.peerId != pairing.peerId) {
+          final replace = await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              title: Text(translate('Replace bound PC?')),
+              content: Text(
+                translate('Already bound to') +
+                    ' ' +
+                    (existing.displayName.trim().isEmpty
+                        ? existing.peerId
+                        : existing.displayName.trim()) +
+                    '.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: Text(translate('Cancel')),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: Text(translate('Replace')),
+                ),
+              ],
+            ),
+          );
+          if (replace != true) {
+            await controller?.resumeCamera();
+            return;
+          }
+        }
         await DirectPairingStore.save(pairing);
+        // LUODA: bind this phone to the person account advertised by the
+        // scanned QR so its own QR/contacts carry the same id and PC+phone
+        // conversations merge into one person row everywhere.
+        if (pairing.accountId.isNotEmpty) {
+          await DirectPairingStore.bindSelfDevice(accountId: pairing.accountId);
+        }
         await bind.mainSetLocalOption(
           key: 'direct-chat-always-on',
           value: 'Y',
@@ -168,7 +300,42 @@ class _ScanPageState extends State<ScanPage> {
           await gFFI.invokeMethod('set_direct_chat_service', true);
         }
         if (!mounted) return;
-        showToast(translate('PC paired for direct connection'));
+        await showDialog<void>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: Text(translate('PC paired for direct connection')),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _boundPcLine(
+                  translate('Device'),
+                  pairing.displayName.trim().isEmpty
+                      ? pairing.peerId
+                      : pairing.displayName.trim(),
+                ),
+                if (pairing.peerId.isNotEmpty)
+                  _boundPcLine(translate('ID'), formatID(pairing.peerId)),
+                if (pairing.accountId.isNotEmpty)
+                  _boundPcLine(translate('Account'), pairing.accountId),
+                if (pairing.endpoints.isNotEmpty)
+                  _boundPcLine(translate('Endpoint'), pairing.endpoints.join(', ')),
+                const SizedBox(height: 6),
+                Text(
+                  translate('Direct endpoint only. Same LAN or forwarded port required.'),
+                  style: const TextStyle(fontSize: 12, color: MyTheme.mutedLight),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: Text(translate('Done')),
+              ),
+            ],
+          ),
+        );
+        if (!mounted) return;
         Navigator.pop(context, pairing);
         return;
       }

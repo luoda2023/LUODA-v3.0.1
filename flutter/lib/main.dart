@@ -18,6 +18,10 @@ import 'package:luoda_flutter/desktop/screen/desktop_remote_screen.dart';
 import 'package:luoda_flutter/desktop/screen/desktop_terminal_screen.dart';
 import 'package:luoda_flutter/desktop/pages/file_preview_page.dart';
 import 'package:luoda_flutter/desktop/widgets/refresh_wrapper.dart';
+import 'package:luoda_flutter/common/direct_pairing.dart';
+import 'package:luoda_flutter/common/direct_chat.dart';
+import 'package:luoda_flutter/common/bt_service.dart';
+import 'package:luoda_flutter/common/relay_bridge.dart';
 import 'package:luoda_flutter/models/state_model.dart';
 import 'package:luoda_flutter/models/ai_config_model.dart';
 import 'package:luoda_flutter/utils/multi_window_manager.dart';
@@ -104,6 +108,13 @@ Future<void> main(List<String> args) async {
           argument,
           kAppTypeDesktopTerminal,
         );
+        break;
+      case WindowType.FilePreview:
+        runMultiWindow(
+          argument,
+          kAppTypeDesktopFilePreview,
+        );
+        break;
       default:
         break;
     }
@@ -123,6 +134,20 @@ Future<void> main(List<String> args) async {
     }
     runMainApp(true);
   }
+}
+
+/// 把 ChatModel 的收发能力注入蓝牙中继桥（PC/手机共用）。
+void _wireRelayBridge() {
+  RelayBridge.wire(
+    myIdProvider: () => gFFI.chatModel.me.id,
+    receive: (envelopeLine, {conversationId}) =>
+        gFFI.chatModel.receiveRelayedEnvelope(
+      envelopeLine,
+      conversationId: conversationId,
+    ),
+    sendWire: (peerId, envelopeLine) =>
+        gFFI.chatModel.sendWireRelayed(peerId, envelopeLine),
+  );
 }
 
 Future<void> initEnv(String appType) async {
@@ -148,6 +173,13 @@ void runMainApp(bool startService) async {
     gFFI.serverModel.startService();
     bind.pluginSyncUi(syncTo: kAppTypeMain);
     bind.pluginListReload();
+  }
+  // LUODA: enable the classic Bluetooth (RFCOMM) bridge on Windows PC too,
+  // so bt:<mac> conversations work on both PC and phone. The native bridge
+  // is registered in the Windows runner (bt_windows.cpp) at startup.
+  if (isWindows) {
+    unawaited(BluetoothService.instance.init());
+    _wireRelayBridge();
   }
   await Future.wait([gFFI.abModel.loadCache(), gFFI.groupModel.loadCache()]);
   gFFI.userModel.refreshCurrentUser();
@@ -198,11 +230,25 @@ void runMobileApp() async {
   // checkUpdate(); // disabled: no auto update
   if (isAndroid) androidChannelInit();
   if (isAndroid) platformFFI.syncAndroidServiceAppDirConfigPath();
+  if (isAndroid) unawaited(applyStableAndroidDeviceId());
+  // LUODA: register the Bluetooth wire sink so bt:<mac> conversations are
+  // routed over the RFCOMM link app-wide.
+  if (isAndroid) {
+    unawaited(BluetoothService.instance.init());
+    _wireRelayBridge();
+  }
   draggablePositions.load();
   await Future.wait([gFFI.abModel.loadCache(), gFFI.groupModel.loadCache()]);
   gFFI.userModel.refreshCurrentUser();
   runApp(App());
   await initUniLinks();
+  if (isAndroid) {
+    // LUODA: once the user has authorized the service once, auto-start it on
+    // every launch so no manual toggle is needed.
+    Future<void>.delayed(const Duration(milliseconds: 1200), () {
+      unawaited(gFFI.serverModel.maybeAutoStartService());
+    });
+  }
 }
 
 void runMultiWindow(
@@ -211,8 +257,11 @@ void runMultiWindow(
 ) async {
   await initEnv(appType);
   final title = getWindowName();
-  // set prevent close to true, we handle close event manually
-  WindowController.fromWindowId(kWindowId!).setPreventClose(true);
+  // Session windows intercept close for confirmation. A preview has no session
+  // state, so its native and toolbar close actions should close immediately.
+  await WindowController.fromWindowId(kWindowId!).setPreventClose(
+    appType != kAppTypeDesktopFilePreview,
+  );
   if (isMacOS) {
     disableWindowMovable(kWindowId);
   }
@@ -247,6 +296,7 @@ void runMultiWindow(
       break;
     case kAppTypeDesktopFilePreview:
       widget = FilePreviewPage(
+        windowId: argument['windowId'] as int? ?? kWindowId!,
         filePath: argument['file_path'] ?? '',
         fileName: argument['file_name'] ?? '',
         siblingPaths: argument['sibling_paths']?.cast<String>(),
@@ -321,11 +371,8 @@ void runConnectionManagerScreen() async {
   );
   final hide = await bind.cmGetConfig(name: "hide_cm") == 'true';
   gFFI.serverModel.hideCm = hide;
-  if (hide) {
-    await hideCmWindow(isStartup: true);
-  } else {
-    await showCmWindow(isStartup: true);
-  }
+  await hideCmWindow(isStartup: true);
+  await gFFI.serverModel.updateClientState();
   setResizable(false);
   // Start the uni links handler and redirect links to Native, not for Flutter.
   listenUniLinks(handleByFlutter: false);
@@ -624,6 +671,15 @@ _registerEventHandler() {
       NativeUiHandler.instance.onEvent(evt);
     });
   }
+  // The Rust core self-heals stale direct endpoints after a successful direct
+  // connection; refresh the Flutter-side pairing cache when it announces a change.
+  platformFFI.registerEventHandler(
+    'direct_pairings_changed',
+    'direct_pairings_changed',
+    (_) async {
+      DirectPairingStore.invalidateCache();
+    },
+  );
 }
 
 Widget keyListenerBuilder(BuildContext context, Widget? child) {
@@ -640,4 +696,33 @@ Widget keyListenerBuilder(BuildContext context, Widget? child) {
       }
     },
   );
+}
+
+/// On Android, derive a stable device id from ANDROID_ID and apply it once
+/// when the app is fresh (no chat history yet). A reinstall keeps the same
+/// id so contacts, friends and chat history stay attached to this device.
+Future<void> applyStableAndroidDeviceId() async {
+  if (!isAndroid) return;
+  try {
+    const channel = MethodChannel('mChannel');
+    final stable = await channel.invokeMethod<String>('get_stable_device_id');
+    if (stable == null || stable.trim().isEmpty) return;
+    if (bind.mainGetLocalOption(key: 'direct-chat-stable-id-applied') == 'Y') {
+      return;
+    }
+    final history =
+        await DirectChatRepository.instance.latestConversations();
+    if (history.isNotEmpty) return;
+    final current = await bind.mainGetMyId();
+    if (current.trim() == stable.trim()) {
+      bind.mainSetLocalOption(
+          key: 'direct-chat-stable-id-applied', value: 'Y');
+      return;
+    }
+    await bind.mainChangeId(newId: stable.trim());
+    bind.mainSetLocalOption(key: 'direct-chat-stable-id-applied', value: 'Y');
+    debugPrint('CHAT-ID: applied stable android device id=' + stable);
+  } catch (error) {
+    debugPrint('CHAT-ID: stable id apply failed: ' + error.toString());
+  }
 }

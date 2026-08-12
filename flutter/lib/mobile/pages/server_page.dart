@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:flutter/services.dart';
 import 'package:luoda_flutter/desktop/pages/desktop_home_page.dart';
 import 'package:luoda_flutter/mobile/widgets/dialog.dart';
@@ -14,6 +15,48 @@ import '../../consts.dart';
 import '../../models/platform_model.dart';
 import '../../models/server_model.dart';
 import 'home_page.dart';
+
+/// 本机公网 IPv4 缓存（多页面共享）。
+String _cachedPublicIp = '';
+DateTime? _lastPublicIpFetchAt;
+
+/// 获取本机公网 IPv4（多个服务轮试），失败返回 null。
+Future<String?> _fetchPublicIpv4() async {
+  const endpoints = <String>[
+    'https://api.ipify.org?format=text',
+    'https://4.ipw.cn',
+    'https://ifconfig.me/ip',
+  ];
+  for (final url in endpoints) {
+    try {
+      final res =
+          await http.get(Uri.parse(url)).timeout(const Duration(seconds: 4));
+      if (res.statusCode == 200) {
+        final ip = res.body.trim();
+        if (_isValidPublicIpv4(ip)) return ip;
+      }
+    } catch (_) {}
+  }
+  return null;
+}
+
+bool _isValidPublicIpv4(String value) {
+  final parts = value.split('.');
+  if (parts.length != 4) return false;
+  final octets = <int>[];
+  for (final part in parts) {
+    final octet = int.tryParse(part);
+    if (octet == null || octet < 0 || octet > 255) return false;
+    octets.add(octet);
+  }
+  final first = octets[0];
+  if (first <= 0 || first >= 224 || first == 127) return false;
+  if (first == 169 && octets[1] == 254) return false;
+  if (first == 100 && octets[1] >= 64 && octets[1] <= 127) return false;
+  if (first == 192 && octets[1] == 168) return false;
+  if (first == 172 && octets[1] >= 16 && octets[1] <= 31) return false;
+  return first != 10;
+}
 
 class ServerPage extends StatefulWidget implements PageShape {
   @override
@@ -181,6 +224,23 @@ class _DropDownAction extends StatelessWidget {
 
 class _ServerPageState extends State<ServerPage> {
   Timer? _updateTimer;
+  // 上次重建时渲染的 ID / 公网 IP：3 秒轮询只在真正变化时才 setState，
+  // 避免 ID/IP 不变时每 3 秒整页重建浪费 CPU/电量。
+  String _lastRenderedId = '';
+  String _lastRenderedIp = '';
+
+  Future<void> _refreshPublicIp() async {
+    final now = DateTime.now();
+    if (_lastPublicIpFetchAt != null &&
+        now.difference(_lastPublicIpFetchAt!) < const Duration(minutes: 2)) {
+      return;
+    }
+    _lastPublicIpFetchAt = now;
+    final ip = await _fetchPublicIpv4();
+    if (ip != null && mounted && _cachedPublicIp != ip) {
+      setState(() => _cachedPublicIp = ip);
+    }
+  }
 
   @override
   void initState() {
@@ -190,8 +250,17 @@ class _ServerPageState extends State<ServerPage> {
     }
     _updateTimer = periodic_immediate(const Duration(seconds: 3), () async {
       await gFFI.serverModel.fetchID();
+      await _refreshPublicIp();
       if (isAndroid && mounted) {
-        setState(() {});
+        // 只有 ID 或公网 IP 发生变化才重建；其余信息（在线状态、密码、
+        // 客户端列表）由 ServerModel 自身的 notifyListeners 驱动刷新。
+        final currentId = gFFI.serverModel.serverId.value.text.trim();
+        if (currentId != _lastRenderedId ||
+            _cachedPublicIp != _lastRenderedIp) {
+          _lastRenderedId = currentId;
+          _lastRenderedIp = _cachedPublicIp;
+          setState(() {});
+        }
       }
     });
     gFFI.serverModel.checkAndroidPermission();
@@ -203,6 +272,252 @@ class _ServerPageState extends State<ServerPage> {
     super.dispose();
   }
 
+  /// 协助页顶部：与会议页一致绿色渐变 hero 卡片。
+  Widget _buildAssistHero(BuildContext context) {
+    final serverModel = gFFI.serverModel;
+    final id = serverModel.serverId.value.text.trim();
+    return Container(
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: <Color>[Color(0xFF0FAF57), Color(0xFF07C160)],
+        ),
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: <BoxShadow>[
+          BoxShadow(
+            color: const Color(0xFF07C160).withOpacity(0.28),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.18),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.support_agent_rounded,
+                    color: Colors.white, size: 24),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      translate('Remote assistance'),
+                      style: const TextStyle(
+                        fontSize: 19,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      translate('Connect and help your devices anytime'),
+                      style: TextStyle(
+                        fontSize: MobileText.caption,
+                        color: Colors.white.withOpacity(0.85),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: <Widget>[
+              _assistHeroChip(
+                icon: Icons.badge_outlined,
+                label: id.isEmpty ? translate('Device ID') : 'ID $id',
+                onTap: () {
+                  if (id.isNotEmpty) {
+                    Clipboard.setData(ClipboardData(text: id));
+                    showToast(translate('Copied'));
+                  }
+                },
+              ),
+              const SizedBox(width: 8),
+              // 连接协助：点击弹出 ID/IP 输入框发起远程协助（替代原来的在线状态提示）。
+              Expanded(
+                child: InkWell(
+                  onTap: () => _showAssistConnectDialog(context),
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.22),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        const Icon(Icons.screen_share_rounded,
+                            color: Colors.white, size: 15),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            translate('Connect assist'),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _assistHeroChip({
+    required IconData icon,
+    required String label,
+    VoidCallback? onTap,
+  }) {
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.16),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(icon, color: Colors.white, size: 15),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 连接协助：弹出输入框，输入 ID 或 IP:端口 发起远程协助连接。
+  void _showAssistConnectDialog(BuildContext context) {
+    final controller = TextEditingController();
+    final theme = Theme.of(context);
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: theme.colorScheme.surface,
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Row(
+          children: <Widget>[
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: MyTheme.primarySoft,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.screen_share_rounded,
+                  size: 18, color: MyTheme.primary),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              translate('Remote assistance'),
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                color: theme.colorScheme.onSurface,
+              ),
+            ),
+          ],
+        ),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          textInputAction: TextInputAction.go,
+          onSubmitted: (value) {
+            final trimmed = value.trim();
+            Navigator.of(dialogContext).pop();
+            if (trimmed.isNotEmpty) {
+              HomePage.homeKey.currentState?.connectByInput(trimmed);
+            }
+          },
+          decoration: InputDecoration(
+            hintText: translate('Enter ID or IP:port'),
+            filled: true,
+            fillColor: theme.colorScheme.surface,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: theme.dividerColor),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: theme.dividerColor),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: MyTheme.primary, width: 1.4),
+            ),
+          ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(translate('Cancel')),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: MyTheme.primary,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            onPressed: () {
+              final value = controller.text.trim();
+              Navigator.of(dialogContext).pop();
+              if (value.isNotEmpty) {
+                HomePage.homeKey.currentState?.connectByInput(value);
+              }
+            },
+            child: Text(translate('Connect')),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     checkService();
@@ -212,17 +527,25 @@ class _ServerPageState extends State<ServerPage> {
             builder: (context, serverModel, child) => SingleChildScrollView(
                   controller: gFFI.serverModel.controller,
                   child: Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.start,
-                      children: [
-                        buildPresetPasswordWarningMobile(),
-                        gFFI.serverModel.isStart
-                            ? ServerInfo()
-                            : ServiceNotRunningNotification(),
-                        const ConnectionManager(),
-                        const PermissionChecker(),
-                        SizedBox.fromSize(size: const Size(0, 15.0)),
-                      ],
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 720),
+                      child: Padding(
+                        // 与会议页一致的页边距
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.start,
+                          children: [
+                            _buildAssistHero(context),
+                            buildPresetPasswordWarningMobile(),
+                            gFFI.serverModel.isStart
+                                ? ServerInfo()
+                                : ServiceNotRunningNotification(),
+                            const ConnectionManager(),
+                            const PermissionChecker(),
+                            SizedBox.fromSize(size: const Size(0, 15.0)),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 )));
@@ -247,221 +570,189 @@ class ServiceNotRunningNotification extends StatelessWidget {
     final serverModel = Provider.of<ServerModel>(context);
 
     return PaddingCard(
-        title: translate("Service is not running"),
-        titleIcon:
-            const Icon(Icons.warning_amber_sharp, color: Colors.redAccent),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(translate("android_start_service_tip"),
-                    style:
-                        const TextStyle(fontSize: 12, color: MyTheme.darkGray))
-                .marginOnly(bottom: 8),
-            ElevatedButton.icon(
-                icon: const Icon(Icons.play_arrow),
-                onPressed: () {
-                  if (gFFI.userModel.userName.value.isEmpty &&
-                      bind.mainGetLocalOption(key: "show-scam-warning") !=
-                          "N") {
-                    showScamWarning(context, serverModel);
-                  } else {
-                    serverModel.toggleService();
-                  }
-                },
-                label: Text(translate("Start service")))
-          ],
-        ));
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: Colors.redAccent.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.warning_amber_rounded,
+                  color: Colors.redAccent,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      translate('Service is not running'),
+                      style: const TextStyle(
+                        fontSize: MobileText.bodyLg,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      translate('android_start_service_tip'),
+                      style: TextStyle(
+                        fontSize: MobileText.caption,
+                        height: 1.4,
+                        color: mobileMuted(context),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 48,
+            child: FilledButton.icon(
+              icon: const Icon(Icons.play_arrow_rounded, size: 20),
+              onPressed: () {
+                if (_shouldShowScamWarning()) {
+                  showScamWarning(context, serverModel);
+                } else {
+                  serverModel.toggleService();
+                }
+              },
+              label: Text(translate('Start service')),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
-class ScamWarningDialog extends StatefulWidget {
-  final ServerModel serverModel;
-
-  ScamWarningDialog({required this.serverModel});
-
-  @override
-  ScamWarningDialogState createState() => ScamWarningDialogState();
+bool _shouldShowScamWarning() {
+  return gFFI.userModel.userName.value.isEmpty &&
+      bind.mainGetLocalOption(key: 'show-scam-warning') != 'N';
 }
 
-class ScamWarningDialogState extends State<ScamWarningDialog> {
+class ScamWarningDialog extends StatefulWidget {
+  const ScamWarningDialog({required this.serverModel, super.key});
+
+  final ServerModel serverModel;
+
+  @override
+  State<ScamWarningDialog> createState() => _ScamWarningDialogState();
+}
+
+class _ScamWarningDialogState extends State<ScamWarningDialog> {
   int _countdown = bind.isCustomClient() ? 0 : 12;
-  bool show_warning = false;
-  late Timer _timer;
-  late ServerModel _serverModel;
+  bool _dontShowAgain = false;
+  Timer? _timer;
 
   @override
   void initState() {
     super.initState();
-    _serverModel = widget.serverModel;
-    startCountdown();
-  }
-
-  void startCountdown() {
-    const oneSecond = Duration(seconds: 1);
-    _timer = Timer.periodic(oneSecond, (timer) {
-      setState(() {
-        _countdown--;
-        if (_countdown <= 0) {
-          timer.cancel();
-        }
+    if (_countdown > 0) {
+      _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+        if (!mounted) return;
+        setState(() {
+          _countdown--;
+          if (_countdown <= 0) timer.cancel();
+        });
       });
-    });
+    }
   }
 
   @override
   void dispose() {
-    _timer.cancel();
+    _timer?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final isButtonLocked = _countdown > 0;
-
+    final locked = _countdown > 0;
     return AlertDialog(
-      content: ClipRRect(
-        borderRadius: BorderRadius.circular(20.0),
+      title: Row(
+        children: <Widget>[
+          const Icon(Icons.warning_amber_rounded, color: Colors.redAccent),
+          const SizedBox(width: 10),
+          Expanded(child: Text(translate('Warning'))),
+        ],
+      ),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
         child: SingleChildScrollView(
-          child: Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topRight,
-                end: Alignment.bottomLeft,
-                colors: [
-                  Color(0xffe242bc),
-                  Color(0xfff4727c),
-                ],
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Center(
+                child: Image.asset(
+                  'assets/scam.png',
+                  width: 160,
+                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                ),
               ),
-            ),
-            padding: EdgeInsets.all(25.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      Icons.warning_amber_sharp,
-                      color: Colors.white,
+              const SizedBox(height: 16),
+              Text(
+                translate('scam_title'),
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
                     ),
-                    SizedBox(width: 10),
-                    Text(
-                      translate("Warning"),
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 20.0,
-                      ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '${translate('scam_text1')}\n\n${translate('scam_text2')}',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      height: 1.5,
                     ),
-                  ],
-                ),
-                SizedBox(height: 20),
-                Center(
-                  child: Image.asset(
-                    'assets/scam.png',
-                    width: 180,
-                  ),
-                ),
-                SizedBox(height: 18),
-                Text(
-                  translate("scam_title"),
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 22.0,
-                  ),
-                ),
-                SizedBox(height: 18),
-                Text(
-                  "${translate("scam_text1")}\n\n${translate("scam_text2")}\n",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16.0,
-                  ),
-                ),
-                Row(
-                  children: <Widget>[
-                    Checkbox(
-                      value: show_warning,
-                      onChanged: (value) {
-                        setState(() {
-                          show_warning = value!;
-                        });
-                      },
-                    ),
-                    Text(
-                      translate("Don't show again"),
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 15.0,
-                      ),
-                    ),
-                  ],
-                ),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    Container(
-                      constraints: BoxConstraints(maxWidth: 150),
-                      child: ElevatedButton(
-                        onPressed: isButtonLocked
-                            ? null
-                            : () {
-                                Navigator.of(context).pop();
-                                _serverModel.toggleService();
-                                if (show_warning) {
-                                  bind.mainSetLocalOption(
-                                      key: "show-scam-warning", value: "N");
-                                }
-                              },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blueAccent,
-                        ),
-                        child: Text(
-                          isButtonLocked
-                              ? "${translate("I Agree")} (${_countdown}s)"
-                              : translate("I Agree"),
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13.0,
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ),
-                    SizedBox(width: 15),
-                    Container(
-                      constraints: BoxConstraints(maxWidth: 150),
-                      child: ElevatedButton(
-                        onPressed: () {
-                          Navigator.of(context).pop();
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blueAccent,
-                        ),
-                        child: Text(
-                          translate("Decline"),
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13.0,
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+              ),
+              const SizedBox(height: 8),
+              CheckboxListTile(
+                value: _dontShowAgain,
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                title: Text(translate("Don't show again")),
+                onChanged: (value) {
+                  setState(() => _dontShowAgain = value ?? false);
+                },
+              ),
+            ],
           ),
         ),
       ),
-      contentPadding: EdgeInsets.all(0.0),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(translate('Decline')),
+        ),
+        FilledButton(
+          onPressed: locked
+              ? null
+              : () {
+                  Navigator.of(context).pop();
+                  if (_dontShowAgain) {
+                    bind.mainSetLocalOption(
+                      key: 'show-scam-warning',
+                      value: 'N',
+                    );
+                  }
+                  widget.serverModel.toggleService();
+                },
+          child: Text(
+            locked
+                ? '${translate('I Agree')} (${_countdown}s)'
+                : translate('I Agree'),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -481,14 +772,14 @@ class ServerInfo extends StatelessWidget {
     const double iconMarginRight = 15;
     const double iconSize = 24;
     final TextStyle textStyleHeading = TextStyle(
-      fontSize: 14,
+      fontSize: MobileText.body,
       fontWeight: FontWeight.w600,
       color: Theme.of(context).brightness == Brightness.dark
           ? MyTheme.mutedDark
           : MyTheme.mutedLight,
     );
     const TextStyle textStyleValue = TextStyle(
-      fontSize: 20,
+      fontSize: MobileText.title,
       fontWeight: FontWeight.w600,
       letterSpacing: 0,
     );
@@ -499,6 +790,13 @@ class ServerInfo extends StatelessWidget {
     }
 
     Widget ConnectionStateNotification() {
+      if (serverModel.connectStatus > 0) {
+        return Row(children: [
+          const Icon(Icons.check, color: colorPositive, size: iconSize)
+              .marginOnly(right: iconMarginRight),
+          Expanded(child: Text(translate('Online'))),
+        ]);
+      }
       final directPort =
           bind.mainGetOptionSync(key: kOptionDirectAccessPort).trim();
       if (directPort.isNotEmpty) {
@@ -533,6 +831,7 @@ class ServerInfo extends StatelessWidget {
         serverModel.verificationMethod != kUsePermanentPassword;
     return PaddingCard(
         title: translate('Your Device'),
+        titleIcon: const Icon(Icons.devices_rounded, size: 20),
         child: Column(
           // ID
           children: [
@@ -555,7 +854,7 @@ class ServerInfo extends StatelessWidget {
                 ),
               ),
               IconButton(
-                  visualDensity: VisualDensity.compact,
+                  tooltip: translate('Copy'),
                   icon: Icon(Icons.copy_outlined),
                   onPressed: () {
                     copyToClipboard(model.serverId.value.text.trim());
@@ -583,11 +882,11 @@ class ServerInfo extends StatelessWidget {
                   ? SizedBox.shrink()
                   : Row(children: [
                       IconButton(
-                          visualDensity: VisualDensity.compact,
+                          tooltip: translate('Refresh'),
                           icon: const Icon(Icons.refresh),
                           onPressed: () => bind.mainUpdateTemporaryPassword()),
                       IconButton(
-                          visualDensity: VisualDensity.compact,
+                          tooltip: translate('Copy'),
                           icon: Icon(Icons.copy_outlined),
                           onPressed: () {
                             copyToClipboard(
@@ -607,7 +906,9 @@ class ServerInfo extends StatelessWidget {
   /// 把自己的 IP 告诉对方进行直连。
   Widget _buildDirectAccessInfo(BuildContext context) {
     if (isWeb) return const SizedBox.shrink();
-    final publicIP = bind.mainGetOptionSync(key: 'public-ip');
+    final publicIP = _cachedPublicIp.isNotEmpty
+        ? _cachedPublicIp
+        : bind.mainGetOptionSync(key: 'public-ip');
     final lanIP = bind.mainGetOptionSync(key: 'lan-ip');
     final directPort = bind.mainGetOptionSync(key: kOptionDirectAccessPort);
     final upnpStatus = bind.mainGetOptionSync(key: 'upnp-status');
@@ -674,13 +975,13 @@ class ServerInfo extends StatelessWidget {
           Text(
             translate('Direct IP Access'),
             style: TextStyle(
-              fontSize: 13,
+              fontSize: MobileText.bodySm,
               fontWeight: FontWeight.bold,
-              color: Colors.grey,
+              color: mobileMuted(context),
             ),
           ),
           SizedBox(height: 4),
-          _mobileIpRow(translate('Public network'), publicAddr),
+          _mobileIpRow(context, translate('Public network'), publicAddr),
           SizedBox(height: 2),
           if (publicAddr.isNotEmpty && directPort.isNotEmpty)
             Row(
@@ -698,53 +999,65 @@ class ServerInfo extends StatelessWidget {
                   child: Text(
                     translate(upnpTip),
                     style: TextStyle(
-                        fontSize: 12, height: 1.3, color: Colors.grey),
+                        fontSize: MobileText.caption,
+                        height: 1.3,
+                        color: mobileMuted(context)),
                   ),
                 ),
               ],
             ),
           SizedBox(height: 4),
-          _mobileIpRow(translate('Local network'), lanAddr),
+          _mobileIpRow(context, translate('Local network'), lanAddr),
         ],
       ),
     );
   }
 
-  Widget _mobileIpRow(String label, String addr) {
-    final text = addr.isNotEmpty ? addr : 'Not available';
-    return Row(
-      children: [
-        SizedBox(
-          width: 56,
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: Colors.grey,
-            ),
-          ),
-        ),
-        Expanded(
-          child: GestureDetector(
-            onDoubleTap: () {
-              if (addr.isNotEmpty) {
-                Clipboard.setData(ClipboardData(text: addr));
-                showToast('Copied');
-              }
-            },
+  Widget _mobileIpRow(BuildContext context, String label, String addr) {
+    final text = addr.isNotEmpty ? addr : translate('Not available');
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 44),
+      child: Row(
+        children: <Widget>[
+          SizedBox(
+            width: 72,
             child: Text(
-              text,
+              label,
               style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.bold,
-                fontFamily: 'monospace',
-                color: addr.isNotEmpty ? null : Colors.grey,
+                fontSize: MobileText.captionSm,
+                fontWeight: FontWeight.w600,
+                color: mobileMuted(context),
               ),
             ),
           ),
-        ),
-      ],
+          Expanded(
+            child: Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: MobileText.bodySm,
+                fontWeight: FontWeight.w600,
+                fontFamily: 'monospace',
+                color: addr.isNotEmpty ? null : mobileMuted(context),
+              ),
+            ),
+          ),
+          if (addr.isNotEmpty)
+            IconButton(
+              tooltip: translate('Copy'),
+              constraints: const BoxConstraints.tightFor(
+                width: 44,
+                height: 44,
+              ),
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: addr));
+                showToast(translate('Copied'));
+              },
+              icon: const Icon(Icons.copy_rounded, size: 18),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -826,14 +1139,13 @@ class _PermissionCheckerState extends State<PermissionChecker>
       }
       if (!serverModel.inputOk) {
         showToast(translate(
-          'Enable input control in system settings, then return to LDesk.',
+          'Enable input control in system settings, then return to DotChat.',
         ));
         AndroidPermissionManager.startAction(kActionAccessibilitySettings);
         return;
       }
       if (!serverModel.mediaOk) {
-        if (gFFI.userModel.userName.value.isEmpty &&
-            bind.mainGetLocalOption(key: 'show-scam-warning') != 'N') {
+        if (_shouldShowScamWarning()) {
           showScamWarning(context, serverModel);
         } else {
           await serverModel.toggleService();
@@ -864,85 +1176,144 @@ class _PermissionCheckerState extends State<PermissionChecker>
       if (androidVersion >= 33) _notificationOk,
       if (_floatingWindowRequired) _floatingWindowOk,
     ];
+    final dark = Theme.of(context).brightness == Brightness.dark;
     final enabledCount = states.where((enabled) => enabled).length;
     final allEnabled = enabledCount == states.length;
     return PaddingCard(
         title: translate("Permission center"),
+        titleIcon: const Icon(Icons.verified_user_outlined, size: 20),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      allEnabled
-                          ? translate('All required permissions are ready')
-                          : '$enabledCount/${states.length} ${translate('permissions enabled')}',
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Row(
+                  children: <Widget>[
+                    SizedBox(
+                      width: 52,
+                      height: 52,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: <Widget>[
+                          SizedBox(
+                            width: 52,
+                            height: 52,
+                            child: CircularProgressIndicator(
+                              value: states.isEmpty
+                                  ? 0
+                                  : enabledCount / states.length,
+                              strokeWidth: 5,
+                              backgroundColor: dark
+                                  ? const Color(0xFF2B2D32)
+                                  : const Color(0xFFDCEEDF),
+                              color: MyTheme.primary,
+                            ),
+                          ),
+                          Text(
+                            '$enabledCount/${states.length}',
+                            style: TextStyle(
+                              fontSize: MobileText.bodySm,
+                              fontWeight: FontWeight.w700,
+                              color: MyTheme.primary,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 3),
-                    Text(
-                      translate('Only missing permissions will be requested.'),
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            fontSize: 12,
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(
+                            allEnabled
+                                ? translate(
+                                    'All required permissions are ready')
+                                : translate('Permission center'),
+                            style: const TextStyle(
+                              fontSize: MobileText.bodyLg,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
+                          const SizedBox(height: 3),
+                          Text(
+                            translate(
+                                'Only missing permissions will be requested.'),
+                            style: TextStyle(
+                              fontSize: MobileText.caption,
+                              color: dark
+                                  ? MyTheme.mutedDark
+                                  : const Color(0xFF6B7280),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(width: 12),
-              SizedBox(
-                height: 48,
-                child: ElevatedButton.icon(
-                  onPressed: allEnabled || _isCompleting
-                      ? null
-                      : () => _completePermissions(serverModel),
-                  icon: _isCompleting
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.verified_user_outlined, size: 20),
-                  label: Text(
-                    translate('Complete required permissions'),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                if (!allEnabled) ...<Widget>[
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: FilledButton.icon(
+                      onPressed: _isCompleting
+                          ? null
+                          : () => _completePermissions(serverModel),
+                      icon: _isCompleting
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.verified_user_outlined, size: 19),
+                      label: Text(
+                        translate('Complete required permissions'),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      style: FilledButton.styleFrom(
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-              ),
-            ],
-          ).marginOnly(bottom: 8),
+                ],
+              ],
+            ),
+          ),
           serverModel.mediaOk && !hideStopService
-              ? ElevatedButton.icon(
-                      style: ButtonStyle(
-                          backgroundColor:
-                              MaterialStateProperty.all(Colors.red)),
-                      icon: const Icon(Icons.stop),
+              ? TextButton.icon(
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.redAccent,
+                        minimumSize: const Size(0, 48),
+                      ),
+                      icon: const Icon(Icons.stop_rounded),
                       onPressed: serverModel.toggleService,
                       label: Text(translate("Stop service")))
                   .marginOnly(bottom: 8)
               : SizedBox.shrink(),
           if (!hideStopService || !serverModel.mediaOk)
             PermissionRow(
-                translate("Screen Capture"),
-                serverModel.mediaOk,
-                !serverModel.mediaOk &&
-                        gFFI.userModel.userName.value.isEmpty &&
-                        bind.mainGetLocalOption(key: "show-scam-warning") != "N"
-                    ? () => showScamWarning(context, serverModel)
-                    : serverModel.toggleService),
+              translate("Screen Capture"),
+              serverModel.mediaOk,
+              _shouldShowScamWarning()
+                  ? () => showScamWarning(context, serverModel)
+                  : serverModel.toggleService,
+              icon: Icons.screen_share_rounded,
+            ),
           PermissionRow(translate("Input Control"), serverModel.inputOk,
-              serverModel.toggleInput),
+              serverModel.toggleInput,
+              icon: Icons.touch_app_rounded),
           PermissionRow(translate("Transfer file"), serverModel.fileOk,
-              serverModel.toggleFile),
+              serverModel.toggleFile,
+              icon: Icons.folder_copy_rounded),
           hasAudioPermission
               ? PermissionRow(translate("Audio Capture"), serverModel.audioOk,
-                  serverModel.toggleAudio)
+                  serverModel.toggleAudio,
+                  icon: Icons.mic_rounded)
               : Row(children: [
                   Icon(Icons.info_outline).marginOnly(right: 15),
                   Expanded(
@@ -952,7 +1323,8 @@ class _PermissionCheckerState extends State<PermissionChecker>
                   ))
                 ]),
           PermissionRow(translate("Enable clipboard"), serverModel.clipboardOk,
-              serverModel.toggleClipboard),
+              serverModel.toggleClipboard,
+              icon: Icons.content_paste_rounded),
           if (androidVersion >= 33)
             PermissionRow(
               translate('Notifications'),
@@ -961,6 +1333,7 @@ class _PermissionCheckerState extends State<PermissionChecker>
                 await serverModel.checkRequestNotificationPermission();
                 await _refreshSystemPermissions();
               },
+              icon: Icons.notifications_rounded,
             ),
           if (_floatingWindowRequired)
             PermissionRow(
@@ -970,29 +1343,69 @@ class _PermissionCheckerState extends State<PermissionChecker>
                 await serverModel.checkFloatingWindowPermission();
                 await _refreshSystemPermissions();
               },
+              icon: Icons.picture_in_picture_alt_rounded,
             ),
         ]));
   }
 }
 
 class PermissionRow extends StatelessWidget {
-  const PermissionRow(this.name, this.isOk, this.onPressed, {Key? key})
-      : super(key: key);
+  const PermissionRow(
+    this.name,
+    this.isOk,
+    this.onPressed, {
+    this.icon = Icons.check_circle_outline_rounded,
+    Key? key,
+  }) : super(key: key);
 
   final String name;
   final bool isOk;
   final VoidCallback onPressed;
+  final IconData icon;
 
   @override
   Widget build(BuildContext context) {
-    return SwitchListTile(
-        visualDensity: VisualDensity.compact,
-        contentPadding: EdgeInsets.all(0),
-        title: Text(name),
-        value: isOk,
-        onChanged: (bool value) {
-          onPressed();
-        });
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Column(
+      children: <Widget>[
+        ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 52),
+          child: SwitchListTile(
+            visualDensity: VisualDensity.compact,
+            contentPadding: EdgeInsets.zero,
+            secondary: SizedBox(
+              width: 36,
+              child: Icon(
+                icon,
+                size: 20,
+                color: isOk
+                    ? MyTheme.primary
+                    : dark
+                        ? MyTheme.mutedDark
+                        : MyTheme.mutedLight,
+              ),
+            ),
+            title: Text(
+              name,
+              style: const TextStyle(
+                fontSize: MobileText.body,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            value: isOk,
+            activeColor: MyTheme.primary,
+            onChanged: (_) => onPressed(),
+          ),
+        ),
+        Container(
+          height: 0.5,
+          margin: const EdgeInsets.only(left: 48),
+          color: dark
+              ? const Color(0xFF3A3D43)
+              : const Color(0x80E5E5E5),
+        ),
+      ],
+    );
   }
 }
 
@@ -1047,7 +1460,7 @@ class ConnectionManager extends StatelessWidget {
 
   Widget _buildDisconnectButton(Client client) {
     final disconnectButton = ElevatedButton.icon(
-      style: ButtonStyle(backgroundColor: MaterialStatePropertyAll(Colors.red)),
+      style: ButtonStyle(backgroundColor: WidgetStatePropertyAll(Colors.red)),
       icon: const Icon(Icons.close),
       onPressed: () {
         bind.cmCloseConnection(connId: client.id);
@@ -1060,8 +1473,8 @@ class ConnectionManager extends StatelessWidget {
       buttons.insert(
         0,
         ElevatedButton.icon(
-          style: ButtonStyle(
-              backgroundColor: MaterialStatePropertyAll(Colors.red)),
+          style:
+              ButtonStyle(backgroundColor: WidgetStatePropertyAll(Colors.red)),
           icon: const Icon(Icons.phone),
           label: Text(translate("Stop")),
           onPressed: () {
@@ -1150,27 +1563,34 @@ class PaddingCard extends StatelessWidget {
                     child: Text(title ?? '',
                         style: Theme.of(context)
                             .textTheme
-                            .titleLarge
-                            ?.merge(TextStyle(fontWeight: FontWeight.bold))),
+                            .titleMedium
+                            ?.merge(const TextStyle(
+                              fontSize: MobileText.bodyLg,
+                              fontWeight: FontWeight.w700,
+                            ))),
                   )
                 ],
               )));
     }
-    return SizedBox(
-        width: double.maxFinite,
-        child: Card(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
+    final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: <BoxShadow>[
+          BoxShadow(
+            color: dark ? Colors.black.withOpacity(0.3) : Colors.black.withOpacity(0.05),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
           ),
-          margin: const EdgeInsets.fromLTRB(12.0, 10.0, 12.0, 0),
-          child: Padding(
-            padding:
-                const EdgeInsets.symmetric(vertical: 15.0, horizontal: 20.0),
-            child: Column(
-              children: children,
-            ),
-          ),
-        ));
+        ],
+      ),
+      child: Column(children: children),
+    );
   }
 }
 
@@ -1194,9 +1614,11 @@ class ClientInfo extends StatelessWidget {
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                    Text(client.name, style: const TextStyle(fontSize: 18)),
+                    Text(client.name,
+                        style: const TextStyle(fontSize: MobileText.titleSm)),
                     const SizedBox(width: 8),
-                    Text(client.peerId, style: const TextStyle(fontSize: 10))
+                    Text(client.peerId,
+                        style: const TextStyle(fontSize: MobileText.caption))
                   ]))
             ],
           ),
@@ -1276,10 +1698,8 @@ void androidChannelInit() {
 }
 
 void showScamWarning(BuildContext context, ServerModel serverModel) {
-  showDialog(
+  showDialog<void>(
     context: context,
-    builder: (BuildContext context) {
-      return ScamWarningDialog(serverModel: serverModel);
-    },
+    builder: (_) => ScamWarningDialog(serverModel: serverModel),
   );
 }

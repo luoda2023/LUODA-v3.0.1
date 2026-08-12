@@ -12,8 +12,29 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
   bool get wantKeepAlive => true;
   bool locked = !isWeb && bind.mainIsInstalled();
   bool _showAdvancedNetworkSettings = false;
+  VoidCallback? _directChatAccessListener;
 
   final scrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    // ???/???????????????????????????
+    _directChatAccessListener = () {
+      if (mounted) setState(() {});
+    };
+    DirectChatAccessController.instance.addListener(_directChatAccessListener!);
+  }
+
+  @override
+  void dispose() {
+    if (_directChatAccessListener != null) {
+      DirectChatAccessController.instance
+          .removeListener(_directChatAccessListener!);
+      _directChatAccessListener = null;
+    }
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -81,9 +102,10 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
         const Divider(height: 1, indent: 16, endIndent: 16),
         option(
           icon: Icons.verified_user_outlined,
-          title: 'Only trusted contacts can message me',
-          subtitle:
-              'Unknown peers must be approved before they can establish a persistent chat connection.',
+          title: 'Only friends can contact me anytime',
+          subtitle: trustedOnly
+              ? 'Unknown peers must be approved before they can establish a persistent chat connection.'
+              : 'Strangers can also chat with me directly',
           value: trustedOnly,
           onChanged: locked || !alwaysOn
               ? null

@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:luoda_flutter/common.dart';
+import 'package:luoda_flutter/common/direct_chat.dart';
 import 'package:luoda_flutter/common/widgets/dialog.dart';
 import 'package:luoda_flutter/utils/event_loop.dart';
 import 'package:get/get.dart';
@@ -99,6 +101,39 @@ class FileModel {
   Future<void> refreshAll() async {
     if (!isWeb) await localController.refresh();
     await remoteController.refresh();
+  }
+
+  /// After a file-transfer session finishes delivering remote->local files,
+  /// links each saved file back to the chat record that announced it, so the
+  /// file message can be previewed directly (files > 5 MB use the transfer
+  /// subsystem whose completion ChatModel cannot observe).
+  Future<void> linkReceivedTransferFilesToChat() async {
+    final chat = parent.target?.chatModel;
+    if (chat == null) return;
+    final conversationId = chat.currentKey.peerId.trim();
+    if (conversationId.isEmpty) return;
+    var linkedAny = false;
+    for (final job in jobController.jobTable) {
+      if (job.type != JobType.transfer ||
+          !job.isRemoteToLocal ||
+          job.state != JobState.done) {
+        continue;
+      }
+      final savedPath = job.to.trim();
+      if (savedPath.isEmpty || !File(savedPath).existsSync()) continue;
+      final linked = await DirectChatRepository.instance
+          .linkReceivedTransferFile(
+        conversationId: conversationId,
+        fileName: job.fileName,
+        fileSize: File(savedPath).lengthSync(),
+        localPath: savedPath,
+      );
+      if (linked) linkedAny = true;
+    }
+    if (linkedAny) {
+      await chat.refreshCurrentConversationFromStorage();
+      chat.notifyListeners();
+    }
   }
 
   void receiveFileDir(Map<String, dynamic> evt) {

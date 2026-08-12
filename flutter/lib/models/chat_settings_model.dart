@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:luoda_flutter/common.dart';
 
+import '../common/direct_pairing.dart';
+
 class ChatSettingsModel extends ChangeNotifier {
   static final ChatSettingsModel _instance = ChatSettingsModel._();
   factory ChatSettingsModel() => _instance;
@@ -17,31 +19,44 @@ class ChatSettingsModel extends ChangeNotifier {
   static const _kBlockedKey = 'chat_blocked_peers';
 
   Future<void> load() async {
+    _ensureLoaded();
+  }
+
+  void _ensureLoaded() {
     if (_loaded) return;
     try {
       final mutedRaw = gFFI.chatModel.getRawOption(_kMutedKey);
       if (mutedRaw.isNotEmpty) {
-        _mutedPeerIds = Set<String>.from(jsonDecode(mutedRaw) as List);
+        _mutedPeerIds = _decodePeerIds(mutedRaw);
       }
-    } catch (_) { /* ignore corrupt data */ }
+    } catch (_) {/* ignore corrupt data */}
     try {
       final blockedRaw = gFFI.chatModel.getRawOption(_kBlockedKey);
       if (blockedRaw.isNotEmpty) {
-        _blockedPeerIds = Set<String>.from(jsonDecode(blockedRaw) as List);
+        _blockedPeerIds = _decodePeerIds(blockedRaw);
       }
-    } catch (_) { /* ignore corrupt data */ }
+    } catch (_) {/* ignore corrupt data */}
     _loaded = true;
   }
 
-  bool isMuted(String peerId) => _mutedPeerIds.contains(peerId);
-  bool isBlocked(String peerId) => _blockedPeerIds.contains(peerId);
+  bool isMuted(String peerId) {
+    _ensureLoaded();
+    return _mutedPeerIds.contains(_canonicalPeerId(peerId));
+  }
+
+  bool isBlocked(String peerId) {
+    _ensureLoaded();
+    return _blockedPeerIds.contains(_canonicalPeerId(peerId));
+  }
 
   Future<void> toggleMute(String peerId) async {
     await load();
-    if (_mutedPeerIds.contains(peerId)) {
-      _mutedPeerIds.remove(peerId);
+    final id = _canonicalPeerId(peerId);
+    if (id.isEmpty) return;
+    if (_mutedPeerIds.contains(id)) {
+      _mutedPeerIds.remove(id);
     } else {
-      _mutedPeerIds.add(peerId);
+      _mutedPeerIds.add(id);
     }
     await _saveMuted();
     notifyListeners();
@@ -49,10 +64,12 @@ class ChatSettingsModel extends ChangeNotifier {
 
   Future<void> toggleBlock(String peerId) async {
     await load();
-    if (_blockedPeerIds.contains(peerId)) {
-      _blockedPeerIds.remove(peerId);
+    final id = _canonicalPeerId(peerId);
+    if (id.isEmpty) return;
+    if (_blockedPeerIds.contains(id)) {
+      _blockedPeerIds.remove(id);
     } else {
-      _blockedPeerIds.add(peerId);
+      _blockedPeerIds.add(id);
     }
     await _saveBlocked();
     notifyListeners();
@@ -71,4 +88,14 @@ class ChatSettingsModel extends ChangeNotifier {
       value: jsonEncode(_blockedPeerIds.toList(growable: false)),
     );
   }
+
+  Set<String> _decodePeerIds(String raw) {
+    return (jsonDecode(raw) as List<dynamic>)
+        .map((value) => _canonicalPeerId(value.toString()))
+        .where((value) => value.isNotEmpty)
+        .toSet();
+  }
+
+  String _canonicalPeerId(String peerId) =>
+      DirectPairingStore.canonicalConversationId(peerId.trim());
 }

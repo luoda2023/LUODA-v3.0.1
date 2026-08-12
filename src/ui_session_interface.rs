@@ -1,4 +1,4 @@
-use crate::{
+﻿use crate::{
     common::{get_supported_keyboard_modes, is_keyboard_mode_supported},
     input::{
         MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT, MOUSE_TYPE_DOWN, MOUSE_TYPE_MASK,
@@ -90,7 +90,7 @@ pub struct Session<T: InvokeUiSession> {
 
 #[cfg(test)]
 mod direct_identity_tests {
-    use super::canonical_direct_peer_id;
+    use super::{canonical_direct_peer_id, ConnectionRoundState};
 
     #[test]
     fn canonical_peer_id_prefers_direct_query_identity() {
@@ -105,6 +105,16 @@ mod direct_identity_tests {
             "server-id"
         );
         assert_eq!(canonical_direct_peer_id("", None), "");
+    }
+
+    #[test]
+    fn connection_round_state_reports_only_connected_sessions() {
+        let mut state = ConnectionRoundState::default();
+        assert!(!state.is_connected());
+        state.set_connected();
+        assert!(state.is_connected());
+        assert!(state.set_disconnected(0));
+        assert!(!state.is_connected());
     }
 }
 
@@ -144,6 +154,10 @@ impl ConnectionRoundState {
 
     pub fn set_connected(&mut self) {
         self.state = ConnectionState::Connected;
+    }
+
+    pub fn is_connected(&self) -> bool {
+        matches!(self.state, ConnectionState::Connected)
     }
 
     pub fn is_round_gt(&self, round: u32) -> bool {
@@ -811,6 +825,8 @@ impl<T: InvokeUiSession> Session<T> {
     }
 
     pub fn send_key_event(&self, evt: &KeyEvent) {
+        #[cfg(all(feature = "flutter", not(any(target_os = "android", target_os = "ios"))))]
+        crate::debug_api::record_input(self.lc.read().unwrap().get_id(), "key");
         // mode: legacy(0), map(1), translate(2), auto(3)
 
         let mut msg = evt.clone();
@@ -1462,10 +1478,7 @@ impl<T: InvokeUiSession> Session<T> {
 
         let cloned = self.clone();
 
-        // override only if true
-        if true == force_relay {
-            self.lc.write().unwrap().force_relay = true;
-        }
+        self.lc.write().unwrap().force_relay = force_relay;
         self.lc.write().unwrap().peer_info = None;
         self.reconnect_count.fetch_add(1, Ordering::SeqCst);
         let mut lock = self.thread.lock().unwrap();

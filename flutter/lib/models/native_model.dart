@@ -94,8 +94,15 @@ class PlatformFFI {
     }
   }
 
-  String translate(String name, String locale) =>
-      _ffiBind.translate(name: name, locale: locale);
+  String translate(String name, String locale) {
+    try {
+      return _ffiBind.translate(name: name, locale: locale);
+    } catch (_) {
+      // FFI 尚未绑定（如单元测试环境或初始化早期）：回退原文，
+      // 保证 UI 构建不会被未初始化的绑定中断。
+      return name;
+    }
+  }
 
   Uint8List? getRgba(SessionID sessionId, int display, int bufSize) {
     if (_session_get_rgba == null) return null;

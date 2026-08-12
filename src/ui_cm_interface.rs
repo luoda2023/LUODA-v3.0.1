@@ -1,4 +1,4 @@
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+﻿#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use crate::ipc::Connection;
 #[cfg(not(any(target_os = "ios")))]
 use crate::ipc::{self, Data};
@@ -148,6 +148,7 @@ pub struct Client {
     pub from_switch: bool,
     pub in_voice_call: bool,
     pub incoming_voice_call: bool,
+    pub chat_message_revision: u64,
     #[serde(skip)]
     #[cfg(not(any(target_os = "ios")))]
     tx: UnboundedSender<Data>,
@@ -262,6 +263,7 @@ impl<T: InvokeUiCM> ConnectionManager<T> {
             tx,
             in_voice_call: false,
             incoming_voice_call: false,
+            chat_message_revision: 0,
         };
         CLIENTS
             .write()
@@ -315,6 +317,13 @@ impl<T: InvokeUiCM> ConnectionManager<T> {
         }
 
         self.ui_handler.remove_connection(id, close);
+    }
+
+    fn new_message(&self, id: i32, text: String) {
+        if let Some(client) = CLIENTS.write().unwrap().get_mut(&id) {
+            client.chat_message_revision = client.chat_message_revision.saturating_add(1);
+        }
+        self.ui_handler.new_message(id, text);
     }
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -388,11 +397,13 @@ pub fn remove(id: i32) {
 // server mode send chat to peer
 #[inline]
 #[cfg(not(any(target_os = "ios")))]
-pub fn send_chat(id: i32, text: String) {
+pub fn send_chat(id: i32, text: String) -> bool {
     let clients = CLIENTS.read().unwrap();
     if let Some(client) = clients.get(&id) {
         allow_err!(client.tx.send(Data::ChatMessage { text }));
+        return true;
     }
+    false
 }
 
 #[inline]
@@ -414,7 +425,6 @@ pub fn switch_permission_all(name: String, enabled: bool) {
     }
 }
 
-#[cfg(any(target_os = "android", target_os = "ios", feature = "flutter"))]
 #[inline]
 pub fn get_clients_state() -> String {
     let clients = CLIENTS.read().unwrap();
@@ -538,6 +548,16 @@ impl<T: InvokeUiCM> IpcTaskRunner<T> {
                                 }
                                 Data::ChatMessage { text } => {
                                     self.cm.new_message(self.conn_id, text);
+                                }
+                                Data::CmQueryClients => {
+                                    allow_err!(self.stream.send(&Data::CmClientsState(get_clients_state())).await);
+                                    self.running = false;
+                                    return;
+                                }
+                                Data::CmSendChat { id, text } => {
+                                    send_chat(id, text);
+                                    self.running = false;
+                                    return;
                                 }
                                 Data::FS(mut fs) => {
                                     if let ipc::FS::WriteBlock { id, file_num, data: _, compressed } = fs {

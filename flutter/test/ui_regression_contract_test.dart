@@ -15,6 +15,9 @@ double _contrastRatio(Color foreground, Color background) {
 }
 
 void main() {
+  final mainSource = File(
+    'lib/main.dart',
+  ).readAsStringSync();
   final peerCardSource = File(
     'lib/common/widgets/peer_card.dart',
   ).readAsStringSync();
@@ -102,6 +105,12 @@ void main() {
   final mobileConnectionSource = File(
     'lib/mobile/pages/connection_page.dart',
   ).readAsStringSync();
+  final localContactsSource = File(
+    'lib/common/widgets/local_contacts_view.dart',
+  ).readAsStringSync();
+  final peerTabStripSource = File(
+    'lib/common/widgets/peer_tab_strip.dart',
+  ).readAsStringSync();
   final desktopServerSource = File(
     'lib/desktop/pages/server_page.dart',
   ).readAsStringSync();
@@ -117,11 +126,17 @@ void main() {
   final mobileScanSource = File(
     'lib/mobile/pages/scan_page.dart',
   ).readAsStringSync();
+  final bluetoothChatSource = File(
+    'lib/mobile/pages/bt_chat_page.dart',
+  ).readAsStringSync();
   final androidManifestSource = File(
     'android/app/src/main/AndroidManifest.xml',
   ).readAsStringSync();
   final chatPageSource = File(
     'lib/common/widgets/chat_page.dart',
+  ).readAsStringSync();
+  final richTextEmojiSource = File(
+    'lib/common/widgets/rich_text_builder.dart',
   ).readAsStringSync();
   final meetingGroupPanelSource = File(
     'lib/common/widgets/meeting_group_panel.dart',
@@ -156,8 +171,14 @@ void main() {
   final chatModelSource = File(
     'lib/models/chat_model.dart',
   ).readAsStringSync();
+  final chatSettingsModelSource = File(
+    'lib/models/chat_settings_model.dart',
+  ).readAsStringSync();
   final directPairingSource = File(
     'lib/common/direct_pairing.dart',
+  ).readAsStringSync();
+  final directConnectionDetailsSource = File(
+    'lib/common/widgets/direct_connection_details.dart',
   ).readAsStringSync();
   final androidPermissionSource = File(
     'android/app/src/main/kotlin/com/luoda/remote/common.kt',
@@ -291,7 +312,10 @@ void main() {
 
   test('viewer control events are intercepted before ordinary chat', () {
     final guards = RegExp(
-      r'if \(parent\.target\?\.viewerSessionModel\.handleWireMessage\(value\) !=\s*true\)',
+      r'viewerSessionModel\.handleWireMessage\(value\)',
+    ).allMatches(modelSource);
+    final consumedGuards = RegExp(
+      r'if \(consumed != true\)',
     ).allMatches(modelSource);
     final clientControl = modelSource.indexOf(
       'viewerSessionModel.handleWireMessage(value)',
@@ -300,6 +324,7 @@ void main() {
       'chatModel.receive(ChatModel.clientModeID, value)',
     );
     expect(guards.length, 2);
+    expect(consumedGuards.length, 2);
     expect(clientControl, greaterThanOrEqualTo(0));
     expect(clientChat, greaterThan(clientControl));
   });
@@ -439,7 +464,7 @@ void main() {
     expect(homePageSource, contains('_maintainTrustedChatSessions'));
     expect(modelSource, contains('suppressConnectionDialogs'));
     expect(homePageSource, contains('ffi.ffiModel.direct != true'));
-    expect(homePageSource, contains('chatFfi.ffiModel.direct == true'));
+    expect(homePageSource, contains('isDirectChatSessionReady('));
     expect(homePageSource, contains('localController.sendFiles'));
   });
 
@@ -505,11 +530,99 @@ void main() {
     expect(desktopTabSource, isNot(contains('PeerTabPage.selectDesktopTab')));
   });
 
+  test('message permission menu uses the standard compact desktop row height',
+      () {
+    final audienceMenu = homePageSource
+        .split('Widget _messageAudienceCell(BuildContext context)')[1]
+        .split('void _showDirectConnectDialog(BuildContext context)')[0];
+
+    expect('height: 36'.allMatches(audienceMenu).length, 2);
+    expect(audienceMenu, contains('fontSize: 13'));
+    expect(audienceMenu, contains('height: 1'));
+  });
+
+  test('managed entry context menu uses one compact text and row height', () {
+    final managedEntryMenu = homePageSource
+        .split('Future<void> _showManagedEntryMenu(')[1]
+        .split('@override\n  Widget build(BuildContext context)')[0];
+
+    expect('height: 36'.allMatches(managedEntryMenu).length, 8);
+    expect(managedEntryMenu, contains('fontSize: 13'));
+    expect(managedEntryMenu, contains('height: 1'));
+    expect(managedEntryMenu, contains('letterSpacing: 0'));
+    expect(
+      managedEntryMenu,
+      contains('constraints: const BoxConstraints.tightFor(width: 176)'),
+    );
+  });
+
+  test('conversation header replaces file transfer with active chat search',
+      () {
+    final header = homePageSource
+        .split('Widget _buildConversationHeader(')[1]
+        .split('Widget _conversationActionButton(')[0];
+
+    expect(header, contains('required ChatModel chatModel'));
+    expect(header, contains("tooltip: translate('Search Messages')"));
+    expect(header, contains('chatModel.openChatSearch'));
+    expect(header, isNot(contains("tooltip: translate('File Transfer')")));
+    expect(header, isNot(contains('_sendFilesFromConversation(peerId)')));
+    expect(chatPageSource, contains('chatSearchMatches'));
+    expect(chatPageSource, contains('selectPreviousChatSearchResult'));
+    expect(chatPageSource, contains('selectNextChatSearchResult'));
+    expect(chatPageSource, contains("translate('No results')"));
+    expect(chatModelSource, contains('final FocusNode chatSearchFocusNode'));
+    expect(chatModelSource, contains('void openChatSearch()'));
+    expect(chatModelSource, contains('void closeChatSearch()'));
+    expect(
+        chatPageSource, contains('focusNode: chatModel.chatSearchFocusNode'));
+    expect(chatPageSource, contains('autofocus: false'));
+    expect(chatPageSource, contains('chatModel.closeChatSearch'));
+  });
+
+  test('switch-side requests require an explicit local confirmation', () {
+    final switchBackFlow = modelSource
+        .split("} else if (name == 'switch_back')")[1]
+        .split("} else if (name == 'portable_service_running')")[0];
+    expect(switchBackFlow, contains('showConfirmSwitchSidesDialog('));
+    expect(switchBackFlow, isNot(contains('await bind.sessionSwitchSides(')));
+  });
+
+  test('desktop and mobile avatars expose persistent mute and block badges',
+      () {
+    final desktopAvatar = homePageSource
+        .split('Widget _buildConversationAvatar({')[1]
+        .split('Peers _contactModelFor(String section)')[0];
+    final mobileAvatar = mobileHomeSource
+        .split('Widget _avatar(MapEntry<MessageKey, MessageBody> entry)')[1]
+        .split('Widget _buildAudienceSelector(')[0];
+
+    for (final avatar in <String>[desktopAvatar, mobileAvatar]) {
+      expect(avatar, contains('chatSettingsModel.isMuted'));
+      expect(avatar, contains('chatSettingsModel.isBlocked'));
+      expect(avatar, contains('Icons.volume_off_rounded'));
+      expect(avatar, contains('Icons.block_rounded'));
+    }
+    expect(
+      homePageSource,
+      contains('gFFI.chatSettingsModel,\n        _directChatAccess,'),
+    );
+    expect(chatSettingsModelSource, contains('void _ensureLoaded()'));
+    expect(
+      chatSettingsModelSource,
+      contains('DirectPairingStore.canonicalConversationId'),
+    );
+  });
+
   test('connection failures stay actionable and settings navigation stays live',
       () {
     expect(remotePageSource, contains('_buildConnectionFailure'));
     expect(remotePageSource, contains('clearConnectionError'));
     expect(remotePageSource, contains("translate('Retry')"));
+    expect(
+      uiSessionSource,
+      contains('self.lc.write().unwrap().force_relay = force_relay;'),
+    );
     final settingsLayout = settingsSource
         .split('final iconOnly = tabWidth == 64;')[1]
         .split('Widget _header(')[0];
@@ -586,17 +699,100 @@ void main() {
 
   test('desktop contacts reuse an authorized inbound chat session', () {
     expect(homePageSource, contains('_incomingDirectChatClientFor'));
+    expect(
+      homePageSource,
+      contains('DirectPairingStore.conversationPeerIds(peerId)'),
+    );
+    expect(
+      homePageSource,
+      contains('DirectPairingStore.conversationPeerIds(client.peerId)'),
+    );
     expect(homePageSource, contains('client.authorized &&'));
     expect(homePageSource, contains('client.isChat &&'));
     expect(homePageSource, contains('!client.disconnected'));
     expect(homePageSource, contains('incoming?.id ?? ChatModel.clientModeID'));
     expect(homePageSource, contains('active == null && incoming == null'));
+    final workspaceRoute = homePageSource
+        .split('Widget _buildConversationWorkspace(BuildContext context) {')[1]
+        .split('Future<void> _setConversationAlias')[0];
+    expect(
+      workspaceRoute,
+      contains('final incoming = _incomingDirectChatClientFor(peerId);'),
+    );
+    expect(
+      workspaceRoute,
+      contains('incoming == null ? configuredFfi : null'),
+    );
+  });
+
+  test('message conversations swipe right between friend and stranger groups',
+      () {
+    final conversationList = homePageSource
+        .split('Widget _buildConversationList(BuildContext context)')[1]
+        .split('Widget _buildContactItem(')[0];
+
+    expect(conversationList, contains('Dismissible('));
+    expect(
+      conversationList,
+      contains('direction: DismissDirection.startToEnd'),
+    );
+    expect(conversationList, contains('confirmDismiss: (_) async'));
+    expect(conversationList, contains("isFriend ? 'ask' : 'allow'"));
+    expect(conversationList, contains('_directChatAccess.setPeerPolicy('));
+    expect(conversationList, isNot(contains('LongPressDraggable<String>')));
+  });
+
+  test('stale outbound chat sessions are shown offline and reconnected', () {
+    final deliveryStatus = homePageSource
+        .split('(String, Color) _directDeliveryStatus(')[1]
+        .split('Future<void> _loadContactSection')[0];
+    final startDirectChat = homePageSource
+        .split('Future<void> _startDirectChat(')[1]
+        .split('Future<void> _persistDirectChatSession')[0];
+
+    expect(deliveryStatus, contains('isDirectChatSessionReady('));
+    expect(
+        startDirectChat, contains('final ready = isDirectChatSessionReady('));
+    expect(startDirectChat, contains('if (ready || connecting)'));
+  });
+
+  test('chat-only connection manager starts hidden without a waiting window',
+      () {
+    final runConnectionManager = mainSource
+        .split('void runConnectionManagerScreen() async {')[1]
+        .split('bool _isCmReadyToShow = false;')[0];
+    expect(
+      runConnectionManager,
+      contains('await hideCmWindow(isStartup: true);'),
+    );
+    expect(
+      runConnectionManager,
+      isNot(contains('await showCmWindow(isStartup: true);')),
+    );
+    expect(runConnectionManager, contains('updateClientState()'));
+  });
+
+  test('main window bridges hidden connection-manager chat sessions', () {
+    expect(ipcSource, contains('CmQueryClients'));
+    expect(ipcSource, contains('CmClientsState(String)'));
+    expect(ipcSource, contains('CmSendChat'));
+    expect(uiCmSource, contains('chat_message_revision'));
+    expect(uiCmSource, contains('Data::CmQueryClients'));
+    expect(uiCmSource, contains('Data::CmSendChat'));
+    expect(flutterFfiSource, contains('cm_clients_state_from_ipc'));
+    expect(flutterFfiSource, contains('Data::CmSendChat'));
+    expect(
+      serverModelSource,
+      contains('desktopType == DesktopType.main'),
+    );
+    expect(serverModelSource, contains('chatOnly: true'));
+    expect(serverModelSource, contains('chatMessageRevision'));
   });
 
   test('desktop contact list includes every paired direct contact', () {
     expect(homePageSource, contains('_buildPairedContactItem'));
-    expect(homePageSource, contains('rows.addAll(groupedPairings)'));
-    expect(homePageSource, contains('rows.addAll(groupedPeers)'));
+    expect(homePageSource, contains('rows.addAll(grouped)'));
+    expect(homePageSource, contains('rows.addAll(personGroups)'));
     expect(homePageSource, isNot(contains('pairings.take(3)')));
   });
 
@@ -648,7 +844,7 @@ void main() {
     expect(desktopTabSource, contains('topBar: Obx('));
     expect(desktopTabSource, contains('return LDeskMainTitleBar('));
     expect(desktopMainTitleBarSource, contains('class LDeskMainTitleBar'));
-    expect(desktopMainTitleBarSource, contains("'LDesk'"));
+    expect(desktopMainTitleBarSource, contains("brandName = '点聊'"));
     expect(
       desktopMainTitleBarSource,
       contains('windowManager.startDragging()'),
@@ -663,7 +859,7 @@ void main() {
     );
   });
 
-  test('selected and recent contacts can start remote desktop directly', () {
+  test('conversation rows do not start remote desktop on double click', () {
     expect(homePageSource, contains('final canStartDirectSession ='));
     expect(
       homePageSource,
@@ -671,13 +867,35 @@ void main() {
     );
     expect(
       homePageSource,
-      contains(
+      isNot(contains(
         'onDoubleTap: () => _connectDirect(context, pairing.peerId)',
-      ),
+      )),
     );
     expect(
       homePageSource,
-      contains('onDoubleTap: () => _connectDirect(context, peer.id)'),
+      isNot(contains('onDoubleTap: () => _connectDirect(context, peer.id)')),
+    );
+  });
+
+  test('desktop and mobile expose verified P2P device and IP details', () {
+    expect(
+      directConnectionDetailsSource,
+      contains('DirectPairingStore.boundDevices'),
+    );
+    expect(directConnectionDetailsSource, contains('endpointHistory'));
+    expect(
+      directConnectionDetailsSource,
+      contains('DirectPairingStore.bindDevice'),
+    );
+    expect(
+      directConnectionDetailsSource,
+      contains('DirectPairingStore.unbindDevice'),
+    );
+    expect(homePageSource, contains('showDirectConnectionDetails('));
+    expect(mobileHomeSource, contains('showDirectConnectionDetails('));
+    expect(
+      directChatPolicySource,
+      contains('DirectPairingStore.canonicalConversationId(peerId)'),
     );
   });
 
@@ -818,6 +1036,25 @@ void main() {
     expect(modelSource, contains('ffiModel.markConnectionClosed()'));
   });
 
+  test('direct chat never opens remote authentication dialogs', () {
+    final msgBoxPrelude = modelSource
+        .split('handleMsgBox(Map<String, dynamic> evt')[1]
+        .split("if (type == 're-input-password')")[0];
+
+    expect(msgBoxPrelude, contains('connType == ConnType.chat'));
+    for (final type in <String>[
+      'input-password',
+      're-input-password',
+      'input-2fa',
+      'session-login',
+      'session-re-login',
+      'session-login-password',
+      'session-login-re-password',
+    ]) {
+      expect(msgBoxPrelude, contains("'$type'"));
+    }
+  });
+
   test('mobile connection defaults to direct chat and keeps remote assist', () {
     expect(
       mobileConnectionSource,
@@ -828,7 +1065,7 @@ void main() {
     expect(mobileConnectionSource, contains('isChat: true'));
     expect(
       mobileConnectionSource,
-      contains('SegmentedButton<_ConnectionMode>'),
+      contains('_buildConnectionModeSwitch'),
     );
     expect(mobileHomeSource, contains('void selectChatPage()'));
     expect(chatPageSource, contains('currentKey.peerId.isEmpty'));
@@ -839,7 +1076,7 @@ void main() {
   test('mobile messages open from a WeChat-style conversation list', () {
     expect(mobileHomeSource, contains('class _MobileMessagesPage'));
     expect(mobileHomeSource, contains('_pages.add(_MobileMessagesPage('));
-    expect(mobileHomeSource, contains('ListView.separated('));
+    expect(mobileHomeSource, contains('ListView.builder('));
     expect(mobileHomeSource, contains('_latestMessageTime'));
     expect(mobileHomeSource, contains('_openCurrentConversation'));
     expect(mobileHomeSource, contains('isMobile && _chatDetailOpen'));
@@ -847,10 +1084,13 @@ void main() {
   });
 
   test('mobile contacts reuse an authorized inbound chat session', () {
-    expect(mobileConnectionSource, contains('lastIndexWhere((client) =>'));
     expect(
       mobileConnectionSource,
-      contains('client.peerId.trim() == peerId'),
+      contains('lastIndexWhere((client) {'),
+    );
+    expect(
+      mobileConnectionSource,
+      contains('DirectPairingStore.conversationPeerIds(client.peerId)'),
     );
     expect(
       mobileConnectionSource,
@@ -869,15 +1109,49 @@ void main() {
     expect(mobileSettingsSource, contains('translate("Me")'));
     expect(mobileHomeSource, contains('selectedFontSize: 12'));
     expect(mobileHomeSource, contains('unselectedFontSize: 12'));
-    expect(mobileHomeSource, contains('fontSize: 17'));
+    expect(mobileHomeSource, contains('MobileText.title'));
     expect(chatPageSource, contains('width: isDesktopHome ? 36 : 48'));
     expect(chatPageSource, contains('fontSize: isDesktopHome ? 14 : 15'));
     expect(chatPageSource, contains('fontSize: 11'));
     expect(chatPageSource, contains('const Color(0xFF95EC69)'));
   });
 
+  test('message source labels survive live receive restore and pagination', () {
+    final restoreConversation = chatModelSource
+        .split('Future<void> _restoreConversation(MessageKey key) async {')[1]
+        .split('bool hasOlderMessages(MessageKey key)')[0];
+    final loadOlder = chatModelSource
+        .split('Future<int> loadOlderMessages(MessageKey key) async {')[1]
+        .split('ChatMessage _toChatMessage(')[0];
+    final replicaReceive = chatModelSource
+        .split("case 'replica_message':")[1]
+        .split("case 'replica_contacts':")[0];
+
+    expect(restoreConversation, contains('_taggedChatMessage('));
+    expect(loadOlder, contains('_taggedChatMessage('));
+    expect(replicaReceive, contains('_taggedChatMessage('));
+    expect(chatModelSource, contains("'ldesk_conn_endpoint'"));
+    // 每条消息前置灰色小字（connSourceLabelOf），标明设备 + 连接方式 + 端口。
+    expect(chatPageSource, contains('connSourceLabelOf(message)'));
+    expect(chatPageSource, contains('connSourceEndpointOf(ChatMessage message)'));
+    expect(
+      chatPageSource,
+      contains('DirectPairingStore.connEndpointOf(raw)'),
+    );
+    expect(
+      chatModelSource,
+      contains("msg.customProperties!['ldesk_conn_mode'] = record.connMode;"),
+    );
+    // 提示文字与时间统一字号、20% 透明度，浅深色主题各一种中性灰。
+    final sourceRender = chatPageSource.split('if (showMessageSource)')[1];
+    expect(sourceRender, contains('fontSize: 10'));
+    expect(sourceRender, contains('.withOpacity(0.2)'));
+    expect(sourceRender, contains('const Color(0xFFA9ADB5)'));
+    expect(sourceRender, contains('const Color(0xFF6B7280)'));
+  });
+
   test('mobile QR scanner exposes camera and gallery controls', () {
-    expect(mobileHomeSource, contains('builder: (_) => ScanPage()'));
+    expect(mobileConnectionSource, contains('builder: (_) => ScanPage()'));
     expect(mobileSettingsSource, contains('=> ScanPage()'));
     expect(mobileScanSource, contains('class ScanPage'));
     expect(mobileScanSource, contains('QRView('));
@@ -954,9 +1228,40 @@ void main() {
     );
     expect(
       androidPermissionSource,
-      contains('mapOf("type" to type, "result" to all)'),
+      contains('mapOf("type" to type, "result" to result)'),
     );
     expect(androidPermissionSource, isNot(contains('if (all)')));
+  });
+
+  test('mobile remote surfaces are compact, bounded and touch accessible', () {
+    final permissionRow = mobileServerSource
+        .split('class PermissionRow extends StatelessWidget')[1]
+        .split('class ConnectionManager extends StatelessWidget')[0];
+    final mobileToolbar = mobileRemoteSource
+        .split('Widget getBottomAppBar()')[1]
+        .split('bool get showCursorPaint')[0];
+
+    expect(
+      mobileServerSource,
+      contains('constraints: const BoxConstraints(maxWidth: 720)'),
+    );
+    expect(mobileServerSource, isNot(contains('child: Card(')));
+    expect(permissionRow, contains('SwitchListTile('));
+    expect(permissionRow, isNot(contains('border: Border.all(')));
+    expect(permissionRow, contains('height: 0.5'));
+    expect(permissionRow, contains('margin: const EdgeInsets.only(left: 48)'));
+    expect(permissionRow, contains('const Color(0x80E5E5E5)'));
+    // 分隔线统一为点聊列表标准色：浅色 0x80E5E5E5 / 深色 0xFF3A3D43。
+    expect(permissionRow, contains('const Color(0xFF3A3D43)'));
+    expect(permissionRow, isNot(contains('dividerColor.withOpacity(0.3)')));
+    expect(permissionRow, isNot(contains('Divider(')));
+    expect(mobileToolbar, contains('const Color(0xFF20252E)'));
+    expect(mobileToolbar, contains('SingleChildScrollView('));
+    expect(mobileToolbar, contains("tooltip: 'Close'"));
+    expect(mobileToolbar, contains('width: 48'));
+    expect(remoteToolbarSource, contains('SingleChildScrollView('));
+    expect(remoteToolbarSource, contains('_MobileActionMenu'));
+    expect(remoteToolbarSource, contains('_CloseMenu'));
   });
 
   test('always-on direct messages asks for notification permission once', () {
@@ -979,8 +1284,7 @@ void main() {
     );
     final alwaysOnToggle = mobileSettingsSource
         .split("title: Text(translate('Allow always-on direct messages'))")[1]
-        .split(
-            "title: Text(translate('Only trusted contacts can message me'))")[0];
+        .split("leading: const Icon(Icons.verified_user_outlined),")[0];
     expect(
       alwaysOnToggle,
       contains('await _requestDirectChatNotificationPermissionOnce()'),
@@ -990,12 +1294,12 @@ void main() {
   test('LDesk branding preserves existing identity and URI compatibility', () {
     expect(
       commonRustSource,
-      contains('DEFAULT_PRODUCT_DISPLAY_NAME: &str = "LDesk"'),
+      contains('DEFAULT_PRODUCT_DISPLAY_NAME: &str = "点聊"'),
     );
     expect(commonRustSource, contains('if configured == "LUODA"'));
     expect(commonRustSource, contains('"luoda://".to_owned()'));
-    expect(androidStringsSource,
-        contains('<string name="app_name">LDesk</string>'));
+    expect(
+        androidStringsSource, contains('<string name="app_name">点聊</string>'));
     expect(cargoSource, contains('ProductName = "LDesk"'));
   });
 
@@ -1019,7 +1323,7 @@ void main() {
     expect(directPairingSource, contains('isDeviceId(input)'));
     expect(
       directPairingSource,
-      contains('return isDeviceId(input) ? input : null;'),
+      contains('if (isDeviceId(input)) return input;'),
     );
     expect(
       homePageSource,
@@ -1033,7 +1337,7 @@ void main() {
 
   test('desktop chat exposes text voice file and remote assistance workflows',
       () {
-    expect(chatPageSource, contains('readOnly: isDesktopHome || readOnly'));
+    expect(chatPageSource, contains('readOnly: isDesktopHome ||'));
     expect(
       chatPageSource,
       isNot(contains('readOnly: isDesktopHome ? true : readOnly')),
@@ -1096,8 +1400,15 @@ void main() {
       contains('IsClipboardFormatAvailable'),
     );
 
-    expect(fileViewerSource, contains('setFullscreen(true)'));
+    expect(fileViewerSource, isNot(contains('setFullscreen(true)')));
+    expect(fileViewerSource, contains('windowController.setFrame('));
+    expect(fileViewerSource, contains('windowController.center()'));
     expect(fileViewerSource, contains('FilePreviewKind.image'));
+    expect(
+      fileViewerSource,
+      contains("'type': WindowType.FilePreview.index"),
+    );
+    expect(mainSource, contains('case WindowType.FilePreview:'));
     expect(filePreviewPageSource, contains('filePreviewIcon(fileName)'));
     expect(chatPageSource, contains('Future<void> _openMessageFilePreview('));
     expect(chatPageSource, contains('siblingPaths: siblingPaths'));
@@ -1105,10 +1416,107 @@ void main() {
     expect(filePreviewPageSource, contains('void _zoomImage(double factor)'));
     expect(filePreviewPageSource, contains('Icons.zoom_in_rounded'));
     expect(filePreviewPageSource, contains('Icons.zoom_out_rounded'));
-    expect(filePreviewPageSource,
-        contains('leadingWidth: hasMultiple ? 164 : null'));
+    expect(filePreviewPageSource, contains('Icons.rotate_right_rounded'));
+    expect(filePreviewPageSource, contains('Icons.remove_rounded'));
+    expect(filePreviewPageSource, contains('Icons.crop_square_rounded'));
+    expect(filePreviewPageSource, contains('Icons.fullscreen_exit_rounded'));
+    expect(filePreviewPageSource, contains('final next = !_isFullScreen;'));
+    expect(filePreviewPageSource, contains('if (_isFullScreen) {'));
+    expect(filePreviewPageSource, contains('_windowController.isFullScreen()'));
+    expect(
+      filePreviewPageSource,
+      contains('final isImage = filePreviewKindForName(fileName)'),
+    );
+    expect(
+      filePreviewPageSource,
+      contains('WindowController.fromWindowId(widget.windowId)'),
+    );
+    expect(
+        filePreviewPageSource, contains('_windowController.startDragging()'));
+    expect(filePreviewPageSource, contains('onPointerDown: _beginWindowDrag'));
+    expect(
+      filePreviewPageSource,
+      contains('onPointerUp: (_) => _endWindowDrag()'),
+    );
+    expect(
+      filePreviewPageSource,
+      contains('onPointerCancel: (_) => _endWindowDrag()'),
+    );
+    expect(filePreviewPageSource, isNot(contains('onPanDown:')));
+    expect(filePreviewPageSource, isNot(contains('onPanStart:')));
+    expect(filePreviewPageSource, contains('Timer.periodic('));
+    expect(filePreviewPageSource, contains('GetCursorPos(cursorPoint)'));
+    expect(filePreviewPageSource, contains('_windowController.getFrame()'));
+    expect(filePreviewPageSource, contains('_windowController.setFrame('));
+    expect(filePreviewPageSource, contains('_windowFrame = frame'));
+    expect(filePreviewPageSource, contains('void _goPrevious()'));
+    expect(filePreviewPageSource, contains('void _goNext()'));
+    expect(filePreviewPageSource, contains('left: 20'));
+    expect(filePreviewPageSource, contains('right: 20'));
+    expect(filePreviewPageSource, contains('iconSize: 40'));
+    expect(
+      filePreviewPageSource,
+      contains('BoxConstraints.tightFor(width: 36, height: 36)'),
+    );
+    expect(filePreviewPageSource, contains('splashRadius: 16'));
+    expect(
+      filePreviewPageSource,
+      isNot(contains('leadingWidth: hasMultiple ? 164 : null')),
+    );
     expect(chineseLangSource, contains('"Paste Image"'));
     expect(chineseLangSource, contains('"Clipboard has no image"'));
+  });
+
+  test('chat attachments use image thumbnails and compact document cards', () {
+    expect(chatPageSource, contains('final isImageAttachment ='));
+    expect(chatPageSource, contains('FilterQuality.high'));
+    expect(chatPageSource, contains('Icons.insert_drive_file_rounded'));
+    expect(chatPageSource, contains('attachmentBubbleColor'));
+  });
+
+  test('chat identity opens device details and supports a local alias', () {
+    expect(homePageSource, contains('_setConversationAlias('));
+    expect(homePageSource, contains('bind.mainSetPeerAlias('));
+    expect(homePageSource, contains('initialAlias:'));
+    expect(directConnectionDetailsSource, contains('onRename'));
+    expect(directConnectionDetailsSource, contains("translate('Alias')"));
+  });
+
+  test('emoji picker, composer and message text prefer crisp system emoji', () {
+    expect(chatPageSource, contains('kChatEmojiFontFallback'));
+    expect(richTextEmojiSource, contains('kChatEmojiFontFallback'));
+    expect(richTextEmojiSource, contains("'Segoe UI Emoji'"));
+  });
+
+  test('desktop composer uses a quarter-width outline and outline-only hover',
+      () {
+    final composerSource = chatPageSource
+        .split('class _DesktopChatComposerState')[1]
+        .split('class _ComposerToolButton')[0];
+
+    expect(composerSource, contains('width: 0.25'));
+    expect(
+      composerSource,
+      contains(
+        'overlayColor: const WidgetStatePropertyAll(Colors.transparent)',
+      ),
+    );
+    expect(composerSource, contains('states.contains(WidgetState.hovered)'));
+    expect(composerSource, contains('BorderSide(color: kWeChatPrimaryColor'));
+    expect(composerSource, contains('hoverColor: Colors.transparent'));
+    expect(composerSource, isNot(contains('boxShadow: _inputFocused')));
+  });
+
+  test('desktop emoji picker stays open for repeated selections', () {
+    final insertEmojiSource = chatPageSource
+        .split('void _insertEmoji(String emoji)')[1]
+        .split('@override')[0];
+
+    expect(insertEmojiSource, contains('text.replaceRange(start, end, emoji)'));
+    expect(
+      insertEmojiSource,
+      isNot(contains('_showEmojiPicker = false')),
+    );
   });
 
   test('message translation is rendered inline below the original text', () {
@@ -1124,7 +1532,9 @@ void main() {
 
   test('recall stays in the context menu without a red bubble-side shortcut',
       () {
-    expect(chatPageSource, contains("addItem('recall'"));
+    expect(chatPageSource, contains("_ChatMenuAction("));
+    expect(chatPageSource, contains("'recall'"));
+    expect(chatPageSource, contains("'destroy'"));
     expect(chatPageSource, isNot(contains('Color(0x33FF6B6B)')));
     expect(chatPageSource, isNot(contains('Color(0x1AE5484D)')));
   });
@@ -1203,7 +1613,7 @@ void main() {
     expect(chatModelSource, isNot(contains('dir.delete(recursive: true)')));
     expect(chatModelSource,
         isNot(contains("translate(\"Sent successfully to\")")));
-    expect(chatPageSource, contains("translate('Send 20 recent to email')"));
+    expect(chatPageSource, contains("'Send 20 recent to email'"));
     expect(chatPageSource, isNot(contains('Export 20 recent (ZIP)')));
   });
 
@@ -1276,8 +1686,9 @@ void main() {
     expect(chatModelSource, contains('recallMessage('));
     expect(chatModelSource, contains('destroyMessage('));
     expect(chatPageSource, contains('onLongPressMessage:'));
-    expect(chatPageSource, contains("translate('Recall')"));
-    expect(chatPageSource, contains("translate('Destroy')"));
+    expect(chatPageSource, contains("_ChatMenuAction("));
+    expect(chatPageSource, contains("'recall'"));
+    expect(chatPageSource, contains("'destroy'"));
   });
 
   test('voice messages record, validate, transfer and play over direct chat',
@@ -1291,7 +1702,7 @@ void main() {
     expect(
         directVoiceStorageSource, contains('maxClipBytes = 8 * 1024 * 1024'));
     expect(voiceMessageControlsSource, contains('AudioEncoder.wav'));
-    expect(voiceMessageControlsSource, contains('Duration(seconds: 60)'));
+    expect(voiceMessageControlsSource, contains('Duration(minutes: 3)'));
     expect(voiceMessageControlsSource, contains('class VoiceMessageBubble'));
     expect(voiceMessageControlsSource, contains('BytesSource('));
     expect(chatModelSource, contains('const chunkSize = 24 * 1024'));
@@ -1305,7 +1716,8 @@ void main() {
 
   test('restored inbound chat sessions request missed messages', () {
     final restorePath = serverModelSource
-        .split('updateClientState([String? json]) async')[1]
+        .split(
+            'updateClientState({String? json, bool chatOnly = false}) async')[1]
         .split('void addConnection')[0];
     expect(
       restorePath,
@@ -1397,6 +1809,20 @@ void main() {
       contains('connect_direct_candidates(ip, DEFAULT_DIRECT_PORT as u16)'),
     );
     expect(clientSource, contains('Client::secure_direct_connection('));
+  });
+
+  test('paired chat falls back from stale endpoints to ID rendezvous', () {
+    expect(
+      clientSource,
+      contains('Direct endpoints failed; falling back to device ID'),
+    );
+    expect(clientSource, contains('other_server = None;'));
+    expect(
+      clientSource,
+      isNot(contains(
+        'Direct chat requires a reachable peer address; relay fallback is disabled',
+      )),
+    );
   });
 
   test('direct listener reports its real startup state to every desktop shell',
@@ -1634,8 +2060,8 @@ void main() {
     final workspace = homePageSource
         .split('Widget _buildConversationWorkspace(BuildContext context)')[1]
         .split('Widget _buildConversationHeader(')[0];
-    expect(workspace, contains('DirectPairingStore.findByEndpoint'));
-    expect(workspace, contains('selectedPairing?.peerId == modelPeerId'));
+    expect(workspace, contains('DirectPairingStore.findForConversation'));
+    expect(workspace, contains('selectedPairing?.conversationId'));
   });
 
   test('every successful direct session is saved for later ID connections', () {
@@ -1759,9 +2185,8 @@ void main() {
       androidIcon.height ~/ 2,
     );
     expect(androidCenter.a, 255);
-    expect(androidCenter.r, greaterThan(240));
-    expect(androidCenter.g, greaterThan(240));
-    expect(androidCenter.b, greaterThan(240));
+    expect(androidCenter.g, greaterThan(androidCenter.r));
+    expect(androidCenter.g, greaterThan(androidCenter.b));
     expect(
       iosWorkflowSource,
       contains('source = Image.open(root / "res/icon_ios.png")'),
@@ -1890,7 +2315,7 @@ void main() {
     expect(homePageSource, contains('_conversationPreview(entry)'));
     expect(
       homePageSource,
-      contains('onDoubleTap: () => _connectDirect(context, peerId)'),
+      isNot(contains('onDoubleTap: () => _connectDirect(context, peerId)')),
     );
     expect(
       chatModelSource,
@@ -1913,6 +2338,204 @@ void main() {
     expect(mobileConnectionSource, contains('avatar: pairing.avatar'));
     expect(chineseLangSource, contains('"Search conversations"'));
     expect(chineseLangSource, contains('"Not connected"'));
+  });
+
+  test('contact navigation is labeled and groups one person across devices',
+      () {
+    expect(
+      mobileConnectionSource,
+      contains('PeerTabIndex.ab.index'),
+    );
+    expect(mobileConnectionSource, contains("translate('My Identity')"));
+    expect(peerTabStripSource, contains('this.showLabels = false'));
+    expect(peerTabStripSource, contains('height: showLabels ? 48 : 40'));
+    expect(peerTabStripSource, contains('Semantics('));
+    expect(localContactsSource, contains('pairing.conversationId'));
+    expect(localContactsSource, contains('final List<DirectPairing> devices'));
+    expect(localContactsSource, contains('showDirectConnectionDetails('));
+    expect(mobileConnectionSource, contains("return parts.join(' · ');"));
+    expect(homePageSource, contains("return parts.join(' · ');"));
+    expect(homePageSource, contains('final subtitle = deviceSummary;'));
+  });
+
+  test('mobile contacts use a focused first screen and preserve every tool',
+      () {
+    // 首屏：不再有折叠面板 / 身份卡片 / 大号 hero 卡片，工具卡片直接排布。
+    final primaryScreen = mobileConnectionSource
+        .split('Widget build(BuildContext context)')[1]
+        .split('Widget _buildConnectionToolsPanel()')[0];
+    final contactsPanel = mobileConnectionSource
+        .split('Widget _buildConnectionToolsPanel()')[1]
+        .split('Widget _buildQuickActions()')[0];
+    final quickActions = mobileConnectionSource
+        .split('Widget _buildQuickActions()')[1]
+        .split('Widget _buildQuickAction(')[0];
+    final quickAction = mobileConnectionSource
+        .split('Widget _buildQuickAction(')[1]
+        .split('Future<void> _openContactSearch()')[0];
+    final deviceHistory = mobileConnectionSource
+        .split('void _openDeviceHistory()')[1]
+        .split('Widget _buildStatusCard()')[0];
+    final mobileInitPages = mobileHomeSource
+        .split('void initPages()')[1]
+        .split('void _startRemoteFromChat()')[0];
+
+    expect(primaryScreen, contains('AlwaysScrollableScrollPhysics'));
+    expect(primaryScreen, isNot(contains('_connectionToolsExpanded')));
+    expect(primaryScreen, isNot(contains('_buildIdentitySummary()')));
+    expect(primaryScreen, isNot(contains('PeerTabPage()')));
+    // 顶部改为极简样式：在线状态与搜索图标都上移到 AppBar（与点聊页一致），
+    // 页面内不再有顶栏行 / 大号 hero / 设备 ID chip。
+    expect(mobileConnectionSource, isNot(contains('Widget _buildContactsHero')));
+    expect(contactsPanel, isNot(contains('OnlineStatusText')));
+    expect(contactsPanel, isNot(contains('openContactSearch')));
+    expect(mobileHomeSource, contains('openContactSearch'));
+    expect(mobileHomeSource, contains('OnlineStatusText'));
+    expect(contactsPanel, isNot(contains("translate('Device ID')")));
+    expect(contactsPanel, isNot(contains('LinearGradient(')));
+    // 工具面板：顶部行 → 4 个功能卡片；联系人列表已拆出为全宽独立区块。
+    // AppBar 已居中显示"联系人"标题，正文不再重复标题。
+    expect(contactsPanel, contains('_buildQuickActions()'));
+    expect(contactsPanel, isNot(contains('_buildPairedContacts()')));
+    // 全宽列表：build 方法里顶部行/卡片与列表分属两个 Sliver。
+    expect(
+      primaryScreen,
+      contains('SliverToBoxAdapter(child: _buildPairedContacts())'),
+    );
+    expect(contactsPanel, isNot(contains('_buildContactsHeader()')));
+    expect(contactsPanel, isNot(contains('_buildExpandedConnectionTools()')));
+    expect(contactsPanel, isNot(contains('AnimatedSize(')));
+
+    for (final label in <String>[
+      'Pair phone',
+      'Bluetooth scan',
+      'Connection',
+      'Access history',
+    ]) {
+      expect(quickActions, contains("'$label'"));
+    }
+    // 会议页同款：同一行排布、圆角 14 卡片、图标块 + 标题 + 副标题，
+    // 超窄屏/大字体时退回 2 列网格。
+    expect(quickActions, contains('constraints.maxWidth >= 300'));
+    expect(quickActions, contains('textScale <= 1.6'));
+    expect(quickActions, contains('Expanded('));
+    expect(quickAction, contains('child: Material('));
+    expect(quickAction, contains('Semantics('));
+    expect(quickAction, contains('BorderRadius.circular(14)'));
+    expect(quickAction, contains('BorderRadius.circular(10)'));
+    expect(deviceHistory, contains('child: PeerTabPage()'));
+    expect(mobileConnectionSource, contains('_matchesContactQuery('));
+    expect(mobileConnectionSource, contains('Semantics('));
+
+    expect(
+      mobileInitPages,
+      contains('_pages.add(ConnectionPage('),
+    );
+    expect(mobileInitPages, contains('openContactSearch'));
+    expect(mobileInitPages, isNot(contains('Icons.qr_code_scanner_rounded')));
+    expect(
+      mobileInitPages,
+      isNot(contains('Icons.bluetooth_searching_rounded')),
+    );
+    expect(
+      chineseLangSource,
+      contains('(\"Connection & identity\", \"连接与身份\")'),
+    );
+  });
+
+  test('mobile settings root keeps a visible back button and scan action', () {
+    final settingsRoute = mobileHomeSource
+        .split('final settingsPage = SettingsPage();')[1]
+        .split('bottomNavigationBar: _buildBottomNav(context)')[0];
+    final settingsRoot = mobileSettingsSource
+        .split('final settings = SettingsList(')[1]
+        .split('Map<String, dynamic> _localProfile()')[0];
+
+    expect(settingsRoute, contains('builder: (_) => settingsPage'));
+    expect(settingsRoot, contains('return Scaffold('));
+    expect(settingsRoot, contains('leading: IconButton('));
+    expect(settingsRoot, contains('Icons.arrow_back_rounded'));
+    expect(settingsRoot, contains('Navigator.of(context).pop()'));
+    expect(settingsRoot, contains("title: Text(translate('Me'))"));
+    expect(settingsRoot, contains('actions: widget.appBarActions'));
+  });
+
+  test('Bluetooth scan stays visible and preserves the full chat workflow', () {
+    final contactsHeader = homePageSource
+        .split('Widget _buildContactsPane(BuildContext context)')[1]
+        .split('SizedBox(\n            height: 48,')[0];
+    expect(contactsHeader, contains("tooltip: translate('Bluetooth scan')"));
+    expect(contactsHeader, contains('Icons.bluetooth_searching_rounded'));
+    expect(
+      contactsHeader,
+      contains('onPressed: () => _openBluetoothScan(context)'),
+    );
+
+    for (final preservedAction in <String>[
+      '_toggleScan',
+      '_connectDevice',
+      '_disconnect',
+      '_toggleBlock',
+      '_attachFile',
+      'ChatPage(',
+    ]) {
+      expect(bluetoothChatSource, contains(preservedAction));
+    }
+    expect(bluetoothChatSource, contains('LayoutBuilder('));
+    expect(bluetoothChatSource, contains('constraints.maxWidth >= 860'));
+    expect(bluetoothChatSource, contains('_buildDesktopWorkspace'));
+    expect(bluetoothChatSource, contains('_buildDeviceExplorer'));
+    expect(bluetoothChatSource, contains('_buildConversationEmptyState'));
+    expect(bluetoothChatSource, contains('? () => _openConversation(device)'));
+    expect(
+      bluetoothChatSource,
+      contains('constraints: const BoxConstraints(minHeight: 48)'),
+    );
+    expect(
+      bluetoothChatSource,
+      contains("translate('Bluetooth scan permission required')"),
+    );
+  });
+
+  test('mobile remote service keeps the scam warning safety flow', () {
+    expect(mobileServerSource, contains('class ScamWarningDialog'));
+    expect(
+      mobileServerSource,
+      contains('int _countdown = bind.isCustomClient() ? 0 : 12;'),
+    );
+    expect(mobileServerSource, contains("key: 'show-scam-warning'"));
+    expect(mobileServerSource, contains("translate(\"Don't show again\")"));
+    expect(mobileServerSource, contains("translate('Decline')"));
+    expect(mobileServerSource, contains("translate('I Agree')"));
+    expect(
+      RegExp(r'showScamWarning\(context, serverModel\)')
+          .allMatches(mobileServerSource)
+          .length,
+      greaterThanOrEqualTo(3),
+    );
+  });
+
+  test('desktop contacts open offline conversations and keep remote shortcut',
+      () {
+    final personContactFlow = homePageSource
+        .split('Widget _buildPersonContactItem(')[1]
+        .split('Widget _buildMergedChatRow(')[0];
+    expect(personContactFlow,
+        contains('final conversationContact = contact ?? peer;'));
+    expect(
+      personContactFlow.indexOf('if (conversationContact != null) {'),
+      lessThan(personContactFlow.indexOf('else if (pairing != null) {')),
+    );
+    expect(
+      RegExp(r'onDoubleTap: _contactSelectionMode')
+          .allMatches(homePageSource)
+          .length,
+      greaterThanOrEqualTo(4),
+    );
+    expect(
+      personContactFlow,
+      contains('() => _connectDirect(context, primaryPeerId)'),
+    );
   });
 
   test('iOS release keeps the unsigned IPA when signing is unavailable', () {
@@ -2051,6 +2674,41 @@ void main() {
     expect(modelSource, contains("_pi.avatar = evt['avatar']"));
   });
 
+  test('incoming chat bubbles align with avatars without repeated names', () {
+    final messageRowSource = chatPageSource
+        .split('Widget weChatMessageRow(')[1]
+        .split('if (!chatModel.chatSearchVisible')[0];
+    expect(messageRowSource, isNot(contains('message.user.firstName')));
+    expect(messageRowSource, isNot(contains('name.isNotEmpty')));
+    expect(
+      messageRowSource,
+      contains('crossAxisAlignment: CrossAxisAlignment.start'),
+    );
+  });
+
+  test('desktop incoming messages never open the obsolete chat overlay', () {
+    final showChatPageSource = chatModelSource
+        .split('showChatPage(MessageKey key) async {')[1]
+        .split('toggleCMChatPage(MessageKey key) async {')[0];
+    expect(
+      showChatPageSource,
+      contains('Never pop up the floating chat'),
+    );
+    expect(showChatPageSource, contains('changeCurrentKey(key)'));
+  });
+
+  test('chat-only receives never index the empty connection-manager tabs', () {
+    final receiveSource = chatModelSource
+        .split('receive(int id, String rawText,')[1]
+        .split('void send(ChatMessage message)')[0];
+    final desktopServerPath = receiveSource
+        .split('if (client == null) return;')[1]
+        .split('} else {')[0];
+    expect(desktopServerPath, contains('if (!client.isChat) {'));
+    expect(desktopServerPath, contains('windowOnTop(null)'));
+    expect(desktopServerPath, contains('tabs.isNotEmpty'));
+  });
+
   test('peer profile fields stay out of address-book upload payloads', () {
     final customJsonBody = peerModelSource
         .split('toCustomJson({required bool includingHash})')[1]
@@ -2122,7 +2780,7 @@ void main() {
   });
 
   test('desktop chat renders one editor and exposes message controls', () {
-    expect(chatPageSource, contains('readOnly: isDesktopHome || readOnly'));
+    expect(chatPageSource, contains('readOnly: isDesktopHome ||'));
     expect(chatPageSource, contains('_DesktopChatComposer'));
     expect(chatPageSource, contains('retryMessage('));
     expect(chatPageSource, contains('setSelfDestructMessage('));
@@ -2134,13 +2792,14 @@ void main() {
   });
 
   test('legacy messages keep basic desktop context menu actions', () {
-    final contextMenu = chatPageSource
-        .split('Future<String?> _showWeChatContextMenu(')[1]
-        .split('Future<bool> _showWeChatConfirm(')[0];
-    expect(contextMenu, isNot(contains('if (id.isEmpty) return null;')));
-    expect(contextMenu, contains("addItem('copy'"));
-    expect(contextMenu, contains("addItem('reply'"));
-    expect(contextMenu, contains('if (id.isNotEmpty)'));
+    final actionsSource = chatPageSource
+        .split('List<_ChatMenuAction> actions')[
+            chatPageSource.split('List<_ChatMenuAction> actions').length - 1]
+        .split('return (')[0];
+    expect(actionsSource, contains("'copy'"));
+    expect(actionsSource, contains("'reply'"));
+    expect(actionsSource, contains("'recall'"));
+    expect(actionsSource, contains("'delete'"));
   });
 
   test('direct pairing only advertises a ready listener in a compact dialog',

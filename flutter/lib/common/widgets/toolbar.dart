@@ -471,7 +471,8 @@ Future<List<TToggleMenu>> toolbarDisplayToggle(
   if (pi.isSupportMultiDisplay &&
       PrivacyModeState.find(id).isEmpty &&
       pi.displaysCount.value > 1 &&
-      bind.mainGetUserDefaultOption(key: kKeyShowMonitorsToolbar) == 'Y') {
+      (bind.mainGetUserDefaultOption(key: kKeyShowMonitorsToolbar) == 'Y' ||
+          bind.mainGetUserDefaultOption(key: kKeyShowMonitorsToolbar).isEmpty)) {
     final value =
         bind.sessionGetDisplaysAsIndividualWindows(sessionId: ffi.sessionId) ==
             'Y';

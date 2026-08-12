@@ -9,6 +9,7 @@ import 'package:get/get.dart';
 import 'package:provider/provider.dart';
 
 import '../../common.dart';
+import '../../common/direct_pairing.dart';
 import '../../common/formatter/id_formatter.dart';
 import '../../models/peer_model.dart';
 import '../../models/platform_model.dart';
@@ -187,9 +188,7 @@ class _PeerCardState extends State<_PeerCard>
   }
 
   makeChild(bool isPortrait, Peer peer) {
-    final name = hideUsernameOnCard == true
-        ? peer.hostname
-        : '${peer.username}${peer.username.isNotEmpty && peer.hostname.isNotEmpty ? '@' : ''}${peer.hostname}';
+    final name = formatID(peer.id);
     final greyStyle = TextStyle(
       fontSize: 11,
       color: Theme.of(context).textTheme.titleLarge?.color?.withOpacity(0.6),
@@ -199,8 +198,9 @@ class _PeerCardState extends State<_PeerCard>
     final isListMode = peerCardUiType.value == PeerUiType.list;
     final platformColor = str2color('${peer.id}${peer.platform}', 0x7f);
 
-    return Row(
-      mainAxisSize: MainAxisSize.max,
+    return IntrinsicHeight(
+      child: Row(
+        mainAxisSize: MainAxisSize.max,
       children: [
         // 左侧平台图标区域 - 根据不同模式不同大小
         Container(
@@ -215,6 +215,7 @@ class _PeerCardState extends State<_PeerCard>
           ),
           alignment: Alignment.center,
           width: isPortrait ? 50 : (isListMode ? 36 : 42),
+            height: double.infinity,
           child: Icon(
             platformInfo['icon'] as IconData,
             size: isPortrait ? 22 : (isListMode ? 16 : 18),
@@ -253,9 +254,7 @@ class _PeerCardState extends State<_PeerCard>
                           // 设备ID或别名
                           Expanded(
                             child: Text(
-                              peer.alias.isEmpty
-                                  ? formatID(peer.id)
-                                  : peer.alias,
+                              peer.finalName(),
                               overflow: TextOverflow.ellipsis,
                               style: Theme.of(context).textTheme.titleSmall
                                   ?.copyWith(
@@ -279,7 +278,7 @@ class _PeerCardState extends State<_PeerCard>
                               child: Text(
                                 platformInfo['label'] as String,
                                 style: TextStyle(
-                                  fontSize: 9,
+                                  fontSize: 10,
                                   color: platformColor,
                                 ),
                               ),
@@ -332,7 +331,8 @@ class _PeerCardState extends State<_PeerCard>
             ).paddingOnly(left: 8.0, top: 3.0),
           ),
         ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -385,9 +385,7 @@ class _PeerCardState extends State<_PeerCard>
   ) {
     hideUsernameOnCard ??=
         bind.mainGetBuildinOption(key: kHideUsernameOnCard) == 'Y';
-    final name = hideUsernameOnCard == true
-        ? peer.hostname
-        : '${peer.username}${peer.username.isNotEmpty && peer.hostname.isNotEmpty ? '@' : ''}${peer.hostname}';
+    final name = peer.finalName();
     final platformColor = str2color('${peer.id}${peer.platform}', 0x7f);
     // 不同系统用不同的系统类型图标
     final platformInfo = _getPlatformInfo(peer.platform);
@@ -453,7 +451,7 @@ class _PeerCardState extends State<_PeerCard>
                                   peer.online ? '在线' : '离线',
                                   style: TextStyle(
                                     color: Colors.white,
-                                    fontSize: 9,
+                                    fontSize: 10,
                                     fontWeight: FontWeight.w500,
                                   ),
                                 ),
@@ -506,7 +504,7 @@ class _PeerCardState extends State<_PeerCard>
                                   systemLabel,
                                   style: TextStyle(
                                     color: Colors.white70,
-                                    fontSize: 9,
+                                    fontSize: 10,
                                   ),
                                 ),
                               ),
@@ -523,7 +521,7 @@ class _PeerCardState extends State<_PeerCard>
                                       peer.note,
                                       style: const TextStyle(
                                         color: Colors.white60,
-                                        fontSize: 9,
+                                        fontSize: 10,
                                       ),
                                       textAlign: TextAlign.center,
                                       overflow: TextOverflow.ellipsis,
@@ -558,9 +556,7 @@ class _PeerCardState extends State<_PeerCard>
                           ConstrainedBox(
                             constraints: BoxConstraints(maxWidth: 120),
                             child: Text(
-                              peer.alias.isEmpty
-                                  ? formatID(peer.id)
-                                  : peer.alias,
+                              formatID(DirectPairingStore.realDeviceId(peer.id)),
                               overflow: TextOverflow.ellipsis,
                               style: Theme.of(
                                 context,
@@ -625,10 +621,8 @@ class _PeerCardState extends State<_PeerCard>
   ) {
     hideUsernameOnCard ??=
         bind.mainGetBuildinOption(key: kHideUsernameOnCard) == 'Y';
-    final title = peer.alias.isEmpty ? formatID(peer.id) : peer.alias;
-    final machine = hideUsernameOnCard == true
-        ? peer.hostname
-        : '${peer.username}${peer.username.isNotEmpty && peer.hostname.isNotEmpty ? '@' : ''}${peer.hostname}';
+    final title = peer.finalName();
+    final machine = formatID(DirectPairingStore.realDeviceId(peer.id));
     final info = _getPlatformInfo(peer.platform);
     final palette = _platformCardColors(peer.platform, peer.id);
     const foreground = Color(0xFF17233A);
@@ -1262,7 +1256,7 @@ abstract class BasePeerCard extends StatelessWidget {
 
         deleteConfirmDialog(
           onSubmit,
-          '${translate('Delete')} "${peer.alias.isEmpty ? formatID(peer.id) : peer.alias}"?',
+          '${translate('Delete')} "${peer.finalName()}"?',
         );
       },
       padding: menuPadding,

@@ -10,10 +10,12 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:luoda_flutter/common/direct_chat.dart';
 import 'package:luoda_flutter/common/direct_chat_policy.dart';
 import 'package:luoda_flutter/common/widgets/peers_view.dart';
 import 'package:luoda_flutter/common/direct_pairing.dart';
 import 'package:luoda_flutter/consts.dart';
+import '../runtime_logger.dart';
 import 'package:luoda_flutter/models/ab_model.dart';
 import 'package:luoda_flutter/models/chat_model.dart';
 import 'package:luoda_flutter/models/chat_settings_model.dart';
@@ -415,14 +417,18 @@ class FfiModel with ChangeNotifier {
         updatePermission(evt, peerId);
       } else if (name == 'chat_client_mode') {
         final value = (evt['text'] ?? '').toString();
-        if (parent.target?.viewerSessionModel.handleWireMessage(value) !=
-            true) {
+        final consumed = parent.target?.viewerSessionModel.handleWireMessage(value);
+        RuntimeLogger.instance.info('CHAT-EVT',
+            'client_mode len=${value.length} consumed=$consumed');
+        if (consumed != true) {
           parent.target?.chatModel.receive(ChatModel.clientModeID, value);
         }
       } else if (name == 'chat_server_mode') {
         final value = (evt['text'] ?? '').toString();
-        if (parent.target?.viewerSessionModel.handleWireMessage(value) !=
-            true) {
+        final consumed = parent.target?.viewerSessionModel.handleWireMessage(value);
+        RuntimeLogger.instance.info('CHAT-EVT',
+            'server_mode id=${evt['id']} len=${value.length} consumed=$consumed');
+        if (consumed != true) {
           parent.target?.chatModel
               .receive(int.parse(evt['id'] as String), value);
         }
@@ -442,6 +448,9 @@ class FfiModel with ChangeNotifier {
           // todo: refresh may not work when confirm delete local directory
           parent.target?.fileModel.refreshAll();
         }
+        // LUODA: link transfer-delivered files back to their chat records so
+        // large file messages become previewable immediately.
+        unawaited(parent.target?.fileModel.linkReceivedTransferFilesToChat());
       } else if (name == 'job_error') {
         parent.target?.fileModel.handleJobError(evt);
       } else if (name == 'override_file_confirm') {
@@ -467,8 +476,11 @@ class FfiModel with ChangeNotifier {
         cancelMsgBox(evt, sessionId);
       } else if (name == 'switch_back') {
         final peer_id = evt['peer_id'].toString();
-        await bind.sessionSwitchSides(sessionId: sessionId);
-        closeConnection(id: peer_id);
+        showConfirmSwitchSidesDialog(
+          sessionId,
+          peer_id,
+          parent.target!.dialogManager,
+        );
       } else if (name == 'portable_service_running') {
         _handlePortableServiceRunning(peerId, evt);
       } else if (name == 'on_url_scheme_received') {
@@ -495,7 +507,7 @@ class FfiModel with ChangeNotifier {
         await _persistDiscoveredDirectPairing(peerId);
         final ffi = parent.target;
         if (ffi?.connType == ConnType.chat) {
-          final pairing = DirectPairingStore.find(
+          final pairing = DirectPairingStore.findForConversation(
             ffi!.chatModel.currentKey.peerId,
           );
           final expected = pairing?.fingerprint ?? '';
@@ -991,15 +1003,26 @@ class FfiModel with ChangeNotifier {
 
   handleMultipleWindowsSession(
       Map<String, dynamic> evt, SessionID sessionId, String peerId) {
-    if (parent.target == null) return;
+    final sessions = (evt['windows_sessions'] ?? '').toString();
+    _pi.windowsSessionsJson.value = sessions;
+    showWindowsSessionsSelector(sessionId, peerId);
+  }
+
+  void showWindowsSessionsSelector(SessionID sessionId, String peerId) {
+    if (parent.target == null || _pi.windowsSessionsJson.isEmpty) return;
     final dialogManager = parent.target!.dialogManager;
-    final sessions = evt['windows_sessions'];
     final title = translate('Multiple Windows sessions found');
     final text = translate('Please select the session you want to connect to');
-    final type = "";
 
     showWindowsSessionsDialog(
-        type, title, text, dialogManager, sessionId, peerId, sessions);
+      '',
+      title,
+      text,
+      dialogManager,
+      sessionId,
+      peerId,
+      _pi.windowsSessionsJson.value,
+    );
   }
 
   /// Handle the message box event based on [evt] and [id].
@@ -1010,6 +1033,8 @@ class FfiModel with ChangeNotifier {
     final title = evt['title'];
     final text = evt['text'];
     final link = evt['link'];
+    final directChatRejected = parent.target?.connType == ConnType.chat &&
+        isDirectChatPermissionDenied(text);
 
     // Disable relative mouse mode on any error-type message to ensure cursor is released.
     // This includes connection errors, session-ending messages, elevation errors, etc.
@@ -1029,15 +1054,14 @@ class FfiModel with ChangeNotifier {
         return;
       }
       parent.target?.inputModel.setRelativeMouseMode(false);
-      _lastConnectionError = text?.toString();
+      _lastConnectionError =
+          directChatRejected ? directChatPermissionDeniedKey : text?.toString();
       firstFrameTimeoutTimer?.cancel();
       firstFrameTimedOut.value = false;
       if (parent.target?.connType == ConnType.chat) {
         final chatModel = parent.target?.chatModel;
         if (chatModel != null) {
-          final rejected =
-              text?.toString().contains('Direct messages rejected') == true;
-          unawaited(rejected
+          unawaited(directChatRejected
               ? chatModel.markCurrentUndeliveredFailed()
               : chatModel.markCurrentUndeliveredQueued());
         }
@@ -1066,6 +1090,19 @@ class FfiModel with ChangeNotifier {
 
     if (parent.target?.suppressConnectionDialogs == true &&
         title == 'Connection Error') {
+      return;
+    }
+
+    if (parent.target?.connType == ConnType.chat &&
+        const <String>{
+          'input-password',
+          're-input-password',
+          'input-2fa',
+          'session-login',
+          'session-re-login',
+          'session-login-password',
+          'session-login-re-password',
+        }.contains(type)) {
       return;
     }
 
@@ -1124,7 +1161,8 @@ class FfiModel with ChangeNotifier {
     final ffi = parent.target;
     if (ffi?.connType != ConnType.chat) return false;
     if (type != 'error' || title != 'Connection Error') return false;
-    if (text == 'Direct messages rejected by this contact') return false;
+    // Legacy clients used: text == 'Direct messages rejected by this contact'.
+    if (isDirectChatPermissionDenied(text)) return false;
     // 环境问题（如被控端无显示器）不应触发自动重连循环，
     // 否则会持续弹"No displays"对话框且反复建连/断开。
     if (_isEnvironmentError(text)) return false;
@@ -1500,19 +1538,27 @@ class FfiModel with ChangeNotifier {
     _pi.avatar = evt['avatar'] ?? '';
     final ffi = parent.target;
     final actualPeerId = (evt['peer_id'] ?? '').toString().trim();
-    final displayName = _pi.displayName.trim().isNotEmpty
-        ? _pi.displayName.trim()
-        : _pi.username;
+    final displayName = normalizeDirectPeerName(
+      _pi.displayName,
+      fallback: _pi.username.trim().isNotEmpty
+          ? _pi.username
+          : actualPeerId.isNotEmpty
+              ? actualPeerId
+              : peerId,
+    );
     await _persistDiscoveredDirectPairing(peerId);
     if (ffi != null && ffi.connType == ConnType.chat) {
       final currentPeerId = ffi.chatModel.currentKey.peerId;
-      final chatPeerId = actualPeerId.isNotEmpty
-          ? actualPeerId
+      final canonicalPeerId = actualPeerId.isNotEmpty
+          ? DirectPairingStore.canonicalConversationId(actualPeerId)
+          : '';
+      final chatPeerId = canonicalPeerId.isNotEmpty
+          ? canonicalPeerId
           : currentPeerId.isEmpty
               ? peerId
               : currentPeerId;
-      if (actualPeerId.isNotEmpty && actualPeerId != currentPeerId) {
-        await ffi.chatModel.remapCurrentPeer(actualPeerId);
+      if (chatPeerId.isNotEmpty && chatPeerId != currentPeerId) {
+        await ffi.chatModel.remapCurrentPeer(chatPeerId);
       }
       ffi.chatModel.updatePeerIdentity(
         chatPeerId,
@@ -1636,10 +1682,12 @@ class FfiModel with ChangeNotifier {
   Future<void> _persistDiscoveredDirectPairing(String sessionPeerId) async {
     final ffi = parent.target;
     if (ffi == null) return;
-    final endpoint = <String>[ffi.id.trim(), sessionPeerId.trim()].firstWhere(
-      DirectPairingStore.isDirectEndpoint,
-      orElse: () => '',
-    );
+    final endpoint = <String>[ffi.id.trim(), sessionPeerId.trim()]
+        .map(DirectPairingStore.extractDirectEndpoint)
+        .firstWhere(
+          (value) => value.isNotEmpty,
+          orElse: () => '',
+        );
     final actualPeerId =
         (cachedPeerData.peerInfo['peer_id'] ?? '').toString().trim();
     if (endpoint.isEmpty || actualPeerId.isEmpty) {
@@ -1663,15 +1711,24 @@ class FfiModel with ChangeNotifier {
       return;
     }
 
-    final displayName = _pi.displayName.trim().isNotEmpty
-        ? _pi.displayName.trim()
-        : _pi.username;
+    final displayName = normalizeDirectPeerName(
+      _pi.displayName,
+      fallback: _pi.username.trim().isNotEmpty ? _pi.username : actualPeerId,
+    );
+    final conversationPeerId = ffi.connType == ConnType.chat
+        ? ffi.chatModel.currentKey.peerId.trim()
+        : '';
     await DirectPairingStore.saveDiscovered(
       peerId: actualPeerId,
       endpoint: endpoint,
       fingerprint: fingerprint,
       displayName: displayName,
       avatar: _pi.avatar,
+      accountId: conversationPeerId,
+      deviceName: _pi.hostname,
+      platform: _pi.platform,
+      secure: true,
+      streamType: 'TCP',
     );
     debugPrint(
       '[DirectPairing] saved peer=$actualPeerId fingerprint=${fingerprint.length}',
@@ -4005,6 +4062,10 @@ class FFI {
             (!(isChat && isPortForward)) &&
             (!(isChat && isTerminal)),
         'more than one connect type');
+    debugPrint('[FFI_START] id=' +
+        id +
+        ' isChat=$isChat forceRelay=${forceRelay ?? false} connType=' +
+        connType.toString());
     if (isChat) {
       chatModel.resetClientMode();
       connType = ConnType.chat;
@@ -4215,6 +4276,15 @@ class FFI {
   /// Login with [password], choose if the client should [remember] it.
   void login(String osUsername, String osPassword, SessionID sessionId,
       String password, bool remember) {
+    // ??????????????????????????
+    // ????????????????
+    if (password.trim().isNotEmpty &&
+        chatModel.currentKey.peerId.trim().isNotEmpty) {
+      DirectPairingStore.cacheChatPassword(
+        chatModel.currentKey.peerId,
+        password,
+      );
+    }
     bind.sessionLogin(
         sessionId: sessionId,
         osUsername: osUsername,
@@ -4369,6 +4439,7 @@ class PeerInfo with ChangeNotifier {
   int currentDisplay = 0;
   int primaryDisplay = kInvalidDisplayIndex;
   RxList<Display> displays = <Display>[].obs;
+  final RxString windowsSessionsJson = ''.obs;
   Features features = Features();
   List<Resolution> resolutions = [];
   Map<String, dynamic> platformAdditions = {};

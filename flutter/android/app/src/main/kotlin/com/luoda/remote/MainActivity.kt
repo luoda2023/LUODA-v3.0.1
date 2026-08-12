@@ -15,11 +15,13 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.content.ClipboardManager
 import android.os.Bundle
+import android.provider.Settings
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import android.view.WindowManager
 import android.media.MediaCodecInfo
+import android.media.projection.MediaProjectionManager
 import android.media.MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface
 import android.media.MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420SemiPlanar
 import android.media.MediaCodecList
@@ -62,6 +64,7 @@ class MainActivity : FlutterActivity() {
             channelTag
         )
         initFlutterChannel(flutterMethodChannel!!)
+        BluetoothService.attach(this, flutterEngine)
         thread {
             try {
                 setCodecInfo()
@@ -83,33 +86,66 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun requestMediaProjection() {
-        val intent = Intent(this, PermissionRequestTransparentActivity::class.java).apply {
-            action = ACT_REQUEST_MEDIA_PROJECTION
+        // Request MediaProjection directly from the Flutter activity. The old
+        // transparent-activity hop could leave the app black on some OEM ROMs
+        // (OPPO/ColorOS) after the permission dialog closes, so the result now
+        // returns straight to onActivityResult below.
+        val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        try {
+            startActivityForResult(
+                manager.createScreenCaptureIntent(),
+                REQ_REQUEST_MEDIA_PROJECTION
+            )
+        } catch (e: Exception) {
+            Log.e(logTag, "createScreenCaptureIntent failed: ${e.message}", e)
+            flutterMethodChannel?.invokeMethod("on_media_projection_canceled", null)
         }
-        startActivityForResult(intent, REQ_INVOKE_PERMISSION_ACTIVITY_MEDIA_PROJECTION)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQ_REQUEST_MEDIA_PROJECTION) {
+            if (resultCode == RESULT_OK && data != null) {
+                // Persist the consent token so future auto-starts reuse it
+                // without showing the system dialog again.
+                saveMediaProjectionIntent(this, data)
+                launchMainService(this, data)
+            } else {
+                flutterMethodChannel?.invokeMethod("on_media_projection_canceled", null)
+            }
+        }
         if (requestCode == REQ_INVOKE_PERMISSION_ACTIVITY_MEDIA_PROJECTION && resultCode == RES_FAILED) {
             flutterMethodChannel?.invokeMethod("on_media_projection_canceled", null)
+        }
+        if (requestCode == REQ_ENABLE_BLUETOOTH) {
+            BluetoothService.onEnableResult(resultCode == RESULT_OK)
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // LUODA FIX: set the Rust config dir BEFORE the first getLocalOption.
+        // The native LocalConfig cache is initialized on first access; reading
+        // it with an empty app dir caches an empty store, so the machine seed
+        // is regenerated on every cold start and the device id gets re-rolled
+        // (contacts/messages appear to come from a "cloned config"). Starting
+        // the server first pins APP_DIR to the same path Flutter uses.
+        FFI.startServer(resolveAppDirConfigPath(this), "")
         val directChatPrefs = getSharedPreferences(KEY_SHARED_PREFERENCES, MODE_PRIVATE)
-        val directChatEnabled = directChatPrefs.getBoolean(
-            KEY_DIRECT_CHAT_ALWAYS_ON,
-            FFI.getLocalOption("direct-chat-always-on") == "Y",
-        )
+        // LUODA FIX: DirectChatService is the chat backbone and must be
+        // available even when the screen-capture service is not running (the
+        // system revokes MediaProjection when the process dies, so the capture
+        // service can be down while chat still needs to work). The Rust local
+        // option "direct-chat-always-on" is authoritative (default ON); the
+        // plain boolean preference saved by older builds may be stale, so it
+        // is ignored here and only kept in sync for BootReceiver.
+        val directChatEnabled = FFI.getLocalOption("direct-chat-always-on") != "N"
         directChatPrefs.edit()
             .putBoolean(KEY_DIRECT_CHAT_ALWAYS_ON, directChatEnabled)
             .apply()
-        DirectChatService.setEnabled(
-            this,
-            directChatEnabled,
-        )
+        if (directChatEnabled) {
+            DirectChatService.setEnabled(this, true)
+        }
         if (_rdClipboardManager == null) {
             _rdClipboardManager = RdClipboardManager(getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
             FFI.setClipboardManager(_rdClipboardManager!!)
@@ -141,12 +177,24 @@ class MainActivity : FlutterActivity() {
         flutterMethodChannel.setMethodCallHandler { call, result ->
             // make sure result will be invoked, otherwise flutter will await forever
             when (call.method) {
+                "has_media_projection_token" -> {
+                    result.success(loadMediaProjectionIntent(activity) != null)
+                }
                 "init_service" -> {
                     Intent(activity, MainService::class.java).also {
                         bindService(it, serviceConnection, Context.BIND_AUTO_CREATE)
                     }
                     if (MainService.isReady) {
                         result.success(false)
+                        return@setMethodCallHandler
+                    }
+                    // Reuse the previously granted MediaProjection token so the
+                    // service starts automatically without asking again.
+                    val savedProjection = loadMediaProjectionIntent(activity)
+                    Log.d(logTag, "init_service savedProjection=${savedProjection != null}")
+                    if (savedProjection != null) {
+                        launchMainService(activity, savedProjection)
+                        result.success(true)
                         return@setMethodCallHandler
                     }
                     requestMediaProjection()
@@ -254,6 +302,16 @@ class MainActivity : FlutterActivity() {
                 "try_sync_clipboard" -> {
                     rdClipboardManager?.syncClipboard(true)
                     result.success(true)
+                }
+                "get_stable_device_id" -> {
+                    // Derive a stable 6-digit id from ANDROID_ID so a
+                    // reinstall keeps the same DotChat id (friends, contacts
+                    // and chat history stay attached to this device).
+                    val androidId = Settings.Secure.getString(
+                        contentResolver, Settings.Secure.ANDROID_ID) ?: ""
+                    val seed = if (androidId.isNotEmpty()) androidId else Build.SERIAL ?: ""
+                    val hash = seed.hashCode() and 0x7fffffff
+                    result.success((100000 + hash % 900000).toString())
                 }
                 GET_START_ON_BOOT_OPT -> {
                     val prefs = getSharedPreferences(KEY_SHARED_PREFERENCES, MODE_PRIVATE)

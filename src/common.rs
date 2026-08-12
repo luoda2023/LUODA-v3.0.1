@@ -2,7 +2,9 @@ use std::{
     collections::HashMap,
     future::Future,
     net::{SocketAddr, ToSocketAddrs},
-    sync::{Arc, Mutex, RwLock},
+    sync::{
+        atomic::AtomicI64, Arc, Mutex, RwLock,
+    },
     task::Poll,
 };
 
@@ -54,7 +56,7 @@ pub type NotifyMessageBox = fn(String, String, String, String) -> dyn Future<Out
 
 // the executable name of the portable version
 pub const PORTABLE_APPNAME_RUNTIME_ENV_KEY: &str = "LUODA_APPNAME";
-pub const DEFAULT_PRODUCT_DISPLAY_NAME: &str = "LDesk";
+pub const DEFAULT_PRODUCT_DISPLAY_NAME: &str = "点聊";
 
 pub const PLATFORM_WINDOWS: &str = "Windows";
 pub const PLATFORM_LINUX: &str = "Linux";
@@ -98,6 +100,9 @@ lazy_static::lazy_static! {
     pub static ref DEVICE_ID: Arc<Mutex<String>> = Default::default();
     pub static ref DEVICE_NAME: Arc<Mutex<String>> = Default::default();
     static ref PUBLIC_IPV6_ADDR: Arc<Mutex<(Option<SocketAddr>, Option<Instant>)>> = Default::default();
+    /// 上次 IPv6 探测失败的时间（Unix 秒）。无 IPv6 环境（多数国内网络）
+    /// 不应反复重试浪费资源，失败后冷却 10 分钟再探测。
+    static ref LAST_IPV6_FAIL_UNIX: AtomicI64 = AtomicI64::new(0);
 }
 
 lazy_static::lazy_static! {
@@ -1010,6 +1015,18 @@ pub async fn do_check_software_update() -> hbb_common::ResultType<()> {
         *SOFTWARE_UPDATE_URL.lock().unwrap() = "".to_string();
     }
     Ok(())
+}
+
+/** Customer-visible product name. The internal APP_NAME keeps stable
+identifiers (EXE / service / config paths), while the display name is what
+users see in window titles, tray tooltips and dialogs. */
+#[inline]
+pub fn get_display_name() -> String {
+    let configured = hbb_common::config::APP_NAME.read().unwrap().clone();
+    match configured.as_str() {
+        "LUODA" | "LDesk" => "点聊".to_owned(),
+        _ => configured,
+    }
 }
 
 #[inline]
@@ -2159,7 +2176,20 @@ async fn test_bind_ipv6() -> ResultType<SocketAddr> {
     Ok(socket.local_addr()?)
 }
 
+const IPV6_FAIL_COOLDOWN_SECS: i64 = 600;
+
 pub async fn test_ipv6() -> Option<tokio::task::JoinHandle<()>> {
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    // 无 IPv6 环境（多数国内/内网环境）探测必然失败：冷却期内直接跳过，
+    // 避免每 60 秒重复 DNS 解析 + UDP 连接，白耗系统资源。
+    if now_unix - LAST_IPV6_FAIL_UNIX.load(std::sync::atomic::Ordering::Relaxed) <
+        IPV6_FAIL_COOLDOWN_SECS
+    {
+        return None;
+    }
     if PUBLIC_IPV6_ADDR
         .lock()
         .unwrap()
@@ -2186,7 +2216,12 @@ pub async fn test_ipv6() -> Option<tokio::task::JoinHandle<()>> {
             }
         }
         Err(e) => {
-            log::warn!("Failed to bind IPv6 socket: {}", e);
+            LAST_IPV6_FAIL_UNIX.store(now_unix, std::sync::atomic::Ordering::Relaxed);
+            log::warn!(
+                "IPv6 探测失败（{}），{} 秒内不再重试",
+                e,
+                IPV6_FAIL_COOLDOWN_SECS
+            );
         }
     }
     // Interestingly, on my macOS, sometimes my ipv6 works, sometimes not (test with ping6 or https://test-ipv6.com/).
@@ -2238,7 +2273,15 @@ pub async fn test_ipv6() -> Option<tokio::task::JoinHandle<()>> {
                 );
             }
             Err(e) => {
-                log::error!("Failed to get public IPv6 address: {}", e);
+                // 无 IPv6 公网地址是常见环境（多数内网/国内网络），
+                // 降级为 warn 并冷却，避免反复尝试浪费资源。
+                let now_unix = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
+                LAST_IPV6_FAIL_UNIX
+                    .store(now_unix, std::sync::atomic::Ordering::Relaxed);
+                log::warn!("IPv6 公网地址获取失败：{}", e);
             }
         };
     }))

@@ -34,12 +34,12 @@ class ServerModel with ChangeNotifier {
   bool _clipboardOk = false;
   bool _showElevation = false;
   bool hideCm = false;
+  String _lastMainCmState = '';
   int _connectStatus = 0; // Rendezvous Server status
   String _verificationMethod = "";
   String _temporaryPasswordLength = "";
   bool _allowNumericOneTimePassword = false;
   String _approveMode = "";
-  int _zeroClientLengthCounter = 0;
   bool _passwordInitialized = false;
   bool _wasServiceStopped = false;
 
@@ -169,20 +169,21 @@ class ServerModel with ChangeNotifier {
         final res = await bind.cmCheckClientsLength(length: _clients.length);
         if (res != null) {
           debugPrint("clients not match!");
-          updateClientState(res);
+          updateClientState(json: res);
         } else {
           if (_clients.isEmpty) {
             hideCmWindow();
-            if (_zeroClientLengthCounter++ == 12) {
-              // 6 second
-              windowManager.close();
-            }
           } else {
-            _zeroClientLengthCounter = 0;
             // LUODA: CM window only shown for non-chat connections
             // (chat clients are in _clients but not in tabController).
             if (!hideCm && _clients.any((c) => !c.isChat)) showCmWindow();
           }
+        }
+      } else if (desktopType == DesktopType.main) {
+        final state = await bind.cmGetClientsState();
+        if (state != _lastMainCmState) {
+          _lastMainCmState = state;
+          await updateClientState(json: state, chatOnly: true);
         }
       }
 
@@ -462,7 +463,8 @@ class ServerModel with ChangeNotifier {
       if (bind.mainGetLocalOption(key: kOptionDisableFloatingWindow) != 'Y') {
         await checkFloatingWindowPermission();
       }
-      if (!await AndroidPermissionManager.check(kManageExternalStorage)) {
+      if (_fileOk &&
+          !await AndroidPermissionManager.check(kManageExternalStorage)) {
         await AndroidPermissionManager.request(kManageExternalStorage);
       }
       final res = await parent.target?.dialogManager
@@ -500,8 +502,64 @@ class ServerModel with ChangeNotifier {
     await bind.mainStartService();
     updateClientState();
     if (isAndroid) {
+      // Once the user has authorized the service for the first time, remember
+      // to auto-start it on every subsequent app launch.
+      unawaited(bind.mainSetLocalOption(
+          key: kOptionAutoStartService, value: 'Y'));
       androidUpdatekeepScreenOn();
     }
+  }
+
+  /// Auto-start the service on app launch once the user has authorized it at
+  /// least once. Mirrors the manual toggle flow but skips the confirmation
+  /// dialog. No-op when the user never authorized the service.
+  Future<void> maybeAutoStartService() async {
+    debugPrint('maybeAutoStartService enter android=$isAndroid isStart=$_isStart');
+    if (!isAndroid || _isStart) return;
+    final autoStartOpt = bind.mainGetLocalOption(key: kOptionAutoStartService);
+    // A saved MediaProjection token means the user granted the service at
+    // least once (even before the auto-start option existed). Treat it as
+    // consent so MainService starts without asking again on every launch.
+    var hasToken = false;
+    try {
+      hasToken = await gFFI.invokeMethod('has_media_projection_token') == true;
+    } catch (_) {}
+    // Completing the one-time permission wizard is also consent: after a
+    // reinstall the persisted option/token are gone, but the user has already
+    // authorized the app before, so keep auto-starting instead of making them
+    // hunt for the manual toggle again.
+    final wizardDone =
+        bind.mainGetLocalOption(key: 'first_run_permissions_done_v2');
+    debugPrint(
+        'maybeAutoStartService autoStartOpt=$autoStartOpt hasToken=$hasToken wizardDone=$wizardDone');
+    if (autoStartOpt != 'Y' && !hasToken && wizardDone != 'Y') return;
+    // MediaProjection tokens are Binders and cannot survive a process death,
+    // so hasToken is only true while the consent intent is still alive. When
+    // no token exists, asking again on every launch shows the system
+    // screen-capture dialog every time the app opens. Instead of nagging, skip
+    // the capture service for this launch: the chat backbone (DirectChatService)
+    // keeps running regardless, and the user can authorize once from the
+    // Assist page when they actually want remote control.
+    if (!hasToken) return;
+    // Ask the native side for the current state; if the service is already
+    // running, its on_state_changed(media) event restarts the model state.
+    await gFFI.invokeMethod("check_service");
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    debugPrint('maybeAutoStartService after check_service isStart=$_isStart mediaOk=$_mediaOk');
+    if (_isStart) return;
+    await checkRequestNotificationPermission();
+    if (bind.mainGetLocalOption(key: kOptionDisableFloatingWindow) != 'Y') {
+      await checkFloatingWindowPermission();
+    }
+    if (_fileOk &&
+        !await AndroidPermissionManager.check(kManageExternalStorage)) {
+      await AndroidPermissionManager.request(kManageExternalStorage);
+    }
+    debugPrint('maybeAutoStartService calling startService isStart=$_isStart');
+    if (!_isStart) {
+      await startService();
+    }
+    debugPrint('maybeAutoStartService done isStart=$_isStart');
   }
 
   /// Stop the screen sharing service.
@@ -551,9 +609,9 @@ class ServerModel with ChangeNotifier {
   }
 
   // force
-  updateClientState([String? json]) async {
+  updateClientState({String? json, bool chatOnly = false}) async {
     if (isTest) return;
-    var res = await bind.cmGetClientsState();
+    final res = json ?? await bind.cmGetClientsState();
     List<dynamic> clientsJson;
     try {
       clientsJson = jsonDecode(res);
@@ -569,6 +627,7 @@ class ServerModel with ChangeNotifier {
     for (var clientJson in clientsJson) {
       try {
         final client = Client.fromJson(clientJson);
+        if (chatOnly && !client.isChat) continue;
         _clients.add(client);
         // LUODA: chat clients stay silent — no CM tab or card.
         // But still register them in _clients for message routing / online status.
@@ -599,9 +658,14 @@ class ServerModel with ChangeNotifier {
         showCmWindow();
       }
     }
-    if (_clients.length != oldClientLenght) {
+    if (_clients.length != oldClientLenght || chatOnly) {
       notifyListeners();
       if (isAndroid) androidUpdatekeepScreenOn();
+    }
+    if (chatOnly && _clients.any((client) => client.isChat)) {
+      Future<void>.delayed(const Duration(milliseconds: 250), () async {
+        await parent.target?.chatModel.refreshCurrentConversationFromStorage();
+      });
     }
   }
 
@@ -785,6 +849,7 @@ class ServerModel with ChangeNotifier {
   scrollToBottom() {
     if (isDesktop) return;
     Future.delayed(Duration(milliseconds: 200), () {
+      if (!controller.hasClients) return;
       controller.animateTo(controller.position.maxScrollExtent,
           duration: Duration(milliseconds: 200),
           curve: Curves.fastLinearToSlowEaseIn);
@@ -933,6 +998,7 @@ class Client {
   bool fromSwitch = false;
   bool inVoiceCall = false;
   bool incomingVoiceCall = false;
+  int chatMessageRevision = 0;
 
   RxInt unreadChatMessageCount = 0.obs;
 
@@ -963,6 +1029,7 @@ class Client {
     fromSwitch = json['from_switch'];
     inVoiceCall = json['in_voice_call'];
     incomingVoiceCall = json['incoming_voice_call'];
+    chatMessageRevision = json['chat_message_revision'] ?? 0;
   }
 
   Map<String, dynamic> toJson() {
@@ -989,6 +1056,7 @@ class Client {
     data['from_switch'] = fromSwitch;
     data['in_voice_call'] = inVoiceCall;
     data['incoming_voice_call'] = incomingVoiceCall;
+    data['chat_message_revision'] = chatMessageRevision;
     return data;
   }
 

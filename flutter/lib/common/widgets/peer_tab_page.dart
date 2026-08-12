@@ -48,8 +48,7 @@ class PeerTabPage extends StatefulWidget {
     );
   }
 
-  const PeerTabPage({Key? key, this.showTabStrip = true})
-      : super(key: key);
+  const PeerTabPage({Key? key, this.showTabStrip = true}) : super(key: key);
   @override
   State<PeerTabPage> createState() => _PeerTabPageState();
 }
@@ -143,7 +142,7 @@ class _PeerTabPageState extends State<PeerTabPage>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Obx(() => SizedBox(
-                height: 32,
+                height: isMobile ? 48 : 40,
                 child: Container(
                   padding: stateGlobal.isPortrait.isTrue
                       ? EdgeInsets.symmetric(horizontal: 2)
@@ -177,9 +176,10 @@ class _PeerTabPageState extends State<PeerTabPage>
     final model = Provider.of<PeerTabModel>(context);
     return PeerTabStrip(
       selectedIndex: model.currentTab,
-      labels: PeerTabModel.tabNames,
+      labels: PeerTabModel.tabNames.map(translate).toList(growable: false),
       icons: PeerTabModel.icons,
       visibleIndexes: model.visibleEnabledOrderedIndexs,
+      showLabels: isMobile,
       onSelected: (index) async {
         await handleTabSelection(index);
         await bind.setLocalFlutterOption(

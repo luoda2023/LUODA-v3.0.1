@@ -34,3 +34,6 @@ flutter/coverage/
 
 # CI runtime logs
 **/ci-runtime-logs/**
+
+# Android signing keystore (never commit secrets)
+*.jks

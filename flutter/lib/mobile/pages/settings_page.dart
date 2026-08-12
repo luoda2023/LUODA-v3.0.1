@@ -38,7 +38,7 @@ class SettingsPage extends StatefulWidget implements PageShape {
   State<SettingsPage> createState() => _SettingsState();
 }
 
-const url = 'https://dicad.cn/';
+const url = 'https://www.dotchat.app/';
 
 enum KeepScreenOn {
   never,
@@ -105,8 +105,9 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
   var _allowAskForNoteAtEndOfConnection = false;
   var _preventSleepWhileConnected = true;
   var _directChatAlwaysOn = false;
-  var _directChatTrustedOnly = true;
+  var _directChatTrustedOnly = false;
   var _directChatAutoReconnect = true;
+  VoidCallback? _directChatAccessListener;
   var _serverlessDirectOnly = false;
   var _showAdvancedSettings = false;
 
@@ -166,6 +167,18 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // ????????????????????????????????
+    _directChatAccessListener = () {
+      if (!mounted) return;
+      final access = DirectChatAccessController.instance..load();
+      setState(() {
+        _directChatAlwaysOn = access.alwaysOn;
+        _directChatTrustedOnly =
+            access.audience == DirectChatAudience.friendsOnly;
+        _directChatAutoReconnect = access.autoReconnect;
+      });
+    };
+    DirectChatAccessController.instance.addListener(_directChatAccessListener!);
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       var update = false;
@@ -246,6 +259,11 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    if (_directChatAccessListener != null) {
+      DirectChatAccessController.instance
+          .removeListener(_directChatAccessListener!);
+      _directChatAccessListener = null;
+    }
     super.dispose();
   }
 
@@ -718,7 +736,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
             SettingsTile.switchTile(
               leading: const Icon(Icons.mark_chat_unread_outlined),
               title: Text(translate('Allow always-on direct messages')),
-              description: Text(translate('Available when LDesk is running')),
+              description: Text(translate('Available when DotChat is running')),
               initialValue: _directChatAlwaysOn,
               onToggle: (value) async {
                 await DirectChatAccessController.instance.setAlwaysOn(value);
@@ -735,7 +753,16 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
             ),
             SettingsTile.switchTile(
               leading: const Icon(Icons.verified_user_outlined),
-              title: Text(translate('Only trusted contacts can message me')),
+              title: Text(
+                translate('Only friends can contact me anytime'),
+              ),
+              description: Text(
+                translate(
+                  _directChatTrustedOnly
+                      ? 'Unknown peers must be approved before they can establish a persistent chat connection.'
+                      : 'Strangers can also chat with me directly',
+                ),
+              ),
               initialValue: _directChatTrustedOnly,
               enabled: _directChatAlwaysOn,
               onToggle: _directChatAlwaysOn
@@ -958,7 +985,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
               title: Text(translate('note-at-conn-end-tip')),
               initialValue: _allowAskForNoteAtEndOfConnection,
               onToggle: (v) async {
-                if (v && !gFFI.userModel.isLogin) {
+                if (v && !kLocalProfileOnly && !gFFI.userModel.isLogin) {
                   final res = await loginDialog();
                   if (res != true) return;
                 }
@@ -1107,7 +1134,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                 title: Text(translate("Version: ") + version),
                 value: Padding(
                   padding: EdgeInsets.symmetric(vertical: 8),
-                  child: Text('dicad.cn',
+                  child: Text(getProductDisplayName(),
                       style: TextStyle(
                         decoration: TextDecoration.underline,
                       )),
@@ -1132,14 +1159,26 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
             SettingsTile(
               title: Text(translate("Privacy Statement")),
               onPressed: (context) =>
-                  launchUrlString('https://dicad.cn/privacy.html'),
+                  launchUrlString('https://www.dotchat.app/privacy.html'),
               leading: Icon(Icons.privacy_tip),
             )
           ],
         ),
       ],
     );
-    return settings;
+    return Scaffold(
+      appBar: AppBar(
+        automaticallyImplyLeading: false,
+        leading: IconButton(
+          tooltip: translate('Back'),
+          onPressed: () => Navigator.of(context).pop(),
+          icon: const Icon(Icons.arrow_back_rounded),
+        ),
+        title: Text(translate('Me')),
+        actions: widget.appBarActions,
+      ),
+      body: settings,
+    );
   }
 
   Map<String, dynamic> _localProfile() {
@@ -1331,7 +1370,12 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                     ],
                   ),
                 ),
-                const Divider(height: 1),
+                Divider(
+                  height: 1,
+                  color: Theme.of(context).brightness == Brightness.dark
+                      ? const Color(0xFF3A3D43)
+                      : const Color(0x80E5E5E5),
+                ),
                 Expanded(
                   child: peersById.isEmpty
                       ? Center(
@@ -1347,9 +1391,13 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                         )
                       : ListView.separated(
                           itemCount: peersById.length,
-                          separatorBuilder: (_, __) => const Divider(
+                          separatorBuilder: (_, __) => Divider(
                             height: 1,
                             indent: 72,
+                            color:
+                                Theme.of(context).brightness == Brightness.dark
+                                    ? const Color(0xFF3A3D43)
+                                    : const Color(0x80E5E5E5),
                           ),
                           itemBuilder: (context, index) {
                             final peer = peersById.values.elementAt(index);
@@ -1550,12 +1598,12 @@ void showAbout(OverlayDialogManager dialogManager) {
         Text('${translate('Version')}: $version'),
         InkWell(
             onTap: () async {
-              const url = 'https://dicad.cn/';
+              const url = 'https://www.dotchat.app/';
               await launchUrl(Uri.parse(url));
             },
             child: Padding(
               padding: EdgeInsets.symmetric(vertical: 8),
-              child: Text('dicad.cn',
+              child: Text(getProductDisplayName(),
                   style: TextStyle(
                     decoration: TextDecoration.underline,
                   )),
@@ -1608,8 +1656,10 @@ class __DisplayPageState extends State<_DisplayPage> {
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
-            onPressed: () => Navigator.pop(context),
-            icon: Icon(Icons.arrow_back_ios)),
+          tooltip: translate('Back'),
+          onPressed: () => Navigator.pop(context),
+          icon: const Icon(Icons.arrow_back_rounded),
+        ),
         title: Text(translate('Display Settings')),
         centerTitle: true,
       ),
@@ -1712,6 +1762,11 @@ class __ManageTrustedDevicesState extends State<_ManageTrustedDevices> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          tooltip: translate('Back'),
+          onPressed: () => Navigator.pop(context),
+          icon: const Icon(Icons.arrow_back_rounded),
+        ),
         title: Text(translate('Manage trusted devices')),
         centerTitle: true,
         actions: [

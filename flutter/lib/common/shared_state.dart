@@ -49,6 +49,29 @@ class BlockInputState {
   static RxBool find(String id) => Get.find<RxBool>(tag: tag(id));
 }
 
+class CurrentSessionState {
+  static String tag(String id) => 'current_session_$id';
+
+  static void init(String id) {
+    final key = tag(id);
+    if (!Get.isRegistered<RxInt>(tag: key)) {
+      final RxInt state = RxInt(0);
+      Get.put<RxInt>(state, tag: key);
+    } else {
+      Get.find<RxInt>(tag: key).value = 0;
+    }
+  }
+
+  static void delete(String id) {
+    final key = tag(id);
+    if (Get.isRegistered<RxInt>(tag: key)) {
+      Get.delete<RxInt>(tag: key);
+    }
+  }
+
+  static RxInt find(String id) => Get.find<RxInt>(tag: tag(id));
+}
+
 class CurrentDisplayState {
   static String tag(String id) => 'current_display_$id';
 
@@ -355,6 +378,7 @@ void initSharedStates(String id) {
   PrivacyModeState.init(id);
   BlockInputState.init(id);
   CurrentDisplayState.init(id);
+  CurrentSessionState.init(id);
   KeyboardEnabledState.init(id);
   ShowRemoteCursorState.init(id);
   ShowRemoteCursorLockState.init(id);
@@ -377,6 +401,7 @@ void removeSharedStates(String id) {
   PrivacyModeState.delete(id);
   BlockInputState.delete(id);
   CurrentDisplayState.delete(id);
+  CurrentSessionState.delete(id);
   ShowRemoteCursorState.delete(id);
   ShowRemoteCursorLockState.delete(id);
   KeyboardEnabledState.delete(id);

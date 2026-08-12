@@ -2,9 +2,31 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
+import 'backup_restore.dart';
+import 'direct_pairing.dart';
 import '../models/platform_model.dart';
 
 enum DirectChatAudience { friendsOnly, everyone }
+
+const directChatPermissionDeniedKey = 'direct-chat-permission-denied';
+const _legacyDirectChatPermissionDenied =
+    'Direct messages rejected by this contact';
+
+bool isDirectChatPermissionDenied(Object? message) {
+  final text = message?.toString().trim() ?? '';
+  return text == directChatPermissionDeniedKey ||
+      text == _legacyDirectChatPermissionDenied;
+}
+
+bool isDirectChatSessionReady({
+  required bool closed,
+  required bool peerInfoReady,
+  Object? connectionError,
+}) {
+  return !closed &&
+      peerInfoReady &&
+      (connectionError?.toString().trim().isEmpty ?? true);
+}
 
 class DirectChatPolicySnapshot {
   const DirectChatPolicySnapshot({
@@ -41,7 +63,7 @@ class DirectChatPolicySnapshot {
     String peerId, {
     required bool previouslyAccepted,
   }) {
-    return alwaysOn && autoReconnect && previouslyAccepted && isFriend(peerId);
+    return alwaysOn && autoReconnect && previouslyAccepted && !isDenied(peerId);
   }
 }
 
@@ -56,11 +78,16 @@ class DirectChatAccessController extends ChangeNotifier {
   static const autoReconnectKey = 'direct-chat-auto-reconnect';
   static const peerPoliciesKey = 'direct-chat-contact-policies';
   static const acceptedPeersKey = 'direct-chat-accepted-peers-v1';
+  static const audienceMtimeKey = 'direct-chat-audience-mtime';
+  // Last-writer timestamp for the audience choice. A companion device that
+  // never touched its own audience must not silently downgrade this device's
+  // explicit setting.
 
   bool _loaded = false;
   bool _alwaysOn = true;
   bool _autoReconnect = true;
   DirectChatAudience _audience = DirectChatAudience.friendsOnly;
+  String _audienceMtime = '';
   Map<String, String> _peerPolicies = <String, String>{};
   Set<String> _acceptedPeers = <String>{};
 
@@ -85,9 +112,10 @@ class DirectChatAccessController extends ChangeNotifier {
   void reload({bool notify = true}) {
     _alwaysOn = bind.mainGetLocalOption(key: alwaysOnKey) != 'N';
     _autoReconnect = bind.mainGetLocalOption(key: autoReconnectKey) != 'N';
-    _audience = bind.mainGetLocalOption(key: trustedOnlyKey) == 'N'
-        ? DirectChatAudience.everyone
-        : DirectChatAudience.friendsOnly;
+    _audience = bind.mainGetLocalOption(key: trustedOnlyKey) == 'Y'
+        ? DirectChatAudience.friendsOnly
+        : DirectChatAudience.everyone;
+    _audienceMtime = bind.mainGetLocalOption(key: audienceMtimeKey);
     _peerPolicies = _readStringMap(peerPoliciesKey);
     _acceptedPeers = _readStringMap(acceptedPeersKey).keys.toSet();
     _loaded = true;
@@ -96,7 +124,14 @@ class DirectChatAccessController extends ChangeNotifier {
 
   String policyFor(String peerId) {
     load();
-    return _peerPolicies[peerId.trim()] ?? 'ask';
+    final id = DirectPairingStore.canonicalConversationId(peerId);
+    final accountPolicy = _peerPolicies[id];
+    if (accountPolicy != null) return accountPolicy;
+    for (final device in DirectPairingStore.boundDevices(id)) {
+      final devicePolicy = _peerPolicies[device.peerId];
+      if (devicePolicy != null) return devicePolicy;
+    }
+    return 'ask';
   }
 
   bool isFriend(String peerId) => policyFor(peerId) == 'allow';
@@ -105,20 +140,27 @@ class DirectChatAccessController extends ChangeNotifier {
 
   bool wasPreviouslyAccepted(String peerId) {
     load();
-    return _acceptedPeers.contains(peerId.trim());
+    final id = DirectPairingStore.canonicalConversationId(peerId);
+    return _acceptedPeers.contains(id) ||
+        DirectPairingStore.boundDevices(id).any(
+          (device) => _acceptedPeers.contains(device.peerId),
+        );
   }
 
   bool shouldAutoReconnect(String peerId) {
     load();
-    return snapshot.shouldAutoReconnect(
-      peerId,
-      previouslyAccepted: wasPreviouslyAccepted(peerId),
-    );
+    return _alwaysOn &&
+        _autoReconnect &&
+        wasPreviouslyAccepted(peerId) &&
+        !isDenied(peerId);
   }
 
   Set<String> get autoReconnectPeerIds {
     load();
-    return _peerPolicies.keys.where(shouldAutoReconnect).toSet();
+    return _acceptedPeers
+        .map(DirectPairingStore.canonicalConversationId)
+        .where(shouldAutoReconnect)
+        .toSet();
   }
 
   Future<void> setAudience(DirectChatAudience value) async {
@@ -126,11 +168,14 @@ class DirectChatAccessController extends ChangeNotifier {
     if (_audience == value && _alwaysOn) return;
     _audience = value;
     _alwaysOn = true;
+    _audienceMtime = DateTime.now().toUtc().toIso8601String();
     await bind.mainSetLocalOption(key: alwaysOnKey, value: 'Y');
     await bind.mainSetLocalOption(
       key: trustedOnlyKey,
       value: value == DirectChatAudience.friendsOnly ? 'Y' : 'N',
     );
+    await bind.mainSetLocalOption(key: audienceMtimeKey, value: _audienceMtime);
+    DotChatBackup.schedule();
     notifyListeners();
   }
 
@@ -142,6 +187,7 @@ class DirectChatAccessController extends ChangeNotifier {
       key: alwaysOnKey,
       value: value ? 'Y' : 'N',
     );
+    DotChatBackup.schedule();
     notifyListeners();
   }
 
@@ -153,12 +199,14 @@ class DirectChatAccessController extends ChangeNotifier {
       key: autoReconnectKey,
       value: value ? 'Y' : 'N',
     );
+    DotChatBackup.schedule();
     notifyListeners();
   }
 
   Future<void> setPeerPolicy(String peerId, String policy) async {
+    DotChatBackup.schedule();
     load();
-    final id = peerId.trim();
+    final id = DirectPairingStore.canonicalConversationId(peerId);
     if (id.isEmpty ||
         !const <String>{'allow', 'ask', 'deny'}.contains(policy)) {
       return;
@@ -168,6 +216,9 @@ class DirectChatAccessController extends ChangeNotifier {
     } else {
       _peerPolicies[id] = policy;
     }
+    for (final device in DirectPairingStore.boundDevices(id)) {
+      _peerPolicies.remove(device.peerId);
+    }
     if (policy == 'deny') _acceptedPeers.remove(id);
     await _writeStringMap(peerPoliciesKey, _peerPolicies);
     await _persistAcceptedPeers();
@@ -176,7 +227,7 @@ class DirectChatAccessController extends ChangeNotifier {
 
   Future<void> markAccepted(String peerId) async {
     load();
-    final id = peerId.trim();
+    final id = DirectPairingStore.canonicalConversationId(peerId);
     if (id.isEmpty || !_acceptedPeers.add(id)) return;
     await _persistAcceptedPeers();
     notifyListeners();
@@ -196,6 +247,64 @@ class DirectChatAccessController extends ChangeNotifier {
 
   Future<void> _writeStringMap(String key, Map<String, String> value) {
     return bind.mainSetLocalOption(key: key, value: jsonEncode(value));
+  }
+
+  /// 输出可同步的分类信息（好友/陌生人策略），供伴侣设备间同步。
+  Map<String, dynamic> toSyncJson() => <String, dynamic>{
+        'audience': _audience.name,
+        'audience_mtime': _audienceMtime,
+        'policies': Map<String, String>.of(_peerPolicies),
+      };
+
+  /// 合并伴侣设备同步过来的分类信息。
+  Future<void> mergeSyncData(Map<String, dynamic> data) async {
+    load();
+        final incomingAudience = data['audience']?.toString();
+    if (incomingAudience == DirectChatAudience.everyone.name ||
+        incomingAudience == DirectChatAudience.friendsOnly.name) {
+      // Last-writer-wins: only apply the companion's audience when its mtime
+      // is newer than ours, or when neither side has an mtime (legacy peers).
+      final incomingMtime = data['audience_mtime']?.toString().trim() ?? '';
+      final localMtime = _audienceMtime.trim();
+      final apply = localMtime.isEmpty ||
+          (incomingMtime.isNotEmpty && incomingMtime.compareTo(localMtime) > 0);
+      if (apply) {
+        _audience = incomingAudience == DirectChatAudience.everyone.name
+            ? DirectChatAudience.everyone
+            : DirectChatAudience.friendsOnly;
+        if (incomingMtime.isNotEmpty) _audienceMtime = incomingMtime;
+        await bind.mainSetLocalOption(
+          key: trustedOnlyKey,
+          value: _audience == DirectChatAudience.friendsOnly ? 'Y' : 'N',
+        );
+        if (incomingMtime.isNotEmpty) {
+          await bind.mainSetLocalOption(
+            key: audienceMtimeKey,
+            value: _audienceMtime,
+          );
+        }
+      }
+    }
+    final incomingPolicies = data['policies'];
+    var changed = false;
+    if (incomingPolicies is Map) {
+      for (final entry in incomingPolicies.entries) {
+        final policy = entry.value.toString();
+        if (!const <String>{'allow', 'ask', 'deny'}.contains(policy)) continue;
+        final id = entry.key.toString().trim();
+        if (id.isEmpty) continue;
+        if (policy == 'ask') {
+          changed = _peerPolicies.containsKey(id) || changed;
+          _peerPolicies.remove(id);
+        } else if (_peerPolicies[id] != policy) {
+          _peerPolicies[id] = policy;
+          changed = true;
+        }
+      }
+      if (changed) await _writeStringMap(peerPoliciesKey, _peerPolicies);
+    }
+    await _persistAcceptedPeers();
+    notifyListeners();
   }
 
   Future<void> _persistAcceptedPeers() {

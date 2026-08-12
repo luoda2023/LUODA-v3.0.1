@@ -54,7 +54,7 @@ fn try_add_mapping(port: u16) -> Result<(), Box<dyn std::error::Error>> {
         port,
         local_addr,
         PORT_MAPPING_LEASE_SECONDS,
-        "LDesk Direct Connection",
+        "DotChat Direct Connection",
     )?;
 
     if let Ok(public_ip) = gateway.get_external_ip() {

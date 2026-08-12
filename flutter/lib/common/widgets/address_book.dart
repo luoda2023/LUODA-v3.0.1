@@ -20,6 +20,7 @@ import 'package:flex_color_picker/flex_color_picker.dart';
 
 import '../../common.dart';
 import 'dialog.dart';
+import 'local_contacts_view.dart';
 import 'login.dart';
 
 final hideAbTagsPanel = false.obs;
@@ -38,7 +39,13 @@ class _AddressBookState extends State<AddressBook> {
   var menuPos = RelativeRect.fill;
 
   @override
-  Widget build(BuildContext context) => Obx(() {
+  Widget build(BuildContext context) {
+    // DotChat ??????????????????????????
+    // ??? Obx ??????? Obx ??????????? GetX ???
+    if (kLocalProfileOnly && isMobile) {
+      return const LocalContactsView();
+    }
+    return Obx(() {
         if (!gFFI.userModel.isLogin) {
           return Center(
               child: ElevatedButton(
@@ -79,6 +86,7 @@ class _AddressBookState extends State<AddressBook> {
           );
         }
       });
+  }
 
   Widget _buildAddressBookLandscape() {
     return Row(
@@ -261,7 +269,9 @@ class _AddressBookState extends State<AddressBook> {
           )),
       underline: Container(
         height: 0.7,
-        color: Theme.of(context).dividerColor.withOpacity(0.1),
+        color: Theme.of(context).brightness == Brightness.dark
+            ? const Color(0xFF3A3D43)
+            : const Color(0x80E5E5E5),
       ),
       menuItemStyleData: menuItemStyleData,
       items: items,

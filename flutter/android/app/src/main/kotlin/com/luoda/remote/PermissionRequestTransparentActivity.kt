@@ -40,15 +40,10 @@ class PermissionRequestTransparentActivity: Activity() {
 
     private fun launchService(mediaProjectionResultIntent: Intent) {
         Log.d(logTag, "Launch MainService")
-        val serviceIntent = Intent(this, MainService::class.java)
-        serviceIntent.action = ACT_INIT_MEDIA_PROJECTION_AND_SERVICE
-        serviceIntent.putExtra(EXT_MEDIA_PROJECTION_RES_INTENT, mediaProjectionResultIntent)
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(serviceIntent)
-        } else {
-            startService(serviceIntent)
-        }
+        // Persist the consent token so future auto-starts can reuse it without
+        // showing the system dialog again (grant once, always on).
+        saveMediaProjectionIntent(this, mediaProjectionResultIntent)
+        launchMainService(this, mediaProjectionResultIntent)
     }
 
 }

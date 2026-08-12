@@ -25,6 +25,11 @@ fn link_pkg_config(_name: &str) -> Vec<PathBuf> {
 
 /// Link vcpkg package.
 fn link_vcpkg(mut path: PathBuf, name: &str) -> PathBuf {
+    // Rebuild when the vcpkg root / triplet selection changes, otherwise a
+    // stale build-script output (e.g. a previously set VCPKG_INSTALLED_ROOT)
+    // keeps pointing at the wrong package directory.
+    println!("cargo:rerun-if-env-changed=VCPKG_ROOT");
+    println!("cargo:rerun-if-env-changed=VCPKG_INSTALLED_ROOT");
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
     let mut target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap();
     if target_arch == "x86_64" {

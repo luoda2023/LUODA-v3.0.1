@@ -1,7 +1,8 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import 'platform_model.dart';
+import '../common/direct_pairing.dart';
 // ignore: depend_on_referenced_packages
 import 'package:collection/collection.dart';
 
@@ -32,6 +33,21 @@ class Peer {
     if (displayName != '') {
       return displayName;
     }
+    return id;
+  }
+
+  /// Final display name for lists: the manually edited alias wins, then the
+  /// self-reported display name, then username@hostname, then the raw id.
+  /// An alias that only repeats the id is treated as unset.
+  String finalName() {
+    final a = alias.trim();
+    if (a.isNotEmpty && a != id.trim()) return a;
+    if (displayName.trim().isNotEmpty) return displayName.trim();
+    final u = username.trim();
+    final h = hostname.trim();
+    if (u.isNotEmpty && h.isNotEmpty) return '$u@$h';
+    if (h.isNotEmpty) return h;
+    if (u.isNotEmpty) return u;
     return id;
   }
 
@@ -251,6 +267,21 @@ class Peers extends ChangeNotifier {
         }
       }
     });
+
+    // ?????: a direct pairing refreshed by a recent successful
+    // connection means the peer is reachable right now, even if the
+    // rendezvous server has not seen it register yet.
+    final freshness = DateTime.now().toUtc().subtract(
+          const Duration(minutes: 5),
+        );
+    for (var i = 0; i < peers.length; i++) {
+      if (peers[i].online) continue;
+      final pairing = DirectPairingStore.find(peers[i].id);
+      if (pairing != null && pairing.updatedAt.isAfter(freshness)) {
+        peers[i].online = true;
+        changedCount += 1;
+      }
+    }
 
     if (changedCount > 0) {
       event = UpdateEvent.online;

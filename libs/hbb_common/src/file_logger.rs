@@ -32,7 +32,7 @@ impl FileLogger {
     fn write_log(&self, msg: &str) {
         if let Ok(mut guard) = self.file.lock() {
             if guard.is_none() {
-                if let Some(path) = Self::log_path() {
+                if let Some(path) = FileLogger::log_path() {
                     *guard = OpenOptions::new()
                         .create(true)
                         .append(true)
@@ -75,8 +75,10 @@ impl Log for FileLogger {
             record.args()
         );
         self.write_log(&msg);
-        // Also output to stderr
-        eprint!("{}", msg);
+        // Also mirror to stderr, but never panic when stderr is closed or
+        // unavailable (GUI/service launches have no console handle).
+        use std::io::Write as _;
+        let _ = std::io::stderr().write_all(msg.as_bytes());
     }
 
     fn flush(&self) {
@@ -94,6 +96,26 @@ pub fn setup_panic_hook() {
     let prev = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let msg = format!("{}", info);
+        let loc = info
+            .location()
+            .map(|l| format!("{}:{}", l.file(), l.line()))
+            .unwrap_or_else(|| "?".to_owned());
+        // Write the panic message directly to the daily log file, bypassing
+        // the `log` crate. This guarantees the message survives even if the
+        // logger lock is poisoned or the logger is otherwise unavailable,
+        // which previously left release-build panics with no message at all.
+        let line = format!(
+            "[{}] [ERROR] [hbb_common::file_logger] PANIC at {}, {}\n",
+            Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),
+            loc,
+            msg
+        );
+        if let Some(path) = FileLogger::log_path() {
+            if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&path) {
+                let _ = f.write_all(line.as_bytes());
+                let _ = f.flush();
+            }
+        }
         log::error!("=== PANIC ===");
         log::error!("{}", msg);
         log::error!("Backtrace not available in release build");
