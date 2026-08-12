@@ -129,9 +129,11 @@ jobs:
           # "outside repository at D:/a/..." on windows runners; clone and
           # bootstrap vcpkg natively instead (same pinned commit as before).
           if [ ! -d "C:/vcpkg/.git" ]; then
-            git clone --depth 1 https://github.com/microsoft/vcpkg.git C:/vcpkg
+            git clone https://github.com/microsoft/vcpkg.git C:/vcpkg
           fi
-          git -C C:/vcpkg checkout "120deac3062162151622ca4860575a33844ba10b" || true
+          # Shallow clones cannot reach the pinned commit; use full clone so
+          # the overlay ports in ./res/vcpkg match the pinned vcpkg version.
+          git -C C:/vcpkg checkout "120deac3062162151622ca4860575a33844ba10b"
           C:/vcpkg/bootstrap-vcpkg.bat -disableMetrics
           echo "vcpkg ready: $(C:/vcpkg/vcpkg.exe version | head -1)"
           echo "VCPKG_ROOT=C:/vcpkg" >> "$GITHUB_ENV"
