@@ -111,6 +111,11 @@ jobs:
           echo "vcpkg ready: $(C:/vcpkg/vcpkg.exe version | head -1)"
           echo "VCPKG_ROOT=C:/vcpkg" >> "$GITHUB_ENV"
 
+      - name: Cache vcpkg downloads
+        uses: actions/cache@v4
+        with:
+          path: C:\vcpkg\downloads
+          key: vcpkg-dl-${{ runner.os }}-120deac3062162151622ca4860575a33844ba10b
       - name: Cache vcpkg installed packages
         uses: actions/cache@v4
         with:
@@ -124,23 +129,33 @@ jobs:
         run: |
           # Enable vcpkg binary caching to avoid recompiling AOM/FFmpeg from source
           $env:VCPKG_BINARY_SOURCES="clear;files,$env:VCPKG_ROOT\archives,readwrite"
-          # Add timeout: kill if vcpkg hangs (40 min step timeout + 35 min internal timeout)
-          $proc = Start-Process -NoNewWindow -PassThru -FilePath "vcpkg" -ArgumentList "install --triplet x64-windows-static --x-install-root=$env:VCPKG_ROOT\installed --clean-after-build"
-          $timeout = 2100  # 35 minutes in seconds
-          $sw = [System.Diagnostics.Stopwatch]::StartNew()
-          while (-not $proc.HasExited) {
-            if ($sw.Elapsed.TotalSeconds -gt $timeout) {
-              Write-Host "FATAL: vcpkg install timed out after 35 min, killing..."
-              $proc.Kill()
-              exit 1
+          # github codeload serves flaky 503/12152 responses; retry the whole
+          # install up to 3 times. Each attempt reuses downloads already on
+          # disk, so only the failed tarballs are re-fetched.
+          $attempt = 0
+          while ($attempt -lt 3) {
+            $attempt++
+            Write-Host "=== vcpkg install attempt $attempt/3 ==="
+            $proc = Start-Process -NoNewWindow -PassThru -FilePath "vcpkg" -ArgumentList "install --triplet x64-windows-static --x-install-root=$env:VCPKG_ROOT\installed --clean-after-build --x-max-download-retries=10"
+            $timeout = 2100  # 35 minutes in seconds
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            while (-not $proc.HasExited) {
+              if ($sw.Elapsed.TotalSeconds -gt $timeout) {
+                Write-Host "FATAL: vcpkg install timed out after 35 min, killing..."
+                $proc.Kill()
+                exit 1
+              }
+              Start-Sleep -Seconds 10
             }
+            if ($proc.ExitCode -eq 0) {
+              Write-Host "vcpkg install complete"
+              exit 0
+            }
+            Write-Host "vcpkg install failed with exit code $($proc.ExitCode), retrying..."
             Start-Sleep -Seconds 10
           }
-          if ($proc.ExitCode -ne 0) {
-            Write-Host "vcpkg install failed with exit code $($proc.ExitCode)"
-            exit $proc.ExitCode
-          }
-          Write-Host "vcpkg install complete"
+          Write-Host "vcpkg install failed after 3 attempts"
+          exit 1
 
       - name: Build Rust
         timeout-minutes: 50

@@ -2999,6 +2999,7 @@ impl LoginConfigHandler {
         if !pi.peer_id.is_empty() && !pi.direct_access_port.is_empty() {
             if let Some((ip, _)) = self.direct_connected_endpoint.rsplit_once(':') {
                 if !ip.is_empty() {
+                    #[cfg(not(target_os = "ios"))]
                     crate::rendezvous_mediator::update_direct_pairing_endpoint(
                         &pi.peer_id,
                         &format!("{}:{}", ip, pi.direct_access_port),

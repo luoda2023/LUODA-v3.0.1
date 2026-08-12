@@ -137,6 +137,11 @@ jobs:
           C:/vcpkg/bootstrap-vcpkg.bat -disableMetrics
           echo "vcpkg ready: $(C:/vcpkg/vcpkg.exe version | head -1)"
           echo "VCPKG_ROOT=C:/vcpkg" >> "$GITHUB_ENV"
+      - name: Cache vcpkg downloads
+        uses: actions/cache@v4
+        with:
+          path: C:\vcpkg\downloads
+          key: vcpkg-dl-${{ runner.os }}-120deac3062162151622ca4860575a33844ba10b
       - name: Cache vcpkg installed packages
         uses: actions/cache@v4
         with:
@@ -148,8 +153,22 @@ jobs:
         timeout-minutes: 40
         shell: bash
         run: |
+          # Retry the whole install up to 3 times: github codeload serves
+          # flaky 503/12152 responses that vcpkg's own retries cannot always
+          # survive. Downloads that succeeded are cached on disk, so re-runs
+          # only re-fetch the handful of tarballs that failed.
           triplet="${{ matrix.arch == 'x86' && 'x86-windows-static' || 'x64-windows-static' }}"
-          vcpkg install --triplet "$triplet" --x-install-root="$VCPKG_ROOT/installed"
+          for attempt in 1 2 3; do
+            echo "=== vcpkg install attempt $attempt/3 ==="
+            if vcpkg install --triplet "$triplet" --x-install-root="$VCPKG_ROOT/installed" --x-max-download-retries=10; then
+              echo "vcpkg install complete"
+              exit 0
+            fi
+            echo "vcpkg install failed on attempt $attempt, retrying..."
+            sleep 10
+          done
+          echo "vcpkg install failed after 3 attempts"
+          exit 1
       - name: Build Rust
         timeout-minutes: 50
         shell: bash

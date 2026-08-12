@@ -327,6 +327,7 @@ async fn handle_received_peers(mut rx: UnboundedReceiver<config::DiscoveryPeer>)
                     if !peer.direct_access_port.is_empty() {
                         for (ip, _) in peer.ip_mac.iter() {
                             if !ip.is_empty() && crate::common::is_lan_ip(ip) {
+                                #[cfg(not(target_os = "ios"))]
                                 crate::rendezvous_mediator::update_direct_pairing_endpoint(
                                     &peer.id,
                                     &format!("{}:{}", ip, peer.direct_access_port),
