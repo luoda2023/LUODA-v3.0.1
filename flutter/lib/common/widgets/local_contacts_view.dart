@@ -309,87 +309,92 @@ class _LocalContactsViewState extends State<LocalContactsView> {
     final deviceSummary = contact.deviceSummary;
     final subtitle =
         deviceSummary.isEmpty ? routeLabel : '$deviceSummary · $routeLabel';
-    return InkWell(
-      onTap: () => _openChat(contact),
-      highlightColor: dark ? const Color(0xFF34373D) : const Color(0xFFE5E8E6),
-      splashColor: Colors.transparent,
-      child: Column(
-        children: <Widget>[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 11, 16, 11),
-            child: Row(
-              children: <Widget>[
-                _buildAvatar(context, contact, online),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Row(
-                        children: <Widget>[
-                          Flexible(
-                            child: Text(
-                              contact.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: MobileText.bodyLg + 1,
-                                fontWeight: FontWeight.w600,
-                                color: theme.colorScheme.onSurface,
+    // Material ancestor is required for InkWell's grey tap highlight to
+    // actually render — this list sits on a bare ColoredBox, so without
+    // this wrapper the WeChat-style press feedback never appears.
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => _openChat(contact),
+        highlightColor:
+            dark ? const Color(0xFF34373D) : const Color(0xFFE5E8E6),
+        splashColor: Colors.transparent,
+        child: Column(
+          children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 11, 16, 11),
+              child: Row(
+                children: <Widget>[
+                  _buildAvatar(context, contact, online),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Row(
+                          children: <Widget>[
+                            Flexible(
+                              child: Text(
+                                contact.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: MobileText.bodyLg + 1,
+                                  fontWeight: FontWeight.w600,
+                                  color: theme.colorScheme.onSurface,
+                                ),
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          _buildCategoryBadge(context,
-                              isFriend: isFriend, online: online),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        subtitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: MobileText.caption,
-                          color: dark
-                              ? MyTheme.mutedDark.withOpacity(0.7)
-                              : const Color(0xFF667085),
+                            const SizedBox(width: 8),
+                            _buildCategoryBadge(context,
+                                isFriend: isFriend, online: online),
+                          ],
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 4),
+                        Text(
+                          subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: MobileText.caption,
+                            color: dark
+                                ? MyTheme.mutedDark.withOpacity(0.7)
+                                : const Color(0xFF667085),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(width: 6),
-                IconButton(
-                  tooltip: translate('Connection & identity'),
-                  constraints: const BoxConstraints.tightFor(
-                    width: 48,
-                    height: 48,
+                  const SizedBox(width: 6),
+                  IconButton(
+                    tooltip: translate('Connection & identity'),
+                    constraints: const BoxConstraints.tightFor(
+                      width: 48,
+                      height: 48,
+                    ),
+                    padding: EdgeInsets.zero,
+                    onPressed: () => showDirectConnectionDetails(
+                      context,
+                      conversationId: contact.peerId,
+                    ),
+                    icon: Icon(
+                      Icons.more_horiz_rounded,
+                      size: 20,
+                      color: theme.colorScheme.onSurface.withOpacity(0.45),
+                    ),
                   ),
-                  padding: EdgeInsets.zero,
-                  onPressed: () => showDirectConnectionDetails(
-                    context,
-                    conversationId: contact.peerId,
-                  ),
-                  icon: Icon(
-                    Icons.more_horiz_rounded,
-                    size: 20,
-                    color: theme.colorScheme.onSurface.withOpacity(0.45),
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          // WeChat-style hairline: starts at the avatar right edge so no
-          // line crosses the avatar (avatar top/bottom stay clean).
-          Container(
-            height: 0.5,
-            margin: const EdgeInsets.only(left: 76),
-            color: dark
-                ? const Color(0xFF3A3D43)
-                : const Color(0x80E5E5E5),
-          ),
-        ],
+            // WeChat-style hairline: starts at the avatar right edge so no
+            // line crosses the avatar (avatar top/bottom stay clean).
+            Container(
+              height: 0.5,
+              margin: const EdgeInsets.only(left: 76),
+              color: dark ? const Color(0xFF3A3D43) : const Color(0x80E5E5E5),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -436,6 +441,9 @@ class _LocalContactsViewState extends State<LocalContactsView> {
           child: avatar,
           platform: pairing.platform,
           badgeSize: 15,
+          // WeChat-style OS indicator on the avatar's top-right corner,
+          // clear of the online dot at the bottom-right.
+          topRight: true,
         ),
         Positioned(
           right: -1,

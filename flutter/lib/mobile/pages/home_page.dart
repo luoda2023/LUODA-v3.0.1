@@ -546,8 +546,7 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
         appBarActions: <Widget>[
           IconButton(
             tooltip: translate('Search'),
-            onPressed: () =>
-                _contactsPageKey.currentState?.openContactSearch(),
+            onPressed: () => _contactsPageKey.currentState?.openContactSearch(),
             icon: const Icon(Icons.search_rounded),
           ),
         ],
@@ -1192,8 +1191,7 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
             centerTitle: true,
             toolbarHeight: 44,
             elevation: 0,
-            backgroundColor:
-                dark ? MyTheme.surfaceDark : MyTheme.canvasLight,
+            backgroundColor: dark ? MyTheme.surfaceDark : MyTheme.canvasLight,
             // 点聊/联系人 tab：在线状态独立放到最左侧（leading），
             // 不与标题挤在一起；其余 tab 不占 leading，标题保持居中。
             leadingWidth: 116,
@@ -1404,6 +1402,7 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
   final TextEditingController _searchController = TextEditingController();
   final ValueNotifier<String> _query = ValueNotifier<String>('');
   bool _searchOpen = false;
+
   /// 点聊页 TAB：false = 点聊（消息列表），true = 会议（会议记录方块）。
   bool _meetingsTab = false;
   Set<String> _selfTargets = const <String>{};
@@ -1673,8 +1672,7 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
   /// 用于头像左下角的操作系统角标。优先取配对记录，其次联系人，
   /// 最后兜底消息来源平台。
   String _peerPlatformEntry(MapEntry<MessageKey, MessageBody> entry) {
-    final pairing =
-        DirectPairingStore.findForConversation(entry.key.peerId);
+    final pairing = DirectPairingStore.findForConversation(entry.key.peerId);
     if (pairing != null && pairing.platform.trim().isNotEmpty) {
       return pairing.platform;
     }
@@ -1719,9 +1717,8 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
     final text = message.text.trim();
     final location = DirectChatLocation.tryParse(text);
     if (location != null) {
-      final name = location.name.isNotEmpty
-          ? location.name
-          : translate('Location');
+      final name =
+          location.name.isNotEmpty ? location.name : translate('Location');
       return '[${translate('Location')}] $name';
     }
     return text.isEmpty ? translate('Message') : text;
@@ -1852,12 +1849,13 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
     final blocked = gFFI.chatSettingsModel.isBlocked(entry.key.peerId);
     final peerPhone = _peerPhoneEntry(entry);
     if (!muted && !blocked && !peerPhone) {
-      // WeChat-style: show a small OS badge at the avatar's bottom-left corner
+      // WeChat-style: small OS badge at the avatar's top-right corner
       // (Windows/Android/iOS) — matches the contacts page.
       return avatarWithPlatformBadge(
         child: avatarWidget,
         platform: _peerPlatformEntry(entry),
         badgeSize: 15,
+        topRight: true,
       );
     }
 
@@ -1949,16 +1947,14 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
           clipBehavior: Clip.antiAlias,
           child: InkWell(
             onTap: onTap,
-            highlightColor: dark
-                ? const Color(0xFF34373D)
-                : const Color(0xFFE5E8E6),
+            highlightColor:
+                dark ? const Color(0xFF34373D) : const Color(0xFFE5E8E6),
             splashColor: Colors.transparent,
             child: Container(
               alignment: Alignment.center,
               padding: const EdgeInsets.symmetric(vertical: 7),
               decoration: BoxDecoration(
-                color:
-                    selected ? const Color(0xFF07C160) : Colors.transparent,
+                color: selected ? const Color(0xFF07C160) : Colors.transparent,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
@@ -1987,9 +1983,8 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
           color: bg,
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color: dark
-                ? Colors.white.withOpacity(0.08)
-                : const Color(0xFFE5E5E5),
+            color:
+                dark ? Colors.white.withOpacity(0.08) : const Color(0xFFE5E5E5),
             width: 0.5,
           ),
           boxShadow: <BoxShadow>[
@@ -2097,8 +2092,7 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
               onTap: () async {
                 await Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    builder: (_) =>
-                        MeetingGroupPanel(group: meeting),
+                    builder: (_) => MeetingGroupPanel(group: meeting),
                   ),
                 );
                 if (mounted) setState(() {});
@@ -2140,8 +2134,8 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               fontSize: 12,
-                              color: theme.colorScheme.onSurface
-                                  .withOpacity(0.5),
+                              color:
+                                  theme.colorScheme.onSurface.withOpacity(0.5),
                             ),
                           ),
                         ],
@@ -2169,8 +2163,7 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
                         '$memberCount ${translate('Members')}',
                         style: TextStyle(
                           fontSize: 11,
-                          color: theme.colorScheme.onSurface
-                              .withOpacity(0.5),
+                          color: theme.colorScheme.onSurface.withOpacity(0.5),
                         ),
                       ),
                     const SizedBox(width: 4),
@@ -2203,7 +2196,6 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
   void _openMeetingPage() {
     widget.onOpenMeetings?.call();
   }
-
 
   Widget _buildMessageGroupHeader(
     BuildContext context,
@@ -2290,120 +2282,126 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
   }) {
     final theme = Theme.of(context);
     final fileIcon = _fileIconForEntry(entry);
-    return InkWell(
-      onTap: () => widget.onOpenConversation(entry.key),
-      highlightColor: Theme.of(context).brightness == Brightness.dark
-          ? const Color(0xFF34373D)
-          : const Color(0xFFE5E8E6),
-      splashColor: Colors.transparent,
-      onLongPress: () => _showPeerPolicySheet(
-        context,
-        entry.key.peerId,
-        DirectChatAccessController.instance..load(),
-      ),
-      child: Column(
-        children: <Widget>[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 11, 16, 11),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                _avatar(entry),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Row(
-                        children: <Widget>[
-                          Flexible(
-                            child: Text(
-                              name.isEmpty ? entry.key.peerId : name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: MobileText.bodyLg,
-                                fontWeight: FontWeight.w600,
-                                color: isBlocked
-                                    ? theme.colorScheme.error
-                                    : theme.colorScheme.onSurface,
-                              ),
-                            ),
-                          ),
-                          if (peerOnline) ...<Widget>[
-                            const SizedBox(width: 6),
-                            Container(
-                              width: 8,
-                              height: 8,
-                              decoration: const BoxDecoration(
-                                color: Color(0xFF238A57),
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                          ],
-                          const Spacer(),
-                          Text(
-                            _timeLabel(_latestMessageTime(entry)),
-                            style: TextStyle(
-                              fontSize: MobileText.captionSm,
-                              color:
-                                  theme.colorScheme.onSurface.withOpacity(0.4),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 5),
-                      Row(
-                        children: <Widget>[
-                          if (fileIcon != null) ...<Widget>[
-                            Icon(fileIcon, size: 15, color: muted),
-                            const SizedBox(width: 4),
-                          ],
-                          if (isBlocked)
-                            Text(
-                              translate('Blocked'),
-                              style: TextStyle(
-                                fontSize: MobileText.caption,
-                                color: theme.colorScheme.error,
-                              ),
-                            )
-                          else
-                            Expanded(
+    // Material ancestor is required for InkWell's grey tap highlight to
+    // actually render — the chat list sits on a bare ColoredBox, so without
+    // this wrapper the WeChat-style press feedback never appears.
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => widget.onOpenConversation(entry.key),
+        highlightColor: Theme.of(context).brightness == Brightness.dark
+            ? const Color(0xFF34373D)
+            : const Color(0xFFE5E8E6),
+        splashColor: Colors.transparent,
+        onLongPress: () => _showPeerPolicySheet(
+          context,
+          entry.key.peerId,
+          DirectChatAccessController.instance..load(),
+        ),
+        child: Column(
+          children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 11, 16, 11),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  _avatar(entry),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Row(
+                          children: <Widget>[
+                            Flexible(
                               child: Text(
-                                _messagePreview(entry),
+                                name.isEmpty ? entry.key.peerId : name,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
-                                  fontSize: MobileText.caption,
-                                  color: theme.colorScheme.onSurface
-                                      .withOpacity(0.5),
+                                  fontSize: MobileText.bodyLg,
+                                  fontWeight: FontWeight.w600,
+                                  color: isBlocked
+                                      ? theme.colorScheme.error
+                                      : theme.colorScheme.onSurface,
                                 ),
                               ),
                             ),
-                          if (!isBlocked &&
-                              unreadCount != null &&
-                              unreadCount.value > 0) ...<Widget>[
-                            const SizedBox(width: 8),
-                            unreadMessageCountBuilder(unreadCount),
+                            if (peerOnline) ...<Widget>[
+                              const SizedBox(width: 6),
+                              Container(
+                                width: 8,
+                                height: 8,
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFF238A57),
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                            ],
+                            const Spacer(),
+                            Text(
+                              _timeLabel(_latestMessageTime(entry)),
+                              style: TextStyle(
+                                fontSize: MobileText.captionSm,
+                                color: theme.colorScheme.onSurface
+                                    .withOpacity(0.4),
+                              ),
+                            ),
                           ],
-                        ],
-                      ),
-                    ],
+                        ),
+                        const SizedBox(height: 5),
+                        Row(
+                          children: <Widget>[
+                            if (fileIcon != null) ...<Widget>[
+                              Icon(fileIcon, size: 15, color: muted),
+                              const SizedBox(width: 4),
+                            ],
+                            if (isBlocked)
+                              Text(
+                                translate('Blocked'),
+                                style: TextStyle(
+                                  fontSize: MobileText.caption,
+                                  color: theme.colorScheme.error,
+                                ),
+                              )
+                            else
+                              Expanded(
+                                child: Text(
+                                  _messagePreview(entry),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: MobileText.caption,
+                                    color: theme.colorScheme.onSurface
+                                        .withOpacity(0.5),
+                                  ),
+                                ),
+                              ),
+                            if (!isBlocked &&
+                                unreadCount != null &&
+                                unreadCount.value > 0) ...<Widget>[
+                              const SizedBox(width: 8),
+                              unreadMessageCountBuilder(unreadCount),
+                            ],
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          // WeChat-style hairline: starts at the avatar right edge, so no
-          // line crosses the avatar (avatar top/bottom stay clean).
-          Container(
-            height: 0.5,
-            margin: const EdgeInsets.only(left: 76),
-            color: theme.brightness == Brightness.dark
-                ? const Color(0xFF3A3D43)
-                : const Color(0x80E5E5E5),
-          ),
-        ],
+            // WeChat-style hairline: starts at the avatar right edge, so no
+            // line crosses the avatar (avatar top/bottom stay clean).
+            Container(
+              height: 0.5,
+              margin: const EdgeInsets.only(left: 76),
+              color: theme.brightness == Brightness.dark
+                  ? const Color(0xFF3A3D43)
+                  : const Color(0x80E5E5E5),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -2536,8 +2534,7 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
                         duration: const Duration(milliseconds: 200),
                         switchInCurve: Curves.easeOut,
                         switchOutCurve: Curves.easeIn,
-                        transitionBuilder: (child, animation) =>
-                            FadeTransition(
+                        transitionBuilder: (child, animation) => FadeTransition(
                           opacity: animation,
                           child: child,
                         ),
@@ -2546,118 +2543,127 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
                           child: _meetingsTab
                               ? _buildMeetingBlocks(context, dark)
                               : rows.isEmpty
-                          ? Center(
-                              child: Padding(
-                                padding: const EdgeInsets.all(28),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: <Widget>[
-                                    Container(
-                                      width: 60,
-                                      height: 60,
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFF07C160)
-                                            .withOpacity(0.1),
-                                        borderRadius:
-                                            BorderRadius.circular(16),
+                                  ? Center(
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(28),
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: <Widget>[
+                                            Container(
+                                              width: 60,
+                                              height: 60,
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFF07C160)
+                                                    .withOpacity(0.1),
+                                                borderRadius:
+                                                    BorderRadius.circular(16),
+                                              ),
+                                              child: const Icon(
+                                                Icons.forum_outlined,
+                                                size: 30,
+                                                color: Color(0xFF07C160),
+                                              ),
+                                            ),
+                                            const SizedBox(height: 16),
+                                            Text(
+                                              translate('No conversations yet'),
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .titleMedium
+                                                  ?.copyWith(
+                                                      fontWeight:
+                                                          FontWeight.w600),
+                                            ),
+                                            const SizedBox(height: 6),
+                                            Text(
+                                              translate(
+                                                  'Chats you start will show up here'),
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .bodySmall
+                                                  ?.copyWith(
+                                                      color: Theme.of(context)
+                                                          .colorScheme
+                                                          .onSurface
+                                                          .withOpacity(0.5)),
+                                            ),
+                                            const SizedBox(height: 14),
+                                            FilledButton.icon(
+                                              onPressed:
+                                                  widget.onNewConversation,
+                                              icon: const Icon(
+                                                Icons.person_add_alt_1_rounded,
+                                                size: 18,
+                                              ),
+                                              label:
+                                                  Text(translate('Contacts')),
+                                            ),
+                                          ],
+                                        ),
                                       ),
-                                      child: const Icon(
-                                        Icons.forum_outlined,
-                                        size: 30,
-                                        color: Color(0xFF07C160),
-                                      ),
+                                    )
+                                  : ListView.builder(
+                                      itemCount: rows.length,
+                                      itemBuilder: (context, index) {
+                                        final row = rows[index];
+                                        if (row is _MobilePeopleGroupHeader) {
+                                          return _buildMessageGroupHeader(
+                                            context,
+                                            row,
+                                            dark,
+                                          );
+                                        }
+                                        if (row is _MobileChatGroup) {
+                                          return _buildMergedEntry(
+                                            context,
+                                            row,
+                                            dark,
+                                            muted,
+                                          );
+                                        }
+                                        final entry = row as MapEntry<
+                                            MessageKey, MessageBody>;
+                                        final user = entry.value.chatUser;
+                                        final contact = _findContactByPeerId(
+                                            entry.key.peerId);
+                                        final name = entry.key.peerId ==
+                                                kFileHelperId
+                                            ? translate(
+                                                'File Transfer Assistant')
+                                            : _resolveConversationName(
+                                                entry.key.peerId,
+                                                contactName:
+                                                    contact?.finalName() ?? '',
+                                                chatName: user.firstName ?? '',
+                                              );
+                                        final client = gFFI.serverModel.clients
+                                            .firstWhereOrNull(
+                                          (client) =>
+                                              client.peerId ==
+                                                  entry.key.peerId &&
+                                              client.isChat &&
+                                              !client.disconnected,
+                                        );
+                                        final isBlocked = gFFI.chatSettingsModel
+                                            .isBlocked(entry.key.peerId);
+                                        final peerOnline = client != null ||
+                                            _onlineByPeer[entry.key.peerId] ==
+                                                true;
+                                        return _buildConversationRow(
+                                          context,
+                                          entry: entry,
+                                          name: name,
+                                          muted: muted,
+                                          isBlocked: isBlocked,
+                                          peerOnline: peerOnline,
+                                          unreadCount:
+                                              client?.unreadChatMessageCount,
+                                        );
+                                      },
                                     ),
-                                    const SizedBox(height: 16),
-                                    Text(
-                                      translate('No conversations yet'),
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .titleMedium
-                                          ?.copyWith(
-                                              fontWeight: FontWeight.w600),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      translate(
-                                          'Chats you start will show up here'),
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodySmall
-                                          ?.copyWith(
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .onSurface
-                                                  .withOpacity(0.5)),
-                                    ),
-                                    const SizedBox(height: 14),
-                                    FilledButton.icon(
-                                      onPressed: widget.onNewConversation,
-                                      icon: const Icon(
-                                        Icons.person_add_alt_1_rounded,
-                                        size: 18,
-                                      ),
-                                      label: Text(translate('Contacts')),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            )
-                          : ListView.builder(
-                              itemCount: rows.length,
-                              itemBuilder: (context, index) {
-                                final row = rows[index];
-                                if (row is _MobilePeopleGroupHeader) {
-                                  return _buildMessageGroupHeader(
-                                    context,
-                                    row,
-                                    dark,
-                                  );
-                                }
-                                if (row is _MobileChatGroup) {
-                                  return _buildMergedEntry(
-                                    context,
-                                    row,
-                                    dark,
-                                    muted,
-                                  );
-                                }
-                                final entry =
-                                    row as MapEntry<MessageKey, MessageBody>;
-                                final user = entry.value.chatUser;
-                                final contact =
-                                    _findContactByPeerId(entry.key.peerId);
-                                final name = entry.key.peerId == kFileHelperId
-                                    ? translate('File Transfer Assistant')
-                                    : _resolveConversationName(
-                                        entry.key.peerId,
-                                        contactName: contact?.finalName() ?? '',
-                                        chatName: user.firstName ?? '',
-                                      );
-                                final client =
-                                    gFFI.serverModel.clients.firstWhereOrNull(
-                                  (client) =>
-                                      client.peerId == entry.key.peerId &&
-                                      client.isChat &&
-                                      !client.disconnected,
-                                );
-                                final isBlocked = gFFI.chatSettingsModel
-                                    .isBlocked(entry.key.peerId);
-                                final peerOnline = client != null ||
-                                    _onlineByPeer[entry.key.peerId] == true;
-                                return _buildConversationRow(
-                                  context,
-                                  entry: entry,
-                                  name: name,
-                                  muted: muted,
-                                  isBlocked: isBlocked,
-                                  peerOnline: peerOnline,
-                                  unreadCount: client?.unreadChatMessageCount,
-                                );
-                              },
-                            ),
-                          ),
                         ),
                       ),
+                    ),
                   ],
                 ),
                 if (_searchOpen)

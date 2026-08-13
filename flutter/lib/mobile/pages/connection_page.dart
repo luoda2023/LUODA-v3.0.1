@@ -398,9 +398,8 @@ class ConnectionPageState extends State<ConnectionPage>
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(14),
           side: BorderSide(
-            color: dark
-                ? Colors.white.withOpacity(0.06)
-                : const Color(0xFFEFEFEF),
+            color:
+                dark ? Colors.white.withOpacity(0.06) : const Color(0xFFEFEFEF),
             width: 0.5,
           ),
         ),
@@ -1222,14 +1221,16 @@ class ConnectionPageState extends State<ConnectionPage>
               ? _buildEmptyContactsCard(searching: allGroups.isNotEmpty)
               : Column(
                   children: <Widget>[
-                    for (var index = 0; index < rows.length; index++)
-                      ...<Widget>[
-                        if (rows[index] case final _MobileContactGroupHeader group)
-                          _buildPairedGroupHeader(group)
-                        else
-                          _buildPairedContactRow(
-                              rows[index] as _PersonContact, access),
-                      ],
+                    for (var index = 0;
+                        index < rows.length;
+                        index++) ...<Widget>[
+                      if (rows[index]
+                          case final _MobileContactGroupHeader group)
+                        _buildPairedGroupHeader(group)
+                      else
+                        _buildPairedContactRow(
+                            rows[index] as _PersonContact, access),
+                    ],
                   ],
                 ),
         );
@@ -1367,114 +1368,120 @@ class ConnectionPageState extends State<ConnectionPage>
     final isFriend = access.isFriend(group.key);
     final theme = Theme.of(context);
     final idIpSummary = group.idIpSummary;
-    return InkWell(
-      onTap: () => _startDirectChat(group.latest.peerId),
-      // WeChat-style gray tap highlight, identical to the chats list rows.
-      highlightColor: Theme.of(context).brightness == Brightness.dark
-          ? const Color(0xFF34373D)
-          : const Color(0xFFE5E8E6),
-      splashColor: Colors.transparent,
-      child: Column(
-        children: <Widget>[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 11, 16, 11),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                _pairedContactAvatar(pairing),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Row(
-                        children: <Widget>[
-                          Flexible(
-                            child: Text(
-                              pairing.displayName.isEmpty
-                                  ? group.key
-                                  : pairing.displayName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: MobileText.bodyLg,
-                                fontWeight: FontWeight.w600,
+    // Material ancestor is required for InkWell's grey tap highlight to
+    // actually render — the contacts list sits on a bare ColoredBox, so
+    // without this wrapper the WeChat-style press feedback never appears.
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => _startDirectChat(group.latest.peerId),
+        // WeChat-style gray tap highlight, identical to the chats list rows.
+        highlightColor: Theme.of(context).brightness == Brightness.dark
+            ? const Color(0xFF34373D)
+            : const Color(0xFFE5E8E6),
+        splashColor: Colors.transparent,
+        child: Column(
+          children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 11, 16, 11),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  _pairedContactAvatar(pairing),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Row(
+                          children: <Widget>[
+                            Flexible(
+                              child: Text(
+                                pairing.displayName.isEmpty
+                                    ? group.key
+                                    : pairing.displayName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: MobileText.bodyLg,
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
                             ),
-                          ),
-                          if (group.devices.length > 1) ...<Widget>[
-                            const SizedBox(width: 6),
-                            Icon(
-                              Icons.devices_rounded,
-                              size: 14,
-                              color:
-                                  theme.colorScheme.onSurface.withOpacity(0.45),
-                            ),
+                            if (group.devices.length > 1) ...<Widget>[
+                              const SizedBox(width: 6),
+                              Icon(
+                                Icons.devices_rounded,
+                                size: 14,
+                                color: theme.colorScheme.onSurface
+                                    .withOpacity(0.45),
+                              ),
+                            ],
+                            const Spacer(),
+                            _statusPill(translate(status.$1), status.$2),
                           ],
-                          const Spacer(),
-                          _statusPill(translate(status.$1), status.$2),
-                        ],
-                      ),
-                      const SizedBox(height: 5),
-                      Row(
-                        children: <Widget>[
-                          Expanded(
-                            child: Text(
-                              idIpSummary.isEmpty
-                                  ? translate('P2P direct')
-                                  : idIpSummary,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: MobileText.caption,
+                        ),
+                        const SizedBox(height: 5),
+                        Row(
+                          children: <Widget>[
+                            Expanded(
+                              child: Text(
+                                idIpSummary.isEmpty
+                                    ? translate('P2P direct')
+                                    : idIpSummary,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: MobileText.caption,
+                                  color: theme.colorScheme.onSurface
+                                      .withOpacity(0.55),
+                                ),
+                              ),
+                            ),
+                            PopupMenuButton<String>(
+                              tooltip: translate('Message permission'),
+                              padding: EdgeInsets.zero,
+                              icon: Icon(
+                                Icons.more_horiz_rounded,
                                 color: theme.colorScheme.onSurface
                                     .withOpacity(0.55),
                               ),
-                            ),
-                          ),
-                          PopupMenuButton<String>(
-                            tooltip: translate('Message permission'),
-                            padding: EdgeInsets.zero,
-                            icon: Icon(
-                              Icons.more_horiz_rounded,
-                              color:
-                                  theme.colorScheme.onSurface.withOpacity(0.55),
-                            ),
-                            onSelected: (value) => unawaited(
-                              access.setPeerPolicy(group.key, value),
-                            ),
-                            itemBuilder: (_) => <PopupMenuEntry<String>>[
-                              PopupMenuItem<String>(
-                                value: isFriend ? 'ask' : 'allow',
-                                child: Text(
-                                  translate(isFriend
-                                      ? 'Move to strangers'
-                                      : 'Add as friend'),
+                              onSelected: (value) => unawaited(
+                                access.setPeerPolicy(group.key, value),
+                              ),
+                              itemBuilder: (_) => <PopupMenuEntry<String>>[
+                                PopupMenuItem<String>(
+                                  value: isFriend ? 'ask' : 'allow',
+                                  child: Text(
+                                    translate(isFriend
+                                        ? 'Move to strangers'
+                                        : 'Add as friend'),
+                                  ),
                                 ),
-                              ),
-                              PopupMenuItem<String>(
-                                value: 'deny',
-                                child: Text(translate('Reject')),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ],
+                                PopupMenuItem<String>(
+                                  value: 'deny',
+                                  child: Text(translate('Reject')),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          // WeChat-style hairline: starts at the avatar right edge.
-          Container(
-            height: 0.5,
-            margin: const EdgeInsets.only(left: 76),
-            color: Theme.of(context).brightness == Brightness.dark
-                ? const Color(0xFF3A3D43)
-                : const Color(0x80E5E5E5),
-          ),
-        ],
+            // WeChat-style hairline: starts at the avatar right edge.
+            Container(
+              height: 0.5,
+              margin: const EdgeInsets.only(left: 76),
+              color: Theme.of(context).brightness == Brightness.dark
+                  ? const Color(0xFF3A3D43)
+                  : const Color(0x80E5E5E5),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1522,6 +1529,9 @@ class ConnectionPageState extends State<ConnectionPage>
               child: avatar,
               platform: pairing.platform,
               badgeSize: 15,
+              // WeChat-style OS indicator on the avatar's top-right corner,
+              // clear of the online dot at the bottom-right.
+              topRight: true,
             ),
           ),
           Positioned(

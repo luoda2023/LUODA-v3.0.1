@@ -1799,7 +1799,8 @@ class AndroidPermissionManager {
     // Fire-and-forget is intentional; completion arrives via the
     // on_android_permission_result callback. Guard against a native
     // failure so it can never surface as an unhandled PlatformException.
-    unawaited(gFFI.invokeMethod("request_permission", type).catchError((Object e) {
+    unawaited(
+        gFFI.invokeMethod("request_permission", type).catchError((Object e) {
       _completer?.complete(false);
     }));
 
@@ -4807,33 +4808,50 @@ IconData? platformOsIcon(String platform) {
   return null;
 }
 
-/// Wrap an avatar [child] with an optional OS badge at the bottom-left corner.
+/// Wrap an avatar [child] with an optional OS badge.
+///
+/// Defaults to the bottom-left corner for desktop lists; pass [topRight]
+/// for mobile chat/contact rows (WeChat-style OS indicator on the avatar's
+/// top-right corner, clear of the online dot at the bottom-right).
 Widget avatarWithPlatformBadge({
   required Widget child,
   required String platform,
   required double badgeSize,
   bool topLeft = false,
+  bool topRight = false,
   Color? background,
   BoxBorder? border,
 }) {
   final icon = platformOsIcon(platform);
   if (icon == null) return child;
+  final Widget badge = buildPlatformBadge(
+    platform: platform,
+    size: badgeSize,
+    background: background,
+    border: border,
+  );
   return Stack(
     clipBehavior: Clip.none,
     children: <Widget>[
       child,
-      Positioned(
-        left: -2,
-        bottom: -2,
-        top: null,
-        right: null,
-        child: buildPlatformBadge(
-          platform: platform,
-          size: badgeSize,
-          background: background,
-          border: border,
+      if (topRight)
+        Positioned(
+          right: -2,
+          top: -2,
+          child: badge,
+        )
+      else if (topLeft)
+        Positioned(
+          left: -2,
+          top: -2,
+          child: badge,
+        )
+      else
+        Positioned(
+          left: -2,
+          bottom: -2,
+          child: badge,
         ),
-      ),
     ],
   );
 }
