@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -13,6 +14,7 @@ import 'package:desktop_multi_window/desktop_multi_window.dart';
 import '../../utils/multi_window_manager.dart';
 import 'docx_native_preview.dart';
 import 'dwg_preview_view.dart';
+import 'system_share.dart';
 import 'file_preview_types.dart';
 import 'office_preview_view.dart';
 import 'pdf_native_preview.dart';
@@ -226,6 +228,15 @@ class _FileViewerPage extends StatelessWidget {
                         ),
                       ),
                     ),
+                    if (path != null) ...<Widget>[
+                      IconButton(
+                        tooltip: translate('Share to WeChat'),
+                        icon: const Icon(Icons.share_outlined),
+                        color: Colors.white,
+                        onPressed: () =>
+                            unawaited(shareFileToSystemApp(path!)),
+                      ),
+                    ],
                     IconButton(
                       tooltip: translate('Close'),
                       icon: const Icon(Icons.close_rounded),
@@ -254,12 +265,18 @@ class _FileViewerPage extends StatelessWidget {
           style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
         ),
         actions: <Widget>[
-          if (canOpen)
+          if (canOpen) ...<Widget>[
+            IconButton(
+              tooltip: translate('Share to WeChat'),
+              icon: const Icon(Icons.share_outlined),
+              onPressed: () => unawaited(shareFileToSystemApp(path!)),
+            ),
             IconButton(
               tooltip: translate('Open with system app'),
               icon: const Icon(Icons.open_in_new_rounded),
               onPressed: () => OpenFilex.open(path!),
             ),
+          ],
           IconButton(
             tooltip: translate('Close'),
             icon: const Icon(Icons.close_rounded),

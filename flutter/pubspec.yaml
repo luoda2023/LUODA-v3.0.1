@@ -118,6 +118,8 @@ dependencies:
   open_filex: ^4.7.0
   # Office/PDF in-app text preview (zip + xml parsing only, no heavy engines).
   archive: ^3.6.1
+  # Share text/images/files to WeChat & other apps via the system share sheet.
+  share_plus: ^10.1.2
   xml: ^6.5.0
   pdfrx: ^1.0.101
 

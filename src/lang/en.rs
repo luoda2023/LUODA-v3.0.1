@@ -367,6 +367,8 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("One Shot", "One Shot"),
         ("Broadcast Chat Hint", "Broadcast a message to all viewers..."),
         ("Copied to clipboard", "Copied to clipboard"),
+        ("Share to WeChat", "Share to WeChat"),
+        ("Nothing to share", "Nothing to share"),
         ("Message edited", "Message edited"),
         ("Message deleted", "Message deleted"),
         ("File not found", "File not found"),

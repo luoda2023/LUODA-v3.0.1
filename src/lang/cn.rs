@@ -1003,6 +1003,8 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Allow viewers to join", "允许新成员加入观看"),
         ("Viewer permission required", "需要对方授权加入观看"),
         ("Copied to clipboard", "已复制到剪贴板"),
+        ("Share to WeChat", "分享到微信"),
+        ("Nothing to share", "没有可分享的内容"),
         ("Message edited", "消息已编辑"),
         ("Message deleted", "消息已删除"),
         ("File not found", "文件未找到"),

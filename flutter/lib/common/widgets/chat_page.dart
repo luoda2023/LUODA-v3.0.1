@@ -20,6 +20,7 @@ import '../email_draft_service.dart';
 import '../string_utils.dart';
 import 'file_viewer.dart';
 import 'file_preview_types.dart';
+import 'system_share.dart';
 import 'message_context_region.dart';
 import 'message_source_label.dart';
 import 'rich_text_builder.dart';
@@ -322,6 +323,11 @@ class ChatPage extends StatelessWidget implements PageShape {
 
     actions.add(const _ChatMenuAction(
         'copy', Icons.copy_rounded, 'Copy', group: 0));
+    // Share to WeChat / other apps via the system share sheet (mobile only).
+    if (isMobile) {
+      actions.add(const _ChatMenuAction(
+          'share', Icons.share_outlined, 'Share', group: 0));
+    }
     if (disposition == 'active') {
       actions.add(const _ChatMenuAction(
           'reply', Icons.reply_rounded, 'Reply', group: 0));
@@ -893,6 +899,10 @@ class ChatPage extends StatelessWidget implements PageShape {
       }
       return;
     }
+    if (action == 'share') {
+      await _shareMessageToSystem(context, message);
+      return;
+    }
     if (action == 'forward') {
       await _showForwardPicker(context, <ChatMessage>[message]);
       return;
@@ -930,6 +940,48 @@ class ChatPage extends StatelessWidget implements PageShape {
     ScaffoldMessenger.maybeOf(context)?.showSnackBar(
       SnackBar(content: Text(translate(successText))),
     );
+  }
+
+  /// Share a message to WeChat / other apps via the system share sheet.
+  /// Text messages share their text; image/file messages share the local
+  /// file; location messages share a map link; voice shares nothing.
+  Future<void> _shareMessageToSystem(
+    BuildContext context,
+    ChatMessage message,
+  ) async {
+    final properties = message.customProperties ?? const <String, dynamic>{};
+    final kind = (properties['ldesk_kind'] ?? 'text').toString();
+    final localPath = (properties['ldesk_local_path'] ?? '').toString();
+    final fileName = (properties['ldesk_file_name'] ?? '').toString();
+    final fileExists =
+        localPath.trim().isNotEmpty && File(localPath).existsSync();
+    bool ok = false;
+    if (fileExists) {
+      // Image / file / voice message: share the actual file.
+      ok = await shareToSystemApp(
+        text: fileName.trim(),
+        files: <String>[localPath],
+      );
+    } else if (kind == 'text' ||
+        (message.text?.isNotEmpty == true &&
+            (kind.isEmpty || kind == 'text'))) {
+      ok = await shareTextToSystemApp(message.text ?? '');
+    } else if (kind == 'location') {
+      final loc = DirectChatLocation.tryParse(message.text ?? '');
+      if (loc != null) {
+        final lat = loc.latitude.toStringAsFixed(6);
+        final lng = loc.longitude.toStringAsFixed(6);
+        final name = loc.name.isEmpty ? translate('My Location') : loc.name;
+        ok = await shareTextToSystemApp(
+          '$name\nhttps://uri.amap.com/marker?position=$lng,$lat&name=$name\nhttps://api.map.baidu.com/marker?location=$lat,$lng&title=$name',
+        );
+      }
+    }
+    if (!ok && context.mounted) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text(translate('Nothing to share'))),
+      );
+    }
   }
 
   Future<void> _showForwardPicker(
