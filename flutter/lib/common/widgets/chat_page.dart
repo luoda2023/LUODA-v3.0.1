@@ -3878,21 +3878,18 @@ class _MobileChatComposerState extends State<_MobileChatComposer> {
           () => _runTool(widget.onRemoteAssist!),
         ),
     ];
+    // 微信风格：2 行网格（每行 4 个），窄屏/小屏也不会超出右侧边框。
     return Container(
-      height: 118,
       decoration: BoxDecoration(
         color: bg,
         border: Border(top: BorderSide(color: border, width: 0.5)),
       ),
-      padding: const EdgeInsets.fromLTRB(18, 14, 18, 10),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.start,
+      padding: const EdgeInsets.fromLTRB(18, 14, 18, 12),
+      child: Wrap(
+        spacing: 24,
+        runSpacing: 14,
         children: <Widget>[
-          for (final item in items)
-            Padding(
-              padding: const EdgeInsets.only(right: 22),
-              child: _moreItem(item.$1, item.$2, item.$3),
-            ),
+          for (final item in items) _moreItem(item.$1, item.$2, item.$3),
         ],
       ),
     );
@@ -3903,35 +3900,43 @@ class _MobileChatComposerState extends State<_MobileChatComposer> {
     return InkWell(
       borderRadius: BorderRadius.circular(10),
       onTap: onTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          Container(
-            width: 54,
-            height: 54,
-            decoration: BoxDecoration(
-              color: dark ? const Color(0xFF2B2D32) : Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: dark ? const Color(0xFF3A3D43) : const Color(0xFFE2E2E2),
-                width: 0.5,
+      child: SizedBox(
+        width: 60,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Container(
+              width: 54,
+              height: 54,
+              decoration: BoxDecoration(
+                color: dark ? const Color(0xFF2B2D32) : Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color:
+                      dark ? const Color(0xFF3A3D43) : const Color(0xFFE2E2E2),
+                  width: 0.5,
+                ),
+              ),
+              child: Icon(
+                icon,
+                size: 26,
+                color:
+                    dark ? const Color(0xFFB8BBC2) : const Color(0xFF555555),
               ),
             ),
-            child: Icon(
-              icon,
-              size: 26,
-              color: dark ? const Color(0xFFB8BBC2) : const Color(0xFF555555),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                color:
+                    dark ? const Color(0xFF999CA2) : const Color(0xFF777777),
+              ),
             ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              color: dark ? const Color(0xFF999CA2) : const Color(0xFF777777),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

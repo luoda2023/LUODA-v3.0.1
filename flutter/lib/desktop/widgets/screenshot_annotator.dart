@@ -16,6 +16,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:luoda_flutter/common.dart';
+import 'package:luoda_flutter/desktop/widgets/win_window_scanner.dart';
 import 'package:path_provider/path_provider.dart';
 
 /// Shows the annotation overlay and returns the path of the composed PNG,
@@ -37,6 +38,9 @@ Future<String?> showScreenshotAnnotator(
 }
 
 enum _ShotTool { pen, rect, ellipse, arrow, text, mosaic, highlight }
+
+/// 截图选取模式：框选区域 / 自动选择窗口。
+enum _ShotMode { region, window }
 
 /// A finished annotation element, stored in full-image pixel coordinates.
 sealed class _ShotMark {
@@ -129,6 +133,17 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
 
   bool _compositing = false;
 
+  /// 当前截图模式（微信风格：右上角向下箭头切换）。
+  _ShotMode _mode = _ShotMode.region;
+
+  /// 自动选择窗口模式下，鼠标当前悬停的窗口（用于高亮）。
+  ScreenshotWindow? _hoverWindow;
+
+  /// 标注器所在窗口句柄（自动选窗口时要排除自己）。
+  int _selfHwnd = 0;
+
+  DateTime _lastHoverScan = DateTime.fromMillisecondsSinceEpoch(0);
+
   static const List<Color> _palette = <Color>[
     Color(0xFFE53935),
     Color(0xFFFB8C00),
@@ -142,6 +157,10 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
   @override
   void initState() {
     super.initState();
+    // 记录标注器所在窗口，自动选窗口模式时排除自身。
+    if (Platform.isWindows) {
+      _selfHwnd = foregroundWindowHandle();
+    }
     ui.decodeImageFromList(widget.imageBytes, (image) {
       if (!mounted) return;
       setState(() {
@@ -207,6 +226,24 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
     if (event.buttons != kPrimaryButton) return;
     _activePointer = event.pointer;
     final pos = _toImage(event.localPosition);
+    // 自动选择窗口模式：单击即选中鼠标下的窗口。
+    if (_mode == _ShotMode.window && _selection == null) {
+      final win = _windowAtPointer(event.localPosition);
+      if (win != null) {
+        setState(() {
+          final rect = Rect.fromLTRB(
+            win.rect.left.clamp(0, _imageSize.width),
+            win.rect.top.clamp(0, _imageSize.height),
+            win.rect.right.clamp(0, _imageSize.width),
+            win.rect.bottom.clamp(0, _imageSize.height),
+          );
+          _selection = rect;
+          _hoverWindow = null;
+          _selectDrag = null;
+        });
+      }
+      return;
+    }
     if (_selection == null) {
       _selectDrag = Rect.fromPoints(pos, pos);
       return;
@@ -215,6 +252,32 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
     _activeStroke = <Offset>[pos];
     _shapeStart = pos;
     _shapeEnd = pos;
+  }
+
+  /// 自动选择窗口模式：鼠标悬停时高亮所在窗口。
+  void _onPointerHover(PointerHoverEvent event) {
+    if (_image == null || _compositing) return;
+    if (_selection != null || _mode != _ShotMode.window) return;
+    final now = DateTime.now();
+    if (now.difference(_lastHoverScan).inMilliseconds < 50) return;
+    _lastHoverScan = now;
+    final win = _windowAtPointer(event.localPosition);
+    if (win?.hwnd != _hoverWindow?.hwnd) {
+      setState(() => _hoverWindow = win);
+    }
+  }
+
+  /// 把指针位置换算为屏幕物理坐标，查询该点所在的顶层窗口。
+  ScreenshotWindow? _windowAtPointer(Offset local) {
+    final dpr = _devicePixelRatio;
+    final screen =
+        localToScreenPhysical(local, dpr);
+    return windowAtPoint(screen, excludeHwnd: _selfHwnd);
+  }
+
+  double get _devicePixelRatio {
+    final view = View.of(context);
+    return view.devicePixelRatio;
   }
 
   void _onPointerMove(PointerMoveEvent event) {
@@ -246,6 +309,9 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
   void _onPointerUp(PointerUpEvent event) {
     if (event.pointer != _activePointer) return;
     _activePointer = null;
+    if (_hoverWindow != null && mounted) {
+      setState(() => _hoverWindow = null);
+    }
     if (_image == null || _compositing) return;
     if (_selection == null) {
       final drag = _selectDrag;
@@ -641,6 +707,7 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
                               onPointerDown: _onPointerDown,
                               onPointerMove: _onPointerMove,
                               onPointerUp: _onPointerUp,
+                              onPointerHover: _onPointerHover,
                               onPointerCancel: (event) {
                                 if (event.pointer == _activePointer) {
                                   _activePointer = null;
@@ -666,13 +733,13 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
                                   imagePixelWidth: _imageSize.width.round(),
                                   imagePixelHeight:
                                       _imageSize.height.round(),
+                                  hoverWindow: _hoverWindow,
                                 ),
                               ),
                             ),
                           ),
-                            // Always-visible top-right controls: cancel
-                            // during selection, and a re-select hint once a
-                            // region is chosen.
+                            // Always-visible top-right controls: capture-mode
+                            // picker, region size, cancel.
                             Positioned(
                               top: 8,
                               right: 8,
@@ -693,6 +760,56 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
                                         ),
                                       ),
                                     ),
+                                  // 模式选择（向下箭头）：矩形框选 / 自动选择窗口。
+                                  PopupMenuButton<_ShotMode>(
+                                    tooltip: translate('Capture mode'),
+                                    initialValue: _mode,
+                                    onSelected: (mode) => setState(() {
+                                      _mode = mode;
+                                      _hoverWindow = null;
+                                    }),
+                                    itemBuilder: (menuContext) =>
+                                        <PopupMenuEntry<_ShotMode>>[
+                                      PopupMenuItem<_ShotMode>(
+                                        value: _ShotMode.region,
+                                        child: Row(
+                                          children: <Widget>[
+                                            const Icon(
+                                              Icons.crop_free_rounded,
+                                              size: 18,
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Text(translate('Rect region')),
+                                          ],
+                                        ),
+                                      ),
+                                      PopupMenuItem<_ShotMode>(
+                                        value: _ShotMode.window,
+                                        child: Row(
+                                          children: <Widget>[
+                                            const Icon(
+                                              Icons.web_asset_rounded,
+                                              size: 18,
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Text(
+                                              translate('Select window'),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                    color: Colors.white,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    icon: const Icon(
+                                      Icons.arrow_drop_down_rounded,
+                                      size: 26,
+                                      color: Colors.white,
+                                    ),
+                                    iconSize: 26,
+                                  ),
                                   Material(
                                     color: Colors.black54,
                                     shape: const CircleBorder(),
@@ -712,6 +829,29 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
                                 ],
                               ),
                             ),
+                            // 自动选择窗口模式的悬停提示。
+                            if (_mode == _ShotMode.window &&
+                                _selection == null)
+                              Positioned(
+                                top: 60,
+                                right: 8,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black54,
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  child: Text(
+                                    translate(
+                                        'Hover to highlight a window, click to select'),
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                              ),
                             if (_selection != null)
                               Align(
                                 alignment: Alignment.bottomCenter,
@@ -890,6 +1030,7 @@ class _ScreenshotPainter extends CustomPainter {
     required this.pixels,
     required this.imagePixelWidth,
     required this.imagePixelHeight,
+    required this.hoverWindow,
   });
 
   final ui.Image image;
@@ -907,6 +1048,7 @@ class _ScreenshotPainter extends CustomPainter {
   final Uint8List? pixels;
   final int imagePixelWidth;
   final int imagePixelHeight;
+  final ScreenshotWindow? hoverWindow;
 
   double get _mosaicCellSize => (width * 4).clamp(14.0, 36.0);
   double get _highlightWidth => width * 5;
@@ -992,6 +1134,45 @@ class _ScreenshotPainter extends CustomPainter {
           2 / scale,
         );
         _drawSizeLabel(canvas, drag);
+      } else {
+        // 自动选择窗口模式：高亮鼠标所在的窗口。
+        final win = hoverWindow;
+        if (win != null) {
+          final rect = Rect.fromLTWH(
+            win.rect.left.clamp(0, image.width.toDouble()),
+            win.rect.top.clamp(0, image.height.toDouble()),
+            (win.rect.right - win.rect.left)
+                .clamp(0, image.width.toDouble() - win.rect.left),
+            (win.rect.bottom - win.rect.top)
+                .clamp(0, image.height.toDouble() - win.rect.top),
+          );
+          canvas.drawRect(
+            rect,
+            Paint()
+              ..color = const Color(0x2207C160)
+              ..style = PaintingStyle.fill,
+          );
+          _dashedRect(canvas, rect, const Color(0xFF07C160), 2 / scale);
+          final label = win.title.isEmpty ? translate('Window') : win.title;
+          final tp = TextPainter(
+            text: TextSpan(
+              text: label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            textDirection: TextDirection.ltr,
+          )..layout();
+          final anchor = Offset(rect.left + 4, rect.top + 4);
+          canvas.drawRect(
+            Rect.fromLTWH(
+                anchor.dx, anchor.dy, tp.width + 10, tp.height + 6),
+            Paint()..color = const Color(0xCC000000),
+          );
+          tp.paint(canvas, anchor + const Offset(5, 3));
+        }
       }
       canvas.restore();
       return;
@@ -1221,5 +1402,6 @@ class _ScreenshotPainter extends CustomPainter {
       oldDelegate.tool != tool ||
       oldDelegate.color != color ||
       oldDelegate.width != width ||
-      oldDelegate.pixels != pixels;
+      oldDelegate.pixels != pixels ||
+      oldDelegate.hoverWindow?.hwnd != hoverWindow?.hwnd;
 }
