@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
+import 'package:luoda_flutter/mobile/pages/scan_page.dart';
 import 'package:luoda_flutter/mobile/pages/server_page.dart';
 import 'package:luoda_flutter/mobile/pages/settings_page.dart';
 import 'package:luoda_flutter/web/settings_page.dart';
@@ -1316,6 +1317,7 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
             leadingWidth: 116,
             leading: appLeading(),
             title: appTitle(),
+            bottom: _buildBindingBanner(context),
             actions: <Widget>[
               ..._pages.elementAt(_selectedIndex).appBarActions,
               // ?? / ?????????? tab????????
@@ -1426,6 +1428,99 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
         iconSize: 26,
         elevation: 0,
         onTap: _goToPage,
+      ),
+    );
+  }
+
+  /// AppBar 下方绑定状态提示条（微信风格）：未绑定 PC 时提示扫码，
+  /// 已绑定显示“已绑定 PC + IP:端口”。监听配对仓库自动刷新。
+  PreferredSizeWidget _buildBindingBanner(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return PreferredSize(
+      preferredSize: const Size.fromHeight(30),
+      child: ValueListenableBuilder<int>(
+        valueListenable: DirectPairingStore.revision,
+        builder: (context, _, __) {
+          final companion = DirectPairingStore.companionDevice();
+          if (companion == null) {
+            // 未绑定：橙色提示条，点击跳转扫码绑定页。
+            return InkWell(
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => ScanPage()),
+                );
+              },
+              child: Container(
+                height: 30,
+                width: double.infinity,
+                color: dark ? const Color(0xFF4A3A1E) : const Color(0xFFFFF6E0),
+                alignment: Alignment.center,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Icon(
+                      Icons.qr_code_2_rounded,
+                      size: 15,
+                      color: dark
+                          ? const Color(0xFFFFD479)
+                          : const Color(0xFFB26A00),
+                    ),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        translate('Not bound to PC yet, tap to scan and bind'),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: dark
+                              ? const Color(0xFFFFD479)
+                              : const Color(0xFF8A5A00),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+          // 已绑定：绿色提示条，显示 PC 的 IP:端口。
+          final endpoint = companion.preferredEndpoint.isNotEmpty
+              ? companion.preferredEndpoint
+              : companion.peerId;
+          return Container(
+            height: 30,
+            width: double.infinity,
+            color: dark ? const Color(0xFF1E3A28) : const Color(0xFFE6F4EA),
+            alignment: Alignment.center,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Icon(
+                  Icons.desktop_windows_rounded,
+                  size: 15,
+                  color: dark
+                      ? const Color(0xFF7ED9A0)
+                      : const Color(0xFF1E8E3E),
+                ),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    '${translate('Bound to PC')}  $endpoint',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: dark
+                          ? const Color(0xFF7ED9A0)
+                          : const Color(0xFF1E8E3E),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }

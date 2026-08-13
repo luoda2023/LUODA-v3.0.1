@@ -3,6 +3,10 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
     [
         ("PC", "PC"),
         ("Phone", "Phone"),
+        ("Not bound to PC yet, tap to scan and bind", "Not bound to PC yet, tap to scan and bind"),
+        ("Bound to PC", "Bound to PC"),
+        ("Not bound to phone yet, scan the QR code with your phone", "Not bound to phone yet, scan the QR code with your phone"),
+        ("Bound to phone", "Bound to phone"),
         ("Bluetooth scan", "Scan nearby Bluetooth"),
         ("Scan nearby Bluetooth", "Scan nearby Bluetooth"),
         ("No local contacts yet", "No local contacts yet"),

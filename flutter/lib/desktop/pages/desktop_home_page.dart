@@ -772,6 +772,82 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     );
   }
 
+  /// 列表顶部“手机绑定”状态条（微信电脑版风格）：
+  /// 未绑定时提示扫码，已绑定显示“已绑定 手机 + IP:端口”。
+  Widget _buildPhoneBindingStrip(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return ValueListenableBuilder<int>(
+      valueListenable: DirectPairingStore.revision,
+      builder: (context, _, __) {
+        final bound = DirectPairingStore.boundPhone();
+        final phoneId = (bound['peerId'] ?? '').trim();
+        if (phoneId.isEmpty) {
+          // 未绑定手机：浅灰提示条。
+          return Container(
+            height: 28,
+            width: double.infinity,
+            color: dark ? const Color(0xFF2A2D33) : const Color(0xFFF3F4F6),
+            alignment: Alignment.center,
+            child: Text(
+              translate('Not bound to phone yet, scan the QR code with your phone'),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                color: dark
+                    ? const Color(0xFF9AA0A8)
+                    : const Color(0xFF6B7280),
+              ),
+            ),
+          );
+        }
+        final pairing = DirectPairingStore.load().values.toList().firstWhereOrNull(
+          (p) => p.peerId == phoneId,
+        );
+        final endpoint = (pairing != null &&
+                pairing.preferredEndpoint.isNotEmpty)
+            ? pairing.preferredEndpoint
+            : phoneId;
+        final phoneName =
+            (bound['displayName'] ?? '').trim().isNotEmpty
+                ? (bound['displayName'] ?? '').trim()
+                : translate('Phone');
+        return Container(
+          height: 28,
+          width: double.infinity,
+          color: dark ? const Color(0xFF1E3A28) : const Color(0xFFE6F4EA),
+          alignment: Alignment.center,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(
+                Icons.phone_android_rounded,
+                size: 14,
+                color: dark
+                    ? const Color(0xFF7ED9A0)
+                    : const Color(0xFF1E8E3E),
+              ),
+              const SizedBox(width: 5),
+              Flexible(
+                child: Text(
+                  '${translate('Bound to phone')}  $phoneName · $endpoint',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: dark
+                        ? const Color(0xFF7ED9A0)
+                        : const Color(0xFF1E8E3E),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildContactsPane(BuildContext context) {
     final theme = Theme.of(context);
     final dark = theme.brightness == Brightness.dark;
@@ -787,6 +863,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       color: dark ? const Color(0xFF25272C) : kWeChatListSurfaceColor,
       child: Column(
         children: <Widget>[
+          _buildPhoneBindingStrip(context),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 14, 12, 10),
             child: Row(
