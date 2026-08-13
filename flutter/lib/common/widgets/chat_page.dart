@@ -5,8 +5,11 @@ import 'package:dash_chat_2/dash_chat_2.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:luoda_flutter/common.dart';
+import 'package:flutter_map/flutter_map.dart' as flutter_map;
+import 'package:latlong2/latlong.dart' as latlong2;
 import 'package:luoda_flutter/common/direct_chat.dart';
 import 'package:luoda_flutter/common/direct_pairing.dart';
+import 'package:luoda_flutter/common/widgets/location_detail_page.dart';
 import 'package:luoda_flutter/models/chat_model.dart';
 import 'package:luoda_flutter/models/platform_model.dart';
 import 'package:get/get.dart';
@@ -1689,6 +1692,8 @@ class ChatPage extends StatelessWidget implements PageShape {
   }
 
   /// 定位消息卡片：地点名 + 坐标，点击弹出高德/百度/腾讯/系统地图选择。
+  /// 微信风格位置卡片：上半部分缩略地图（高德瓦片，无 key），下半部分
+  /// 白色区域显示地点名称 + 详细地址（或坐标）。点击打开全屏地图详情页。
   Widget _buildLocationCard(
     BuildContext context,
     DirectChatLocation loc,
@@ -1696,27 +1701,74 @@ class ChatPage extends StatelessWidget implements PageShape {
   ) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final name = loc.name.isNotEmpty ? loc.name : translate('Location');
+    final subtitle = loc.address.isNotEmpty
+        ? loc.address
+        : '${loc.latitude.toStringAsFixed(6)}, '
+            '${loc.longitude.toStringAsFixed(6)}';
     return GestureDetector(
-      onTap: () => _openLocationMaps(context, loc),
+      onTap: () {
+        Navigator.of(context).push<void>(
+          MaterialPageRoute<void>(
+            builder: (_) => LocationDetailPage(location: loc),
+          ),
+        );
+      },
       child: Container(
         width: 220,
-        padding: const EdgeInsets.all(10),
+        clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
-          color: dark ? const Color(0xFF2A3A33) : const Color(0xFFEFF6F1),
+          color: Colors.white,
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color: dark ? const Color(0xFF3A6A50) : const Color(0xFFB8E8C8),
+            color: dark ? const Color(0xFF3A3D43) : const Color(0xFFE2E2E2),
           ),
+          boxShadow: const <BoxShadow>[
+            BoxShadow(color: Colors.black12, blurRadius: 4),
+          ],
         ),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            Icon(
-              Icons.location_on_rounded,
-              size: 22,
-              color: dark ? const Color(0xFF7AE89A) : const Color(0xFF1A8E4A),
+            SizedBox(
+              width: 220,
+              height: 96,
+              child: flutter_map.FlutterMap(
+                options: flutter_map.MapOptions(
+                  initialCenter: latlong2.LatLng(loc.latitude, loc.longitude),
+                  initialZoom: 16,
+                  interactionOptions: const flutter_map.InteractionOptions(
+                    flags: flutter_map.InteractiveFlag.none,
+                  ),
+                ),
+                children: <Widget>[
+                  flutter_map.TileLayer(
+                    urlTemplate:
+                        'https://webrd0{s}.is.autonavi.com/appmaptile'
+                        '?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}',
+                    subdomains: const <String>['1', '2', '3', '4'],
+                    userAgentPackageName: 'com.luoda.remote',
+                    maxNativeZoom: 19,
+                  ),
+                  flutter_map.MarkerLayer(
+                    markers: <flutter_map.Marker>[
+                      flutter_map.Marker(
+                        point: latlong2.LatLng(loc.latitude, loc.longitude),
+                        width: 36,
+                        height: 36,
+                        child: const Icon(
+                          Icons.location_on_rounded,
+                          size: 30,
+                          color: Color(0xFFFF4D4F),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(width: 8),
-            Expanded(
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 9),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
@@ -1728,35 +1780,18 @@ class ChatPage extends StatelessWidget implements PageShape {
                     style: TextStyle(
                       fontWeight: FontWeight.w600,
                       fontSize: 13,
-                      color: foreground,
+                      color: dark ? const Color(0xFFEDEDED) : const Color(0xFF222222),
                     ),
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '${loc.latitude.toStringAsFixed(5)}, '
-                    '${loc.longitude.toStringAsFixed(5)}',
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 10,
-                      color: foreground.withOpacity(0.55),
+                      color: dark ? const Color(0xFF9A9DA3) : const Color(0xFF888888),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: <Widget>[
-                      Icon(
-                        Icons.map_outlined,
-                        size: 11,
-                        color: foreground.withOpacity(0.4),
-                      ),
-                      const SizedBox(width: 3),
-                      Text(
-                        translate('View on map'),
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: foreground.withOpacity(0.5),
-                        ),
-                      ),
-                    ],
                   ),
                 ],
               ),

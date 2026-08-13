@@ -34,16 +34,25 @@ class DirectChatLocation {
     required this.latitude,
     required this.longitude,
     this.name = '',
+    this.address = '',
   });
 
   final double latitude;
   final double longitude;
   final String name;
 
+  /// 详细地址（高德逆地理编码结果，如“上海市青浦区赵巷镇业煌路99弄”）。
+  /// 旧版本地会把 name|address 整体当作 name 显示，新版本拆开显示。
+  final String address;
+
   String encode() {
     final n = name.trim();
+    final a = address.trim();
     final lat = latitude.toStringAsFixed(6);
     final lng = longitude.toStringAsFixed(6);
+    if (a.isNotEmpty) {
+      return '[location]$lat,$lng|$n|$a';
+    }
     return '[location]$lat,$lng${n.isEmpty ? '' : '|$n'}';
   }
 
@@ -57,10 +66,24 @@ class DirectChatLocation {
     final lng = double.tryParse(m.group(2) ?? '');
     if (lat == null || lng == null) return null;
     if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+    final rest = (m.group(3) ?? '').trim();
+    if (rest.isEmpty) {
+      return DirectChatLocation(latitude: lat, longitude: lng);
+    }
+    // 新格式：name|address；旧格式：name。地址本身不含 |。
+    final sep = rest.indexOf('|');
+    if (sep < 0) {
+      return DirectChatLocation(
+        latitude: lat,
+        longitude: lng,
+        name: rest,
+      );
+    }
     return DirectChatLocation(
       latitude: lat,
       longitude: lng,
-      name: (m.group(3) ?? '').trim(),
+      name: rest.substring(0, sep).trim(),
+      address: rest.substring(sep + 1).trim(),
     );
   }
 

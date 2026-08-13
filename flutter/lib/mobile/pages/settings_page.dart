@@ -14,6 +14,7 @@ import 'package:url_launcher/url_launcher_string.dart';
 
 import '../../common.dart';
 import '../../common/direct_chat_policy.dart';
+import '../../common/geo_service.dart';
 import '../../common/widgets/dialog.dart';
 import '../../common/widgets/login.dart';
 import '../../consts.dart';
@@ -969,6 +970,13 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                 showLanguageSettings(gFFI.dialogManager);
               }),
           SettingsTile(
+            title: Text(translate('Map service key')),
+            leading: const Icon(Icons.map_outlined),
+            onPressed: (context) {
+              _showAmapKeyDialog(context);
+            },
+          ),
+          SettingsTile(
             title: Text(translate(
                 Theme.of(context).brightness == Brightness.light
                     ? 'Light Theme'
@@ -1324,6 +1332,51 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
     if (bind.mainGetLocalOption(key: promptedKey) == 'Y') return;
     await bind.mainSetLocalOption(key: promptedKey, value: 'Y');
     await AndroidPermissionManager.request(kAndroid13Notification);
+  }
+
+  /// 高德地图 Web 服务 Key（免费，lbs.amap.com 申请），用于发送位置的
+  /// 逆地理编码 / 周边地点搜索。不配置也能用地图选点和基础发送。
+  Future<void> _showAmapKeyDialog(BuildContext context) async {
+    final controller = TextEditingController(
+      text: AmapService.instance.apiKey ?? '',
+    );
+    final saved = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(translate('Map service key')),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            TextField(
+              controller: controller,
+              autofocus: true,
+              decoration: const InputDecoration(
+                hintText: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+              ),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              '高德开放平台 lbs.amap.com 免费申请（个人开发者）',
+              style: TextStyle(fontSize: 12, color: Color(0xFF888888)),
+            ),
+          ],
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(translate('Cancel')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, controller.text.trim()),
+            child: Text(translate('OK')),
+          ),
+        ],
+      ),
+    );
+    if (saved != null) {
+      await AmapService.instance.saveApiKey(saved);
+      if (mounted) showToast(translate('Copied'));
+    }
   }
 
   Future<void> _showContactMessagePermissions() async {

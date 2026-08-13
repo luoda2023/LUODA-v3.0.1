@@ -1076,7 +1076,8 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
       DirectChatLocation(
         latitude: picked.latitude,
         longitude: picked.longitude,
-        name: translate('My Location'),
+        name: picked.name.isNotEmpty ? picked.name : translate('My Location'),
+        address: picked.address,
       ).encode(),
     );
   }
