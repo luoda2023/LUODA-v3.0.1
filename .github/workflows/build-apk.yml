@@ -378,13 +378,20 @@ jobs:
         timeout-minutes: 30
         run: |
           cd flutter
-          flutter build apk --release --split-per-abi
+          # flutter test above leaves a daemon watcher registered on flutter/android;
+          # a second flutter command then throws "Already watching path" and the build
+          # exits without producing an APK. Quit the daemon and skip pub (already ran).
+          flutter daemon --quit >/dev/null 2>&1 || true
+          pkill -f flutter_tools 2>/dev/null || true
+          flutter build apk --release --split-per-abi --no-pub
 
       - name: Build APK (universal)
         timeout-minutes: 15
         run: |
           cd flutter
-          flutter build apk --release
+          flutter daemon --quit >/dev/null 2>&1 || true
+          pkill -f flutter_tools 2>/dev/null || true
+          flutter build apk --release --no-pub
 
       - name: Collect APK outputs
         run: |
