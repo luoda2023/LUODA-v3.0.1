@@ -952,10 +952,21 @@ class ChatModel with ChangeNotifier {
 
   changeCurrentKey(MessageKey key) {
     if (key.peerId.isNotEmpty) {
-      final conversationId =
-          DirectPairingStore.canonicalConversationId(key.peerId);
-      if (conversationId != key.peerId) {
-        key = MessageKey(conversationId, key.connId);
+      // LUODA FIX: only canonicalize keys that are not already in the
+      // in-memory conversation map. List rows hand us the exact key their
+      // messages are stored under (canonicalized when each message was
+      // received). Re-canonicalizing at open time can map the peer to a
+      // different account id after a pairing later gains an account_id
+      // (e.g. "980031" -> "423156"), so the chat window reads an empty
+      // body ("No messages yet") even though the list shows the preview.
+      // Manual id/endpoint entry still canonicalizes because the key is
+      // absent from the map (new conversation).
+      if (!_messages.containsKey(key)) {
+        final conversationId =
+            DirectPairingStore.canonicalConversationId(key.peerId);
+        if (conversationId != key.peerId) {
+          key = MessageKey(conversationId, key.connId);
+        }
       }
     }
     if (_currentKey.peerId == key.peerId && _currentKey.connId == key.connId) {
