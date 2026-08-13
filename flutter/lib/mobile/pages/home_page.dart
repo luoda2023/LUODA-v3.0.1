@@ -314,7 +314,8 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
     gFFI.chatModel.changeCurrentKey(key);
     gFFI.chatModel.mobileClearClientUnread(key.connId);
     unawaited(_openCurrentConversation());
-    if (key.peerId.isNotEmpty) {
+    // 会议群聊走群消息通道，不需要（也不应该）建立单聊 P2P 连接。
+    if (key.peerId.isNotEmpty && !key.peerId.startsWith('meeting:')) {
       unawaited(_ensureChatConnection(key.peerId));
     }
   }
@@ -539,6 +540,8 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // opening a conversation from the recent list sent into a dead session
     // (messages stuck at "sent" / "A rejects messages").
     gFFI.chatModel.ensureChatConnection = _ensureChatConnection;
+    // 启动即加载会议群聊数据，点聊列表才能混排显示会议。
+    MeetingGroupStore.load();
     initPages();
     final count = _pages.length;
     // Start in the middle of the infinite carousel so BOTH swipe
@@ -1473,7 +1476,8 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
   final ValueNotifier<String> _query = ValueNotifier<String>('');
   bool _searchOpen = false;
 
-  /// 点聊页 TAB：false = 点聊（消息列表），true = 会议（会议记录方块）。
+  /// 会议群聊数据变化订阅（创建/加入/解散后刷新点聊列表）。
+  StreamSubscription<List<MeetingGroup>>? _meetingsSub;
   Set<String> _selfTargets = const <String>{};
   String _selfDirectPort = '';
   // Rendezvous-driven online states, refreshed periodically so peers show
@@ -1521,6 +1525,10 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
         const Duration(seconds: 10), (_) => _queryOnlineStates());
     _queryOnlineStates();
     unawaited(_loadSelfTargets());
+    // 会议群聊数据变化时刷新点聊列表（创建/加入/解散会议后立即反映）。
+    _meetingsSub = MeetingGroupStore.reactive.listen((_) {
+      if (mounted) setState(() {});
+    });
   }
 
   /// True when this Messages tab is the visible page. PageView pre-builds
@@ -1619,6 +1627,7 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
     _onlineQueryTimer?.cancel();
     platformFFI.unregisterEventHandler(
         'callback_query_onlines', _onlineHandlerName);
+    _meetingsSub?.cancel();
     _searchController.dispose();
     _query.dispose();
     super.dispose();

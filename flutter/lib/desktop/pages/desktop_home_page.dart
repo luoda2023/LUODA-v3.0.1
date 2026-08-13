@@ -76,7 +76,7 @@ class DesktopHomePage extends StatefulWidget {
 
 const borderColor = Color(0xFF2F65BA);
 
-enum _ConversationAction { fileTransfer, remoteAssist, camera, terminal, port }
+enum _ConversationAction { fileTransfer, remoteAssist, camera, terminal, port, meetingManage, joinSession, copyInvite }
 
 enum _WorkspaceNoticeTone { info, success, warning, error }
 
@@ -1833,39 +1833,176 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               icon: Icons.search_rounded,
               onPressed: hasConversation ? chatModel.openChatSearch : null,
             ),
-            _conversationActionButton(
-              context,
-              tooltip: translate('Remote Desktop'),
-              icon: Icons.desktop_windows_outlined,
-              onPressed: canStartDirectSession
-                  ? () => _connectDirect(context, peerId)
-                  : null,
-            ),
+            if (isMeetingChat && meetingGroup != null) ...<Widget>[
+              _conversationActionButton(
+                context,
+                tooltip: meetingGroup.hasActiveSession
+                    ? translate('Join live session')
+                    : translate('No active session yet'),
+                icon: Icons.sensors_rounded,
+                onPressed: meetingGroup.hasActiveSession
+                    ? () => _joinGroupSession(context, meetingGroup)
+                    : null,
+              ),
+              if (meetingGroup.isHost)
+                _conversationActionButton(
+                  context,
+                  tooltip: translate('Add member'),
+                  icon: Icons.person_add_alt_1_rounded,
+                  onPressed: () =>
+                      _showMeetingAddMemberDialog(context, meetingGroup),
+                ),
+            ] else ...<Widget>[
+              _conversationActionButton(
+                context,
+                tooltip: translate('Remote Desktop'),
+                icon: Icons.desktop_windows_outlined,
+                onPressed: canStartDirectSession
+                    ? () => _connectDirect(context, peerId)
+                    : null,
+              ),
+            ],
             PopupMenuButton<_ConversationAction>(
               tooltip: translate('More'),
-              enabled: canStartDirectSession,
-              onSelected: (action) =>
-                  _handleConversationAction(context, action, peerId),
-              itemBuilder: (context) => <PopupMenuEntry<_ConversationAction>>[
-                PopupMenuItem(
-                  value: _ConversationAction.camera,
-                  child: Text(translate('View camera')),
-                ),
-                PopupMenuItem(
-                  value: _ConversationAction.terminal,
-                  child: Text(translate('Terminal')),
-                ),
-                PopupMenuItem(
-                  value: _ConversationAction.port,
-                  child: Text(translate('TCP tunneling')),
-                ),
-              ],
+              enabled: isMeetingChat ? true : canStartDirectSession,
+              onSelected: (action) {
+                if (isMeetingChat && meetingGroup != null) {
+                  switch (action) {
+                    case _ConversationAction.meetingManage:
+                      _showMeetingGroupSettings(context, meetingGroup);
+                    case _ConversationAction.joinSession:
+                      _joinGroupSession(context, meetingGroup);
+                    case _ConversationAction.copyInvite:
+                      _copyMeetingInvite(meetingGroup);
+                    case _ConversationAction.fileTransfer:
+                    case _ConversationAction.remoteAssist:
+                    case _ConversationAction.camera:
+                    case _ConversationAction.terminal:
+                    case _ConversationAction.port:
+                      break;
+                  }
+                  return;
+                }
+                _handleConversationAction(context, action, peerId);
+              },
+              itemBuilder: (context) => isMeetingChat && meetingGroup != null
+                  ? <PopupMenuEntry<_ConversationAction>>[
+                      PopupMenuItem(
+                        value: _ConversationAction.meetingManage,
+                        child: Text(translate('Meeting management')),
+                      ),
+                      if (meetingGroup.hasActiveSession)
+                        PopupMenuItem(
+                          value: _ConversationAction.joinSession,
+                          child: Text(translate('Join live session')),
+                        ),
+                      if (meetingGroup.inviteShortCode.isNotEmpty)
+                        PopupMenuItem(
+                          value: _ConversationAction.copyInvite,
+                          child: Text(translate('Copy invite link')),
+                        ),
+                    ]
+                  : <PopupMenuEntry<_ConversationAction>>[
+                      PopupMenuItem(
+                        value: _ConversationAction.camera,
+                        child: Text(translate('View camera')),
+                      ),
+                      PopupMenuItem(
+                        value: _ConversationAction.terminal,
+                        child: Text(translate('Terminal')),
+                      ),
+                      PopupMenuItem(
+                        value: _ConversationAction.port,
+                        child: Text(translate('TCP tunneling')),
+                      ),
+                    ],
               icon: const Icon(Icons.more_horiz_rounded),
             ),
           ],
         ),
       ),
     );
+  }
+
+  /// 加入会议群聊的实时远程会话（观看演示/教学）。
+  void _joinGroupSession(BuildContext context, MeetingGroup group) {
+    if (!group.hasActiveSession || group.activeSessionEndpoint.isEmpty) {
+      showToast(translate('No active session yet'));
+      return;
+    }
+    connect(context, group.activeSessionEndpoint,
+        isFileTransfer: false, isViewCamera: false, isTerminal: false);
+  }
+
+  /// 复制会议邀请链接到剪贴板。
+  void _copyMeetingInvite(MeetingGroup group) {
+    if (group.inviteShortCode.isEmpty) {
+      showToast(translate('Generate an invite link first'));
+      return;
+    }
+    final link =
+        'luoda://meeting/${group.meetingId}?code=${group.inviteShortCode}'
+        '&host=${group.hostPeerId}';
+    Clipboard.setData(ClipboardData(text: link));
+    showToast(translate('Link copied'));
+  }
+
+  /// 会议群聊窗口内直接添加成员（群主入口）。
+  Future<void> _showMeetingAddMemberDialog(
+    BuildContext context,
+    MeetingGroup group,
+  ) async {
+    final theme = Theme.of(context);
+    final controller = TextEditingController();
+    final peerId = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: theme.colorScheme.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(translate('Add member')),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: InputDecoration(
+            hintText: translate('Peer ID / ID / IP'),
+            border: const OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(translate('Cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: Text(translate('Add')),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (peerId == null || peerId.isEmpty || !mounted) return;
+    final trimmed = peerId.replaceAll(' ', '');
+    final members = (group.members ?? [])
+        .where((m) => m.peerId != group.hostPeerId)
+        .toList();
+    if (trimmed == group.hostPeerId || trimmed == gFFI.serverModel.id) {
+      showToast(translate('Already a member'));
+      return;
+    }
+    if (members.any((m) => m.peerId == trimmed)) {
+      showToast(translate('Already a member'));
+      return;
+    }
+    final peer =
+        gFFI.recentPeersModel.peers.firstWhereOrNull((p) => p.id == trimmed);
+    final displayName = peer?.alias.isNotEmpty == true
+        ? peer!.alias
+        : peer?.username.isNotEmpty == true
+            ? peer!.username
+            : trimmed;
+    MeetingGroupStore.addMember(group.meetingId, trimmed, displayName);
+    showToast('$displayName ${translate('joined the group')}');
   }
 
   Widget _conversationActionButton(
@@ -2683,7 +2820,12 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         }
         // 会议与普通会话合并为一个统一列表（微信风格：群聊/会议与会话混排，
         // 不再单独分组显示），统一按最近活动时间排序。
+        // 去重：会议一旦有聊天记录（meeting:xxx 会话已进 chatGroups），
+        // 就不再重复显示“会议条目”，只显示带消息预览的会话行。
         final unified = <Object>[];
+        final chatKeys = <String>{
+          for (final g in chatGroupList) g.key,
+        };
         for (final group in chatGroupList) {
           if (group.conversations.length == 1) {
             unified.add(group.conversations.first);
@@ -2691,7 +2833,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             unified.add(group);
           }
         }
-        unified.addAll(meetingEntries);
+        unified.addAll(
+          meetingEntries.where((m) => !chatKeys.contains(m.conversationId)),
+        );
         unified.sort((a, b) {
           final ta = a is MapEntry<MessageKey, MessageBody>
               ? _conversationTime(a as MapEntry<MessageKey, MessageBody>)
@@ -4831,13 +4975,18 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   /// the current conversation.
   Future<void> _screenshotForConversation(String peerId) async {
     if (!mounted) return;
+    // 剪刀右侧下拉箭头设置的“隐藏本窗口/不隐藏”偏好。
+    final hideWindow =
+        bind.mainGetLocalOption(key: 'screenshot_hide_window') != '0';
     var windowHidden = false;
-    try {
-      await windowManager.hide();
-      windowHidden = true;
-      await Future<void>.delayed(const Duration(milliseconds: 280));
-    } catch (_) {
-      windowHidden = false;
+    if (hideWindow) {
+      try {
+        await windowManager.hide();
+        windowHidden = true;
+        await Future<void>.delayed(const Duration(milliseconds: 280));
+      } catch (_) {
+        windowHidden = false;
+      }
     }
     String? path;
     try {
@@ -4876,6 +5025,11 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       final size = await annotatedFile.length();
       final name = annotatedPath.split(Platform.pathSeparator).last;
       await _sendImageFile(peerId, annotatedPath, name, size);
+      // 标注完成的截图同时复制到系统剪贴板：之后可直接在输入框 Ctrl+V
+      // 粘贴（走 onPasteImage）再次发送，或粘贴到微信/QQ 等其他应用。
+      if (Platform.isWindows) {
+        unawaited(_copyImageToClipboard(annotatedPath));
+      }
     } catch (_) {
       if (mounted) {
         _showConversationNotice(
@@ -4883,6 +5037,40 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           tone: _WorkspaceNoticeTone.warning,
         );
       }
+    }
+  }
+
+  /// 把一张 PNG 图片写入系统剪贴板（Windows：System.Drawing SetImage）。
+  /// 与 _readClipboardImage 对称，供截图标注完成后“发送 + 复制”使用。
+  Future<void> _copyImageToClipboard(String pngPath) async {
+    try {
+      if (!Platform.isWindows) return;
+      final stamp = DateTime.now().millisecondsSinceEpoch;
+      final script = File(
+        '${Directory.systemTemp.path}${Platform.pathSeparator}'
+        'luoda_clip_set_$stamp.ps1',
+      );
+      final safePath = pngPath.replaceAll('\\', '\\\\');
+      await script.writeAsString(
+        'Add-Type -AssemblyName System.Drawing;\n'
+        'Add-Type -AssemblyName System.Windows.Forms;\n'
+        '\$img = [System.Drawing.Image]::FromFile("$safePath");\n'
+        '[System.Windows.Forms.Clipboard]::SetImage(\$img);\n'
+        '\$img.Dispose()\n',
+      );
+      final result = await Process.run(
+        'powershell',
+        ['-NoProfile', '-NonInteractive', '-File', script.path],
+      );
+      try {
+        await script.delete();
+      } catch (_) {}
+      if (result.exitCode != 0) {
+        RuntimeLogger.instance.warn(
+            'CLIP', 'copy image to clipboard failed: ${result.stderr}');
+      }
+    } catch (e) {
+      RuntimeLogger.instance.warn('CLIP', 'copy image failed: $e');
     }
   }
 
@@ -5435,6 +5623,12 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         break;
       case _ConversationAction.port:
         _connectDirect(context, peerId, isTcpTunneling: true);
+        break;
+      // 会议群聊动作不经过此分发（在标题栏 PopupMenu 内处理），
+      // 这里给出安全兜底。
+      case _ConversationAction.meetingManage:
+      case _ConversationAction.joinSession:
+      case _ConversationAction.copyInvite:
         break;
     }
   }

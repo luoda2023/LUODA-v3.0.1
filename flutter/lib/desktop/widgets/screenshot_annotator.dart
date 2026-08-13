@@ -15,6 +15,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:luoda_flutter/common.dart';
 import 'package:luoda_flutter/desktop/widgets/win_window_scanner.dart';
 import 'package:path_provider/path_provider.dart';
@@ -136,6 +137,9 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
   /// 当前截图模式（微信风格：右上角向下箭头切换）。
   _ShotMode _mode = _ShotMode.region;
 
+  /// 按住 Ctrl 时临时进入“自动选择窗口”：悬停高亮、单击选中。
+  bool _ctrlDown = false;
+
   /// 自动选择窗口模式下，鼠标当前悬停的窗口（用于高亮）。
   ScreenshotWindow? _hoverWindow;
 
@@ -226,8 +230,8 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
     if (event.buttons != kPrimaryButton) return;
     _activePointer = event.pointer;
     final pos = _toImage(event.localPosition);
-    // 自动选择窗口模式：单击即选中鼠标下的窗口。
-    if (_mode == _ShotMode.window && _selection == null) {
+    // 自动选择窗口模式（或按住 Ctrl）：单击即选中鼠标下的窗口。
+    if ((_mode == _ShotMode.window || _ctrlDown) && _selection == null) {
       final win = _windowAtPointer(event.localPosition);
       if (win != null) {
         setState(() {
@@ -254,10 +258,10 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
     _shapeEnd = pos;
   }
 
-  /// 自动选择窗口模式：鼠标悬停时高亮所在窗口。
+  /// 自动选择窗口模式（或按住 Ctrl）：鼠标悬停时高亮所在窗口。
   void _onPointerHover(PointerHoverEvent event) {
     if (_image == null || _compositing) return;
-    if (_selection != null || _mode != _ShotMode.window) return;
+    if (_selection != null || (_mode != _ShotMode.window && !_ctrlDown)) return;
     final now = DateTime.now();
     if (now.difference(_lastHoverScan).inMilliseconds < 50) return;
     _lastHoverScan = now;
@@ -685,21 +689,80 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: SafeArea(
-        child: _decodeFailed
-            ? _buildFailure(theme)
-            : _image == null
-                ? const Center(
-                    child: CircularProgressIndicator(color: Colors.white70),
-                  )
-                : LayoutBuilder(
-                    builder: (context, constraints) {
-                      _layoutImage(constraints.biggest);
-                      return Stack(
-                        children: <Widget>[
-                          Positioned.fill(
+    return Focus(
+      autofocus: true,
+      // 按住 Ctrl：临时进入“自动选择窗口”模式（悬停高亮、单击选中）。
+      onKeyEvent: (node, event) {
+        final key = event.logicalKey;
+        final isCtrl = key == LogicalKeyboardKey.controlLeft ||
+            key == LogicalKeyboardKey.controlRight;
+        if (isCtrl) {
+          final down = event is KeyDownEvent || event is KeyRepeatEvent;
+          if (down != _ctrlDown && mounted) {
+            setState(() => _ctrlDown = down);
+          }
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: SafeArea(
+          child: _decodeFailed
+              ? _buildFailure(theme)
+              : _image == null
+                  ? const Center(
+                      child: CircularProgressIndicator(color: Colors.white70),
+                    )
+                  : LayoutBuilder(
+                      builder: (context, constraints) {
+                        _layoutImage(constraints.biggest);
+                        return Stack(
+                          children: <Widget>[
+                            // 顶部提示条：拖拽框选，按住 Ctrl 自动选窗口。
+                            if (_selection == null)
+                              Positioned(
+                                top: 10,
+                                left: 0,
+                                right: 0,
+                                child: Center(
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 14, vertical: 7),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withOpacity(0.55),
+                                      borderRadius: BorderRadius.circular(18),
+                                      border: Border.all(
+                                        color: Colors.white24,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: <Widget>[
+                                        Icon(
+                                          _ctrlDown
+                                              ? Icons.ads_click_rounded
+                                              : Icons.keyboard_control_key_rounded,
+                                          size: 15,
+                                          color: Colors.white70,
+                                        ),
+                                        const SizedBox(width: 7),
+                                        Text(
+                                          _ctrlDown
+                                              ? translate('Click a window to select it')
+                                              : translate(
+                                                  'Drag to select area, hold Ctrl to pick a window'),
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 12.5,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            Positioned.fill(
                             // Listener 只包图片层：拖动/框选在图片上生效，
                             // 底部工具栏与右上按钮不在其子树中，点击不受影响。
                             child: Listener(
@@ -867,9 +930,10 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
                               ),
                           ],
                         );
-                    },
+                      },
+                    ),
                   ),
-      ),
+        ),
     );
   }
 

@@ -8,6 +8,7 @@ import 'package:luoda_flutter/common.dart';
 import 'package:luoda_flutter/common/direct_chat.dart';
 import 'package:luoda_flutter/common/direct_pairing.dart';
 import 'package:luoda_flutter/models/chat_model.dart';
+import 'package:luoda_flutter/models/platform_model.dart';
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';
 
@@ -4126,8 +4127,13 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
   }
 
   @override
+  /// 截图时是否隐藏本窗口（剪刀右侧下拉箭头可切换，持久化存储）。
+  bool _screenshotHideWindow = true;
+
   void initState() {
     super.initState();
+    _screenshotHideWindow =
+        bind.mainGetLocalOption(key: 'screenshot_hide_window') != '0';
     chatModel.textController.addListener(_onTextChanged);
     chatModel.inputNode.addListener(_onFocusChanged);
   }
@@ -4471,6 +4477,45 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
                         tooltip: translate('Screenshot'),
                         enabled: enabled,
                         onPressed: () => _runToolAction(onScreenshot!),
+                      ),
+                    if (onScreenshot != null)
+                      // 剪刀右侧下拉箭头：选择截图时是否隐藏本窗口。
+                      PopupMenuButton<bool>(
+                        tooltip: translate('Screenshot options'),
+                        enabled: enabled,
+                        padding: EdgeInsets.zero,
+                        constraints:
+                            const BoxConstraints.tightFor(width: 26, height: 42),
+                        icon: Icon(
+                          Icons.arrow_drop_down_rounded,
+                          size: 20,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withOpacity(0.55),
+                        ),
+                        onSelected: (hide) {
+                          _screenshotHideWindow = hide;
+                          bind.mainSetLocalOption(
+                            key: 'screenshot_hide_window',
+                            value: hide ? '1' : '0',
+                          );
+                          showToast(hide
+                              ? translate('Screenshot hides this window')
+                              : translate('Screenshot keeps window visible'));
+                        },
+                        itemBuilder: (menuContext) => <PopupMenuEntry<bool>>[
+                          CheckedPopupMenuItem<bool>(
+                            value: true,
+                            checked: _screenshotHideWindow,
+                            child: Text(translate('Hide this window')),
+                          ),
+                          CheckedPopupMenuItem<bool>(
+                            value: false,
+                            checked: !_screenshotHideWindow,
+                            child: Text(translate('Keep window visible')),
+                          ),
+                        ],
                       ),
                     if (onAttachFile != null)
                       _ComposerToolButton(
