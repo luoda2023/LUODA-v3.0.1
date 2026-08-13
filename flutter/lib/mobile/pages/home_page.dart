@@ -1537,9 +1537,12 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
   }
 
-  /// AppBar 标题：点聊/联系人 tab 时在线状态已移到最左侧（见 appLeading），
-  /// 标题本身保持居中。
+  /// AppBar 标题：点聊 tab 的标题与底部导航重复，隐藏标题（在线状态在左侧，见 appLeading）；
+  /// 其余 tab 标题保持居中。
   Widget appTitle() {
+    if (_selectedIndex == _chatPageTabIndex) {
+      return const SizedBox.shrink();
+    }
     final title = _pages.elementAt(_selectedIndex).title;
     return Text(
       title,
