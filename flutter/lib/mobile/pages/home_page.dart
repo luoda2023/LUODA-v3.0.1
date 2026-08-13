@@ -1020,6 +1020,10 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// 微信风格发送定位：先打开地图显示“我的位置”，用户确认/选点后发送。
   /// 对方离线时定位消息进入待发队列，连接建立后自动补发。
   Future<void> _sendLocation() async {
+    if (!mounted) return;
+    // 立即反馈：定位可能需要几秒甚至更久，先让用户知道正在获取，
+    // 避免“点了没反应”的错觉。
+    showToast(translate('Getting location...'));
     Position? position;
     try {
       if (!await Geolocator.isLocationServiceEnabled()) {
@@ -1035,10 +1039,22 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
         showToast(translate('Location permission required'));
         return;
       }
-      position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.medium,
-        timeLimit: const Duration(seconds: 15),
-      );
+      // 快速路径：先用系统缓存位置（秒回），避免每次都等 GPS 冷启动。
+      // 无缓存再请求新鲜定位：低精度（网络）快速获取，失败再升级中精度。
+      position = await Geolocator.getLastKnownPosition();
+      if (position == null) {
+        try {
+          position = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.low,
+            timeLimit: const Duration(seconds: 8),
+          );
+        } catch (_) {
+          position = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.medium,
+            timeLimit: const Duration(seconds: 8),
+          );
+        }
+      }
     } catch (e) {
       debugPrint('_sendLocation failed: $e');
       // 模拟器/无 GPS 环境常见超时，给出可理解提示。

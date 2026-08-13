@@ -343,6 +343,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("System Map", "System Map"),
         ("Location service is disabled", "Location service is disabled"),
         ("Location permission required", "Location permission required"),
+        ("Getting location...", "Getting location..."),
         ("Connect and help your devices anytime", "Connect and help your devices anytime"),
         ("Manage your devices & contacts", "Manage your devices & contacts"),
         ("Drawing version", "Drawing version"),
