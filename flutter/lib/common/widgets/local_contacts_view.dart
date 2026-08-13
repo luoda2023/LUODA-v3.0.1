@@ -173,6 +173,44 @@ class _LocalContactsViewState extends State<LocalContactsView> {
         ids.contains(client.peerId));
   }
 
+  /// 长按联系人 → 确认后删除该联系人的全部设备配对及其会话记录。
+  Future<void> _confirmDeleteContact(
+    BuildContext context,
+    _LocalContact contact,
+  ) async {
+    final theme = Theme.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(translate('Delete contact')),
+        content: Text(translate(
+            'Delete this contact? This removes its devices and conversations on this device.')),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(translate('Cancel')),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(
+              foregroundColor: theme.colorScheme.error,
+            ),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(translate('Delete')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final deviceIds = contact.devices
+        .map((device) => device.peerId.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    final conversationIds = DirectPairingStore.conversationPeerIds(contact.peerId)
+      ..add(contact.peerId);
+    await DirectPairingStore.removeAll(deviceIds);
+    await gFFI.chatModel.deleteConversations(conversationIds);
+  }
+
   void _openChat(_LocalContact contact) {
     final peerId = contact.peerId;
     if (peerId == kFileHelperId) {
@@ -316,6 +354,7 @@ class _LocalContactsViewState extends State<LocalContactsView> {
       color: Colors.transparent,
       child: InkWell(
         onTap: () => _openChat(contact),
+        onLongPress: () => _confirmDeleteContact(context, contact),
         highlightColor:
             dark ? const Color(0xFF34373D) : const Color(0xFFE5E8E6),
         splashColor: Colors.transparent,

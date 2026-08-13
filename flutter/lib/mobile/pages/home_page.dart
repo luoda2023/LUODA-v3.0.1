@@ -2444,6 +2444,7 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
     String peerId,
     DirectChatAccessController access,
   ) async {
+    final theme = Theme.of(context);
     final isFriend = access.isFriend(peerId);
     final isBlocked = gFFI.chatSettingsModel.isBlocked(peerId);
     final action = await showModalBottomSheet<String>(
@@ -2473,6 +2474,17 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
               title: Text(translate(isBlocked ? 'Unblock' : 'Block')),
               onTap: () => Navigator.pop(sheetContext, 'block'),
             ),
+            ListTile(
+              leading: Icon(
+                Icons.delete_outline_rounded,
+                color: theme.colorScheme.error,
+              ),
+              title: Text(
+                translate('Delete conversation'),
+                style: TextStyle(color: theme.colorScheme.error),
+              ),
+              onTap: () => Navigator.pop(sheetContext, 'delete'),
+            ),
           ],
         ),
       ),
@@ -2488,6 +2500,33 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
       case 'block':
         await gFFI.chatSettingsModel.toggleBlock(peerId);
         await access.setPeerPolicy(peerId, isBlocked ? 'ask' : 'deny');
+        break;
+      case 'delete':
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: Text(translate('Delete conversation')),
+            content: Text(
+              translate('Delete this conversation? This removes its messages on this device.'),
+            ),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: Text(translate('Cancel')),
+              ),
+              TextButton(
+                style: TextButton.styleFrom(
+                  foregroundColor: theme.colorScheme.error,
+                ),
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: Text(translate('Delete')),
+              ),
+            ],
+          ),
+        );
+        if (confirmed == true) {
+          await gFFI.chatModel.deleteConversations(<String>[peerId]);
+        }
         break;
     }
   }
