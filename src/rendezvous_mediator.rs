@@ -1309,6 +1309,13 @@ fn reset_direct_port() {
 }
 
 pub fn ensure_direct_port() -> i32 {
+    // The direct server runs in a separate process and may have re-rolled the
+    // port (bind failure) and written the actual bound port back to the shared
+    // config. Sync the in-process cache with the config first so callers (e.g.
+    // the UI process, which then pushes the value back through IPC and can
+    // otherwise overwrite the config with a stale value) never propagate a
+    // stale port.
+    sync_direct_port_from_config();
     get_direct_port()
 }
 
