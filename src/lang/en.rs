@@ -539,6 +539,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Device ID", "Device ID"),
         ("Tap to add friends / enter ID", "Tap to add friends / enter ID"),
         ("Add by ID or IP:port", "Add by ID or IP:port"),
+        ("Who can chat with me", "Who can chat with me"),
         ("Only friends can contact me anytime", "Only friends can contact me anytime"),
         ("Strangers can also chat with me directly", "Strangers can also chat with me directly"),
         ("Strangers need your approval to start a chat", "Strangers need your approval to start a chat"),

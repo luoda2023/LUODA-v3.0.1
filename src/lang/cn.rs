@@ -1147,6 +1147,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Reconnect to the saved IP address when the network becomes available again.", "网络恢复后自动重连已保存地址的好友。"),
         ("Allow or reject always-on messages for each contact.", "为每个联系人设置允许或拒收随时消息。"),
         ("Message permissions", "消息权限"),
+        ("Who can chat with me", "谁可以给我发消息"),
         ("Only friends can contact me anytime", "仅好友可随时联系我"),
         ("Strangers can also chat with me directly", "陌生人也可直接和我聊天"),
         ("Strangers need your approval to start a chat", "陌生人需要经过我的同意才能开始聊天"),

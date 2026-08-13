@@ -1454,11 +1454,13 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
   PreferredSizeWidget _buildBindingBanner(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     return PreferredSize(
-      preferredSize: const Size.fromHeight(30),
-      child: ValueListenableBuilder<int>(
-        valueListenable: DirectPairingStore.revision,
-        builder: (context, _, __) {
-          final companion = DirectPairingStore.companionDevice();
+      preferredSize: const Size.fromHeight(60),
+      child: Column(
+        children: <Widget>[
+          ValueListenableBuilder<int>(
+            valueListenable: DirectPairingStore.revision,
+            builder: (context, _, __) {
+              final companion = DirectPairingStore.companionDevice();
           if (companion == null) {
             // 未绑定：橙色提示条，点击跳转扫码绑定页。
             return InkWell(
@@ -1537,8 +1539,147 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
               ],
             ),
           );
-        },
+            },
+          ),
+          _buildPrivacyBanner(context),
+        ],
       ),
+    );
+  }
+
+  /// 绑定条下方的“聊天对象”设置条（微信风格）：点击弹出选择，
+  /// 仅好友可聊天 / 允许陌生人聊天。与 PC 端共享同一份配置
+  /// （Rust local option），两端改动即时同步。
+  Widget _buildPrivacyBanner(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return ListenableBuilder(
+      listenable: DirectChatAccessController.instance,
+      builder: (context, _) {
+        final access = DirectChatAccessController.instance;
+        final friendsOnly = access.audience == DirectChatAudience.friendsOnly;
+        final fg = dark ? const Color(0xFF8AB4F8) : const Color(0xFF1A73E8);
+        final bg = dark ? const Color(0xFF1E2E4A) : const Color(0xFFEAF1FE);
+        return InkWell(
+          onTap: () => _showAudiencePicker(context),
+          child: Container(
+            height: 30,
+            width: double.infinity,
+            color: bg,
+            alignment: Alignment.center,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Icon(
+                  friendsOnly
+                      ? Icons.lock_outline_rounded
+                      : Icons.people_alt_outlined,
+                  size: 15,
+                  color: fg,
+                ),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    translate(
+                      friendsOnly
+                          ? 'Only friends can contact me anytime'
+                          : 'Strangers can also chat with me directly',
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12, color: fg),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Icon(
+                  Icons.expand_more_rounded,
+                  size: 16,
+                  color: fg.withOpacity(0.8),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// 聊天对象选择弹窗：底部弹出，两个单选（仅好友 / 允许陌生人）。
+  Future<void> _showAudiencePicker(BuildContext context) async {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final access = DirectChatAccessController.instance;
+    final selected = await showModalBottomSheet<DirectChatAudience>(
+      context: context,
+      backgroundColor: dark ? const Color(0xFF1F1F1F) : Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text(
+                translate('Who can chat with me'),
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: dark ? Colors.white : const Color(0xFF1F1F1F),
+                ),
+              ),
+            ),
+            _audienceOption(
+              context,
+              value: DirectChatAudience.friendsOnly,
+              group: access.audience,
+              icon: Icons.lock_outline_rounded,
+              label: translate('Only friends can contact me anytime'),
+            ),
+            _audienceOption(
+              context,
+              value: DirectChatAudience.everyone,
+              group: access.audience,
+              icon: Icons.people_alt_outlined,
+              label: translate('Strangers can also chat with me directly'),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (selected != null && selected != access.audience) {
+      await access.setAudience(selected);
+    }
+  }
+
+  Widget _audienceOption(
+    BuildContext context, {
+    required DirectChatAudience value,
+    required DirectChatAudience group,
+    required IconData icon,
+    required String label,
+  }) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final selected = value == group;
+    return ListTile(
+      leading: Icon(
+        icon,
+        size: 22,
+        color: selected
+            ? MyTheme.accent
+            : (dark ? Colors.white54 : const Color(0xFF8A8D94)),
+      ),
+      title: Text(
+        label,
+        style: TextStyle(
+          fontSize: 14,
+          color: dark ? Colors.white : const Color(0xFF1F1F1F),
+        ),
+      ),
+      trailing: selected
+          ? Icon(Icons.check_circle_rounded, size: 20, color: MyTheme.accent)
+          : null,
+      onTap: () => Navigator.of(context).pop(value),
     );
   }
 
@@ -1554,12 +1695,9 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
   }
 
-  /// AppBar 标题：点聊 tab 的标题与底部导航重复，隐藏标题（在线状态在左侧，见 appLeading）；
-  /// 其余 tab 标题保持居中。
+  /// AppBar 标题：所有 tab 保持一致，标题居中显示在标题栏内
+  /// （在线状态在左侧，见 appLeading）。
   Widget appTitle() {
-    if (_selectedIndex == _chatPageTabIndex) {
-      return const SizedBox.shrink();
-    }
     final title = _pages.elementAt(_selectedIndex).title;
     return Text(
       title,
