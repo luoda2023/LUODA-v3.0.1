@@ -4984,14 +4984,20 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     // 剪刀右侧下拉箭头设置的“隐藏本窗口/不隐藏”偏好。
     final hideWindow =
         bind.mainGetLocalOption(key: 'screenshot_hide_window') != '0';
-    var windowHidden = false;
+    // 截图前把主窗口移出屏幕（而不是 hide），截图后移回原位。
+    // 之前用 windowManager.hide() 在部分机器上恢复失败，导致整个应用
+    // 从屏幕上消失（用户反馈“不能截图”的直接根因之一）。移出屏幕是
+    // 纯位置操作，即使截图异常中断窗口也仍在任务栏/屏幕外，恢复可靠。
+    Offset? savedPos;
+    var windowMoved = false;
     if (hideWindow) {
       try {
-        await windowManager.hide();
-        windowHidden = true;
-        await Future<void>.delayed(const Duration(milliseconds: 280));
+        savedPos = await windowManager.getPosition();
+        await windowManager.setPosition(const Offset(-32000, -32000));
+        windowMoved = true;
+        await Future<void>.delayed(const Duration(milliseconds: 360));
       } catch (_) {
-        windowHidden = false;
+        windowMoved = false;
       }
     }
     String? path;
@@ -5006,9 +5012,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     } finally {
       // Restore the window BEFORE showing the annotation overlay so the
       // editor is visible.
-      if (windowHidden) {
+      if (windowMoved && savedPos != null) {
         try {
-          await windowManager.restore();
+          await windowManager.setPosition(savedPos);
           await windowManager.show();
           await windowManager.focus();
         } catch (_) {}
