@@ -958,6 +958,8 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Back to chat", "返回对话"),
         ("Clipboard", "剪贴板"),
         ("Screenshot", "截图"),
+        ("Send location", "发送位置"),
+        ("My location", "我的位置"),
         ("Screenshot annotator", "截图标注"),
         ("Add text", "添加文字"),
         ("Enter text…", "输入文字…"),

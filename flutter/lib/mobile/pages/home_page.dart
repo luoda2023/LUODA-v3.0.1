@@ -19,6 +19,7 @@ import '../../common/direct_chat.dart';
 import '../../common/direct_pairing.dart';
 import '../../common/widgets/chat_page.dart';
 import '../../common/widgets/direct_connection_details.dart';
+import '../../common/widgets/location_picker_page.dart';
 import '../../common/widgets/meeting_group_panel.dart';
 import '../../common/widgets/online_status_text.dart';
 import '../../models/chat_model.dart';
@@ -903,7 +904,7 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  /// 发送当前定位（geolocator 获取坐标，发送为可点击的定位卡片消息）。
+  /// 微信风格发送定位：先打开地图显示“我的位置”，用户确认/选点后发送。
   Future<void> _sendLocation() async {
     if (!_directChatConnected()) {
       showToast(translate('Connect to the contact before sending files.'));
@@ -934,12 +935,21 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (mounted) showToast(translate('Failed to get location'));
       return;
     }
-    if (!mounted) return;
-    // 走到这里说明定位成功（失败分支都已 return），position 必然非空。
+    if (!mounted || position == null) return;
+    // 打开地图选点页（微信风格），用户确认后拿到 GCJ-02 坐标再发送。
+    final picked = await Navigator.of(context).push<PickedLocation>(
+      MaterialPageRoute<PickedLocation>(
+        builder: (_) => LocationPickerPage(
+          gpsLat: position!.latitude,
+          gpsLng: position!.longitude,
+        ),
+      ),
+    );
+    if (picked == null || !mounted) return;
     gFFI.chatModel.sendText(
       DirectChatLocation(
-        latitude: position.latitude,
-        longitude: position.longitude,
+        latitude: picked.latitude,
+        longitude: picked.longitude,
         name: translate('My Location'),
       ).encode(),
     );

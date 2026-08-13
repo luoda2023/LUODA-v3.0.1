@@ -345,6 +345,8 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
 
 ("Invite code", "Invite code"),
         ("Screenshot", "Screenshot"),
+        ("Send location", "Send location"),
+        ("My location", "My location"),
         ("Screenshot annotator", "Screenshot annotator"),
         ("Add text", "Add text"),
         ("Enter text…", "Enter text…"),
