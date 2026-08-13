@@ -4673,28 +4673,26 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     await _startDirectChat(peerId, activate: false);
     final chatFfi = _directChatSessionFor(peerId);
     final incoming = _incomingDirectChatClientFor(peerId);
-    if ((chatFfi == null || chatFfi.closed) && incoming == null) {
-      _showConversationNotice(
-        translate('Unable to connect to forwarding target.'),
-        tone: _WorkspaceNoticeTone.error,
-      );
-      return;
-    }
+    final hasSession =
+        (chatFfi != null && !chatFfi.closed) || incoming != null;
 
     final chatModel =
         chatFfi != null && !chatFfi.closed ? chatFfi.chatModel : gFFI.chatModel;
-    chatModel.changeCurrentKey(
-      MessageKey(
-        peerId,
-        chatFfi != null && !chatFfi.closed
-            ? ChatModel.clientModeID
-            : incoming!.id,
-      ),
-    );
+    if (hasSession) {
+      chatModel.changeCurrentKey(
+        MessageKey(
+          peerId,
+          chatFfi != null && !chatFfi.closed
+              ? ChatModel.clientModeID
+              : incoming!.id,
+        ),
+      );
+    }
 
     final transferFiles = files
         .where((file) => !canInlineDirectChatFile(file.size))
         .toList(growable: false);
+    // 小文件/图片走消息队列：对方离线时自动排队，连接建立后补发。
     for (final file in files.where(
       (file) => canInlineDirectChatFile(file.size),
     )) {
@@ -4705,6 +4703,14 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       );
     }
     if (transferFiles.isNotEmpty) {
+      // 超大文件需要独立文件传输会话（双向分块协议），要求对方在线。
+      if (!hasSession) {
+        _showConversationNotice(
+          translate('Large file needs an active connection first'),
+          tone: _WorkspaceNoticeTone.warning,
+        );
+        return;
+      }
       final ffi = await _ensureDirectFileSession(peerId);
       if (ffi == null || !mounted) return;
       final items = SelectedItems(isLocal: true);
@@ -5080,14 +5086,18 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     await _startDirectChat(peerId, activate: false);
     final chatFfi = _directChatSessionFor(peerId);
     final incoming = _incomingDirectChatClientFor(peerId);
-    if ((chatFfi == null || chatFfi.closed) && incoming == null) {
-      _showConversationNotice(
-        translate('Unable to connect to forwarding target.'),
-        tone: _WorkspaceNoticeTone.error,
-      );
-      return;
-    }
+    final hasSession =
+        (chatFfi != null && !chatFfi.closed) || incoming != null;
+    // 对方离线也允许发送：小图片走消息队列（离线自动排队，连接后补发）。
+    // 仅超大图片（需独立文件传输会话）要求对方在线。
     if (!canInlineDirectChatFile(size)) {
+      if (!hasSession) {
+        _showConversationNotice(
+          translate('Large file needs an active connection first'),
+          tone: _WorkspaceNoticeTone.warning,
+        );
+        return;
+      }
       final ffi = await _ensureDirectFileSession(peerId);
       if (ffi == null || !mounted) return;
       final items = SelectedItems(isLocal: true);
@@ -5104,21 +5114,23 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     }
     final chatModel =
         chatFfi != null && !chatFfi.closed ? chatFfi.chatModel : gFFI.chatModel;
-    chatModel.changeCurrentKey(
-      MessageKey(
-        peerId,
-        chatFfi != null && !chatFfi.closed
-            ? ChatModel.clientModeID
-            : incoming!.id,
-      ),
-    );
+    if (hasSession) {
+      chatModel.changeCurrentKey(
+        MessageKey(
+          peerId,
+          chatFfi != null && !chatFfi.closed
+              ? ChatModel.clientModeID
+              : incoming!.id,
+        ),
+      );
+    }
     await chatModel.sendFileRecord(
       fileName: name,
       fileSize: size,
       localPath: path,
     );
     _showConversationNotice(
-      translate('Image sent.'),
+      translate(hasSession ? 'Image sent.' : 'Image queued for offline send'),
       tone: _WorkspaceNoticeTone.success,
     );
   }

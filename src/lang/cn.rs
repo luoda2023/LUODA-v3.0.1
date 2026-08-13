@@ -1064,6 +1064,8 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Meeting management", "会议管理"),
         ("Add member", "添加成员"),
         ("Peer ID / ID / IP", "设备ID / ID / IP"),
+        ("Large file needs an active connection first", "大文件需要对方在线时发送"),
+        ("Image queued for offline send", "图片已排队，对方上线后自动发送"),
         ("Message info", "消息详情"),
         ("Forward", "转发"),
         ("Forward messages", "转发消息"),

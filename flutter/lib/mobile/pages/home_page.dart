@@ -887,24 +887,8 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _sendDirectChatFiles() async {
     final currentKey = gFFI.chatModel.currentKey;
     final peerId = currentKey.peerId.trim();
-    final connected = currentKey.isOut
-        ? gFFI.connType == ConnType.chat &&
-            isDirectChatSessionReady(
-              closed: gFFI.closed,
-              peerInfoReady: gFFI.ffiModel.pi.isSet.isTrue,
-              connectionError: gFFI.ffiModel.lastConnectionError,
-            )
-        : gFFI.serverModel.clients.any(
-            (client) =>
-                client.id == currentKey.connId &&
-                client.authorized &&
-                client.isChat &&
-                !client.disconnected,
-          );
-    if (peerId.isEmpty || !connected) {
-      showToast(translate('Connect to the contact before sending files.'));
-      return;
-    }
+    // 不再要求已连接：小文件/图片走消息队列，对方离线时自动排队补发。
+    if (peerId.isEmpty) return;
 
     final picked = await FilePicker.platform.pickFiles(allowMultiple: true);
     final files = picked?.files.where((file) => file.path != null).toList() ??
@@ -916,24 +900,9 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _sendPickedFiles(List<PlatformFile> files) async {
     final currentKey = gFFI.chatModel.currentKey;
     final peerId = currentKey.peerId.trim();
-    final connected = currentKey.isOut
-        ? gFFI.connType == ConnType.chat &&
-            isDirectChatSessionReady(
-              closed: gFFI.closed,
-              peerInfoReady: gFFI.ffiModel.pi.isSet.isTrue,
-              connectionError: gFFI.ffiModel.lastConnectionError,
-            )
-        : gFFI.serverModel.clients.any(
-            (client) =>
-                client.id == currentKey.connId &&
-                client.authorized &&
-                client.isChat &&
-                !client.disconnected,
-          );
-    if (peerId.isEmpty || !connected) {
-      showToast(translate('Connect to the contact before sending files.'));
-      return;
-    }
+    // 不再要求已连接：小文件/图片走消息队列，对方离线时自动排队补发；
+    // 只有超大文件（需独立文件传输会话）才要求在线。
+    if (peerId.isEmpty) return;
     // File size guard: reject individual files > 500 MB or total > 2 GB
     const kMaxSingleFileBytes = 500 * 1024 * 1024;
     const kMaxTotalBytes = 2 * 1024 * 1024 * 1024;
@@ -1018,11 +987,8 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   /// 拍照并直接发送（image_picker 调起系统相机）。
+  /// 对方离线时照片仍可发送：消息进入待发队列，连接建立后自动补发。
   Future<void> _takePhoto() async {
-    if (!_directChatConnected()) {
-      showToast(translate('Connect to the contact before sending files.'));
-      return;
-    }
     XFile? shot;
     try {
       shot = await ImagePicker().pickImage(
@@ -1051,11 +1017,8 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   /// 微信风格发送定位：先打开地图显示“我的位置”，用户确认/选点后发送。
+  /// 对方离线时定位消息进入待发队列，连接建立后自动补发。
   Future<void> _sendLocation() async {
-    if (!_directChatConnected()) {
-      showToast(translate('Connect to the contact before sending files.'));
-      return;
-    }
     Position? position;
     try {
       if (!await Geolocator.isLocationServiceEnabled()) {

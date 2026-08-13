@@ -430,6 +430,8 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Meeting management", "Meeting management"),
         ("Add member", "Add member"),
         ("Peer ID / ID / IP", "Peer ID / ID / IP"),
+        ("Large file needs an active connection first", "Large file needs an active connection first"),
+        ("Image queued for offline send", "Image queued for offline send"),
         ("Message info", "Message info"),
         ("Forward", "Forward"),
         ("Forward messages", "Forward messages"),
