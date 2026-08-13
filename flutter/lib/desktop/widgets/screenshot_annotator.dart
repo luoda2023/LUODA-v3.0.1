@@ -15,6 +15,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:luoda_flutter/common.dart';
 import 'package:path_provider/path_provider.dart';
 
 /// Shows the annotation overlay and returns the path of the composed PNG,
@@ -26,7 +27,7 @@ Future<String?> showScreenshotAnnotator(
   return showGeneralDialog<String>(
     context: context,
     barrierDismissible: false,
-    barrierLabel: 'Screenshot annotator',
+    barrierLabel: translate('Screenshot annotator'),
     barrierColor: Colors.black,
     transitionDuration: const Duration(milliseconds: 120),
     pageBuilder: (dialogContext, animation, secondaryAnimation) {
@@ -335,23 +336,23 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('Add text'),
+          title: Text(translate('Add text')),
           content: TextField(
             controller: controller,
             autofocus: true,
             maxLength: 120,
-            decoration: const InputDecoration(hintText: 'Enter text…'),
+            decoration: InputDecoration(hintText: translate('Enter text…')),
             onSubmitted: (value) => Navigator.of(dialogContext).pop(value),
           ),
           actions: <Widget>[
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel'),
+              child: Text(translate('Cancel')),
             ),
             FilledButton(
               onPressed: () =>
                   Navigator.of(dialogContext).pop(controller.text),
-              child: const Text('OK'),
+              child: Text(translate('OK')),
             ),
           ],
         );
@@ -696,7 +697,7 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
                                     color: Colors.black54,
                                     shape: const CircleBorder(),
                                     child: IconButton(
-                                      tooltip: 'Cancel',
+                                      tooltip: translate('Cancel'),
                                       onPressed: _compositing
                                           ? null
                                           : () =>
@@ -741,13 +742,13 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
               size: 56, color: Colors.white54),
           const SizedBox(height: 14),
           Text(
-            'Failed to decode the captured screen.',
+            translate('Failed to decode the captured screen.'),
             style: theme.textTheme.bodyMedium?.copyWith(color: Colors.white70),
           ),
           const SizedBox(height: 18),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Close'),
+            child: Text(translate('Close')),
           ),
         ],
       ),
@@ -792,14 +793,19 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
         spacing: 6,
         runSpacing: 4,
         children: <Widget>[
-          toolButton(_ShotTool.rect, Icons.crop_square_rounded, 'Rectangle'),
-          toolButton(_ShotTool.ellipse, Icons.circle_outlined, 'Ellipse'),
-          toolButton(_ShotTool.arrow, Icons.north_east_rounded, 'Arrow'),
-          toolButton(_ShotTool.pen, Icons.edit_rounded, 'Pen'),
-          toolButton(_ShotTool.text, Icons.text_fields_rounded, 'Text'),
-          toolButton(_ShotTool.mosaic, Icons.grid_view_rounded, 'Mosaic'),
+          toolButton(_ShotTool.rect, Icons.crop_square_rounded,
+              translate('Rectangle')),
+          toolButton(_ShotTool.ellipse, Icons.circle_outlined,
+              translate('Ellipse')),
+          toolButton(_ShotTool.arrow, Icons.north_east_rounded,
+              translate('Arrow')),
+          toolButton(_ShotTool.pen, Icons.edit_rounded, translate('Pen')),
+          toolButton(_ShotTool.text, Icons.text_fields_rounded,
+              translate('Text')),
+          toolButton(_ShotTool.mosaic, Icons.grid_view_rounded,
+              translate('Mosaic')),
           toolButton(_ShotTool.highlight, Icons.border_color_rounded,
-              'Highlight'),
+              translate('Highlight')),
           Container(
             width: 1,
             height: 26,
@@ -831,7 +837,7 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
             color: Colors.black12,
           ),
           IconButton(
-            tooltip: 'Undo',
+            tooltip: translate('Undo'),
             visualDensity: VisualDensity.compact,
             onPressed: _marks.isEmpty
                 ? null
@@ -839,7 +845,7 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
             icon: const Icon(Icons.undo_rounded, size: 22),
           ),
           IconButton(
-            tooltip: 'Redo selection',
+            tooltip: translate('Redo selection'),
             visualDensity: VisualDensity.compact,
             onPressed: _resetSelection,
             icon: const Icon(Icons.crop_free_rounded, size: 22),
@@ -855,7 +861,7 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
                     }
                   },
             icon: const Icon(Icons.check_rounded, size: 18),
-            label: const Text('Save'),
+            label: Text(translate('Save')),
             style: FilledButton.styleFrom(
               backgroundColor: const Color(0xFF07C160),
               foregroundColor: Colors.white,
