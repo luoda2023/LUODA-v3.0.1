@@ -310,6 +310,73 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
     await gFFI.chatModel.flushPendingOutgoing(peerId);
   }
 
+  /// 从会议群聊标题栏加入实时远程会话（观看演示/教学）。
+  void _joinMeetingSessionFromChat(MeetingGroup group) {
+    if (!group.hasActiveSession || group.activeSessionEndpoint.isEmpty) {
+      showToast(translate('No active session yet'));
+      return;
+    }
+    connect(context, group.activeSessionEndpoint,
+        isFileTransfer: false, isViewCamera: false, isTerminal: false);
+  }
+
+  /// 会议群聊标题栏直接添加成员（群主入口）。
+  Future<void> _showMobileAddMemberDialog(
+    BuildContext dialogContext,
+    MeetingGroup group,
+  ) async {
+    final theme = Theme.of(dialogContext);
+    final controller = TextEditingController();
+    final peerId = await showDialog<String>(
+      context: dialogContext,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: theme.colorScheme.surface,
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(translate('Add member')),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: InputDecoration(
+            hintText: translate('Peer ID / ID / IP'),
+            border: const OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(translate('Cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: Text(translate('Add')),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (peerId == null || peerId.isEmpty || !mounted) return;
+    final trimmed = peerId.replaceAll(' ', '');
+    if (trimmed == group.hostPeerId || trimmed == gFFI.serverModel.id) {
+      showToast(translate('Already a member'));
+      return;
+    }
+    if ((group.members ?? []).any((m) => m.peerId == trimmed)) {
+      showToast(translate('Already a member'));
+      return;
+    }
+    final peer = gFFI.recentPeersModel.peers
+        .firstWhereOrNull((p) => p.id == trimmed);
+    final displayName = peer?.alias.isNotEmpty == true
+        ? peer!.alias
+        : peer?.username.isNotEmpty == true
+            ? peer!.username
+            : trimmed;
+    MeetingGroupStore.addMember(group.meetingId, trimmed, displayName);
+    if (mounted) setState(() {});
+    showToast('$displayName ${translate('joined the group')}');
+  }
+
   void _openConversation(MessageKey key) {
     gFFI.chatModel.changeCurrentKey(key);
     gFFI.chatModel.mobileClearClientUnread(key.connId);
@@ -419,6 +486,22 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     ),
                   ),
                   actions: [
+                    if (meetingGroup != null) ...<Widget>[
+                      if (meetingGroup.hasActiveSession)
+                        IconButton(
+                          icon: const Icon(Icons.sensors_rounded),
+                          tooltip: translate('Join live session'),
+                          onPressed: () =>
+                              _joinMeetingSessionFromChat(meetingGroup),
+                        ),
+                      if (meetingGroup.isHost)
+                        IconButton(
+                          icon: const Icon(Icons.person_add_alt_1_rounded),
+                          tooltip: translate('Add member'),
+                          onPressed: () =>
+                              _showMobileAddMemberDialog(context, meetingGroup),
+                        ),
+                    ],
                     IconButton(
                       icon: const Icon(Icons.search_rounded),
                       tooltip: translate('Search Messages'),
