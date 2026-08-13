@@ -1714,25 +1714,25 @@ class ChatPage extends StatelessWidget implements PageShape {
         );
       },
       child: Container(
-        width: 220,
+        width: 232,
         clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(8),
+          // 微信位置卡片无阴影；保留一条极淡边框，避免在
+          // #F7F7F7 浅色画布上白色卡片看不清边界。
           border: Border.all(
-            color: dark ? const Color(0xFF3A3D43) : const Color(0xFFE2E2E2),
+            color: dark ? const Color(0xFF3A3D43) : const Color(0xFFE8E8E8),
+            width: 0.6,
           ),
-          boxShadow: const <BoxShadow>[
-            BoxShadow(color: Colors.black12, blurRadius: 4),
-          ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             SizedBox(
-              width: 220,
-              height: 96,
+              width: 232,
+              height: 112,
               child: flutter_map.FlutterMap(
                 options: flutter_map.MapOptions(
                   initialCenter: latlong2.LatLng(loc.latitude, loc.longitude),
@@ -1768,7 +1768,7 @@ class ChatPage extends StatelessWidget implements PageShape {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(10, 8, 10, 9),
+              padding: const EdgeInsets.fromLTRB(12, 9, 12, 10),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
@@ -1779,18 +1779,18 @@ class ChatPage extends StatelessWidget implements PageShape {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontWeight: FontWeight.w600,
-                      fontSize: 13,
+                      fontSize: 14,
                       color: dark ? const Color(0xFFEDEDED) : const Color(0xFF222222),
                     ),
                   ),
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 3),
                   Text(
                     subtitle,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      fontSize: 10,
-                      color: dark ? const Color(0xFF9A9DA3) : const Color(0xFF888888),
+                      fontSize: 11,
+                      color: dark ? const Color(0xFF9A9DA3) : const Color(0xFF8A8A8A),
                     ),
                   ),
                 ],
@@ -2659,6 +2659,10 @@ class ChatPage extends StatelessWidget implements PageShape {
               final isAiReply = !isOwnMessage &&
                   (message.customProperties?['ldesk_ai_reply'] == 'true' ||
                       message.customProperties?['ldesk_ai_loading'] == 'true');
+              // 位置消息与图片/文件一致：不套聊天气泡，直接渲染独立卡片
+              // （微信风格：位置卡片没有气泡背景）。
+              final isLocationMessage = message.text.isNotEmpty &&
+                  DirectChatLocation.tryParse(message.text) != null;
               final attachmentBubbleColor =
                   dark ? const Color(0xFF2B2D32) : const Color(0xFFF1F1F1);
               final bubbleColor = isFileAttachment
@@ -2680,7 +2684,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                 isOwnMessage: isOwnMessage,
                 includeMetadata: false,
               );
-              final bubble = isImageAttachment
+              final bubble = isImageAttachment || isLocationMessage
                   ? ConstrainedBox(
                       constraints: BoxConstraints(maxWidth: maxBubbleWidth),
                       child: content,
