@@ -30,6 +30,7 @@ import 'package:luoda_flutter/mobile/pages/bt_chat_page.dart';
 import 'package:luoda_flutter/models/chat_model.dart';
 import 'package:luoda_flutter/models/meeting_group_model.dart';
 import 'package:luoda_flutter/common/widgets/meeting_group_panel.dart';
+import 'package:luoda_flutter/common/widgets/meeting_members_dialog.dart';
 import 'package:luoda_flutter/models/contact_category_model.dart';
 import 'package:luoda_flutter/models/file_model.dart';
 import 'package:luoda_flutter/models/model.dart';
@@ -249,6 +250,24 @@ class _ChatPersonGroup {
   final String key;
   final List<MapEntry<MessageKey, MessageBody>> conversations =
       <MapEntry<MessageKey, MessageBody>>[];
+
+  /// 组内最新一条消息的时间，用于统一列表按时间排序。
+  DateTime get lastMessageTime {
+    var latest = DateTime.fromMillisecondsSinceEpoch(0);
+    for (final entry in conversations) {
+      final t = _latestConversationTime(entry);
+      if (t.isAfter(latest)) latest = t;
+    }
+    return latest;
+  }
+}
+
+DateTime _latestConversationTime(MapEntry<MessageKey, MessageBody> entry) {
+  final messages = entry.value.chatMessages;
+  if (messages.isEmpty) return DateTime.fromMillisecondsSinceEpoch(0);
+  return messages
+      .map((message) => message.createdAt)
+      .reduce((latest, value) => value.isAfter(latest) ? value : latest);
 }
 
 class _DesktopHomePageState extends State<DesktopHomePage>
@@ -686,12 +705,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         selectedIcon: Icons.chat_bubble_rounded,
       ),
       DesktopRailDestination(
-        id: 'meeting',
-        label: 'Remote meeting',
-        icon: Icons.videocam_outlined,
-        selectedIcon: Icons.videocam_rounded,
-      ),
-      DesktopRailDestination(
         id: 'recent',
         label: 'Recent sessions',
         icon: Icons.history_rounded,
@@ -736,7 +749,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   Future<void> _selectSection(String section) async {
     const sections = <String>{
       'chat',
-      'meeting',
       'recent',
       'favorites',
       'discovered',
@@ -765,7 +777,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final dark = theme.brightness == Brightness.dark;
     final sectionTitle = switch (_selectedRailId) {
       'chat' => translate('Messages'),
-      'meeting' => translate('Remote meeting'),
       'recent' => translate('Recent sessions'),
       'favorites' => translate('Favorites'),
       'discovered' => translate('LAN discovery'),
@@ -795,9 +806,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                       decoration: InputDecoration(
                         hintText: _selectedRailId == 'chat'
                             ? translate('Search conversations')
-                            : _selectedRailId == 'meeting'
-                                ? translate('Search meetings')
-                                : translate('Search'),
+                            : translate('Search'),
                         prefixIcon: const Icon(Icons.search_rounded, size: 18),
                         filled: true,
                         fillColor:
@@ -846,6 +855,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                       case 'create-meeting':
                         _showCreateMeetingDialog(context);
                         return;
+                      case 'join-meeting':
+                        _joinMeetingByCode();
+                        return;
                     }
                   },
                   itemBuilder: (context) => <PopupMenuEntry<String>>[
@@ -870,11 +882,16 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                       child: Text(translate('Bluetooth scan')),
                     ),
                     if (_selectedRailId == 'chat' ||
-                        _selectedRailId == 'contacts' ||
-                        _selectedRailId == 'meeting')
+                        _selectedRailId == 'contacts')
                       PopupMenuItem<String>(
                         value: 'create-meeting',
                         child: Text(translate('Create Meeting')),
+                      ),
+                    if (_selectedRailId == 'chat' ||
+                        _selectedRailId == 'contacts')
+                      PopupMenuItem<String>(
+                        value: 'join-meeting',
+                        child: Text(translate('Join meeting')),
                       ),
                   ],
                 ),
@@ -896,9 +913,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 Icon(
                   _selectedRailId == 'chat'
                       ? Icons.format_list_bulleted_rounded
-                      : _selectedRailId == 'meeting'
-                          ? Icons.videocam_outlined
-                          : Icons.contacts_outlined,
+                      : Icons.contacts_outlined,
                   size: 19,
                   color: theme.colorScheme.onSurface.withOpacity(0.56),
                 ),
@@ -970,7 +985,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                       _contactSelectionMode = false;
                     }),
                   ),
-                ] else if (_selectedRailId != 'meeting')
+                ] else
                   IconButton(
                     tooltip: translate('Select multiple'),
                     icon: const Icon(Icons.checklist_rounded, size: 20),
@@ -1650,6 +1665,12 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     required bool canStartDirectSession,
   }) {
     final theme = Theme.of(context);
+    // 会议群聊（meeting:xxx）：标题栏显示成员入口，点击打开成员查询窗口。
+    final isMeetingChat = peerId.startsWith('meeting:');
+    final meetingGroup = isMeetingChat
+        ? MeetingGroupStore.find(peerId.substring('meeting:'.length))
+        : null;
+    final meetingMemberCount = (meetingGroup?.members?.length ?? 0) + 1;
     final status = _directDeliveryStatus(peerId, contact: _selectedContact);
     final routeLabel = peerId.isEmpty ? '' : directConnectionRouteLabel(peerId);
     final avatar =
@@ -1657,6 +1678,20 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final initial = title.trim().isEmpty ? '#' : title.trim()[0].toUpperCase();
     void showDetails() {
       if (peerId.isEmpty) return;
+      if (meetingGroup != null) {
+        unawaited(
+          showMeetingMembersDialog(context, meetingGroup).then((dissolved) {
+            if (dissolved == true && mounted) {
+              setState(() {
+                _selectedConversationPeerId = null;
+                _selectedContact = null;
+                _activeDirectChatPeerId = null;
+              });
+            }
+          }),
+        );
+        return;
+      }
       unawaited(showDirectConnectionDetails(
         context,
         conversationId: peerId,
@@ -1710,7 +1745,25 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                     ),
                                   ),
                                 ),
-                                if (peerId.isNotEmpty) ...<Widget>[
+                                if (isMeetingChat && meetingGroup != null) ...<Widget>[
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 7, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: MyTheme.primarySoft,
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      '${translate('Group chat')} ($meetingMemberCount)',
+                                      style: const TextStyle(
+                                        fontSize: 10,
+                                        color: MyTheme.primary,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                ] else if (peerId.isNotEmpty) ...<Widget>[
                                   const SizedBox(width: 10),
                                   Container(
                                     width: 5,
@@ -1739,14 +1792,20 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                   mainAxisSize: MainAxisSize.min,
                                   children: <Widget>[
                                     Icon(
-                                      Icons.hub_outlined,
+                                      isMeetingChat
+                                          ? Icons.groups_rounded
+                                          : Icons.hub_outlined,
                                       size: 12,
                                       color: theme.colorScheme.primary,
                                     ),
                                     const SizedBox(width: 4),
                                     Flexible(
                                       child: Text(
-                                        routeLabel,
+                                        isMeetingChat
+                                            ? '${translate('Group chat')} · '
+                                                '${translate('Host')}: '
+                                                '${meetingGroup?.hostDisplayName.isNotEmpty == true ? meetingGroup!.hostDisplayName : ''}'
+                                            : routeLabel,
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                         style: theme.textTheme.labelSmall
@@ -2126,9 +2185,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     if (_selectedRailId == 'chat') {
       return _buildConversationList(context);
     }
-    if (_selectedRailId == 'meeting') {
-      return _buildMeetingSection(context);
-    }
     final model = _contactModelFor(_selectedRailId);
     return AnimatedBuilder(
       animation: Listenable.merge(<Listenable>[
@@ -2277,150 +2333,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         );
       },
     );
-  }
-
-  Widget _buildMeetingSection(BuildContext context) {
-    final theme = Theme.of(context);
-    final dark = theme.brightness == Brightness.dark;
-    return Obx(() {
-      final meetings = MeetingGroupStore.all.toList()
-        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-      final query = _contactQuery.value.trim().toLowerCase();
-      final visible = query.isEmpty
-          ? meetings
-          : meetings
-              .where((m) =>
-                  m.title.toLowerCase().contains(query) ||
-                  m.meetingId.toLowerCase().contains(query) ||
-                  m.inviteShortCode.toLowerCase().contains(query))
-              .toList();
-      final accent = const Color(0xFF07C160);
-      if (visible.isEmpty) {
-        return Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Icon(Icons.videocam_outlined,
-                    size: 48,
-                    color: theme.colorScheme.onSurface.withOpacity(0.2)),
-                const SizedBox(height: 12),
-                Text(
-                  translate('No meetings yet'),
-                  style: theme.textTheme.titleSmall
-                      ?.copyWith(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  translate('Start a meeting to teach or share your screen'),
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurface.withOpacity(0.5)),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    FilledButton.icon(
-                      onPressed: () => _showCreateMeetingDialog(context),
-                      icon: const Icon(Icons.video_call_rounded, size: 18),
-                      label: Text(translate('Start meeting')),
-                    ),
-                    const SizedBox(width: 10),
-                    OutlinedButton.icon(
-                      onPressed: _joinMeetingByCode,
-                      icon: const Icon(Icons.login_rounded, size: 18),
-                      label: Text(translate('Join meeting')),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      }
-      return ListView.separated(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        itemCount: visible.length,
-        separatorBuilder: (_, __) => Divider(
-            height: 1,
-            indent: 56,
-            color: dark ? const Color(0xFF3A3D43) : const Color(0xFFE5E5E7)),
-        itemBuilder: (context, index) {
-          final meeting = visible[index];
-          final memberCount = (meeting.members?.length ?? 0) + 1;
-          final when = _formatMeetingTime(meeting.createdAt);
-          return InkWell(
-            onTap: () => _showMeetingGroupSettings(context, meeting),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              child: Row(
-                children: <Widget>[
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: accent.withOpacity(dark ? 0.18 : 0.12),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child:
-                        Icon(Icons.videocam_rounded, color: accent, size: 22),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        Text(
-                          meeting.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodyMedium
-                              ?.copyWith(fontWeight: FontWeight.w600),
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          '${meeting.hostDisplayName.isNotEmpty ? meeting.hostDisplayName : translate('Host')} ? $when',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                              color:
-                                  theme.colorScheme.onSurface.withOpacity(0.5)),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  if (meeting.hasActiveSession)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFA5151),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Text(
-                        translate('Live'),
-                        style: const TextStyle(
-                            fontSize: 11,
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600),
-                      ),
-                    )
-                  else
-                    Text(
-                      memberCount > 0 ? '$memberCount' : translate('Empty'),
-                      style: theme.textTheme.labelSmall?.copyWith(
-                          color: theme.colorScheme.onSurface.withOpacity(0.5)),
-                    ),
-                ],
-              ),
-            ),
-          );
-        },
-      );
-    });
   }
 
   String _formatMeetingTime(DateTime time) {
@@ -2769,29 +2681,31 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           rows.add(MapEntry<MessageKey, MessageBody>(
               gFFI.chatModel.fileHelperKey, fileHelperRow));
         }
-        if (meetingEntries.isNotEmpty) {
-          rows.add(_PeopleGroupHeader('Meeting', meetingEntries.length));
-          rows.addAll(meetingEntries);
-        }
-        void addConversationGroup(String label, bool friends) {
-          final grouped = chatGroupList
-              .where(
-                (group) => _directChatAccess.isFriend(group.key) == friends,
-              )
-              .toList(growable: false);
-          if (grouped.isEmpty) return;
-          rows.add(_PeopleGroupHeader(label, grouped.length));
-          for (final group in grouped) {
-            if (group.conversations.length == 1) {
-              rows.add(group.conversations.first);
-            } else {
-              rows.add(group);
-            }
+        // 会议与普通会话合并为一个统一列表（微信风格：群聊/会议与会话混排，
+        // 不再单独分组显示），统一按最近活动时间排序。
+        final unified = <Object>[];
+        for (final group in chatGroupList) {
+          if (group.conversations.length == 1) {
+            unified.add(group.conversations.first);
+          } else {
+            unified.add(group);
           }
         }
-
-        addConversationGroup('Friends', true);
-        addConversationGroup('Strangers', false);
+        unified.addAll(meetingEntries);
+        unified.sort((a, b) {
+          final ta = a is MapEntry<MessageKey, MessageBody>
+              ? _conversationTime(a as MapEntry<MessageKey, MessageBody>)
+              : a is _ChatPersonGroup
+                  ? (a as _ChatPersonGroup).lastMessageTime
+                  : (a as MeetingGroup).createdAt;
+          final tb = b is MapEntry<MessageKey, MessageBody>
+              ? _conversationTime(b as MapEntry<MessageKey, MessageBody>)
+              : b is _ChatPersonGroup
+                  ? (b as _ChatPersonGroup).lastMessageTime
+                  : (b as MeetingGroup).createdAt;
+          return tb.compareTo(ta);
+        });
+        rows.addAll(unified);
         if (rows.isEmpty) {
           return Center(
             child: Padding(
@@ -2831,7 +2745,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             endIndent: 12,
             color: Theme.of(context).brightness == Brightness.dark
                 ? const Color(0xFF3A3D43)
-                : kWeChatDividerColor.withOpacity(0.5),
+                : const Color(0xFFE5E5E7),
           ),
           itemBuilder: (context, index) {
             final row = rows[index];
@@ -4175,7 +4089,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           await gFFI.abModel.pullAb(force: null, quiet: true);
           break;
         case 'vip':
-        case 'meeting':
           break;
         case 'chat':
         case 'recent':
