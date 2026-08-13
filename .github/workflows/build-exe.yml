@@ -390,24 +390,8 @@ jobs:
             # window cannot be created there. Detect headless mode and downgrade
             # the window check; the core assertions (process survives, no
             # duplicate instance, no file overwrite) still run everywhere.
-            $hasInteractiveDesktop = $false
-            try {
-              Add-Type -TypeDefinition @'
-              using System;
-              using System.Runtime.InteropServices;
-              public static class LDeskDesktopProbe {
-                [DllImport("user32.dll")]
-                public static extern IntPtr GetProcessWindowStation();
-                [DllImport("user32.dll")]
-                public static extern IntPtr GetThreadDesktop(uint dwThreadId);
-              }
-'@
-              $station = [LDeskDesktopProbe]::GetProcessWindowStation()
-              $desktop = [LDeskDesktopProbe]::GetThreadDesktop([uint32][Threading.Thread]::CurrentThread.ManagedThreadId)
-              $hasInteractiveDesktop = ($station -ne [IntPtr]::Zero) -and ($desktop -ne [IntPtr]::Zero) -and $env:SESSIONNAME -eq 'Console'
-            } catch {
-              $hasInteractiveDesktop = $false
-            }
+            # [Environment]::UserInteractive is false for services / CI runners.
+            $hasInteractiveDesktop = [Environment]::UserInteractive
             $firstLauncher = Start-Process -FilePath $portable -PassThru
             $firstLauncher.WaitForExit(30000) | Out-Null
             $deadline = [DateTime]::UtcNow.AddSeconds(30)
