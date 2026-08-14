@@ -753,7 +753,11 @@ void main() {
     expect(androidBuildSource, contains('needsFlutter324ApkCopyFallback'));
     expect(androidBuildSource, contains('gradle.projectsEvaluated'));
     expect(androidBuildSource, contains('assembleTask.actions.clear()'));
-    expect(androidBuildSource, contains('outputs/apk/\$mode/app-\$mode.apk'));
+    // The fallback must accept every APK under outputs/apk/<mode>/ (universal
+    // app-release.apk as well as --split-per-abi app-<abi>-release.apk files)
+    // and copy them all to outputs/flutter-apk for the Flutter tool.
+    expect(androidBuildSource, contains('outputs/apk/\$mode'));
+    expect(androidBuildSource, contains('.endsWith(".apk")'));
     expect(androidBuildSource, contains('outputs/flutter-apk'));
   });
 
