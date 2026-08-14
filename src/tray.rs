@@ -182,8 +182,54 @@ fn make_tray() -> hbb_common::ResultType<()> {
     std::thread::spawn(move || {
         start_query_session_count(ipc_sender.clone());
     });
+
+    // 双击托盘图标：若主窗口可见则最小化到托盘（隐藏），否则恢复显示。
+    // 主窗口是 Flutter 原生窗口，类名固定 FLUTTER_RUNNER_WIN32_WINDOW，
+    // 标题为应用名（main.cpp 用同一对参数 FindWindowW 查找）。
+    #[cfg(target_os = "windows")]
+    fn toggle_main_window<F: Fn()>(open: &F) {
+        use windows::core::PCWSTR;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            FindWindowW, IsWindowVisible, SetForegroundWindow, ShowWindow, SW_HIDE, SW_SHOW,
+        };
+        let class_name = crate::platform::wide_string(
+            crate::platform::FLUTTER_RUNNER_WIN32_WINDOW_CLASS,
+        );
+        let window_name = crate::platform::wide_string(&crate::get_app_name());
+        let window = unsafe {
+            FindWindowW(
+                PCWSTR(class_name.as_ptr()),
+                PCWSTR(window_name.as_ptr()),
+            )
+        };
+        let Ok(window) = window else {
+            log::warn!("FindWindowW failed in toggle_main_window");
+            return;
+        };
+        if window.0.is_null() {
+            // 主窗口不存在（如已被关闭或未启动）：直接打开。
+            open();
+            return;
+        }
+        if unsafe { IsWindowVisible(window) }.as_bool() {
+            // 可见 -> 最小化到托盘（隐藏窗口，托盘图标保持活动）。
+            unsafe { ShowWindow(window, SW_HIDE) };
+        } else {
+            // 已隐藏 -> 恢复显示并置前。
+            unsafe {
+                ShowWindow(window, SW_SHOW);
+                SetForegroundWindow(window);
+            }
+        }
+    }
+    // 单击/双击区分：单击（打开窗口）延迟到双击窗口期过后再执行；
+    // 双击（切换显示/最小化到托盘）立即执行。Windows 双击事件流是
+    // Click(down/up) -> DoubleClick -> Click(up)，若不延迟单击，双击的
+    // 第一击就会被当作单击直接打开窗口，再被 DoubleClick 隐藏，体验错乱。
     #[cfg(windows)]
     let mut last_click = std::time::Instant::now();
+    #[cfg(windows)]
+    let mut pending_single_click = false;
     #[cfg(windows)]
     let mut rebuild_count: u32 = 0;
     #[cfg(target_os = "macos")]
@@ -307,6 +353,18 @@ fn make_tray() -> hbb_common::ResultType<()> {
             }
         }
 
+        // 双击窗口期已过仍未收到 DoubleClick：把挂起的单击当作真正的单击执行。
+        #[cfg(target_os = "windows")]
+        if pending_single_click
+            && last_click.elapsed()
+                >= std::time::Duration::from_millis(
+                    crate::platform::get_double_click_time() as u64,
+                )
+        {
+            pending_single_click = false;
+            open_func();
+        }
+
         if let Ok(_event) = tray_channel.try_recv() {
             #[cfg(target_os = "windows")]
             match _event {
@@ -318,11 +376,25 @@ fn make_tray() -> hbb_common::ResultType<()> {
                     if button == tray_icon::MouseButton::Left
                         && button_state == tray_icon::MouseButtonState::Up
                     {
-                        if last_click.elapsed() < std::time::Duration::from_secs(1) {
+                        // 双击的第二击 up 会紧跟 DoubleClick 到达；此时刚执行过
+                        // 切换，若再挂起一个单击会在一会儿后把窗口又打开/隐藏一次。
+                        // 因此 DoubleClick 到达后的极短时间内忽略 Click(up)。
+                        if last_click.elapsed()
+                            < std::time::Duration::from_millis(120)
+                        {
                             return;
                         }
-                        open_func();
+                        // 挂起单击，等双击窗口期结束再决定是否打开。
+                        pending_single_click = true;
                         last_click = std::time::Instant::now();
+                    }
+                }
+                TrayEvent::DoubleClick { button, .. } => {
+                    if button == tray_icon::MouseButton::Left {
+                        // 取消挂起的单击，避免稍后又被当成单击打开。
+                        pending_single_click = false;
+                        last_click = std::time::Instant::now();
+                        toggle_main_window(&open_func);
                     }
                 }
                 _ => {}
