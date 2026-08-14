@@ -739,16 +739,25 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         selectedIcon: Icons.workspace_premium_rounded,
       ),
     ];
-    return DesktopPrimaryRail(
-      destinations: destinations,
-      selectedId: _selectedRailId,
-      avatar: _buildLocalAvatar(44),
-      onAvatarPressed: () => DesktopTabPage.onAddSetting(
-        initialPage: SettingsTabKey.account,
-      ),
-      onSelected: _selectSection,
-      onSettings: DesktopTabPage.onAddSetting,
-      onPairPhone: () => _showPairingQrDialog(context),
+    // 监听绑定状态：未绑定时在左下角手机图标上显示绿色“未绑定”气泡。
+    return ValueListenableBuilder<int>(
+      valueListenable: DirectPairingStore.revision,
+      builder: (context, _, __) {
+        final bound =
+            (DirectPairingStore.boundPhone()['peerId'] ?? '').trim().isNotEmpty;
+        return DesktopPrimaryRail(
+          destinations: destinations,
+          selectedId: _selectedRailId,
+          avatar: _buildLocalAvatar(44),
+          onAvatarPressed: () => DesktopTabPage.onAddSetting(
+            initialPage: SettingsTabKey.account,
+          ),
+          onSelected: _selectSection,
+          onSettings: DesktopTabPage.onAddSetting,
+          onPairPhone: () => _showPairingQrDialog(context),
+          pairPhoneBound: bound,
+        );
+      },
     );
   }
 
@@ -788,24 +797,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         final bound = DirectPairingStore.boundPhone();
         final phoneId = (bound['peerId'] ?? '').trim();
         if (phoneId.isEmpty) {
-          // 未绑定手机：浅灰提示条。
-          return Container(
-            height: 28,
-            width: double.infinity,
-            color: dark ? const Color(0xFF2A2D33) : const Color(0xFFF3F4F6),
-            alignment: Alignment.center,
-            child: Text(
-              translate('Not bound to phone yet, scan the QR code with your phone'),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 11,
-                color: dark
-                    ? const Color(0xFF9AA0A8)
-                    : const Color(0xFF6B7280),
-              ),
-            ),
-          );
+          // 未绑定手机：不再显示顶部文字提示条
+          // （改为左下角手机图标的绿色“未绑定”气泡）。
+          return const SizedBox.shrink();
         }
         final pairing = DirectPairingStore.load().values.toList().firstWhereOrNull(
           (p) => p.peerId == phoneId,
@@ -5244,10 +5238,18 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     }
     String? path;
     try {
-      path = await captureScreenToFile();
+      if (Platform.isWindows) {
+        // Windows：先框选、后截取区域（微信式截图）。用户直接在实时
+        // 屏幕上拖拽框选（或按住 Ctrl 自动选窗口），确认后只截取选中
+        // 区域。返回 null = 用户按 Esc 取消。
+        path = await captureRegionToFile();
+      } else {
+        // 其它平台：全屏截图后在图上框选。
+        path = await captureScreenToFile();
+      }
       if (path == null && mounted) {
         _showConversationNotice(
-          translate('Failed to capture screen'),
+          translate('Screenshot cancelled'),
           tone: _WorkspaceNoticeTone.warning,
         );
       }
@@ -5295,8 +5297,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         await file.delete();
       } catch (_) {}
       if (!mounted || bytes.isEmpty) return;
-      final annotatedPath =
-          await showScreenshotAnnotator(context, imageBytes: bytes);
+      final annotatedPath = await showScreenshotAnnotator(
+        context,
+        imageBytes: bytes,
+        // Windows 新流程传入的是已框选好的区域图，annotator 直接进入
+        // 标注阶段（工具条立即可用）；其它平台仍是全屏图，需要先框选。
+        preselected: Platform.isWindows,
+      );
       if (annotatedPath == null || !mounted) return;
       // 标注完成的截图先放入消息输入框（待发送状态），用户点输入框里的
       // “发送”按钮再真正发出——与微信截图流程一致。

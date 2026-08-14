@@ -847,55 +847,52 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   /// 点聊/联系人右上角“+”菜单：扫码绑定 / 添加好友 / 蓝牙扫描 /
   /// 远程连接 / 访问历史 / 我的设置。
-  Future<void> _showMoreMenu(BuildContext menuContext) async {
-    final action = await showModalBottomSheet<String>(
-      context: menuContext,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            ListTile(
-              leading: const Icon(Icons.qr_code_scanner_rounded),
-              title: Text(translate('Scan & bind')),
-              subtitle: Text(translate('Pair with PC / phone')),
-              onTap: () => Navigator.pop(ctx, 'scan'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.person_add_alt_1_rounded),
-              title: Text(translate('Add friend')),
-              subtitle: Text(translate('Peer ID / ID / IP')),
-              onTap: () => Navigator.pop(ctx, 'add'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.bluetooth_searching_rounded),
-              title: Text(translate('Bluetooth scan')),
-              subtitle: Text(translate('Nearby devices')),
-              onTap: () => Navigator.pop(ctx, 'bt'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.tune_rounded),
-              title: Text(translate('Remote connection')),
-              subtitle: Text(translate('ID / IP / port')),
-              onTap: () => Navigator.pop(ctx, 'connect'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.devices_rounded),
-              title: Text(translate('Access history')),
-              subtitle: Text(translate('Recent devices')),
-              onTap: () => Navigator.pop(ctx, 'history'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.settings_rounded),
-              title: Text(translate('My settings')),
-              subtitle: Text(translate('Display, network, privacy')),
-              onTap: () => Navigator.pop(ctx, 'settings'),
-            ),
-            const SizedBox(height: 8),
-          ],
+  /// “+”菜单项：图标 + 标题 + 副标题（微信下拉菜单风格）。
+  Widget _moreMenuItem(IconData icon, String title, String subtitle) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Row(
+      children: <Widget>[
+        Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: dark ? const Color(0xFF32343A) : const Color(0xFFF2F4F7),
+            borderRadius: BorderRadius.circular(9),
+          ),
+          child: Icon(icon, size: 19, color: MyTheme.primary),
         ),
-      ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              Text(
+                title,
+                style: const TextStyle(
+                    fontSize: 15, fontWeight: FontWeight.w500),
+              ),
+              Text(
+                subtitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: dark ? const Color(0xFF9AA0A8)
+                      : const Color(0xFF8A9099),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
-    if (action == null || !mounted) return;
+  }
+
+  /// “+”菜单动作分发（扫码绑定 / 添加好友 / 蓝牙扫描 / 远程连接 /
+  /// 访问历史 / 我的设置）。
+  Future<void> _handleMoreAction(String action) async {
+    if (!mounted) return;
     switch (action) {
       case 'scan':
         await Navigator.of(context).push(
@@ -917,6 +914,7 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
         );
     }
   }
+
 
   /// 添加好友：输入对方的 ID / IP（含端口），解析后发起连接。
   Future<void> _showAddFriendDialog() async {
@@ -1458,11 +1456,73 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
             actions: <Widget>[
               ..._pages.elementAt(_selectedIndex).appBarActions,
               // 点聊/联系人右上角统一“+”加号：扫码绑定、添加好友、蓝牙扫描、
-              // 远程连接、访问历史、我的设置。
-              IconButton(
+              // 远程连接、访问历史、我的设置。微信风格：点击后在图标下方
+              // 弹出向下展开的选择菜单（不再从底部弹出）。
+              PopupMenuButton<String>(
                 tooltip: translate('More'),
                 icon: const Icon(Icons.add_circle_outline_rounded),
-                onPressed: () => _showMoreMenu(context),
+                offset: const Offset(0, 44),
+                color: dark ? MyTheme.surfaceDark : Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                onSelected: _handleMoreAction,
+                itemBuilder: (menuContext) => <PopupMenuEntry<String>>[
+                  PopupMenuItem<String>(
+                    value: 'scan',
+                    height: 46,
+                    child: _moreMenuItem(
+                      Icons.qr_code_scanner_rounded,
+                      translate('Scan & bind'),
+                      translate('Pair with PC / phone'),
+                    ),
+                  ),
+                  PopupMenuItem<String>(
+                    value: 'add',
+                    height: 46,
+                    child: _moreMenuItem(
+                      Icons.person_add_alt_1_rounded,
+                      translate('Add friend'),
+                      translate('Peer ID / ID / IP'),
+                    ),
+                  ),
+                  PopupMenuItem<String>(
+                    value: 'bt',
+                    height: 46,
+                    child: _moreMenuItem(
+                      Icons.bluetooth_searching_rounded,
+                      translate('Bluetooth scan'),
+                      translate('Nearby devices'),
+                    ),
+                  ),
+                  PopupMenuItem<String>(
+                    value: 'connect',
+                    height: 46,
+                    child: _moreMenuItem(
+                      Icons.tune_rounded,
+                      translate('Remote connection'),
+                      translate('ID / IP / port'),
+                    ),
+                  ),
+                  PopupMenuItem<String>(
+                    value: 'history',
+                    height: 46,
+                    child: _moreMenuItem(
+                      Icons.devices_rounded,
+                      translate('Access history'),
+                      translate('Recent devices'),
+                    ),
+                  ),
+                  PopupMenuItem<String>(
+                    value: 'settings',
+                    height: 46,
+                    child: _moreMenuItem(
+                      Icons.settings_rounded,
+                      translate('My settings'),
+                      translate('Display, network, privacy'),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),

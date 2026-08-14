@@ -4619,32 +4619,36 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
                 child: Row(
                   children: <Widget>[
                     if (onScreenshot != null)
-                      _ComposerToolButton(
-                        // PC端截图按钮用剪刀图标（桌面输入栏专用）
-                        icon: Icons.content_cut_rounded,
-                        tooltip: translate('Screenshot'),
-                        enabled: enabled,
-                        onPressed: () => _runToolAction(onScreenshot!),
-                      ),
-                    if (onScreenshot != null)
-                      // 剪刀右侧下拉箭头：选择截图时是否隐藏本窗口。
-                      // position: over 让菜单向上弹出——输入栏位于窗口底部，
-                      // 默认向下展开会被窗口底边裁剪导致菜单显示不全。
-                      PopupMenuButton<bool>(
-                        tooltip: translate('Screenshot options'),
-                        enabled: enabled,
-                        padding: EdgeInsets.zero,
-                        position: PopupMenuPosition.over,
-                        constraints:
-                            const BoxConstraints.tightFor(width: 26, height: 42),
-                        icon: Icon(
-                          Icons.arrow_drop_down_rounded,
-                          size: 20,
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withOpacity(0.55),
-                        ),
+                      // 剪刀 + 下拉箭头组合成一体（微信截图风格），紧凑排列：
+                      // 剪刀 32px + 箭头 22px，无多余空白。
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          _ComposerToolButton(
+                            // PC端截图按钮用剪刀图标（桌面输入栏专用）
+                            icon: Icons.content_cut_rounded,
+                            tooltip: translate('Screenshot'),
+                            enabled: enabled,
+                            onPressed: () => _runToolAction(onScreenshot!),
+                          ),
+                          // 剪刀右侧下拉箭头：选择截图时是否隐藏本窗口。
+                          // position: over 让菜单向上弹出——输入栏位于窗口底部，
+                          // 默认向下展开会被窗口底边裁剪导致菜单显示不全。
+                          PopupMenuButton<bool>(
+                            tooltip: translate('Screenshot options'),
+                            enabled: enabled,
+                            padding: EdgeInsets.zero,
+                            position: PopupMenuPosition.over,
+                            constraints: const BoxConstraints.tightFor(
+                                width: 22, height: 36),
+                            icon: Icon(
+                              Icons.arrow_drop_down_rounded,
+                              size: 16,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurface
+                                  .withOpacity(0.55),
+                            ),
                         onSelected: (hide) {
                           _screenshotHideWindow = hide;
                           bind.mainSetLocalOption(
@@ -4655,16 +4659,19 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
                               ? translate('Screenshot hides this window')
                               : translate('Screenshot keeps window visible'));
                         },
-                        itemBuilder: (menuContext) => <PopupMenuEntry<bool>>[
-                          CheckedPopupMenuItem<bool>(
-                            value: true,
-                            checked: _screenshotHideWindow,
-                            child: Text(translate('Hide this window')),
-                          ),
-                          CheckedPopupMenuItem<bool>(
-                            value: false,
-                            checked: !_screenshotHideWindow,
-                            child: Text(translate('Keep window visible')),
+                            itemBuilder: (menuContext) =>
+                                <PopupMenuEntry<bool>>[
+                              CheckedPopupMenuItem<bool>(
+                                value: true,
+                                checked: _screenshotHideWindow,
+                                child: Text(translate('Hide this window')),
+                              ),
+                              CheckedPopupMenuItem<bool>(
+                                value: false,
+                                checked: !_screenshotHideWindow,
+                                child: Text(translate('Keep window visible')),
+                              ),
+                            ],
                           ),
                         ],
                       ),
@@ -4855,11 +4862,10 @@ class _ComposerToolButton extends StatelessWidget {
       message: tooltip,
       child: IconButton(
         onPressed: enabled ? onPressed : null,
-        constraints: const BoxConstraints.tightFor(width: 40, height: 36),
-        padding: EdgeInsets.zero,
-        icon: Icon(icon, size: 22),
-      ),
-    );
+        constraints: const BoxConstraints.tightFor(width: 32, height: 36),
+        padding: EdgeInsets.zero,                            icon: Icon(icon, size: 20),
+                      ),
+                    );
   }
 }
 

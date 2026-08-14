@@ -22,9 +22,13 @@ import 'package:path_provider/path_provider.dart';
 
 /// Shows the annotation overlay and returns the path of the composed PNG,
 /// or null when the user cancels.
+///
+/// [preselected] = true 表示 [imageBytes] 已经是框选好的区域图，annotator
+/// 直接进入标注阶段（工具条立即可用），不再需要拖拽框选。
 Future<String?> showScreenshotAnnotator(
   BuildContext context, {
   required Uint8List imageBytes,
+  bool preselected = false,
 }) {
   return showGeneralDialog<String>(
     context: context,
@@ -33,7 +37,10 @@ Future<String?> showScreenshotAnnotator(
     barrierColor: Colors.black,
     transitionDuration: const Duration(milliseconds: 120),
     pageBuilder: (dialogContext, animation, secondaryAnimation) {
-      return ScreenshotAnnotatorOverlay(imageBytes: imageBytes);
+      return ScreenshotAnnotatorOverlay(
+        imageBytes: imageBytes,
+        preselected: preselected,
+      );
     },
   );
 }
@@ -93,9 +100,16 @@ class _ShotText extends _ShotMark {
 }
 
 class ScreenshotAnnotatorOverlay extends StatefulWidget {
-  const ScreenshotAnnotatorOverlay({super.key, required this.imageBytes});
+  const ScreenshotAnnotatorOverlay({
+    super.key,
+    required this.imageBytes,
+    this.preselected = false,
+  });
 
   final Uint8List imageBytes;
+
+  /// 传入的图片已是框选好的区域图：直接进入标注阶段。
+  final bool preselected;
 
   @override
   State<ScreenshotAnnotatorOverlay> createState() =>
@@ -131,6 +145,11 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
   double _width = 4;
   Offset? _shapeStart;
   Offset? _shapeEnd;
+
+  /// 文字工具：点击图板后在此位置直接输入（微信式，无对话框）。
+  Offset? _pendingTextPos;
+  final TextEditingController _textController = TextEditingController();
+  final FocusNode _textFocus = FocusNode();
 
   bool _compositing = false;
 
@@ -173,6 +192,15 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
         } else {
           _image = image;
           _imageSize = Size(image.width.toDouble(), image.height.toDouble());
+          // 区域图直接进入标注阶段：整图为选中区域。
+          if (widget.preselected) {
+            _selection = Rect.fromLTWH(
+              0,
+              0,
+              image.width.toDouble(),
+              image.height.toDouble(),
+            );
+          }
         }
       });
       // 马赛克工具需要逐像素采样，异步提取一次 RGBA 缓存。
@@ -189,6 +217,8 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
   @override
   void dispose() {
     _image?.dispose();
+    _textController.dispose();
+    _textFocus.dispose();
     super.dispose();
   }
 
@@ -389,8 +419,10 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
           }
           break;
         case _ShotTool.text:
+          // 不在图板上弹对话框：记录点击位置，随后在图板上直接输入。
           if (_shapeStart != null) {
-            _promptTextAt(_shapeStart!);
+            _pendingTextPos = _shapeStart;
+            _textController.clear();
           }
           break;
       }
@@ -400,45 +432,25 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
     });
   }
 
-  Future<void> _promptTextAt(Offset position) async {
-    final controller = TextEditingController();
-    final text = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: Text(translate('Add text')),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            maxLength: 120,
-            decoration: InputDecoration(hintText: translate('Enter text…')),
-            onSubmitted: (value) => Navigator.of(dialogContext).pop(value),
-          ),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: Text(translate('Cancel')),
-            ),
-            FilledButton(
-              onPressed: () =>
-                  Navigator.of(dialogContext).pop(controller.text),
-              child: Text(translate('OK')),
-            ),
-          ],
-        );
-      },
-    );
-    final value = text?.trim() ?? '';
-    if (value.isEmpty || !mounted) return;
-    setState(() {
-      _marks.add(_ShotText(
-        position,
-        value,
-        (10 * _width).clamp(20.0, 72.0),
-        _color,
-        _width,
-      ));
-    });
+  void _commitPendingText() {
+    final text = _textController.text.trim();
+    final pos = _pendingTextPos;
+    if (!mounted) return;
+    if (text.isNotEmpty && pos != null) {
+      setState(() {
+        _marks.add(_ShotText(
+          pos,
+          text,
+          (10 * _width).clamp(20.0, 72.0),
+          _color,
+          _width,
+        ));
+        _pendingTextPos = null;
+      });
+    } else {
+      setState(() => _pendingTextPos = null);
+    }
+    _textFocus.unfocus();
   }
 
   void _resetSelection() {
@@ -506,6 +518,21 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
     return Color.fromARGB(px[i + 3], px[i], px[i + 1], px[i + 2]);
   }
 
+  /// 画一个马赛克格子：填充采样色 + 1px 描边，保证“虚化”效果清晰可见
+  /// （纯色平滑区域也能看出打码格子）。
+  void _paintMosaicCell(
+      Canvas canvas, double left, double top, double cellSize) {
+    final cell = Rect.fromLTWH(left, top, cellSize, cellSize);
+    canvas.drawRect(cell, Paint()..color = _samplePixel(left.round() + 1, top.round() + 1));
+    canvas.drawRect(
+      cell,
+      Paint()
+        ..color = const Color(0x33000000)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1,
+    );
+  }
+
   /// 画一条连续的马赛克笔刷：沿路径采样，把经过的每个格子
   /// 用原图像素色块覆盖，实现像素化（打码）效果。
   void _paintMosaicStroke(Canvas canvas, List<Offset> points, double cellSize) {
@@ -521,12 +548,7 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
         final pos = metric.getTangentForOffset(d)!.position;
         final left = (pos.dx - half).floorToDouble();
         final top = (pos.dy - half).floorToDouble();
-        final cx = pos.dx.round();
-        final cy = pos.dy.round();
-        canvas.drawRect(
-          Rect.fromLTWH(left, top, cellSize, cellSize),
-          Paint()..color = _samplePixel(cx, cy),
-        );
+        _paintMosaicCell(canvas, left, top, cellSize);
       }
     }
   }
@@ -922,6 +944,75 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
                                   ),
                                 ),
                               ),
+                            // 文字工具：在图板上直接输入（微信式，无对话框）。
+                            if (_pendingTextPos != null)
+                              Positioned(
+                                top: 12,
+                                left: 0,
+                                right: 0,
+                                child: Center(
+                                  child: Material(
+                                    color: Colors.white,
+                                    elevation: 8,
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: Container(
+                                      width: 340,
+                                      padding: const EdgeInsets.fromLTRB(
+                                          10, 2, 4, 2),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: <Widget>[
+                                          Expanded(
+                                            child: TextField(
+                                              key: const ValueKey<String>(
+                                                  'shot-text-field'),
+                                              controller: _textController,
+                                              focusNode: _textFocus,
+                                              autofocus: true,
+                                              maxLength: 120,
+                                              style: const TextStyle(
+                                                  fontSize: 15),
+                                              decoration:
+                                                  const InputDecoration(
+                                                hintText: 'Enter text…',
+                                                counterText: '',
+                                                border: InputBorder.none,
+                                              ),
+                                              onSubmitted: (_) =>
+                                                  _commitPendingText(),
+                                              onTapOutside: (_) =>
+                                                  _commitPendingText(),
+                                            ),
+                                          ),
+                                          IconButton(
+                                            key: const ValueKey<String>(
+                                                'shot-text-done'),
+                                            tooltip: translate('Done'),
+                                            visualDensity:
+                                                VisualDensity.compact,
+                                            icon: const Icon(
+                                              Icons.check_rounded,
+                                              color: Color(0xFF07C160),
+                                            ),
+                                            onPressed: _commitPendingText,
+                                          ),
+                                          IconButton(
+                                            tooltip: translate('Cancel'),
+                                            visualDensity:
+                                                VisualDensity.compact,
+                                            icon: const Icon(
+                                              Icons.close_rounded,
+                                            ),
+                                            onPressed: () => setState(() {
+                                              _pendingTextPos = null;
+                                            }),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
                             if (_selection != null)
                               Align(
                                 alignment: Alignment.bottomCenter,
@@ -1142,6 +1233,23 @@ class _ScreenshotPainter extends CustomPainter {
     return Color.fromARGB(px[i + 3], px[i], px[i + 1], px[i + 2]);
   }
 
+  void _paintMosaicCell(
+      Canvas canvas, double left, double top, double cellSize) {
+    final cell = Rect.fromLTWH(left, top, cellSize, cellSize);
+    canvas.drawRect(
+      cell,
+      Paint()
+        ..color = _samplePixel(left.round() + 1, top.round() + 1),
+    );
+    canvas.drawRect(
+      cell,
+      Paint()
+        ..color = const Color(0x33000000)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1,
+    );
+  }
+
   void _paintMosaicStroke(
       Canvas canvas, List<Offset> points, double cellSize) {
     if (points.isEmpty) return;
@@ -1154,14 +1262,11 @@ class _ScreenshotPainter extends CustomPainter {
     for (final metric in path.computeMetrics()) {
       for (var d = 0.0; d <= metric.length; d += step) {
         final pos = metric.getTangentForOffset(d)!.position;
-        canvas.drawRect(
-          Rect.fromLTWH(
-            (pos.dx - half).floorToDouble(),
-            (pos.dy - half).floorToDouble(),
-            cellSize,
-            cellSize,
-          ),
-          Paint()..color = _samplePixel(pos.dx.round(), pos.dy.round()),
+        _paintMosaicCell(
+          canvas,
+          (pos.dx - half).floorToDouble(),
+          (pos.dy - half).floorToDouble(),
+          cellSize,
         );
       }
     }

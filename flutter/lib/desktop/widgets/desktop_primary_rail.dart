@@ -77,6 +77,7 @@ class DesktopPrimaryRail extends StatelessWidget {
     this.onAvatarPressed,
     this.onPairPhone,
     this.onMore,
+    this.pairPhoneBound = false,
   });
 
   static const double width = kWeChatDesktopRailWidth;
@@ -90,6 +91,9 @@ class DesktopPrimaryRail extends StatelessWidget {
   final VoidCallback? onAvatarPressed;
   final VoidCallback? onPairPhone;
   final VoidCallback? onMore;
+
+  /// 手机是否已绑定。未绑定时在左下角手机图标上显示绿色“未绑定”气泡。
+  final bool pairPhoneBound;
 
   @override
   Widget build(BuildContext context) {
@@ -157,6 +161,9 @@ class DesktopPrimaryRail extends StatelessWidget {
                   selected: false,
                   onTap: onPairPhone,
                   imageBackground: hasBackground,
+                  // 未绑定时：绿色“未绑定”气泡（微信风格提示）。
+                  badgeLabel: pairPhoneBound ? null : translate('Not bound'),
+                  badgeColor: const Color(0xFF07C160),
                 ),
               _RailButton(
                 destination: const DesktopRailDestination(
@@ -195,12 +202,18 @@ class _RailButton extends StatelessWidget {
     required this.selected,
     required this.imageBackground,
     required this.onTap,
+    this.badgeLabel,
+    this.badgeColor,
   });
 
   final DesktopRailDestination destination;
   final bool selected;
   final bool imageBackground;
   final VoidCallback? onTap;
+
+  /// 文字气泡（如“未绑定”）。右对齐贴 rail 右缘，不超出左侧边框。
+  final String? badgeLabel;
+  final Color? badgeColor;
 
   @override
   Widget build(BuildContext context) {
@@ -242,7 +255,32 @@ class _RailButton extends StatelessWidget {
                   size: 22,
                   color: foreground,
                 ),
-                if ((destination.badge ?? 0) > 0)
+                if (badgeLabel != null)
+                  // 文字气泡（如“未绑定”）：右对齐贴 rail 右缘，不超左边界。
+                  Positioned(
+                    right: 2,
+                    top: 0,
+                    child: Container(
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: badgeColor ?? const Color(0xFF07C160),
+                        borderRadius: BorderRadius.circular(9),
+                        border: Border.all(color: Colors.white, width: 1),
+                      ),
+                      child: Text(
+                        badgeLabel!,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          height: 1.2,
+                        ),
+                      ),
+                    ),
+                  )
+                else if ((destination.badge ?? 0) > 0)
                   Positioned(
                     right: 5,
                     top: 3,

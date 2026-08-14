@@ -6,6 +6,7 @@
 
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 /// Captures the full (virtual) screen and saves it as a PNG file.
@@ -80,4 +81,67 @@ Future<String?> captureScreenToFile() async {
     return null;
   }
   return null;
+}
+
+/// Windows 截图新流程：先框选、后截取区域。
+///
+/// 运行全屏框选遮罩脚本（assets/scripts/shot_overlay.ps1）：用户直接在
+/// 实时屏幕上拖拽框选（或按住 Ctrl 自动选窗口），确认后只把选中的区域
+/// 截取保存为 PNG。与微信截图一致——不是先截全屏再在截屏图上框选。
+///
+/// 调用方需先按需把应用窗口移出屏幕（避免出现在截图里），
+/// 结束后恢复窗口位置。
+///
+/// 返回区域 PNG 路径；用户取消或失败返回 null。
+Future<String?> captureRegionToFile() async {
+  try {
+    final supportDir = await getApplicationSupportDirectory();
+    final imageDir = Directory(
+      '${supportDir.path}${Platform.pathSeparator}screenshots',
+    );
+    await imageDir.create(recursive: true);
+    final stamp = DateTime.now().millisecondsSinceEpoch;
+    final target =
+        '${imageDir.path}${Platform.pathSeparator}shot_$stamp.png';
+
+    if (Platform.isWindows) {
+      final scriptContent =
+          await rootBundle.loadString('assets/scripts/shot_overlay.ps1');
+      final script = File(
+        '${Directory.systemTemp.path}${Platform.pathSeparator}'
+        'luoda_shot_ov_$stamp.ps1',
+      );
+      await script.writeAsString(scriptContent);
+      try {
+        // 用户框选期间等待其操作；长时间无操作自动放弃，避免永久挂起。
+        final result = await Process.run(
+          'powershell',
+          [
+            '-NoProfile',
+            '-NonInteractive',
+            '-ExecutionPolicy',
+            'Bypass',
+            '-File',
+            script.path,
+            '-Out',
+            target,
+          ],
+        ).timeout(const Duration(seconds: 180));
+        if (result.exitCode == 0 && await File(target).exists()) {
+          return target;
+        }
+        // exitCode != 0 = 用户按 Esc 取消或脚本失败。
+        return null;
+      } finally {
+        try {
+          await script.delete();
+        } catch (_) {}
+      }
+    }
+
+    // 其它平台回退到原来的全屏截图流程。
+    return await captureScreenToFile();
+  } catch (_) {
+    return null;
+  }
 }

@@ -358,7 +358,9 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Unable to extract a text preview for this file.", "Unable to extract a text preview for this file."),
 
 ("Invite code", "Invite code"),
+        ("Not bound", "Not bound"),
         ("Screenshot", "Screenshot"),
+        ("Screenshot cancelled", "Screenshot cancelled"),
         ("Send location", "Send location"),
         ("My location", "My location"),
         ("Screenshot annotator", "Screenshot annotator"),

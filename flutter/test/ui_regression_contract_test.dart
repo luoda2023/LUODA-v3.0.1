@@ -2444,16 +2444,25 @@ void main() {
   });
 
   test('mobile settings root keeps a visible back button and scan action', () {
-    // 设置入口从右上角“+”菜单进入；验证菜单里能打开设置页。
+    // 设置入口从右上角“+”微信风格菜单进入；验证菜单项与设置页结构。
     final moreMenu = mobileHomeSource
-        .split('Future<void> _showMoreMenu(')[1]
-        .split('/// Show WeChat-style bottom sheet')[0];
+        .split('icon: const Icon(Icons.add_circle_outline_rounded),')[1]
+        .split('bottomNavigationBar: _buildBottomNav(context)')[0];
     final settingsRoot = mobileSettingsSource
         .split('final settings = SettingsList(')[1]
         .split('Map<String, dynamic> _localProfile()')[0];
 
+    expect(moreMenu, contains("value: 'settings'"));
     expect(moreMenu, contains("translate('My settings')"));
-    expect(moreMenu, contains('MaterialPageRoute<void>(builder: (_) => SettingsPage())'));
+    for (final entry in <String>[
+      "translate('Scan & bind')",
+      "translate('Add friend')",
+      "translate('Bluetooth scan')",
+      "translate('Remote connection')",
+      "translate('Access history')",
+    ]) {
+      expect(mobileHomeSource, contains(entry));
+    }
     expect(settingsRoot, contains('return Scaffold('));
     expect(settingsRoot, contains('leading: IconButton('));
     expect(settingsRoot, contains('Icons.arrow_back_rounded'));

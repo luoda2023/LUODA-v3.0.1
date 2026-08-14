@@ -47,4 +47,14 @@ echo "=== 构建 $RUST_TARGET ($TRIPLET) -> $OUT_ABI ==="
 cd /j/codex-work/LUODA-v3.0.1
 cargo ndk --platform 28 --target "$RUST_TARGET" --output-dir "flutter/android/app/src/main/jniLibs/$OUT_ABI" \
   build --release --features flutter,use_dasp,mediacodec 2>&1 | tee "/tmp/cargo_ndk_$OUT_ABI.log"
+# cargo ndk 的时间戳比较可能跳过复制（目标文件 mtime 异常时），
+# 这里显式强制复制，确保 jniLibs 里的 so 一定是最新构建产物。
+SRC="/j/codex-work/LUODA-v3.0.1/target/$RUST_TARGET/release/libluoda.so"
+DST="/j/codex-work/LUODA-v3.0.1/flutter/android/app/src/main/jniLibs/$OUT_ABI/libluoda.so"
+if [ -f "$SRC" ]; then
+  cp -f "$SRC" "$DST"
+  echo "=== 已强制复制 $RUST_TARGET -> $DST ==="
+else
+  echo "!!! 未找到 $SRC，可能未编译 cdylib，检查 Cargo.toml crate-type" >&2
+fi
 echo "=== $RUST_TARGET 构建完成: $? ==="

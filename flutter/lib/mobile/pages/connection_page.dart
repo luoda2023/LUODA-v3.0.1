@@ -178,6 +178,9 @@ class ConnectionPageState extends State<ConnectionPage>
   final TextEditingController _contactSearchController =
       TextEditingController();
 
+  /// 页面内嵌联系人搜索框（避免键盘弹出时溢出到顶部状态栏）。
+  bool _searchOpen = false;
+
   StreamSubscription? _uniLinksSubscription;
   Timer? _chatKeepAliveTimer;
 
@@ -277,23 +280,61 @@ class ConnectionPageState extends State<ConnectionPage>
               SliverToBoxAdapter(
                 child: Obx(() => _buildUpdateUI(stateGlobal.updateUrl.value)),
               ),
-            // 顶部：左上角在线标志 + 功能卡片，与联系人列表同宽（全宽铺开）。
-            SliverPadding(
-              padding: EdgeInsets.fromLTRB(
-                horizontalPadding,
-                6,
-                horizontalPadding,
-                4,
-              ),
-              sliver: SliverToBoxAdapter(
-                child: _buildConnectionToolsPanel(),
-              ),
-            ),
+            // 顶部不再渲染 4 个功能卡片：扫码绑定/蓝牙扫描/远程连接/
+            // 访问历史已全部合并到右上角“+”加号菜单。
+            // 搜索框内嵌在列表顶部（流式布局，键盘弹出不超出状态栏）。
+            if (_searchOpen)
+              SliverToBoxAdapter(child: _buildInlineSearchField()),
             // 联系人列表：全宽铺开，背景与点聊列表完全一致。
             SliverToBoxAdapter(child: _buildPairedContacts()),
           ],
         );
       },
+    );
+  }
+
+  /// 页面内嵌搜索框（与点聊页同款样式，固定显示在列表顶部）。
+  Widget _buildInlineSearchField() {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      child: Container(
+        decoration: BoxDecoration(
+          color: dark ? MyTheme.surfaceDark : Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          boxShadow: <BoxShadow>[
+            BoxShadow(
+              color: Colors.black.withOpacity(0.16),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: SizedBox(
+          height: 38,
+          child: TextField(
+            controller: _contactSearchController,
+            autofocus: true,
+            onChanged: (value) => _contactQuery = value,
+            decoration: InputDecoration(
+              hintText: translate('Search'),
+              prefixIcon: const Icon(Icons.search_rounded, size: 19),
+              suffixIcon: IconButton(
+                tooltip: translate('Close'),
+                icon: const Icon(Icons.close_rounded, size: 18),
+                onPressed: _closeContactSearch,
+              ),
+              filled: true,
+              fillColor: dark ? MyTheme.surfaceDark : Colors.white,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide.none,
+              ),
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -450,146 +491,22 @@ class ConnectionPageState extends State<ConnectionPage>
     );
   }
 
-  /// 悬浮搜索框：顶部搜索输入，下方实时过滤联系人（复用主列表的行渲染）。
-  Future<void> openContactSearch() async {
-    final myId = gFFI.serverModel.serverId.value.text.trim();
-    final access = DirectChatAccessController.instance..load();
-    final controller = TextEditingController(text: _contactQuery);
-    final query = ValueNotifier<String>(_contactQuery);
-    final theme = Theme.of(context);
-    final dark = theme.brightness == Brightness.dark;
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: dark ? MyTheme.canvasDark : MyTheme.canvasLight,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (sheetContext) {
-        Widget searchField() {
-          return Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-            child: TextField(
-              controller: controller,
-              autofocus: true,
-              onChanged: (value) => query.value = value,
-              textInputAction: TextInputAction.search,
-              decoration: InputDecoration(
-                hintText: translate('Search'),
-                prefixIcon: const Icon(Icons.search_rounded, size: 21),
-                prefixIconConstraints: const BoxConstraints(minWidth: 44),
-                suffixIcon: query.value.isEmpty
-                    ? null
-                    : IconButton(
-                        tooltip: translate('Clear'),
-                        onPressed: () {
-                          controller.clear();
-                          query.value = '';
-                        },
-                        icon: const Icon(Icons.close_rounded, size: 20),
-                      ),
-                filled: true,
-                fillColor: dark ? MyTheme.surfaceDark : MyTheme.surfaceLight,
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(
-                    color: dark ? MyTheme.borderDark : MyTheme.borderLight,
-                  ),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide:
-                      const BorderSide(color: MyTheme.primary, width: 1.5),
-                ),
-              ),
-            ),
-          );
-        }
-
-        return ValueListenableBuilder<String>(
-          valueListenable: query,
-          builder: (sheetContext, value, _) {
-            final q = value.trim().toLowerCase();
-            final allGroups = _buildContactGroups(myId);
-            final groups = q.isEmpty
-                ? allGroups
-                : allGroups
-                    .where((group) => _matchesContactQuery(group, q))
-                    .toList(growable: false);
-            final friends = groups
-                .where((group) => access.isFriend(group.key))
-                .toList(growable: false);
-            final strangers = groups
-                .where((group) => !access.isFriend(group.key))
-                .toList(growable: false);
-            final rows = <Object>[
-              if (friends.isNotEmpty) ...<Object>[
-                _MobileContactGroupHeader('Friends', friends.length),
-                ...friends,
-              ],
-              if (strangers.isNotEmpty) ...<Object>[
-                _MobileContactGroupHeader('Strangers', strangers.length),
-                ...strangers,
-              ],
-            ];
-            return Padding(
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
-              ),
-              child: SizedBox(
-                height: MediaQuery.of(sheetContext).size.height * 0.85,
-                child: Column(
-                  children: <Widget>[
-                    searchField(),
-                    Expanded(
-                      child: rows.isEmpty
-                          ? Center(
-                              child: Padding(
-                                padding: const EdgeInsets.all(28),
-                                child: Text(
-                                  translate('No results'),
-                                  style: TextStyle(
-                                    fontSize: MobileText.bodyLg,
-                                    color: theme.colorScheme.onSurface
-                                        .withOpacity(0.5),
-                                  ),
-                                ),
-                              ),
-                            )
-                          : ListView(
-                              children: <Widget>[
-                                for (final row in rows) ...<Widget>[
-                                  if (row is _MobileContactGroupHeader)
-                                    _buildPairedGroupHeader(row)
-                                  else
-                                    _buildPairedContactRow(
-                                      row as _PersonContact,
-                                      access,
-                                    ),
-                                ],
-                              ],
-                            ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-    // 关闭后主列表恢复完整显示。
-    if (mounted) {
-      controller.dispose();
-      setState(() {
-        _contactQuery = '';
-        _contactSearchController.clear();
-      });
+  /// 联系人搜索：页面内嵌搜索框（流式布局固定在列表顶部，
+  /// 键盘弹出时不会超出到顶部状态栏/时间区域）。
+  void openContactSearch() {
+    if (mounted && !_searchOpen) {
+      setState(() => _searchOpen = true);
     }
   }
 
+  void _closeContactSearch() {
+    if (!mounted) return;
+    setState(() {
+      _searchOpen = false;
+      _contactQuery = '';
+      _contactSearchController.clear();
+    });
+  }
   Future<void> _openPairPhone() async {
     final pairing = await Navigator.of(context).push<DirectPairing>(
       MaterialPageRoute<DirectPairing>(builder: (_) => ScanPage()),

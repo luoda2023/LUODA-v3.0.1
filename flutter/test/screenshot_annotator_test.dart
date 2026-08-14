@@ -173,8 +173,14 @@ void main() {
     await tapPos.up();
     await tester.pump();
 
-    await tester.enterText(find.byType(TextField).last, 'Hello 标注');
-    await tester.tap(find.text('OK'));
+    // 微信式图板内输入：点击图板后出现输入条，直接输入文字。
+    expect(find.byKey(const ValueKey<String>('shot-text-field')),
+        findsOneWidget);
+    await tester.enterText(
+        find.byKey(const ValueKey<String>('shot-text-field')), 'Hello 标注');
+    await tester.pump();
+    // 点“完成”提交（输入条右上角的对勾）。
+    await tester.tap(find.byKey(const ValueKey<String>('shot-text-done')));
     await tester.pump();
 
     // Save and confirm the composed file exists.
@@ -303,5 +309,62 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     expect(result, isNull);
+  });
+
+  testWidgets('annotator preselected region starts in annotate mode',
+      (tester) async {
+    // 新 Windows 流程：传入的已是框选好的区域图，直接进入标注阶段。
+    final bytes = await tester.runAsync(() => _makeTestImage(240, 160));
+    String? result;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: FilledButton(
+                onPressed: () async {
+                  result = await showScreenshotAnnotator(
+                    context,
+                    imageBytes: bytes!,
+                    preselected: true,
+                  );
+                },
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pump();
+    await tester.runAsync(() => _realDelay(120));
+    await tester.pump(const Duration(milliseconds: 250));
+
+    // 无需拖拽框选：工具条立即可见，提示条不显示。
+    expect(find.byIcon(Icons.text_fields_rounded), findsOneWidget);
+    expect(find.text('Drag to select area, hold Ctrl to pick a window'),
+        findsNothing);
+
+    // 画一个矩形标注。
+    await tester.tap(find.byIcon(Icons.crop_square_rounded));
+    await tester.pump();
+    final gesture = await tester.startGesture(const Offset(320, 260));
+    await gesture.moveTo(const Offset(460, 350));
+    await gesture.up();
+    await tester.pump();
+
+    // 发送：确认合成 PNG。
+    await tester.runAsync(() async {
+      await tester.tap(find.text('Send'));
+      for (var i = 0; i < 40 && result == null; i++) {
+        await _realDelay(50);
+      }
+    });
+    await tester.pump();
+    expect(result, isNotNull);
+    final file = File(result!);
+    expect(await tester.runAsync(file.exists), isTrue);
+    await tester.runAsync(file.delete);
   });
 }
