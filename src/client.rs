@@ -388,21 +388,21 @@ mod direct_endpoint_tests {
     fn loopback_rendezvous_adds_normalized_public_fallbacks() {
         assert_eq!(
             rendezvous_fallback_servers("127.0.0.1:23458", Vec::new()),
-            vec!["dotchat.dicad.cn:21116"]
+            vec!["dotchat.dicad.cn:23116"]
         );
         assert_eq!(
             rendezvous_fallback_servers(
                 "ws://127.0.0.1:23458",
                 vec![
                     "47.114.75.115".to_owned(),
-                    "47.114.75.115:21116".to_owned(),
+                    "47.114.75.115:23116".to_owned(),
                 ],
             ),
-            vec!["47.114.75.115:21116", "dotchat.dicad.cn:21116"]
+            vec!["47.114.75.115:23116", "dotchat.dicad.cn:23116"]
         );
         assert_eq!(
             rendezvous_fallback_servers("[::1]:23458", Vec::new()),
-            vec!["dotchat.dicad.cn:21116"]
+            vec!["dotchat.dicad.cn:23116"]
         );
     }
 
@@ -414,12 +414,12 @@ mod direct_endpoint_tests {
     #[test]
     fn derives_tcp_ipv6_and_websocket_online_endpoints() {
         assert_eq!(
-            online_rendezvous_endpoint("dotchat.dicad.cn:21116").as_deref(),
-            Some("dotchat.dicad.cn:21115")
+            online_rendezvous_endpoint("dotchat.dicad.cn:23116").as_deref(),
+            Some("dotchat.dicad.cn:23115")
         );
         assert_eq!(
-            online_rendezvous_endpoint("[::1]:21116").as_deref(),
-            Some("[::1]:21115")
+            online_rendezvous_endpoint("[::1]:23116").as_deref(),
+            Some("[::1]:23115")
         );
         assert_eq!(
             online_rendezvous_endpoint("ws://127.0.0.1:23458").as_deref(),
@@ -430,11 +430,11 @@ mod direct_endpoint_tests {
     #[test]
     fn bare_ip_probe_uses_the_default_port_then_the_vps_fallback_range() {
         let ip = "192.168.1.20".parse().unwrap();
-        let ports: Vec<_> = direct_probe_addresses(ip, 21118)
+        let ports: Vec<_> = direct_probe_addresses(ip, 23118)
             .into_iter()
             .map(|address| address.port())
             .collect();
-        assert_eq!(ports, (21118..=21128).collect::<Vec<_>>());
+        assert_eq!(ports, (23118..=23128).collect::<Vec<_>>());
     }
 
     #[test]

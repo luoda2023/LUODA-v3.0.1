@@ -1883,7 +1883,7 @@ void main() {
 
   test('Windows Server registration uses the fixed TCP rendezvous endpoint',
       () {
-    expect(configRustSource, contains('dotchat.dicad.cn:21116'));
+    expect(configRustSource, contains('dotchat.dicad.cn:23116'));
     expect(rendezvousRustSource, contains('normalize_transport_options'));
     expect(rendezvousRustSource, contains('OPTION_ALLOW_WEBSOCKET'));
     expect(flutterFfiSource, contains('OPTION_DISABLE_UDP'));
@@ -2444,14 +2444,16 @@ void main() {
   });
 
   test('mobile settings root keeps a visible back button and scan action', () {
-    final settingsRoute = mobileHomeSource
-        .split('final settingsPage = SettingsPage();')[1]
-        .split('bottomNavigationBar: _buildBottomNav(context)')[0];
+    // 设置入口从右上角“+”菜单进入；验证菜单里能打开设置页。
+    final moreMenu = mobileHomeSource
+        .split('Future<void> _showMoreMenu(')[1]
+        .split('/// Show WeChat-style bottom sheet')[0];
     final settingsRoot = mobileSettingsSource
         .split('final settings = SettingsList(')[1]
         .split('Map<String, dynamic> _localProfile()')[0];
 
-    expect(settingsRoute, contains('builder: (_) => settingsPage'));
+    expect(moreMenu, contains("translate('My settings')"));
+    expect(moreMenu, contains('MaterialPageRoute<void>(builder: (_) => SettingsPage())'));
     expect(settingsRoot, contains('return Scaffold('));
     expect(settingsRoot, contains('leading: IconButton('));
     expect(settingsRoot, contains('Icons.arrow_back_rounded'));

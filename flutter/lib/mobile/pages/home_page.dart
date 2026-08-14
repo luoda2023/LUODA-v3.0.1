@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
+import 'package:luoda_flutter/mobile/pages/bt_chat_page.dart';
 import 'package:luoda_flutter/mobile/pages/scan_page.dart';
 import 'package:luoda_flutter/mobile/pages/server_page.dart';
 import 'package:luoda_flutter/mobile/pages/settings_page.dart';
@@ -844,6 +845,114 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
   }
 
+  /// 点聊/联系人右上角“+”菜单：扫码绑定 / 添加好友 / 蓝牙扫描 /
+  /// 远程连接 / 访问历史 / 我的设置。
+  Future<void> _showMoreMenu(BuildContext menuContext) async {
+    final action = await showModalBottomSheet<String>(
+      context: menuContext,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            ListTile(
+              leading: const Icon(Icons.qr_code_scanner_rounded),
+              title: Text(translate('Scan & bind')),
+              subtitle: Text(translate('Pair with PC / phone')),
+              onTap: () => Navigator.pop(ctx, 'scan'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.person_add_alt_1_rounded),
+              title: Text(translate('Add friend')),
+              subtitle: Text(translate('Peer ID / ID / IP')),
+              onTap: () => Navigator.pop(ctx, 'add'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.bluetooth_searching_rounded),
+              title: Text(translate('Bluetooth scan')),
+              subtitle: Text(translate('Nearby devices')),
+              onTap: () => Navigator.pop(ctx, 'bt'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.tune_rounded),
+              title: Text(translate('Remote connection')),
+              subtitle: Text(translate('ID / IP / port')),
+              onTap: () => Navigator.pop(ctx, 'connect'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.devices_rounded),
+              title: Text(translate('Access history')),
+              subtitle: Text(translate('Recent devices')),
+              onTap: () => Navigator.pop(ctx, 'history'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.settings_rounded),
+              title: Text(translate('My settings')),
+              subtitle: Text(translate('Display, network, privacy')),
+              onTap: () => Navigator.pop(ctx, 'settings'),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (action == null || !mounted) return;
+    switch (action) {
+      case 'scan':
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => ScanPage()),
+        );
+      case 'add':
+        await _showAddFriendDialog();
+      case 'bt':
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const BluetoothChatPage()),
+        );
+      case 'connect':
+        _contactsPageKey.currentState?.openConnectionAndIdentity();
+      case 'history':
+        _contactsPageKey.currentState?.openDeviceHistory();
+      case 'settings':
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => SettingsPage()),
+        );
+    }
+  }
+
+  /// 添加好友：输入对方的 ID / IP（含端口），解析后发起连接。
+  Future<void> _showAddFriendDialog() async {
+    final theme = Theme.of(context);
+    final controller = TextEditingController();
+    final peerId = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: theme.colorScheme.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(translate('Add friend')),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: InputDecoration(
+            hintText: translate('Peer ID / ID / IP'),
+            border: const OutlineInputBorder(),
+          ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(translate('Cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: Text(translate('Add')),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (peerId == null || peerId.isEmpty || !mounted) return;
+    connectByInput(peerId);
+  }
+
   /// Show WeChat-style bottom sheet: Take Photo / Gallery / File
   Future<void> _pickImageOrFile() async {
     final action = await showModalBottomSheet<String>(
@@ -1348,18 +1457,12 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 : null,
             actions: <Widget>[
               ..._pages.elementAt(_selectedIndex).appBarActions,
-              // ?? / ?????????? tab????????
+              // 点聊/联系人右上角统一“+”加号：扫码绑定、添加好友、蓝牙扫描、
+              // 远程连接、访问历史、我的设置。
               IconButton(
-                tooltip: translate('Me'),
-                icon: const Icon(Icons.person_outline_rounded),
-                onPressed: () {
-                  final settingsPage = SettingsPage();
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => settingsPage,
-                    ),
-                  );
-                },
+                tooltip: translate('More'),
+                icon: const Icon(Icons.add_circle_outline_rounded),
+                onPressed: () => _showMoreMenu(context),
               ),
             ],
           ),
@@ -1467,12 +1570,11 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
   PreferredSizeWidget _buildBindingBanner(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     return PreferredSize(
-      preferredSize: const Size.fromHeight(86),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
-        child: Column(
-          children: <Widget>[
-            ValueListenableBuilder<int>(
+      preferredSize: const Size.fromHeight(80),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          ValueListenableBuilder<int>(
               valueListenable: DirectPairingStore.revision,
               builder: (context, _, __) {
                 final companion = DirectPairingStore.companionDevice();
@@ -1480,16 +1582,18 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 // 可点击的右侧加小箭头。
                 Widget buildBanner(Color bg, Color fg, IconData icon,
                     String text, VoidCallback? onTap) {
+                  // 微信顶部横幅样式：全宽直角、浅色底、左侧图标 + 左对齐
+                  // 文字 + 右侧小箭头。不做圆角卡片，紧贴 AppBar 底部。
                   final banner = Container(
-                    height: 36,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    height: 34,
+                    padding: const EdgeInsets.only(left: 14, right: 6),
                     decoration: BoxDecoration(
                       color: bg,
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.zero,
                     ),
                     child: Row(
                       children: <Widget>[
-                        Icon(icon, size: 16, color: fg),
+                        Icon(icon, size: 15, color: fg),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
@@ -1511,7 +1615,6 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   if (onTap == null) return banner;
                   return InkWell(
                     onTap: onTap,
-                    borderRadius: BorderRadius.circular(8),
                     child: banner,
                   );
                 }
@@ -1541,10 +1644,9 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 );
               },
             ),
-            const SizedBox(height: 5),
+            const SizedBox(height: 2),
             _buildPrivacyBanner(context),
-          ],
-        ),
+        ],
       ),
     );
   }
@@ -1563,13 +1665,12 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
         final bg = dark ? const Color(0xFF1E2E4A) : const Color(0xFFEAF1FE);
         return InkWell(
           onTap: () => _showAudiencePicker(context),
-          borderRadius: BorderRadius.circular(8),
           child: Container(
-            height: 36,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            height: 34,
+            padding: const EdgeInsets.only(left: 14, right: 6),
             decoration: BoxDecoration(
               color: bg,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.zero,
             ),
             child: Row(
               children: <Widget>[
@@ -1577,7 +1678,7 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   friendsOnly
                       ? Icons.lock_outline_rounded
                       : Icons.people_alt_outlined,
-                  size: 16,
+                  size: 15,
                   color: fg,
                 ),
                 const SizedBox(width: 8),
@@ -1758,17 +1859,12 @@ class _MobileMessagesPage extends StatefulWidget implements PageShape {
 
   @override
   List<Widget> get appBarActions => <Widget>[
-        // LUODA: the search icon sits in the top bar, left of the
-        // "add friend" button, so the list area stays uncluttered.
+        // LUODA: the search icon sits in the top bar. The "+" add-friend
+        // button now lives in the global app bar (opens the More menu).
         IconButton(
           tooltip: translate('Search'),
           onPressed: () => searchKey?.currentState?.openSearch(),
           icon: const Icon(Icons.search_rounded),
-        ),
-        IconButton(
-          tooltip: translate('New conversation'),
-          onPressed: onNewConversation,
-          icon: const Icon(Icons.add_circle_outline_rounded),
         ),
       ];
 
@@ -2033,6 +2129,49 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
     _searchController.clear();
     _query.value = '';
     setState(() => _searchOpen = false);
+  }
+
+  /// 点聊页搜索框：流式布局在列表顶部（AppBar 下方），软键盘弹出时
+  /// 不会被顶出屏幕到状态栏。
+  Widget _buildSearchField(bool dark) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      decoration: BoxDecoration(
+        color: dark ? MyTheme.surfaceDark : Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        boxShadow: <BoxShadow>[
+          BoxShadow(
+            color: Colors.black.withOpacity(0.16),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: SizedBox(
+        height: 38,
+        child: TextField(
+          controller: _searchController,
+          autofocus: true,
+          onChanged: (value) => _query.value = value,
+          decoration: InputDecoration(
+            hintText: translate('Search'),
+            prefixIcon: const Icon(Icons.search_rounded, size: 19),
+            suffixIcon: IconButton(
+              tooltip: translate('Close'),
+              icon: const Icon(Icons.close_rounded, size: 18),
+              onPressed: _closeSearch,
+            ),
+            filled: true,
+            fillColor: dark ? MyTheme.surfaceDark : Colors.white,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide.none,
+            ),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+      ),
+    );
   }
 
   bool _peerPhoneEntry(MapEntry<MessageKey, MessageBody> entry) {
@@ -2309,43 +2448,6 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
               ),
             ),
         ],
-      ),
-    );
-  }
-
-  /// 点聊页标题条：会议已合并进消息列表（微信风格：会议群聊就是会话），
-  /// 不再需要独立“会议”tab 切换。
-  Widget _buildDotChatTabs(BuildContext context, bool dark) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 6, 4, 8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: dark ? MyTheme.surfaceDark : Colors.white,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color:
-                dark ? Colors.white.withOpacity(0.08) : const Color(0xFFE5E5E5),
-            width: 0.5,
-          ),
-          boxShadow: <BoxShadow>[
-            BoxShadow(
-              color: const Color(0xFF07C160).withOpacity(0.06),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Text(
-          translate('DotChat'),
-          style: TextStyle(
-            fontSize: 12.5,
-            fontWeight: FontWeight.w700,
-            color: const Color(0xFF07C160),
-          ),
-        ),
       ),
     );
   }
@@ -2862,13 +2964,11 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
           ];
           return ColoredBox(
             color: dark ? MyTheme.canvasDark : MyTheme.canvasLight,
-            child: Stack(
+            child: Column(
               children: <Widget>[
-                Column(
-                  children: <Widget>[
-                    _buildDotChatTabs(context, dark),
-                    Expanded(
-                      child: AnimatedSwitcher(
+                if (_searchOpen) _buildSearchField(dark),
+                Expanded(
+                  child: AnimatedSwitcher(
                         duration: const Duration(milliseconds: 200),
                         switchInCurve: Curves.easeOut,
                         switchOutCurve: Curves.easeIn,
@@ -3004,54 +3104,6 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
                                     ),
                       ),
                     ),
-                  ],
-                ),
-                if (_searchOpen)
-                  Positioned(
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    child: Container(
-                      margin: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-                      decoration: BoxDecoration(
-                        color: dark ? MyTheme.surfaceDark : Colors.white,
-                        borderRadius: BorderRadius.circular(10),
-                        boxShadow: <BoxShadow>[
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.16),
-                            blurRadius: 12,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: SizedBox(
-                        height: 38,
-                        child: TextField(
-                          controller: _searchController,
-                          autofocus: true,
-                          onChanged: (value) => _query.value = value,
-                          decoration: InputDecoration(
-                            hintText: translate('Search'),
-                            prefixIcon:
-                                const Icon(Icons.search_rounded, size: 19),
-                            suffixIcon: IconButton(
-                              tooltip: translate('Close'),
-                              icon: const Icon(Icons.close_rounded, size: 18),
-                              onPressed: _closeSearch,
-                            ),
-                            filled: true,
-                            fillColor:
-                                dark ? MyTheme.surfaceDark : Colors.white,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: BorderSide.none,
-                            ),
-                            contentPadding: EdgeInsets.zero,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
               ],
             ),
           );

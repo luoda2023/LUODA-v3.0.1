@@ -171,13 +171,13 @@ const CHARS: &[char] = &[
 // TODO(dotchat): after deploying dotchat.dicad.cn on 47.114.75.115, replace
 // `RS_PUB_KEY` with the new server's `id_ed25519.pub` value (the key below is
 // the legacy server key).
-pub const RENDEZVOUS_SERVERS: &[&str] = &["dotchat.dicad.cn:21116"];
-pub const RS_PUB_KEY: &str = "OQnLEvt6xjfPCUc1ozpTUiAxijwnn624zy0GH9IxX90=";
+pub const RENDEZVOUS_SERVERS: &[&str] = &["dotchat.dicad.cn:23116"];
+pub const RS_PUB_KEY: &str = "HCGaEuwVO1NlTDVnj51avesL3n3Xsz571xS5sMWcXSQ=";
 
-pub const RENDEZVOUS_PORT: i32 = 21116;
-pub const RELAY_PORT: i32 = 21117;
-pub const WS_RENDEZVOUS_PORT: i32 = 21118;
-pub const WS_RELAY_PORT: i32 = 21119;
+pub const RENDEZVOUS_PORT: i32 = 23116;
+pub const RELAY_PORT: i32 = 23117;
+pub const WS_RENDEZVOUS_PORT: i32 = 23118;
+pub const WS_RELAY_PORT: i32 = 23119;
 /// Default port for direct IP access (peer-to-peer without relay).
 /// The direct-access server listens on this port; the client connects to it
 /// when given a bare IP address. Falls back to a random port if unavailable.

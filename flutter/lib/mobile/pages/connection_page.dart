@@ -674,6 +674,18 @@ class ConnectionPageState extends State<ConnectionPage>
     );
   }
 
+  /// 公开入口：点聊/联系人右上角“+”菜单调用（复用扫码绑定页）。
+  Future<void> openPairPhone() => _openPairPhone();
+
+  /// 公开入口：蓝牙扫描页。
+  void openBluetooth() => _openBluetooth();
+
+  /// 公开入口：远程连接（ID / IP / 端口 + 身份卡片）。
+  void openConnectionAndIdentity() => _openConnectionAndIdentity();
+
+  /// 公开入口：访问历史设备。
+  void openDeviceHistory() => _openDeviceHistory();
+
   /// Compact card showing this device's online status, ID and message policy.
   Widget _buildStatusCard() {
     final access = DirectChatAccessController.instance..load();
