@@ -303,6 +303,12 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   String get _selectedRailId => _selectedRail.value;
   Peer? _selectedContact;
   String? _selectedConversationPeerId;
+
+  /// PC 端聊天输入框控制器：截图标注完成后把图片放入输入框
+  /// （待发送状态），由用户点发送按钮再真正发出（微信式流程）。
+  final DesktopChatComposerController _composerController =
+      DesktopChatComposerController();
+
   bool _openingViewerInvite = false;
   final Map<String, FFI> _directChatSessions = <String, FFI>{};
   final Map<String, DateTime> _directChatAttemptedAt = <String, DateTime>{};
@@ -1091,8 +1097,110 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             builder: (context, _) => _buildPresenceStatusStrip(context),
           ),
           if (_selectedRailId == 'contacts') _buildCategoryFilterBar(context),
+          if (_selectedRailId == 'chat') _buildMeetingEntryStrip(context),
           Expanded(child: _buildContactSection(context)),
         ],
+      ),
+    );
+  }
+
+  /// 点聊列表顶部的“会议中心”入口条：让会议入口足够明显，
+  /// 点击直接创建会议（可随后邀请成员、多人观看演示/远程协助）。
+  Widget _buildMeetingEntryStrip(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final meetingCount = MeetingGroupStore.all.length;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 4),
+      child: Material(
+        color: dark ? const Color(0xFF1C3A2A) : const Color(0xFFE7F5EC),
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: () => _showCreateMeetingDialog(context),
+          child: Padding(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              children: <Widget>[
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: kWeChatPrimaryColor.withOpacity(0.14),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.groups_rounded,
+                      size: 20, color: kWeChatPrimaryColor),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        translate('Meeting Center'),
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w600,
+                          color: dark
+                              ? const Color(0xFFDDF3E4)
+                              : const Color(0xFF1B5E2F),
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        meetingCount > 0
+                            ? '${translate('Meeting')} · $meetingCount'
+                            : translate('Create a meeting to chat and share screen'),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: dark
+                              ? const Color(0xFF8FBF9D)
+                              : const Color(0xFF4C7A58),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 6),
+                _buildEntryChip(
+                  context,
+                  label: translate('Create'),
+                  onTap: () => _showCreateMeetingDialog(context),
+                ),
+                const SizedBox(width: 6),
+                _buildEntryChip(
+                  context,
+                  label: translate('Join'),
+                  onTap: _joinMeetingByCode,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEntryChip(
+    BuildContext context, {
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: kWeChatPrimaryColor,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(color: Colors.white, fontSize: 12),
+        ),
       ),
     );
   }
@@ -1684,6 +1792,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                 notifyIfEmpty: notifyIfEmpty,
                               ),
                               onForwardMessages: _forwardConversationMessages,
+                              composerController: _composerController,
+                              onSendPendingImage: (path) =>
+                                  _sendStagedImage(peerId, path),
                             )
                           : _buildEmptyConversation(
                               context,
@@ -2883,20 +2994,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         }
         final chatGroupList = chatGroups.values.toList();
         final rows = <Object>[];
-        gFFI.chatModel.ensureFileHelperEntry();
-        final fileHelperRow =
-            gFFI.chatModel.messages[gFFI.chatModel.fileHelperKey];
-        if (fileHelperRow != null &&
-            (query.isEmpty ||
-                kFileHelperId.contains(query) ||
-                translate('File Transfer Assistant')
-                    .toLowerCase()
-                    .contains(query))) {
-          rows.add(MapEntry<MessageKey, MessageBody>(
-              gFFI.chatModel.fileHelperKey, fileHelperRow));
-        }
-        // 会议与普通会话合并为一个统一列表（微信风格：群聊/会议与会话混排，
-        // 不再单独分组显示），统一按最近活动时间排序。
+        // PC 端不显示“文件传输助手”（那是手机扫码/绑定入口的替代品，
+        // PC 端已有扫码绑定弹窗，不应混入会话列表）。
+        // 会议与普通会话先合并为统一列表，再按 会议/好友/陌生 三大类分组：
+        // 每个分组带灰色小标题，组内按最近活动时间排序。
         // 去重：会议一旦有聊天记录（meeting:xxx 会话已进 chatGroups），
         // 就不再重复显示“会议条目”，只显示带消息预览的会话行。
         final unified = <Object>[];
@@ -2926,7 +3027,53 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                   : (b as MeetingGroup).createdAt;
           return tb.compareTo(ta);
         });
-        rows.addAll(unified);
+        // 三大类分组：会议 / 好友 / 陌生。
+        String? _peerIdOf(Object item) {
+          if (item is MapEntry<MessageKey, MessageBody>) {
+            return item.key.peerId;
+          }
+          if (item is _ChatPersonGroup) {
+            return item.conversations.isNotEmpty
+                ? item.conversations.first.key.peerId
+                : null;
+          }
+          return null;
+        }
+
+        bool _isMeetingItem(Object item) {
+          if (item is MeetingGroup) return true;
+          final pid = _peerIdOf(item);
+          return pid != null && pid.startsWith('meeting:');
+        }
+
+        final meetingRows = <Object>[];
+        final friendRows = <Object>[];
+        final strangerRows = <Object>[];
+        for (final item in unified) {
+          if (_isMeetingItem(item)) {
+            meetingRows.add(item);
+            continue;
+          }
+          final pid = _peerIdOf(item);
+          final isFriend =
+              pid != null && _directChatAccess.isFriend(pid);
+          (isFriend ? friendRows : strangerRows).add(item);
+        }
+        if (meetingRows.isNotEmpty) {
+          rows.add(_PeopleGroupHeader(
+              translate('Meeting'), meetingRows.length));
+          rows.addAll(meetingRows);
+        }
+        if (friendRows.isNotEmpty) {
+          rows.add(
+              _PeopleGroupHeader(translate('Friends'), friendRows.length));
+          rows.addAll(friendRows);
+        }
+        if (strangerRows.isNotEmpty) {
+          rows.add(_PeopleGroupHeader(
+              translate('Strangers'), strangerRows.length));
+          rows.addAll(strangerRows);
+        }
         if (rows.isEmpty) {
           return Center(
             child: Padding(
@@ -5053,9 +5200,27 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     return true;
   }
 
+  /// 发送输入框内“待发送图片”（截图标注完成后由用户点发送触发）。
+  Future<void> _sendStagedImage(String peerId, String path) async {
+    try {
+      final file = File(path);
+      if (!await file.exists()) return;
+      final size = await file.length();
+      final name = path.split(Platform.pathSeparator).last;
+      await _sendImageFile(peerId, path, name, size);
+    } catch (_) {
+      if (mounted) {
+        _showConversationNotice(
+          translate('Failed to send image'),
+          tone: _WorkspaceNoticeTone.warning,
+        );
+      }
+    }
+  }
+
   /// Captures the screen, lets the user select a region and annotate it
-  /// (pen / rectangle / arrow / text), then sends the composed image into
-  /// the current conversation.
+  /// (pen / rectangle / arrow / text), then stages the composed image into
+  /// the input box of the current conversation (user presses Send to send).
   Future<void> _screenshotForConversation(String peerId) async {
     if (!mounted) return;
     // 剪刀右侧下拉箭头设置的“隐藏本窗口/不隐藏”偏好。
@@ -5089,12 +5254,35 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     } finally {
       // Restore the window BEFORE showing the annotation overlay so the
       // editor is visible.
+      //
+      // 关键：窗口被移到屏幕外后，Windows 可能自动把它标记为“最小化”
+      // 或“隐藏”状态（DWM/任务栏行为），此时仅 setPosition/show/focus
+      // 不足以让窗口回到可视状态（表现为点击剪刀后整个应用“消失”，
+      // annotator 弹在不可见的窗口里）。必须先用 restore() 把窗口恢复到
+      // 普通状态，再移回原位，最后 show+focus 确保可见并可交互。
       if (windowMoved && savedPos != null) {
         try {
+          await windowManager.restore();
           await windowManager.setPosition(savedPos);
           await windowManager.show();
           await windowManager.focus();
-        } catch (_) {}
+          // 恢复后兜底验证：若窗口仍在屏幕外（极少数极端情况），
+          // 直接居中到当前显示器，保证 annotator 一定可见。
+          final checkPos = await windowManager.getPosition();
+          final maxDim = 100000.0;
+          if (checkPos.dx.abs() > maxDim || checkPos.dy.abs() > maxDim) {
+            await windowManager.center();
+            await windowManager.show();
+            await windowManager.focus();
+          }
+        } catch (_) {
+          // 恢复失败时兜底：居中 + 显示 + 聚焦，避免窗口永远停留在屏幕外。
+          try {
+            await windowManager.center();
+            await windowManager.show();
+            await windowManager.focus();
+          } catch (_) {}
+        }
       }
     }
     if (!mounted || path == null) return;
@@ -5110,12 +5298,11 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       final annotatedPath =
           await showScreenshotAnnotator(context, imageBytes: bytes);
       if (annotatedPath == null || !mounted) return;
-      final annotatedFile = File(annotatedPath);
-      final size = await annotatedFile.length();
-      final name = annotatedPath.split(Platform.pathSeparator).last;
-      await _sendImageFile(peerId, annotatedPath, name, size);
-      // 标注完成的截图同时复制到系统剪贴板：之后可直接在输入框 Ctrl+V
-      // 粘贴（走 onPasteImage）再次发送，或粘贴到微信/QQ 等其他应用。
+      // 标注完成的截图先放入消息输入框（待发送状态），用户点输入框里的
+      // “发送”按钮再真正发出——与微信截图流程一致。
+      _composerController.stageImage(annotatedPath);
+      // 同时复制到系统剪贴板：可在输入框 Ctrl+V 粘贴再次发送，
+      // 或粘贴到微信/QQ 等其他应用。
       if (Platform.isWindows) {
         unawaited(_copyImageToClipboard(annotatedPath));
       }

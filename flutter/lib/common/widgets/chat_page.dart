@@ -212,6 +212,21 @@ const kDotChatEmojiList = <String>[
   '😈',
 ];
 
+/// 桌面端聊天输入栏控制器：外部（desktop_home_page）通过它把截图/图片
+/// 放入消息输入框（作为待发送附件），而不是直接发送。
+class DesktopChatComposerController {
+  _DesktopChatComposerState? _state;
+
+  void _attach(_DesktopChatComposerState state) => _state = state;
+  void _detach() => _state = null;
+
+  /// 把一张图片放入输入框，作为“待发送”附件（可移除后重新发送）。
+  void stageImage(String path) => _state?.stageImage(path);
+
+  /// 当前输入框是否已有待发送图片。
+  bool get hasPendingImage => _state?.hasPendingImage ?? false;
+}
+
 class ChatPage extends StatelessWidget implements PageShape {
   late final ChatModel chatModel;
   final ChatPageType? type;
@@ -224,6 +239,13 @@ class ChatPage extends StatelessWidget implements PageShape {
   final PasteImageCallback? onPasteImage;
   final ForwardMessagesCallback? onForwardMessages;
   final bool peerOffline;
+
+  /// PC 端输入栏控制器：截图完成或外部粘贴图片后，通过它把图片放入输入框。
+  final DesktopChatComposerController? composerController;
+
+  /// 发送输入框内“待发送图片”的回调（PC 端由 desktop_home_page 提供）。
+  final Future<void> Function(String path)? onSendPendingImage;
+
   final GlobalKey<_MobileChatComposerState> _mobileComposerKey =
       GlobalKey<_MobileChatComposerState>();
 
@@ -238,6 +260,8 @@ class ChatPage extends StatelessWidget implements PageShape {
     this.onScreenshot,
     this.onPasteImage,
     this.onForwardMessages,
+    this.composerController,
+    this.onSendPendingImage,
     this.peerOffline = false,
   }) {
     this.chatModel = chatModel ?? gFFI.chatModel;
@@ -1183,6 +1207,16 @@ class ChatPage extends StatelessWidget implements PageShape {
       }
       if (paths.length > 1) siblingPaths = paths;
     }
+    debugPrint('open fileName=' +
+        fileName +
+        ' size=' +
+        fileSize.toString() +
+        ' localPath=[' +
+        localPath +
+        '] siblings=' +
+        (siblingPaths?.length ?? 0).toString() +
+        ' exists=' +
+        (localPath.isNotEmpty && File(localPath).existsSync()).toString());
     if (!context.mounted) return;
     await showFileViewer(
       context,
@@ -1894,32 +1928,6 @@ class ChatPage extends StatelessWidget implements PageShape {
             final currentKey = chatModel.currentKey;
             final isDesktopHome = type == ChatPageType.desktopHome;
             final dark = Theme.of(context).brightness == Brightness.dark;
-            debugPrint('CHATPAGE_DIAG isDesktopHome=' +
-                isDesktopHome.toString() +
-                ' peer=' +
-                chatModel.currentKey.peerId +
-                ' msgs=' +
-                (chatModel.messages[chatModel.currentKey]?.chatMessages
-                            ?.length ??
-                        0)
-                    .toString() +
-                ' multi=' +
-                chatModel.isMultiSelectMode.toString() +
-                ' search=' +
-                chatModel.chatSearchVisible.toString());
-            debugPrint('WINDOW_DIAG mqw=' +
-                MediaQuery.sizeOf(context).width.toStringAsFixed(1) +
-                ' mqh=' +
-                MediaQuery.sizeOf(context).height.toStringAsFixed(1) +
-                ' dpr=' +
-                MediaQuery.devicePixelRatioOf(context).toString());
-            final pv = WidgetsBinding.instance.platformDispatcher.views.first;
-            debugPrint('PHYS_DIAG pw=' +
-                pv.physicalSize.width.toStringAsFixed(1) +
-                ' ph=' +
-                pv.physicalSize.height.toStringAsFixed(1) +
-                ' dpr=' +
-                pv.devicePixelRatio.toString());
             final readOnly = currentKey.peerId.isEmpty ||
                 type == ChatPageType.desktopCM &&
                     gFFI.serverModel.clients
@@ -3356,11 +3364,13 @@ class ChatPage extends StatelessWidget implements PageShape {
                         chatModel: chatModel,
                         enabled: !readOnly,
                         dark: dark,
+                        controller: composerController,
                         onAttachFile: onAttachFile,
                         onRemoteAssist: onRemoteAssist,
                         onSendImage: onSendImage,
                         onScreenshot: onScreenshot,
                         onPasteImage: onPasteImage,
+                        onSendPendingImage: onSendPendingImage,
                       ),
                     ],
                   );
@@ -4110,21 +4120,27 @@ class _DesktopChatComposer extends StatefulWidget {
     required this.chatModel,
     required this.enabled,
     required this.dark,
+    this.controller,
     this.onAttachFile,
     this.onRemoteAssist,
     this.onSendImage,
     this.onScreenshot,
     this.onPasteImage,
+    this.onSendPendingImage,
   });
 
   final ChatModel chatModel;
   final bool enabled;
   final bool dark;
+  final DesktopChatComposerController? controller;
   final VoidCallback? onAttachFile;
   final VoidCallback? onRemoteAssist;
   final VoidCallback? onSendImage;
   final VoidCallback? onScreenshot;
   final PasteImageCallback? onPasteImage;
+
+  /// 发送输入框内“待发送图片”的回调（PC 端由 desktop_home_page 提供）。
+  final Future<void> Function(String path)? onSendPendingImage;
 
   @override
   State<_DesktopChatComposer> createState() => _DesktopChatComposerState();
@@ -4142,6 +4158,9 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
   bool _inputFocused = false;
   bool _showEmojiPicker = false;
   bool _inputExpanded = false;
+
+  /// 截图/粘贴待发送的图片路径：显示在输入框顶部，点“发送”才真正发出。
+  String? _pendingImagePath;
 
   ChatModel get chatModel => widget.chatModel;
   bool get enabled => widget.enabled;
@@ -4175,14 +4194,42 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
         bind.mainGetLocalOption(key: 'screenshot_hide_window') != '0';
     chatModel.textController.addListener(_onTextChanged);
     chatModel.inputNode.addListener(_onFocusChanged);
+    widget.controller?._attach(this);
   }
 
   @override
   void dispose() {
+    widget.controller?._detach();
     chatModel.textController.removeListener(_onTextChanged);
     chatModel.inputNode.removeListener(_onFocusChanged);
     _inputScrollController.dispose();
     super.dispose();
+  }
+
+  /// 把一张图片放入输入框作为“待发送”附件（来自截图完成或外部粘贴）。
+  void stageImage(String path) {
+    if (!mounted) return;
+    setState(() => _pendingImagePath = path);
+  }
+
+  bool get hasPendingImage => _pendingImagePath != null;
+
+  void _clearPendingImage() {
+    setState(() => _pendingImagePath = null);
+  }
+
+  Future<void> _sendPendingImage() async {
+    final path = _pendingImagePath;
+    final onSend = widget.onSendPendingImage;
+    if (path == null || onSend == null) return;
+    try {
+      await onSend(path);
+      if (mounted) _clearPendingImage();
+    } catch (_) {
+      if (mounted) {
+        showToast(translate('Failed to send image'));
+      }
+    }
   }
 
   void _toggleInputExpanded() {
@@ -4295,6 +4342,82 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
     setState(() => _atOverlayVisible = false);
   }
 
+  /// 输入框顶部的“待发送图片”条：截图/粘贴完成后先放入这里，
+  /// 点右侧绿色“发送”才真正发出（微信风格）。
+  Widget _buildPendingImageBar(
+    BuildContext context, {
+    required String path,
+    required bool dark,
+  }) {
+    final bg = dark ? const Color(0xFF2B2D33) : const Color(0xFFFFF9F0);
+    final border = dark ? const Color(0xFF3A3D43) : const Color(0xFFF0D9B8);
+    final fg = dark ? const Color(0xFFF2F2F2) : const Color(0xFF333333);
+    final name = path.split(Platform.pathSeparator).last;
+    return Container(
+      height: 48,
+      margin: const EdgeInsets.fromLTRB(8, 6, 8, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: border),
+      ),
+      child: Row(
+        children: <Widget>[
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: Image.file(
+              File(path),
+              width: 34,
+              height: 34,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => Container(
+                width: 34,
+                height: 34,
+                color:
+                    dark ? const Color(0xFF3A3D43) : const Color(0xFFE8E8E8),
+                child: const Icon(Icons.image_outlined, size: 18),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 12.5, color: fg),
+            ),
+          ),
+          IconButton(
+            onPressed: _clearPendingImage,
+            tooltip: translate('Remove'),
+            icon: const Icon(Icons.close_rounded, size: 18),
+            color: dark ? const Color(0xFF999CA2) : const Color(0xFF888888),
+            visualDensity: VisualDensity.compact,
+          ),
+          const SizedBox(width: 4),
+          GestureDetector(
+            onTap: _sendPendingImage,
+            child: Container(
+              height: 30,
+              padding: const EdgeInsets.symmetric(horizontal: 18),
+              decoration: BoxDecoration(
+                color: kWeChatPrimaryColor,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                translate('Send'),
+                style: const TextStyle(color: Colors.white, fontSize: 13),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildEmojiPanel() {
     final bg = dark ? const Color(0xFF1E2024) : const Color(0xFFF5F5F5);
     final border = dark ? const Color(0xFF3A3D43) : const Color(0xFFE2E2E2);
@@ -4374,26 +4497,6 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
 
   @override
   Widget build(BuildContext context) {
-    debugPrint('COMPOSER_DIAG build enabled=' +
-        enabled.toString() +
-        ' expanded=' +
-        _inputExpanded.toString());
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final box = context.findRenderObject() as RenderBox?;
-      if (box != null && box.hasSize) {
-        final pos = box.localToGlobal(Offset.zero);
-        debugPrint('COMPOSER_POS w=' +
-            box.size.width.toStringAsFixed(1) +
-            ' h=' +
-            box.size.height.toStringAsFixed(1) +
-            ' x=' +
-            pos.dx.toStringAsFixed(1) +
-            ' y=' +
-            pos.dy.toStringAsFixed(1));
-      } else {
-        debugPrint('COMPOSER_POS null box');
-      }
-    });
     final border = dark ? const Color(0xFF3A3D43) : const Color(0xFFE2E2E2);
     final focusedBorder = dark ? const Color(0xFF4CAF50) : kWeChatPrimaryColor;
     final foreground = dark ? const Color(0xFFF2F2F2) : const Color(0xFF222222);
@@ -4432,6 +4535,12 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
         ),
         child: Column(
           children: <Widget>[
+            if (_pendingImagePath != null)
+              _buildPendingImageBar(
+                context,
+                path: _pendingImagePath!,
+                dark: dark,
+              ),
             Expanded(
               child: Stack(
                 children: [
@@ -4519,10 +4628,13 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
                       ),
                     if (onScreenshot != null)
                       // 剪刀右侧下拉箭头：选择截图时是否隐藏本窗口。
+                      // position: over 让菜单向上弹出——输入栏位于窗口底部，
+                      // 默认向下展开会被窗口底边裁剪导致菜单显示不全。
                       PopupMenuButton<bool>(
                         tooltip: translate('Screenshot options'),
                         enabled: enabled,
                         padding: EdgeInsets.zero,
+                        position: PopupMenuPosition.over,
                         constraints:
                             const BoxConstraints.tightFor(width: 26, height: 42),
                         icon: Icon(

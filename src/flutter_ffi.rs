@@ -80,6 +80,12 @@ fn acquire_single_instance_lock(app_dir: &str) {
             );
             let _ = CloseHandle(handle);
             takeover_stale_instances();
+            // 加固：锁持有者若已失去主窗口（例如截图流程中窗口移出屏幕后
+            // 恢复失败，或用户把窗口关掉但进程仍驻留），会被新实例误判为
+            // “同目录同 mtime 的正常实例”而挡住。这里主动检查上次持有锁
+            // 的进程：如果它没有可见主窗口，说明是卡死/无 UI 的僵尸实例，
+            // 直接终止它，让新实例能正常接管并显示窗口。
+            terminate_windowless_lock_owner(app_dir);
             let mut acquired = false;
             for _ in 0..10 {
                 std::thread::sleep(std::time::Duration::from_millis(500));
@@ -101,7 +107,84 @@ fn acquire_single_instance_lock(app_dir: &str) {
         }
         // Keep the mutex handle alive for the whole process lifetime.
         std::mem::forget(handle);
+        // 记录本实例 PID，供后续实例判断“锁持有者是否卡死（无窗口）”。
+        write_lock_owner_pid(app_dir);
     }
+}
+
+/// 把当前实例 PID 写入锁持有者记录文件。
+#[cfg(target_os = "windows")]
+fn write_lock_owner_pid(app_dir: &str) {
+    let pid_path = format!("{}\\.single_instance.pid", app_dir);
+    let _ = std::fs::write(&pid_path, std::process::id().to_string());
+}
+
+/// 读取上次持有单实例锁的进程 PID。
+#[cfg(target_os = "windows")]
+fn read_lock_owner_pid(app_dir: &str) -> Option<u32> {
+    let pid_path = format!("{}\\.single_instance.pid", app_dir);
+    let content = std::fs::read_to_string(&pid_path).ok()?;
+    content.trim().parse::<u32>().ok()
+}
+
+/// 判断进程是否有可见的顶层窗口。主实例必定有主窗口；
+/// 卡死/窗口丢失的僵尸实例没有，可以被新实例安全接管。
+#[cfg(target_os = "windows")]
+fn process_has_visible_window(pid: u32) -> bool {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use windows::Win32::Foundation::{HWND, LPARAM};
+    use windows::core::BOOL;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetWindowThreadProcessId, IsWindowVisible, WNDENUMPROC,
+    };
+    // EnumWindows 回调拿不到外部变量，用静态全局记录命中结果
+    // （本函数只在启动早期单线程调用，安全）。
+    static FOUND: AtomicBool = AtomicBool::new(false);
+    FOUND.store(false, Ordering::SeqCst);
+    unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let pid = (lparam.0 & 0xFFFF_FFFF) as u32;
+        let mut wnd_pid: u32 = 0;
+        unsafe { GetWindowThreadProcessId(hwnd, Some(&mut wnd_pid)) };
+        if wnd_pid == pid && unsafe { IsWindowVisible(hwnd) }.as_bool() {
+            FOUND.store(true, Ordering::SeqCst);
+            return BOOL(0); // stop enumerating
+        }
+        BOOL(1)
+    }
+    let cb: WNDENUMPROC = Some(enum_proc);
+    unsafe { EnumWindows(cb, LPARAM(pid as isize)) };
+    FOUND.load(Ordering::SeqCst)
+}
+
+/// 若上次锁持有者已无可见主窗口（卡死/无 UI），终止它并清理记录，
+/// 让新实例能够获得锁并正常显示主窗口。
+#[cfg(target_os = "windows")]
+fn terminate_windowless_lock_owner(app_dir: &str) {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{
+        OpenProcess, TerminateProcess, PROCESS_TERMINATE,
+    };
+    let Some(pid) = read_lock_owner_pid(app_dir) else {
+        return;
+    };
+    if pid == std::process::id() {
+        return;
+    }
+    if process_has_visible_window(pid) {
+        // 锁持有者窗口正常：不要动它（可能是用户同时开的旧版）。
+        return;
+    }
+    log::warn!(
+        "Lock owner pid {} has no visible window; terminating windowless stale instance",
+        pid
+    );
+    unsafe {
+        if let Ok(handle) = OpenProcess(PROCESS_TERMINATE, false, pid) {
+            let _ = TerminateProcess(handle, 1);
+            let _ = CloseHandle(handle);
+        }
+    }
+    let _ = std::fs::remove_file(format!("{}\\.single_instance.pid", app_dir));
 }
 
 /// Best-effort termination of stale LDesk/DotChat instances.
