@@ -4254,6 +4254,51 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
     action();
   }
 
+  /// 剪刀右侧下拉箭头：在按钮正上方弹出“隐藏本窗口”选项菜单。
+  /// 输入栏位于窗口底部，默认向下弹出的菜单会被窗口底边裁剪，
+  /// 因此用 showMenu 定位在按钮上方，保证菜单完整可见。
+  Future<void> _showScreenshotOptions(BuildContext menuContext) async {
+    final overlay = Overlay.of(menuContext).context.findRenderObject() as RenderBox?;
+    final box = menuContext.findRenderObject() as RenderBox?;
+    if (overlay == null || box == null) return;
+    final topLeft = box.localToGlobal(Offset.zero, ancestor: overlay);
+    // 菜单（两行 + 内边距约 132px）整体位于按钮上方。
+    final menuHeight = 132.0;
+    final result = await showMenu<bool>(
+      context: menuContext,
+      position: RelativeRect.fromRect(
+        Rect.fromLTWH(
+          topLeft.dx,
+          topLeft.dy - menuHeight,
+          box.size.width,
+          menuHeight,
+        ),
+        Offset.zero & overlay.size,
+      ),
+      items: <PopupMenuEntry<bool>>[
+        CheckedPopupMenuItem<bool>(
+          value: true,
+          checked: _screenshotHideWindow,
+          child: Text(translate('Hide this window')),
+        ),
+        CheckedPopupMenuItem<bool>(
+          value: false,
+          checked: !_screenshotHideWindow,
+          child: Text(translate('Keep window visible')),
+        ),
+      ],
+    );
+    if (result == null || !mounted) return;
+    setState(() => _screenshotHideWindow = result);
+    bind.mainSetLocalOption(
+      key: 'screenshot_hide_window',
+      value: result ? '1' : '0',
+    );
+    showToast(result
+        ? translate('Screenshot hides this window')
+        : translate('Screenshot keeps window visible'));
+  }
+
   void _onFocusChanged() {
     setState(() => _inputFocused = chatModel.inputNode.hasFocus);
   }
@@ -4632,46 +4677,13 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
                             onPressed: () => _runToolAction(onScreenshot!),
                           ),
                           // 剪刀右侧下拉箭头：选择截图时是否隐藏本窗口。
-                          // position: over 让菜单向上弹出——输入栏位于窗口底部，
-                          // 默认向下展开会被窗口底边裁剪导致菜单显示不全。
-                          PopupMenuButton<bool>(
+                          // 用 showMenu 在按钮正上方弹出（输入栏位于窗口底部，
+                          // 默认向下展开会被窗口底边裁剪导致菜单显示不全）。
+                          _ComposerToolButton(
+                            icon: Icons.arrow_drop_down_rounded,
                             tooltip: translate('Screenshot options'),
                             enabled: enabled,
-                            padding: EdgeInsets.zero,
-                            position: PopupMenuPosition.over,
-                            constraints: const BoxConstraints.tightFor(
-                                width: 22, height: 36),
-                            icon: Icon(
-                              Icons.arrow_drop_down_rounded,
-                              size: 16,
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSurface
-                                  .withOpacity(0.55),
-                            ),
-                        onSelected: (hide) {
-                          _screenshotHideWindow = hide;
-                          bind.mainSetLocalOption(
-                            key: 'screenshot_hide_window',
-                            value: hide ? '1' : '0',
-                          );
-                          showToast(hide
-                              ? translate('Screenshot hides this window')
-                              : translate('Screenshot keeps window visible'));
-                        },
-                            itemBuilder: (menuContext) =>
-                                <PopupMenuEntry<bool>>[
-                              CheckedPopupMenuItem<bool>(
-                                value: true,
-                                checked: _screenshotHideWindow,
-                                child: Text(translate('Hide this window')),
-                              ),
-                              CheckedPopupMenuItem<bool>(
-                                value: false,
-                                checked: !_screenshotHideWindow,
-                                child: Text(translate('Keep window visible')),
-                              ),
-                            ],
+                            onPressed: () => _showScreenshotOptions(context),
                           ),
                         ],
                       ),
