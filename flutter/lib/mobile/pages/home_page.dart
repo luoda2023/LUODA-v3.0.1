@@ -870,7 +870,7 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
               Text(
                 title,
                 style: const TextStyle(
-                    fontSize: 15, fontWeight: FontWeight.w500),
+                    fontSize: 14, fontWeight: FontWeight.w600),
               ),
               Text(
                 subtitle,
@@ -878,8 +878,8 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 11,
-                  color: dark ? const Color(0xFF9AA0A8)
-                      : const Color(0xFF8A9099),
+                  color: (dark ? const Color(0xFF9AA0A8)
+                      : const Color(0xFF8A9099)).withOpacity(0.6),
                 ),
               ),
             ],
