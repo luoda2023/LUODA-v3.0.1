@@ -194,15 +194,23 @@ if (needsFlutter324ApkCopyFallback) {
                 ?: return@forEach
             assembleTask.actions.clear()
             assembleTask.doLast {
-                val sourceApk = layout.buildDirectory
-                    .file("outputs/apk/$mode/app-$mode.apk")
+                val apkDir = layout.buildDirectory
+                    .dir("outputs/apk/$mode")
                     .get()
                     .asFile
-                if (!sourceApk.isFile) {
-                    throw GradleException("Android packaging did not produce ${sourceApk.absolutePath}")
+                val producedApks = apkDir
+                    .listFiles { file -> file.isFile && file.name.endsWith(".apk") }
+                    ?.toList()
+                    ?: emptyList()
+                // Flutter 3.24 的 --split-per-abi 产出 app-<abi>-release.apk 而非
+                // universal app-release.apk；普通模式产出 app-release.apk。
+                // 只要 outputs/apk/<mode>/ 下有任意 APK 即视为打包成功，
+                // 全部拷贝到 outputs/flutter-apk/ 供 Flutter 工具收集。
+                if (producedApks.isEmpty()) {
+                    throw GradleException("Android packaging did not produce any APK in ${apkDir.absolutePath}")
                 }
                 project.copy {
-                    from(sourceApk)
+                    from(producedApks)
                     into(layout.buildDirectory.dir("outputs/flutter-apk"))
                 }
             }

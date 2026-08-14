@@ -21,7 +21,7 @@ OUT_ABI="$3"   # arm64-v8a 或 armeabi-v7a
 #   arm64    -> .toolchains/vcpkg/installed/arm64-android（完整安装）
 #   armv7    -> 项目内 vcpkg_installed/arm-neon-android
 case "$TRIPLET" in
-  arm64-android) VCPKG=/j/codex-work/.toolchains/vcpkg/installed ;;
+  arm64-android|x64-android) VCPKG=/j/codex-work/.toolchains/vcpkg/installed ;;
   arm-neon-android) VCPKG=/j/codex-work/LUODA-v3.0.1/vcpkg_installed ;;
   *) echo "未知 triplet: $TRIPLET" >&2; exit 1 ;;
 esac

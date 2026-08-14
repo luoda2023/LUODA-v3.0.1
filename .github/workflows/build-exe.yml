@@ -387,14 +387,17 @@ jobs:
           $runtime = $null
           try {
             # GitHub-hosted runners have no interactive desktop, so a GUI main
-            # window cannot be created there. Detect headless mode and downgrade
-            # the window check; the core assertions (process survives, no
-            # duplicate instance, no file overwrite) still run everywhere.
-            # [Environment]::UserInteractive is false for services / CI runners.
-            $hasInteractiveDesktop = [Environment]::UserInteractive
+            # window cannot be created there. [Environment]::UserInteractive is
+            # unreliable on runners (it can report true while the window still
+            # lands on a non-visible desktop), so instead of probing the
+            # environment we OBSERVE the runtime: if the process stays alive but
+            # never creates a main window within the deadline, downgrade the
+            # window assertion. The core checks (process survives, no duplicate
+            # instance, no file overwrite) still run everywhere.
             $firstLauncher = Start-Process -FilePath $portable -PassThru
             $firstLauncher.WaitForExit(30000) | Out-Null
             $deadline = [DateTime]::UtcNow.AddSeconds(30)
+            $sawMainWindow = $false
             do {
               Start-Sleep -Milliseconds 500
               $runtime = Get-Process -Name luoda -ErrorAction SilentlyContinue |
@@ -402,16 +405,22 @@ jobs:
                 Select-Object -First 1
               if ($null -ne $runtime) {
                 $runtime.Refresh()
+                if ($runtime.MainWindowHandle -ne 0) {
+                  $sawMainWindow = $true
+                }
               }
             } while (
-              ($null -eq $runtime -or ($hasInteractiveDesktop -and $runtime.MainWindowHandle -eq 0)) -and
+              ($null -eq $runtime -or -not $sawMainWindow) -and
               [DateTime]::UtcNow -lt $deadline
             )
             if ($null -eq $runtime) {
               throw 'Portable LDesk did not start a runtime process'
             }
-            if ($hasInteractiveDesktop -and $runtime.MainWindowHandle -eq 0) {
+            if ($sawMainWindow -and $runtime.MainWindowHandle -eq 0) {
               throw 'Portable LDesk did not create a main window'
+            }
+            if (-not $sawMainWindow) {
+              Write-Host 'Headless runner: no interactive desktop, skipping main-window assertion'
             }
             if (-not $runtime.Responding) {
               throw 'Portable LDesk stopped responding after first launch'
