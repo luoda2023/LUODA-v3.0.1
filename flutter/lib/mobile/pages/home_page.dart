@@ -1341,7 +1341,11 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
             leadingWidth: 116,
             leading: appLeading(),
             title: appTitle(),
-            bottom: _buildBindingBanner(context),
+            // 顶部提示条（绑定 PC 提示 + 聊天对象设置）只在点聊页显示，
+            // 其他 tab（联系人/协助/会议）不占用顶部空间。
+            bottom: _selectedIndex == _chatPageTabIndex
+                ? _buildBindingBanner(context)
+                : null,
             actions: <Widget>[
               ..._pages.elementAt(_selectedIndex).appBarActions,
               // ?? / ?????????? tab????????
@@ -1461,95 +1465,97 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
   PreferredSizeWidget _buildBindingBanner(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     return PreferredSize(
-      preferredSize: const Size.fromHeight(60),
-      child: Column(
-        children: <Widget>[
-          ValueListenableBuilder<int>(
-            valueListenable: DirectPairingStore.revision,
-            builder: (context, _, __) {
-              final companion = DirectPairingStore.companionDevice();
-          if (companion == null) {
-            // 未绑定：橙色提示条，点击跳转扫码绑定页。
-            return InkWell(
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(builder: (_) => ScanPage()),
-                );
-              },
-              child: Container(
-                height: 30,
-                width: double.infinity,
-                color: dark ? const Color(0xFF4A3A1E) : const Color(0xFFFFF6E0),
-                alignment: Alignment.center,
+      preferredSize: const Size.fromHeight(66),
+      // 微信风格：两条提示都做成圆角胶囊（左右留边、圆角、居中小字），
+      // 与微信顶部的状态提示一致，而不是平铺的整条色带。
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 3, 12, 3),
+        child: Column(
+          children: <Widget>[
+            ValueListenableBuilder<int>(
+              valueListenable: DirectPairingStore.revision,
+              builder: (context, _, __) {
+                final companion = DirectPairingStore.companionDevice();
+          Widget buildChip(Color bg, Color fg, IconData icon, String text,
+              VoidCallback? onTap) {
+            // 微信风格：居中、自适应宽度的圆角小标签，不铺满整行。
+            // 注意：新版 Flutter 的 Align/Center（widthFactor=null）在受限
+            // 约束下会撑满，必须显式 widthFactor/heightFactor=1.0 收缩。
+            final chip = Container(
+              height: 28,
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              decoration: BoxDecoration(
+                color: bg,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Center(
+                widthFactor: 1.0,
+                heightFactor: 1.0,
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
-                    Icon(
-                      Icons.qr_code_2_rounded,
-                      size: 15,
-                      color: dark
-                          ? const Color(0xFFFFD479)
-                          : const Color(0xFFB26A00),
-                    ),
-                    const SizedBox(width: 6),
-                    Flexible(
+                    Icon(icon, size: 14, color: fg),
+                    const SizedBox(width: 5),
+                    ConstrainedBox(
+                      // 限制最大宽度：英文长句/超长文案显示省略号，
+                      // 保证胶囊始终是自适应宽度的微信小标签。
+                      constraints: const BoxConstraints(maxWidth: 240),
                       child: Text(
-                        translate('Not bound to PC yet, tap to scan and bind'),
+                        text,
                         maxLines: 1,
+                        softWrap: false,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: dark
-                              ? const Color(0xFFFFD479)
-                              : const Color(0xFF8A5A00),
-                        ),
+                        style: TextStyle(fontSize: 12, color: fg),
                       ),
                     ),
                   ],
                 ),
               ),
             );
+            if (onTap == null) return chip;
+            return InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(14),
+              child: chip,
+            );
           }
-          // 已绑定：绿色提示条，显示 PC 的 IP:端口。
+
+          // 居中自适应宽度：新版 Flutter 的 Center 默认撑满，必须显式
+          // widthFactor/heightFactor=1.0 才能按内容宽度收缩并居中。
+          Widget centerChip(Widget chip) => Center(
+                widthFactor: 1.0,
+                heightFactor: 1.0,
+                child: chip,
+              );
+
+          if (companion == null) {
+            // 未绑定：橙色胶囊提示，点击跳转扫码绑定页。
+            return centerChip(buildChip(
+              dark ? const Color(0xFF4A3A1E) : const Color(0xFFFFF0D6),
+              dark ? const Color(0xFFFFD479) : const Color(0xFF8A5A00),
+              Icons.qr_code_2_rounded,
+              translate('Not bound to PC yet, tap to scan and bind'),
+              () => Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => ScanPage()),
+              ),
+            ));
+          }
+          // 已绑定：绿色胶囊提示，显示 PC 的 IP:端口。
           final endpoint = companion.preferredEndpoint.isNotEmpty
               ? companion.preferredEndpoint
               : companion.peerId;
-          return Container(
-            height: 30,
-            width: double.infinity,
-            color: dark ? const Color(0xFF1E3A28) : const Color(0xFFE6F4EA),
-            alignment: Alignment.center,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Icon(
-                  Icons.desktop_windows_rounded,
-                  size: 15,
-                  color: dark
-                      ? const Color(0xFF7ED9A0)
-                      : const Color(0xFF1E8E3E),
-                ),
-                const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    '${translate('Bound to PC')}  $endpoint',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: dark
-                          ? const Color(0xFF7ED9A0)
-                          : const Color(0xFF1E8E3E),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          );
+          return centerChip(buildChip(
+            dark ? const Color(0xFF1E3A28) : const Color(0xFFE6F4EA),
+            dark ? const Color(0xFF7ED9A0) : const Color(0xFF1E8E3E),
+            Icons.desktop_windows_rounded,
+            '${translate('Bound to PC')}  $endpoint',
+            null,
+          ));
             },
           ),
           _buildPrivacyBanner(context),
         ],
+        ),
       ),
     );
   }
@@ -1566,13 +1572,16 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
         final friendsOnly = access.audience == DirectChatAudience.friendsOnly;
         final fg = dark ? const Color(0xFF8AB4F8) : const Color(0xFF1A73E8);
         final bg = dark ? const Color(0xFF1E2E4A) : const Color(0xFFEAF1FE);
-        return InkWell(
-          onTap: () => _showAudiencePicker(context),
-          child: Container(
-            height: 30,
-            width: double.infinity,
+        final chip = Container(
+          height: 28,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          decoration: BoxDecoration(
             color: bg,
-            alignment: Alignment.center,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Center(
+            widthFactor: 1.0,
+            heightFactor: 1.0,
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
@@ -1580,11 +1589,12 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   friendsOnly
                       ? Icons.lock_outline_rounded
                       : Icons.people_alt_outlined,
-                  size: 15,
+                  size: 14,
                   color: fg,
                 ),
-                const SizedBox(width: 6),
-                Flexible(
+                const SizedBox(width: 5),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 240),
                   child: Text(
                     translate(
                       friendsOnly
@@ -1592,18 +1602,28 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           : 'Strangers can also chat with me directly',
                     ),
                     maxLines: 1,
+                    softWrap: false,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(fontSize: 12, color: fg),
                   ),
                 ),
-                const SizedBox(width: 4),
+                const SizedBox(width: 3),
                 Icon(
                   Icons.expand_more_rounded,
-                  size: 16,
+                  size: 15,
                   color: fg.withOpacity(0.8),
                 ),
               ],
             ),
+          ),
+        );
+        return Center(
+          widthFactor: 1.0,
+          heightFactor: 1.0,
+          child: InkWell(
+            onTap: () => _showAudiencePicker(context),
+            borderRadius: BorderRadius.circular(14),
+            child: chip,
           ),
         );
       },
