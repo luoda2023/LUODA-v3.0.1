@@ -342,6 +342,79 @@ mod tests {
         retire_session(&sid);
     }
 
+    /// 多人观看同一演示的完整会话流程：主持人开演示，3 名观众同时
+    /// 加入观看；观众列表快照广播到主持人和全部观众；任一观众发言
+    /// 到达主持人和其他观众（发言者本人除外）；观众全部退出后
+    /// 广播不再送达（不泄漏）。
+    #[test]
+    fn multi_viewer_demo_session_full_flow() {
+        let sid = make_session_id();
+        let (h_tx, mut h_rx) = mpsc::unbounded_channel();
+        let (v1_tx, mut v1_rx) = mpsc::unbounded_channel();
+        let (v2_tx, mut v2_rx) = mpsc::unbounded_channel();
+        let (v3_tx, mut v3_rx) = mpsc::unbounded_channel();
+
+        // 主持人注册会话；3 名观众依次加入观看。
+        register_host(&sid, "host".to_string(), h_tx);
+        register_viewer(&sid, "v1", v1_tx);
+        register_viewer(&sid, "v2", v2_tx);
+        register_viewer(&sid, "v3", v3_tx);
+        chat_broadcast::for_session(&sid).join("v1", "V1");
+        chat_broadcast::for_session(&sid).join("v2", "V2");
+        chat_broadcast::for_session(&sid).join("v3", "V3");
+
+        // 1) 观众列表快照：主持人 + 3 名观众全部收到（4 个接收者）。
+        let snap_delivered = emit_viewer_list_snapshot(&sid, 0);
+        assert_eq!(snap_delivered, 4, "host + 3 viewers must all get the snapshot");
+        assert!(h_rx.try_recv().is_ok());
+        assert!(v1_rx.try_recv().is_ok());
+        assert!(v2_rx.try_recv().is_ok());
+        assert!(v3_rx.try_recv().is_ok());
+
+        // 2) 观众 v2 在演示中发言：主持人 + v1 + v3 收到，v2 不收。
+        let cb = ChatBroadcast {
+            from_id: "v2".to_string(),
+            from_name: "V2".to_string(),
+            channel: ChatChannel::CHAT_CHANNEL_PUBLIC.into(),
+            to_id: String::new(),
+            text: "我在观看，讲得很好".to_string(),
+            sent_at: 0,
+            ..Default::default()
+        };
+        let delivered = emit_chat(&sid, cb.clone());
+        assert_eq!(delivered, 3, "host + other two viewers receive the chat");
+        let host_msg = h_rx.try_recv().expect("host receives viewer chat");
+        match host_msg.1.union.as_ref() {
+            Some(message::Union::ChatBroadcast(chat)) => {
+                assert_eq!(chat.text, "我在观看，讲得很好")
+            }
+            _ => panic!("expected chat broadcast"),
+        }
+        assert!(v1_rx.try_recv().is_ok());
+        assert!(v3_rx.try_recv().is_ok());
+        assert!(v2_rx.try_recv().is_err(), "sender must not receive its own chat");
+
+        // 3) 主持人更新观众列表（如踢出 v1 后刷新）：剩余接收者收到。
+        unregister_viewer(&sid, "v1");
+        let after = emit_viewer_list_snapshot(&sid, 0);
+        assert_eq!(after, 3, "host + v2 + v3 remain");
+        assert!(h_rx.try_recv().is_ok());
+        assert!(v2_rx.try_recv().is_ok());
+        assert!(v3_rx.try_recv().is_ok());
+        assert!(v1_rx.try_recv().is_err(), "removed viewer gets nothing");
+
+        // 4) 全部观众退出后，广播不再送达（无泄漏）。
+        unregister_viewer(&sid, "v2");
+        unregister_viewer(&sid, "v3");
+        let empty = emit_viewer_list_snapshot(&sid, 0);
+        assert_eq!(empty, 1, "only host remains");
+        assert!(h_rx.try_recv().is_ok());
+        assert!(v2_rx.try_recv().is_err());
+        assert!(v3_rx.try_recv().is_err());
+
+        retire_session(&sid);
+    }
+
     /// `emit_to_viewer` delivers only to the targeted viewer.
     #[test]
     fn emit_to_viewer_targets_single_peer() {
