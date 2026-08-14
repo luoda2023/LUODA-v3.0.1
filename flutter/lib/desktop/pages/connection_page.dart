@@ -828,7 +828,7 @@ class _ServerAddressWidget extends StatefulWidget {
 }
 
 class _ServerAddressWidgetState extends State<_ServerAddressWidget> {
-  String _server = 'rev.dicad.cn';
+  String _server = 'dotchat.dicad.cn';
 
   @override
   void initState() {
@@ -841,7 +841,7 @@ class _ServerAddressWidgetState extends State<_ServerAddressWidget> {
     // custom-rendezvous-server option. The effective server may come from the
     // EXE filename, the CONFIG2 latency cache, or the canonical constant —
     // displaying only the custom option misleads (e.g. VPS shows "IP:port 已连接"
-    // while the app is actually registered to rev.dicad.cn, or vice versa).
+    // while the app is actually registered to dotchat.dicad.cn, or vice versa).
     String effective = '';
     final custom = bind.mainGetLocalOption(key: 'custom-rendezvous-server');
     if (custom.isNotEmpty) {
@@ -857,7 +857,7 @@ class _ServerAddressWidgetState extends State<_ServerAddressWidget> {
     if (effective.isNotEmpty) {
       _server = effective;
     } else {
-      _server = 'rev.dicad.cn';
+      _server = 'dotchat.dicad.cn';
     }
     if (mounted) setState(() {});
   }

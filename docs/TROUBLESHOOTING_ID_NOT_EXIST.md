@@ -8,7 +8,7 @@
 
 **成功的登记（ID 已进入在线表）**：
 ```
-SEND RegisterPeer (ID registered in online table): id="xxx", server=rev.dicad.cn:21116, host=
+SEND RegisterPeer (ID registered in online table): id="xxx", server=dotchat.dicad.cn:21116, host=
 ```
 
 **未登记的握手（仅握手，ID 未入表）**：
@@ -25,7 +25,7 @@ SEND RegisterPk (handshake only, ID NOT registered yet): host=, key_confirmed=fa
 
 ```bash
 # 在 LUODA GUI 中: 设置 → 网络 → ID/中继服务器 → 自定义 rendezvous 服务器
-# 应为: rev.dicad.cn
+# 应为: dotchat.dicad.cn
 ```
 
 也可以在配置文件中直接查看：

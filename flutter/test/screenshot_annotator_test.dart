@@ -100,7 +100,7 @@ void main() {
     await tester.pump();
 
     // Toolbar (annotate phase) appears after a selection.
-    expect(find.text('Save'), findsOneWidget);
+    expect(find.text('Send'), findsOneWidget);
 
     // Switch to the rectangle tool and draw inside the selection.
     await tester.tap(find.byIcon(Icons.crop_square_rounded));
@@ -112,7 +112,7 @@ void main() {
 
     // Save -> composed image is selection-sized (160x100).
     await tester.runAsync(() async {
-      await tester.tap(find.text('Save'));
+      await tester.tap(find.text('Send'));
       for (var i = 0; i < 40 && result == null; i++) {
         await _realDelay(50);
       }
@@ -179,7 +179,7 @@ void main() {
 
     // Save and confirm the composed file exists.
     await tester.runAsync(() async {
-      await tester.tap(find.text('Save'));
+      await tester.tap(find.text('Send'));
       for (var i = 0; i < 40 && result == null; i++) {
         await _realDelay(50);
       }
@@ -257,7 +257,7 @@ void main() {
 
     // Save -> composed file exists.
     await tester.runAsync(() async {
-      await tester.tap(find.text('Save'));
+      await tester.tap(find.text('Send'));
       for (var i = 0; i < 40 && result == null; i++) {
         await _realDelay(50);
       }

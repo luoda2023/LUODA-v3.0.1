@@ -99,7 +99,7 @@ cd flutter && flutter build apk
 即使无法触发 CI，以下工作已完成并推送到 Gitee：
 
 - ✅ LUODA 品牌化（所有图标、名称、版本）
-- ✅ 服务器配置（rev.dicad.cn）
+- ✅ 服务器配置（dotchat.dicad.cn）
 - ✅ CI 配置文件（.workflow/luoda-full-build.yml）
 - ✅ 监控工具（auto-build-monitor.py、monitor.html）
 - ✅ 完整文档（CI_GUIDE.md、QUICK_START.md 等）

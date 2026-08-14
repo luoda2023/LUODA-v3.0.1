@@ -388,7 +388,7 @@ mod direct_endpoint_tests {
     fn loopback_rendezvous_adds_normalized_public_fallbacks() {
         assert_eq!(
             rendezvous_fallback_servers("127.0.0.1:23458", Vec::new()),
-            vec!["rev.dicad.cn:21116"]
+            vec!["dotchat.dicad.cn:21116"]
         );
         assert_eq!(
             rendezvous_fallback_servers(
@@ -398,11 +398,11 @@ mod direct_endpoint_tests {
                     "47.114.75.115:21116".to_owned(),
                 ],
             ),
-            vec!["47.114.75.115:21116", "rev.dicad.cn:21116"]
+            vec!["47.114.75.115:21116", "dotchat.dicad.cn:21116"]
         );
         assert_eq!(
             rendezvous_fallback_servers("[::1]:23458", Vec::new()),
-            vec!["rev.dicad.cn:21116"]
+            vec!["dotchat.dicad.cn:21116"]
         );
     }
 
@@ -414,8 +414,8 @@ mod direct_endpoint_tests {
     #[test]
     fn derives_tcp_ipv6_and_websocket_online_endpoints() {
         assert_eq!(
-            online_rendezvous_endpoint("rev.dicad.cn:21116").as_deref(),
-            Some("rev.dicad.cn:21115")
+            online_rendezvous_endpoint("dotchat.dicad.cn:21116").as_deref(),
+            Some("dotchat.dicad.cn:21115")
         );
         assert_eq!(
             online_rendezvous_endpoint("[::1]:21116").as_deref(),

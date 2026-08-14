@@ -10,13 +10,13 @@ void main() {
     final label = messageSourceLabel(
       srcPlatform: 'desktop',
       connMode: 'id',
-      connEndpoint: '423156@rev.dicad.cn',
+      connEndpoint: '423156@dotchat.dicad.cn',
       connPort: 21116,
-      fallbackTarget: '423156@rev.dicad.cn',
+      fallbackTarget: '423156@dotchat.dicad.cn',
     );
     expect(label, contains('PC'));
     expect(label, contains('ID'));
-    expect(label, contains('423156@rev.dicad.cn'));
+    expect(label, contains('423156@dotchat.dicad.cn'));
   });
 
   test('PC 端公网 IP 连接', () {
@@ -47,9 +47,9 @@ void main() {
     final label = messageSourceLabel(
       srcPlatform: 'android',
       connMode: 'id',
-      connEndpoint: '423727@rev.dicad.cn',
+      connEndpoint: '423727@dotchat.dicad.cn',
       connPort: 21116,
-      fallbackTarget: '423727@rev.dicad.cn',
+      fallbackTarget: '423727@dotchat.dicad.cn',
     );
     expect(label, contains('Mobile'));
     expect(label, contains('ID'));
@@ -108,7 +108,7 @@ void main() {
       connMode: '',
       connEndpoint: '',
       connPort: 0,
-      fallbackTarget: '423156@rev.dicad.cn',
+      fallbackTarget: '423156@dotchat.dicad.cn',
     );
     expect(label, contains('ID'));
   });

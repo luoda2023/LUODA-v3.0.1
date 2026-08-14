@@ -81,7 +81,7 @@ void main() {
     await mouse.up();
     await tester.pump();
 
-    final saveVisible = find.text('Save').evaluate().isNotEmpty;
+    final saveVisible = find.text('Send').evaluate().isNotEmpty;
     debugPrint('MOUSE SELECTION -> toolbar visible: $saveVisible');
     expect(saveVisible, isTrue,
         reason: 'Mouse drag should complete a selection and show the toolbar');

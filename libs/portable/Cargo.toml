@@ -15,6 +15,7 @@ md5 = "0.7"
 winapi = { version = "0.3", features = [
     "handleapi",
     "processthreadsapi",
+    "tlhelp32",
     "winbase",
     "winnt",
     "winuser",

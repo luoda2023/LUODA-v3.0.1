@@ -270,6 +270,7 @@ mod win {
         path::Path,
         process::Command,
     };
+    use crate::APP_PREFIX;
     use winapi::{
         shared::minwindef::FALSE,
         um::{
@@ -355,9 +356,63 @@ mod win {
         }
     }
 
+    /// Detect a running runtime process (e.g. luoda.exe) by its full path.
+    /// Used as a fallback when the runtime has no visible window (headless
+    /// environments such as CI runners, or during startup races).
+    fn runtime_process_running(dir: &Path) -> bool {
+        use winapi::um::tlhelp32::{
+            CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+            TH32CS_SNAPPROCESS,
+        };
+        let target = dir.join("luoda.exe");
+        let Ok(target_lower) = target.to_string_lossy().to_lowercase().parse::<String>() else {
+            return false;
+        };
+        let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+        if snapshot == winapi::um::handleapi::INVALID_HANDLE_VALUE {
+            return false;
+        }
+        let mut entry: PROCESSENTRY32W = unsafe { std::mem::zeroed() };
+        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+        let mut found = false;
+        let mut has_next = unsafe { Process32FirstW(snapshot, &mut entry) } != FALSE;
+        while has_next {
+            let handle =
+                unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, entry.th32ProcessID) };
+            if !handle.is_null() {
+                let mut path = vec![0_u16; 32768];
+                let mut length = path.len() as u32;
+                let ok = unsafe {
+                    QueryFullProcessImageNameW(handle, 0, path.as_mut_ptr(), &mut length)
+                } != FALSE;
+                unsafe { CloseHandle(handle) };
+                if ok {
+                    let p = String::from_utf16_lossy(&path[..length as usize])
+                        .to_ascii_lowercase();
+                    if p == target_lower {
+                        found = true;
+                        break;
+                    }
+                }
+            }
+            has_next = unsafe { Process32NextW(snapshot, &mut entry) } != FALSE;
+        }
+        unsafe { CloseHandle(snapshot) };
+        found
+    }
+
     pub(super) fn activate_existing_instance() -> bool {
         let window = find_existing_window();
         if window.is_null() {
+            // No visible window (headless/CI or still starting). If the runtime
+            // process is already running, do not re-extract/overwrite the exe:
+            // that would update the file timestamp and make the new instance
+            // treat the running one as stale. Just activate and return.
+            if let Some(dir) = dirs::data_local_dir() {
+                if runtime_process_running(&dir.join(APP_PREFIX)) {
+                    return true;
+                }
+            }
             return false;
         }
         if unsafe { IsHungAppWindow(window) } != FALSE {

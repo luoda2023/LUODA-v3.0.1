@@ -765,20 +765,26 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
                             Positioned.fill(
                             // Listener 只包图片层：拖动/框选在图片上生效，
                             // 底部工具栏与右上按钮不在其子树中，点击不受影响。
-                            child: Listener(
-                              behavior: HitTestBehavior.opaque,
-                              onPointerDown: _onPointerDown,
-                              onPointerMove: _onPointerMove,
-                              onPointerUp: _onPointerUp,
-                              onPointerHover: _onPointerHover,
-                              onPointerCancel: (event) {
-                                if (event.pointer == _activePointer) {
-                                  _activePointer = null;
-                                  _drawing = false;
-                                  _selectDrag = null;
-                                }
-                              },
-                              child: CustomPaint(
+                            child: MouseRegion(
+                              // 框选阶段显示十字准星光标（微信截图风格），
+                              // 选中后恢复默认箭头，方便操作工具条。
+                              cursor: _selection == null
+                                  ? SystemMouseCursors.precise
+                                  : SystemMouseCursors.basic,
+                              child: Listener(
+                                behavior: HitTestBehavior.opaque,
+                                onPointerDown: _onPointerDown,
+                                onPointerMove: _onPointerMove,
+                                onPointerUp: _onPointerUp,
+                                onPointerHover: _onPointerHover,
+                                onPointerCancel: (event) {
+                                  if (event.pointer == _activePointer) {
+                                    _activePointer = null;
+                                    _drawing = false;
+                                    _selectDrag = null;
+                                  }
+                                },
+                                child: CustomPaint(
                                 painter: _ScreenshotPainter(
                                   image: _image!,
                                   fitRect: _fitRect,
@@ -799,6 +805,7 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
                                   hoverWindow: _hoverWindow,
                                 ),
                               ),
+                            ),
                             ),
                           ),
                             // Always-visible top-right controls: capture-mode
@@ -997,6 +1004,27 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
         spacing: 6,
         runSpacing: 4,
         children: <Widget>[
+          // 微信截图风格：撤销/重做固定在工具条最左侧，
+          // 紧挨工具图标（微信截图工具条布局一致）。
+          IconButton(
+            tooltip: translate('Undo'),
+            visualDensity: VisualDensity.compact,
+            onPressed: _marks.isEmpty
+                ? null
+                : () => setState(() => _marks.removeLast()),
+            icon: const Icon(Icons.undo_rounded, size: 22),
+          ),
+          IconButton(
+            tooltip: translate('Redo selection'),
+            visualDensity: VisualDensity.compact,
+            onPressed: _resetSelection,
+            icon: const Icon(Icons.crop_free_rounded, size: 22),
+          ),
+          Container(
+            width: 1,
+            height: 26,
+            color: Colors.black12,
+          ),
           toolButton(_ShotTool.rect, Icons.crop_square_rounded,
               translate('Rectangle')),
           toolButton(_ShotTool.ellipse, Icons.circle_outlined,
@@ -1040,20 +1068,6 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
             height: 26,
             color: Colors.black12,
           ),
-          IconButton(
-            tooltip: translate('Undo'),
-            visualDensity: VisualDensity.compact,
-            onPressed: _marks.isEmpty
-                ? null
-                : () => setState(() => _marks.removeLast()),
-            icon: const Icon(Icons.undo_rounded, size: 22),
-          ),
-          IconButton(
-            tooltip: translate('Redo selection'),
-            visualDensity: VisualDensity.compact,
-            onPressed: _resetSelection,
-            icon: const Icon(Icons.crop_free_rounded, size: 22),
-          ),
           const SizedBox(width: 4),
           FilledButton.icon(
             onPressed: _compositing
@@ -1065,7 +1079,9 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
                     }
                   },
             icon: const Icon(Icons.check_rounded, size: 18),
-            label: Text(translate('Save')),
+            // 工具条确认按钮：完成标注后把图片放入消息输入框（待发送），
+            // 用户在输入框点“发送”才真正发出（微信截图流程一致）。
+            label: Text(translate('Send')),
             style: FilledButton.styleFrom(
               backgroundColor: const Color(0xFF07C160),
               foregroundColor: Colors.white,
@@ -1180,24 +1196,32 @@ class _ScreenshotPainter extends CustomPainter {
       canvas.drawImage(image, Offset.zero, Paint());
       final drag = selectDrag;
       if (drag != null) {
+        final dragRect = Rect.fromPoints(
+          Offset(drag.left.clamp(0, image.width.toDouble()),
+              drag.top.clamp(0, image.height.toDouble())),
+          Offset(drag.right.clamp(0, image.width.toDouble()),
+              drag.bottom.clamp(0, image.height.toDouble())),
+        );
+        // 拖拽框选过程中实时生效：选框内亮、选框外变暗（微信式“浮现”）。
+        final dimOutside = Path()
+          ..addRect(Rect.fromLTWH(
+              0, 0, image.width.toDouble(), image.height.toDouble()))
+          ..addRect(dragRect)
+          ..fillType = PathFillType.evenOdd;
+        canvas.drawPath(dimOutside, Paint()..color = Colors.black45);
         canvas.drawRect(
-          Rect.fromPoints(
-            Offset(drag.left.clamp(0, image.width.toDouble()),
-                drag.top.clamp(0, image.height.toDouble())),
-            Offset(drag.right.clamp(0, image.width.toDouble()),
-                drag.bottom.clamp(0, image.height.toDouble())),
-          ),
+          dragRect,
           Paint()
             ..color = const Color(0x3307C160)
             ..style = PaintingStyle.fill,
         );
         _dashedRect(
           canvas,
-          drag,
+          dragRect,
           const Color(0xFF07C160),
           2 / scale,
         );
-        _drawSizeLabel(canvas, drag);
+        _drawSizeLabel(canvas, dragRect);
       } else {
         // 自动选择窗口模式：高亮鼠标所在的窗口。
         final win = hoverWindow;

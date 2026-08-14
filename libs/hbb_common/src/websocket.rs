@@ -483,8 +483,8 @@ mod tests {
         assert_eq!(check_ws("127.0.0.1:23455"), "ws://127.0.0.1:23458");
         assert_eq!(check_ws("127.0.0.1:23456"), "ws://127.0.0.1:23458");
         assert_eq!(check_ws("127.0.0.1:23457"), "ws://127.0.0.1:23459");
-        assert_eq!(check_ws("rev.dicad.cn:21116"), "ws://rev.dicad.cn:21118");
-        assert_eq!(check_ws("rev.dicad.cn:21115"), "ws://rev.dicad.cn:21118");
+        assert_eq!(check_ws("dotchat.dicad.cn:21116"), "ws://dotchat.dicad.cn:21118");
+        assert_eq!(check_ws("dotchat.dicad.cn:21115"), "ws://dotchat.dicad.cn:21118");
         // set relay-server without port
         Config::set_option("relay-server".to_string(), "127.0.0.1".to_string());
         assert_eq!(check_ws("127.0.0.1:23455"), "ws://127.0.0.1:23458");
