@@ -77,3 +77,25 @@ double _transformLng(double x, double y) {
   final mgLng = wgsLng + dLng;
   return (math.Point(mgLat, mgLng), math.Point(mgLat, mgLng));
 }
+
+/// 把 GCJ-02 坐标转换回 WGS-84 坐标（迭代逼近，精度 < 1e-6 度）。返回 (lat, lng)。
+///
+/// 用于调用无 key 的 OSM/Nominatim 逆地理编码（它使用 WGS-84），
+/// 把高德/腾讯地图上的 GCJ-02 选点转回真实坐标后再查询。
+(math.Point<double>, math.Point<double>) gcj02ToWgs84(
+    double gcjLat, double gcjLng) {
+  if (_outOfChina(gcjLat, gcjLng) == 1) {
+    return (math.Point(gcjLat, gcjLng), math.Point(gcjLat, gcjLng));
+  }
+  var wgsLat = gcjLat;
+  var wgsLng = gcjLng;
+  for (var i = 0; i < 8; i++) {
+    final (gcj2, _) = wgs84ToGcj02(wgsLat, wgsLng);
+    final dLat = gcj2.x - gcjLat;
+    final dLng = gcj2.y - gcjLng;
+    wgsLat -= dLat;
+    wgsLng -= dLng;
+    if (dLat.abs() < 1e-9 && dLng.abs() < 1e-9) break;
+  }
+  return (math.Point(wgsLat, wgsLng), math.Point(wgsLat, wgsLng));
+}

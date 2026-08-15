@@ -15,6 +15,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../models/platform_model.dart';
+import 'geo_utils.dart';
 
 /// 一个地点/POI（GCJ-02 坐标，与高德一致）。
 class GeoPlace {
@@ -100,88 +101,175 @@ class AmapService {
     }
   }
 
-  /// 逆地理编码：GCJ-02 坐标 → 中文地址。失败返回空串。
+  /// 逆地理编码：GCJ-02 坐标 → 中文地址。
+  /// 优先高德（需 key），失败/无 key 时回退到 OSM Nominatim（免 key）。
   Future<String> reverseGeocode(double lat, double lng) async {
     final data = await _get('/v3/geocode/regeo', <String, String>{
       'location': '${lng.toStringAsFixed(6)},${lat.toStringAsFixed(6)}',
       'extensions': 'base',
     });
-    if (data == null) return '';
-    final regeocode = data['regeocode'];
-    if (regeocode is! Map<String, dynamic>) return '';
-    final formatted =
-        (regeocode['formatted_address'] ?? '').toString().trim();
-    if (formatted.isNotEmpty) return formatted;
-    final ac = regeocode['addressComponent'];
-    if (ac is Map<String, dynamic>) {
-      final province = (ac['province'] ?? '').toString().trim();
-      final city = (ac['city'] ?? '').toString().trim();
-      final district = (ac['district'] ?? '').toString().trim();
-      final township = (ac['township'] ?? '').toString().trim();
-      final road = (ac['streetNumber'] is Map<String, dynamic>
-              ? ((ac['streetNumber'] as Map<String, dynamic>)['street'] ?? '')
-              : '')
-          .toString()
-          .trim();
-      final parts = <String>[
-        if (province.isNotEmpty && province != city) province,
-        if (city.isNotEmpty) city,
-        if (district.isNotEmpty) district,
-        if (township.isNotEmpty) township,
-        if (road.isNotEmpty) road,
-      ];
-      if (parts.isNotEmpty) return parts.join('');
+    if (data != null) {
+      final regeocode = data['regeocode'];
+      if (regeocode is Map<String, dynamic>) {
+        final formatted =
+            (regeocode['formatted_address'] ?? '').toString().trim();
+        if (formatted.isNotEmpty) return formatted;
+        final ac = regeocode['addressComponent'];
+        if (ac is Map<String, dynamic>) {
+          final province = (ac['province'] ?? '').toString().trim();
+          final city = (ac['city'] ?? '').toString().trim();
+          final district = (ac['district'] ?? '').toString().trim();
+          final township = (ac['township'] ?? '').toString().trim();
+          final road = (ac['streetNumber'] is Map<String, dynamic>
+                  ? ((ac['streetNumber'] as Map<String, dynamic>)['street'] ??
+                      '')
+                  : '')
+              .toString()
+              .trim();
+          final parts = <String>[
+            if (province.isNotEmpty && province != city) province,
+            if (city.isNotEmpty) city,
+            if (district.isNotEmpty) district,
+            if (township.isNotEmpty) township,
+            if (road.isNotEmpty) road,
+          ];
+          if (parts.isNotEmpty) return parts.join('');
+        }
+      }
     }
-    return '';
+    // 回退：无 key 的 OSM Nominatim。
+    return (await _nominatimReverse(lat, lng)).$2;
   }
 
   /// 逆地理编码（详情版）：返回（POI 地名，完整地址）。
   /// 用 extensions=all 拿最近的 POI 名称作为地名（如“协和双语学校”），
   /// formatted_address 作为完整地址（如“上海市浦东新区xx路xx号”）。
-  /// 无 key / 失败时返回 (空, 空)，调用方回退到坐标。
+  /// 无 key / 失败时回退到 OSM Nominatim（免 key），不再返回空串。
   Future<(String, String)> reverseGeocodeDetail(double lat, double lng) async {
     final data = await _get('/v3/geocode/regeo', <String, String>{
       'location': '${lng.toStringAsFixed(6)},${lat.toStringAsFixed(6)}',
       'extensions': 'all',
     });
-    if (data == null) return ('', '');
-    final regeocode = data['regeocode'];
-    if (regeocode is! Map<String, dynamic>) return ('', '');
-    // 1) 最近 POI 名（地名）：优先用 pois[0].name。
-    var name = '';
-    final pois = regeocode['pois'];
-    if (pois is List && pois.isNotEmpty) {
-      final first = pois.first;
-      if (first is Map<String, dynamic>) {
-        name = (first['name'] ?? '').toString().trim();
+    if (data != null) {
+      final regeocode = data['regeocode'];
+      if (regeocode is Map<String, dynamic>) {
+        // 1) 最近 POI 名（地名）：优先用 pois[0].name。
+        var name = '';
+        final pois = regeocode['pois'];
+        if (pois is List && pois.isNotEmpty) {
+          final first = pois.first;
+          if (first is Map<String, dynamic>) {
+            name = (first['name'] ?? '').toString().trim();
+          }
+        }
+        // 2) 完整地址：formatted_address，回退到 addressComponent 拼接。
+        var formatted =
+            (regeocode['formatted_address'] ?? '').toString().trim();
+        if (formatted.isEmpty) {
+          final ac = regeocode['addressComponent'];
+          if (ac is Map<String, dynamic>) {
+            final province = (ac['province'] ?? '').toString().trim();
+            final city = (ac['city'] ?? '').toString().trim();
+            final district = (ac['district'] ?? '').toString().trim();
+            final township = (ac['township'] ?? '').toString().trim();
+            final road = (ac['streetNumber'] is Map<String, dynamic>
+                    ? ((ac['streetNumber'] as Map<String, dynamic>)['street'] ??
+                        '')
+                    : '')
+                .toString()
+                .trim();
+            final parts = <String>[
+              if (province.isNotEmpty && province != city) province,
+              if (city.isNotEmpty) city,
+              if (district.isNotEmpty) district,
+              if (township.isNotEmpty) township,
+              if (road.isNotEmpty) road,
+            ];
+            formatted = parts.join('');
+          }
+        }
+        if (name.isNotEmpty || formatted.isNotEmpty) {
+          return (name, formatted);
+        }
       }
     }
-    // 2) 完整地址：formatted_address，回退到 addressComponent 拼接。
-    var formatted =
-        (regeocode['formatted_address'] ?? '').toString().trim();
-    if (formatted.isEmpty) {
-      final ac = regeocode['addressComponent'];
-      if (ac is Map<String, dynamic>) {
-        final province = (ac['province'] ?? '').toString().trim();
-        final city = (ac['city'] ?? '').toString().trim();
-        final district = (ac['district'] ?? '').toString().trim();
-        final township = (ac['township'] ?? '').toString().trim();
-        final road = (ac['streetNumber'] is Map<String, dynamic>
-                ? ((ac['streetNumber'] as Map<String, dynamic>)['street'] ?? '')
-                : '')
-            .toString()
-            .trim();
+    // 回退：无 key 的 OSM Nominatim。
+    return _nominatimReverse(lat, lng);
+  }
+
+  /// 无需 key 的逆地理编码：OSM Nominatim 公共服务。
+  /// 输入 GCJ-02 坐标（与高德一致），内部转 WGS-84 后查询。
+  /// 返回（地名, 完整地址）；失败返回 (空, 空)。
+  Future<(String, String)> _nominatimReverse(double lat, double lng) async {
+    final wgs = gcj02ToWgs84(lat, lng).$1;
+    final uri = Uri.parse('https://nominatim.openstreetmap.org/reverse')
+        .replace(queryParameters: <String, String>{
+      'format': 'jsonv2',
+      'lat': wgs.x.toStringAsFixed(7),
+      'lon': wgs.y.toStringAsFixed(7),
+      'zoom': '18',
+      'addressdetails': '1',
+      'accept-language': 'zh-CN',
+    });
+    try {
+      final resp = await http.get(
+        uri,
+        headers: const <String, String>{
+          // Nominatim 使用政策要求标识 UA，否则会被限流/拒绝。
+          'User-Agent': 'DotChat/3.1.1 (dotchat client)',
+        },
+      ).timeout(const Duration(seconds: 10));
+      if (resp.statusCode != 200) return ('', '');
+      final decoded = jsonDecode(resp.body);
+      if (decoded is! Map<String, dynamic>) return ('', '');
+      // 地名：优先 name，其次 address 里的 POI 类字段（建筑/设施/商店等）。
+      var name = (decoded['name'] ?? '').toString().trim();
+      final addr = decoded['address'];
+      if (name.isEmpty && addr is Map<String, dynamic>) {
+        for (final k in const <String>[
+          'building',
+          'amenity',
+          'shop',
+          'tourism',
+          'leisure',
+          'office',
+          'place_of_worship',
+        ]) {
+          final v = (addr[k] ?? '').toString().trim();
+          if (v.isNotEmpty) {
+            name = v;
+            break;
+          }
+        }
+      }
+      // 完整地址：拼城市/区/街道，比 display_name 更友好、不冗余。
+      var address = '';
+      if (addr is Map<String, dynamic>) {
+        final seen = <String>{};
         final parts = <String>[
-          if (province.isNotEmpty && province != city) province,
-          if (city.isNotEmpty) city,
-          if (district.isNotEmpty) district,
-          if (township.isNotEmpty) township,
-          if (road.isNotEmpty) road,
-        ];
-        formatted = parts.join('');
+          (addr['province'] ?? addr['state'] ?? ''),
+          (addr['city'] ?? ''),
+          (addr['district'] ?? addr['county'] ?? ''),
+          (addr['suburb'] ?? ''),
+          (addr['neighbourhood'] ?? ''),
+          (addr['road'] ?? ''),
+          (addr['house_number'] ?? ''),
+        ].map((e) => e.toString().trim()).where((e) => e.isNotEmpty);
+        final filtered = <String>[];
+        for (final p in parts) {
+          if (seen.contains(p)) continue;
+          seen.add(p);
+          filtered.add(p);
+        }
+        address = filtered.join('');
       }
+      if (address.isEmpty) {
+        address = (decoded['display_name'] ?? '').toString().trim();
+      }
+      return (name, address);
+    } catch (_) {
+      return ('', '');
     }
-    return (name, formatted);
   }
 
   /// 周边地点搜索：返回距 [lat]/[lng] 半径内（默认 3000 米）的地点列表。

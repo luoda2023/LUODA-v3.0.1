@@ -8,6 +8,8 @@
 //
 // 底部“发送”把选中的 GCJ-02 坐标 + 名称 + 地址返回给调用方。
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -57,6 +59,8 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
   String _currentAddress = ''; // 当前选中点的逆地理编码地址
   String _selectedName = ''; // 当前选中点名称（POI 名；拖动地图时清空）
   bool _addressLoading = false;
+  Timer? _addressDebounce; // 拖动地图防抖，避免连续请求超 Nominatim 限流
+  int _addressSeq = 0; // 只应用最后一次解析结果，防竞态乱序
 
   @override
   void initState() {
@@ -72,6 +76,7 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
 
   @override
   void dispose() {
+    _addressDebounce?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -93,11 +98,12 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
   }
 
   Future<void> _resolveAddress(LatLng center) async {
-    if (!AmapService.instance.hasKey) return;
+    // 无需判断 hasKey：有 key 用高德，无 key 自动回退 OSM Nominatim。
+    final seq = ++_addressSeq;
     setState(() => _addressLoading = true);
     final (name, address) = await AmapService.instance
         .reverseGeocodeDetail(center.latitude, center.longitude);
-    if (!mounted) return;
+    if (!mounted || seq != _addressSeq) return;
     setState(() {
       // 地名随地图移动实时更新（微信样式：“我的位置”显示实际地名）。
       if (name.isNotEmpty) _currentName = name;
@@ -125,8 +131,12 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
       _selectedName = '';
       _currentName = ''; // 地名稍后由逆地理编码刷新
     });
-    _loadNearby(center);
-    _resolveAddress(center);
+    // 拖动停止 400ms 后才查询，避免连续拖动打爆 Nominatim/高德限流。
+    _addressDebounce?.cancel();
+    _addressDebounce = Timer(const Duration(milliseconds: 400), () {
+      _loadNearby(center);
+      _resolveAddress(center);
+    });
   }
 
   void _pickPlace(GeoPlace place, {bool isMyLocation = false}) {
