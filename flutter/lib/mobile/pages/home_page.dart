@@ -321,6 +321,20 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
     unawaited(joinMeetingSession(context, group));
   }
 
+  /// 打开完整的会议管理页面（微信“聊天信息”风格：演示人/演示控制/
+  /// 邀请链接/成员列表/解散）。返回后刷新点聊列表。
+  Future<void> _openMeetingManagement(
+    BuildContext ctx,
+    MeetingGroup group,
+  ) async {
+    await Navigator.of(ctx).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => MeetingGroupPanel(group: group),
+      ),
+    );
+    if (mounted) setState(() {});
+  }
+
   /// 会议群聊标题栏直接添加成员（群主入口）。
   Future<void> _showMobileAddMemberDialog(
     BuildContext dialogContext,
@@ -430,12 +444,7 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   elevation: 0,
                   title: InkWell(
                     onTap: meetingGroup != null
-                        ? () => showMeetingMembersDialog(context, meetingGroup)
-                              .then((dissolved) {
-                              if (dissolved == true) {
-                                Navigator.of(context).pop();
-                              }
-                            })
+                        ? () => _openMeetingManagement(context, meetingGroup)
                         : pairing == null
                             ? null
                             : () => showDirectConnectionDetails(
@@ -531,12 +540,8 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                 : '',
                           );
                           if (group != null) {
-                            unawaited(showMeetingMembersDialog(context, group)
-                                .then((dissolved) {
-                              if (dissolved == true && mounted) {
-                                Navigator.of(context).pop();
-                              }
-                            }));
+                            unawaited(
+                                _openMeetingManagement(context, group));
                           }
                         } else if (action == 'mute') {
                           gFFI.chatSettingsModel.toggleMute(peerId);

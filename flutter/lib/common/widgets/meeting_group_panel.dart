@@ -312,24 +312,29 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
       body: Column(
         children: [
           Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
-              children: [
-                _buildMeetingCard(context, isHost),
-                const SizedBox(height: 14),
-                if (isHost) ...[
-                  _buildPresentationCard(context, surface, border),
-                  const SizedBox(height: 14),
-                  _buildInviteCard(context, surface, border),
-                  const SizedBox(height: 14),
-                ],
-                if (_group.hasActiveSession) ...[
-                  _buildActiveSessionBanner(context, theme),
-                  const SizedBox(height: 14),
-                ],
-                _buildMembersCard(context, surface, border),
-                const SizedBox(height: 24),
-              ],
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 620),
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+                  children: [
+                    _buildMeetingCard(context, isHost),
+                    const SizedBox(height: 12),
+                    if (isHost) ...[
+                      _buildPresentationCard(context, surface, border),
+                      const SizedBox(height: 12),
+                      _buildInviteCard(context, surface, border),
+                      const SizedBox(height: 12),
+                    ],
+                    if (_group.hasActiveSession) ...[
+                      _buildActiveSessionBanner(context, theme),
+                      const SizedBox(height: 12),
+                    ],
+                    _buildMembersCard(context, surface, border),
+                    const SizedBox(height: 24),
+                  ],
+                ),
+              ),
             ),
           ),
           if (isHost) _buildAddMemberBar(context, surface, border),
@@ -339,195 +344,204 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
   }
 
   Widget _buildMeetingCard(BuildContext context, bool isHost) {
+    final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
+    final surface = dark ? MyTheme.surfaceDark : Colors.white;
+    final border = dark ? MyTheme.borderDark : MyTheme.borderLight;
+    final presenterLabel = _group.presenterDisplayName.isNotEmpty
+        ? _group.presenterDisplayName
+        : _group.hostDisplayName;
+
     return Container(
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: <Color>[Color(0xFF0FAF57), Color(0xFF07C160)],
-        ),
-        borderRadius: BorderRadius.circular(18),
+        color: surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: border.withOpacity(0.6)),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF07C160).withOpacity(0.25),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
+            color: Colors.black.withOpacity(dark ? 0.3 : 0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 3),
           ),
         ],
       ),
+      clipBehavior: Clip.antiAlias,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.18),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(Icons.videocam_rounded,
-                    color: Colors.white, size: 24),
+          // 渐变头部：会议头像 + 会议名 + 副标题 + 编辑按钮。
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(20, 24, 20, 22),
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: <Color>[Color(0xFF0FAF57), Color(0xFF07C160)],
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+            ),
+            child: Column(
+              children: [
+                Stack(
+                  alignment: Alignment.center,
                   children: [
-                    Text(
-                      _group.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
+                    Container(
+                      width: 62,
+                      height: 62,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.18),
+                        borderRadius: BorderRadius.circular(18),
                       ),
+                      child: const Icon(Icons.videocam_rounded,
+                          color: Colors.white, size: 32),
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      translate('Meeting details'),
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.white.withOpacity(0.85),
+                    if (isHost)
+                      Positioned(
+                        right: 0,
+                        top: 0,
+                        child: InkWell(
+                          onTap: _editTitle,
+                          borderRadius: BorderRadius.circular(10),
+                          child: Container(
+                            padding: const EdgeInsets.all(7),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(Icons.edit_rounded,
+                                color: Colors.white, size: 15),
+                          ),
+                        ),
                       ),
-                    ),
                   ],
                 ),
-              ),
-              if (isHost)
-                InkWell(
-                  onTap: _editTitle,
-                  borderRadius: BorderRadius.circular(10),
-                  child: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.16),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(Icons.edit_rounded,
-                        color: Colors.white, size: 16),
+                const SizedBox(height: 12),
+                Text(
+                  _group.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
                   ),
                 ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: _heroChip(
-                  icon: Icons.person_rounded,
-                  label: _group.hostDisplayName,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _heroChip(
-                  icon: Icons.people_alt_rounded,
-                  label: '${translate('Members')} ${_members.length + 1}',
-                ),
-              ),
-              if (_group.inviteShortCode.isNotEmpty) ...[
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _heroChip(
-                    icon: Icons.tag_rounded,
-                    label: _group.inviteShortCode,
-                    onTap: _group.inviteShortCode.isNotEmpty
-                        ? _copyInviteLink
-                        : null,
+                const SizedBox(height: 4),
+                Text(
+                  '${translate('Meeting')} · '
+                  '${_members.length + 1} ${translate('Members')}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.white.withOpacity(0.85),
                   ),
                 ),
               ],
-            ],
+            ),
           ),
-          const SizedBox(height: 8),
-          // 演示人：显示当前演示人；host 可点击修改（发起人和演示人
-          // 可以是同一人，也可以是不同的人，只有他们能操控鼠标）。
-          InkWell(
-            onTap: isHost ? _changePresenter : null,
-            borderRadius: BorderRadius.circular(10),
-            child: Container(
-              width: double.infinity,
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.16),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.present_to_all_rounded,
-                      color: Colors.white, size: 15),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      '${translate('Presenter')}: '
-                      '${_group.presenterDisplayName.isNotEmpty ? _group.presenterDisplayName : _group.hostDisplayName}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  if (isHost) ...[
-                    const Icon(Icons.edit_rounded,
-                        color: Colors.white, size: 13),
-                    const SizedBox(width: 2),
-                    Text(
-                      translate('Change'),
-                      style: const TextStyle(
-                          fontSize: 11, color: Colors.white70),
-                    ),
-                  ],
-                ],
+          // 信息行列表。
+          _infoRow(
+            context,
+            icon: Icons.person_rounded,
+            label: translate('Host'),
+            value: _group.hostDisplayName,
+          ),
+          _infoDivider(dark),
+          _infoRow(
+            context,
+            icon: Icons.people_alt_rounded,
+            label: translate('Members'),
+            value: '${_members.length + 1}',
+          ),
+          if (_group.inviteShortCode.isNotEmpty) ...[
+            _infoDivider(dark),
+            _infoRow(
+              context,
+              icon: Icons.tag_rounded,
+              label: translate('Invite code'),
+              value: _group.inviteShortCode,
+              trailing: IconButton(
+                tooltip: translate('Copy link'),
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.copy_rounded, size: 16),
+                onPressed: _copyInviteLink,
               ),
             ),
+          ],
+          _infoDivider(dark),
+          _infoRow(
+            context,
+            icon: Icons.present_to_all_rounded,
+            label: translate('Presenter'),
+            value: presenterLabel,
+            valueColor: const Color(0xFFE65100),
+            trailing: isHost
+                ? TextButton(
+                    onPressed: _changePresenter,
+                    style: TextButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      minimumSize: const Size(0, 30),
+                    ),
+                    child: Text(translate('Change')),
+                  )
+                : null,
           ),
         ],
       ),
     );
   }
 
-  Widget _heroChip({
+  Widget _infoRow(
+    BuildContext context, {
     required IconData icon,
     required String label,
-    VoidCallback? onTap,
+    required String value,
+    Color? valueColor,
+    Widget? trailing,
   }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.16),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: Colors.white, size: 15),
-            const SizedBox(width: 6),
-            Flexible(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                ),
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        children: [
+          Icon(icon,
+              size: 18, color: theme.colorScheme.onSurface.withOpacity(0.42)),
+          const SizedBox(width: 12),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              color: theme.colorScheme.onSurface.withOpacity(0.55),
+            ),
+          ),
+          const Spacer(),
+          Flexible(
+            child: Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: valueColor ?? theme.colorScheme.onSurface,
               ),
             ),
+          ),
+          if (trailing != null) ...[
+            const SizedBox(width: 4),
+            trailing,
           ],
-        ),
+        ],
       ),
+    );
+  }
+
+  Widget _infoDivider(bool dark) {
+    return Divider(
+      height: 1,
+      thickness: 0.5,
+      indent: 44,
+      color: dark ? const Color(0xFF3A3D43) : const Color(0x80E5E5E5),
     );
   }
 
