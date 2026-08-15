@@ -10,6 +10,8 @@ import 'package:luoda_flutter/common.dart';
 import 'package:luoda_flutter/models/chat_model.dart';
 
 import '../../models/meeting_group_model.dart';
+import '../../models/peer_model.dart';
+import 'friend_picker_dialog.dart';
 
 /// Full management panel for a single meeting group.
 class MeetingGroupPanel extends StatefulWidget {
@@ -678,35 +680,154 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
               top: BorderSide(
                   color: dark ? const Color(0xFF3A3D43) : const Color(0x80E5E5E5))),
         ),
-        child: Row(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Expanded(
-              child: TextField(
-                controller: _addPeerCtrl,
-                decoration: InputDecoration(
-                  hintText: translate('Enter peer ID or name'),
-                  isDense: true,
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10)),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _addPeerCtrl,
+                    decoration: InputDecoration(
+                      hintText: translate('Enter peer ID or name'),
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 10),
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10)),
+                    ),
+                    onSubmitted: (v) => _addMember(v),
+                  ),
                 ),
-                onSubmitted: (v) => _addMember(v),
-              ),
+                const SizedBox(width: 8),
+                Tooltip(
+                  message: translate('Choose from contacts'),
+                  child: Material(
+                    color: MyTheme.primarySoft,
+                    borderRadius: BorderRadius.circular(12),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: _openFriendPicker,
+                      child: Container(
+                        width: 42,
+                        height: 42,
+                        alignment: Alignment.center,
+                        child: const Icon(Icons.people_alt_rounded,
+                            color: MyTheme.primary, size: 22),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton.filled(
+                  style: IconButton.styleFrom(
+                    backgroundColor: MyTheme.primary,
+                    foregroundColor: Colors.white,
+                  ),
+                  icon: const Icon(Icons.person_add_rounded, size: 20),
+                  onPressed: () => _addMember(_addPeerCtrl.text),
+                ),
+              ],
             ),
-            const SizedBox(width: 8),
-            IconButton.filled(
-              style: IconButton.styleFrom(
-                backgroundColor: MyTheme.primary,
-                foregroundColor: Colors.white,
+            const SizedBox(height: 6),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: _openFriendPicker,
+                style: TextButton.styleFrom(
+                  foregroundColor: MyTheme.primary,
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  minimumSize: const Size(0, 32),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                icon: const Icon(Icons.group_add_rounded, size: 16),
+                label: Text(
+                  translate('Select from friends'),
+                  style: const TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w500),
+                ),
               ),
-              icon: const Icon(Icons.person_add_rounded, size: 20),
-              onPressed: () => _addMember(_addPeerCtrl.text),
             ),
           ],
         ),
       ),
     );
+  }
+
+  /// Opens the WeChat-style contact picker and adds the selected peers.
+  Future<void> _openFriendPicker() async {
+    final peers = List<Peer>.of(gFFI.recentPeersModel.peers);
+    final excluded = <String>{
+      _group.hostPeerId,
+      gFFI.serverModel.id,
+      for (final m in _members) m.peerId,
+    };
+    final picked = await showFriendPickerDialog(
+      context,
+      peers: peers,
+      excludePeerIds: excluded,
+      title: translate('Select from friends'),
+    );
+    if (picked == null || picked.isEmpty) return;
+    await _addMembersFromFriends(picked);
+  }
+
+  /// Batch-adds peers picked from the contact list and notifies each one.
+  Future<void> _addMembersFromFriends(List<Peer> picked) async {
+    final added = <Peer>[];
+    for (final peer in picked) {
+      final trimmed = peer.id.trim();
+      if (trimmed.isEmpty ||
+          trimmed == _group.hostPeerId ||
+          trimmed == gFFI.serverModel.id) {
+        continue;
+      }
+      if (_members.any((m) => m.peerId == trimmed)) continue;
+      final displayName = peer.alias.isNotEmpty
+          ? peer.alias
+          : peer.username.isNotEmpty
+              ? peer.username
+              : peer.finalName();
+      MeetingGroupStore.addMember(_group.meetingId, trimmed, displayName);
+      added.add(peer);
+    }
+    if (added.isEmpty) {
+      showToast(translate('Already a member'));
+      return;
+    }
+    setState(() {});
+    showToast('${translate('Added')} ${added.length} ${translate('members')}');
+
+    // Group system message.
+    final chatModel = _activeGroupChatModel();
+    if (chatModel != null &&
+        chatModel.currentKey.peerId == _group.conversationId) {
+      chatModel.sendText(
+          '${translate('System')}: ${added.length} ${translate('members joined the group')}');
+    }
+
+    // Notify each newly added member with a private invite message.
+    for (final peer in added) {
+      await _notifyFriendInvited(peer);
+    }
+  }
+
+  /// Sends a private invite notice to [peer] by briefly switching to their
+  /// conversation, then restoring the previous one.
+  Future<void> _notifyFriendInvited(Peer peer) async {
+    try {
+      final chatModel = gFFI.chatModel;
+      final originalKey = chatModel.currentKey;
+      final friendKey = MessageKey(peer.id, ChatModel.clientModeID);
+      chatModel.changeCurrentKey(friendKey);
+      final body =
+          '${translate('Meeting invite')}：${_group.hostDisplayName} ${translate('invited you to join')}《${_group.title}》';
+      final link = _inviteLink;
+      chatModel.sendText(link != null ? '$body\n$link' : body);
+      chatModel.changeCurrentKey(originalKey);
+    } catch (e) {
+      debugPrint('meeting notify friend invite failed: $e');
+    }
   }
 }
 
