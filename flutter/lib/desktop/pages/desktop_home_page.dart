@@ -1803,8 +1803,20 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                               peerOffline: _selectedContact?.online != true,
                               onAttachFile: () =>
                                   _sendFilesFromConversation(peerId),
-                              onRemoteAssist: () =>
-                                  _connectDirect(context, peerId),
+                              // 会议群聊：+ 面板的入口是“进入观看”（只读观看演示）；
+                              // 普通会话才是“远程桌面”（可操控）。观看权限由服务端
+                              // viewer 模型保证（viewer 天然只读，无法输入）。
+                              isMeetingChat: peerId.startsWith('meeting:'),
+                              onRemoteAssist: peerId.startsWith('meeting:')
+                                  ? () {
+                                      final group = MeetingGroupStore.find(
+                                        peerId.substring('meeting:'.length),
+                                      );
+                                      if (group != null) {
+                                        _joinGroupSession(context, group);
+                                      }
+                                    }
+                                  : () => _connectDirect(context, peerId),
                               onSendImage: () =>
                                   _pickImagesForConversation(peerId),
                               onScreenshot: () =>
@@ -2045,15 +2057,44 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               onPressed: hasConversation ? chatModel.openChatSearch : null,
             ),
             if (isMeetingChat && meetingGroup != null) ...<Widget>[
-              _conversationActionButton(
-                context,
-                tooltip: meetingGroup.hasActiveSession
-                    ? translate('Join live session')
+              // 进入观看：突出的绿色按钮（仅只读观看演示，无法操控）。
+              Tooltip(
+                message: meetingGroup.hasActiveSession
+                    ? translate('Enter to Watch')
                     : translate('No active session yet'),
-                icon: Icons.sensors_rounded,
-                onPressed: meetingGroup.hasActiveSession
-                    ? () => _joinGroupSession(context, meetingGroup)
-                    : null,
+                child: IconButton(
+                  onPressed: meetingGroup.hasActiveSession
+                      ? () => _joinGroupSession(context, meetingGroup)
+                      : null,
+                  style: IconButton.styleFrom(
+                    backgroundColor: meetingGroup.hasActiveSession
+                        ? MyTheme.primary
+                        : Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withOpacity(0.08),
+                    foregroundColor: meetingGroup.hasActiveSession
+                        ? Colors.white
+                        : Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withOpacity(0.3),
+                    disabledBackgroundColor: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withOpacity(0.06),
+                    disabledForegroundColor: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withOpacity(0.25),
+                    minimumSize: const Size(40, 40),
+                    padding: const EdgeInsets.all(8),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  icon: const Icon(Icons.visibility_rounded, size: 21),
+                ),
               ),
               if (meetingGroup.isHost)
                 _conversationActionButton(

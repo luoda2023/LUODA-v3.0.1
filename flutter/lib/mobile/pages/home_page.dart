@@ -491,10 +491,20 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   ),
                   actions: [
                     if (meetingGroup != null) ...<Widget>[
+                      // 进入观看：突出的绿色按钮（只读观看演示，无法操控）。
                       if (meetingGroup.hasActiveSession)
                         IconButton(
-                          icon: const Icon(Icons.sensors_rounded),
-                          tooltip: translate('Join live session'),
+                          icon: const Icon(Icons.visibility_rounded),
+                          style: IconButton.styleFrom(
+                            backgroundColor: const Color(0xFF07C160),
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size(38, 38),
+                            padding: const EdgeInsets.all(8),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(11),
+                            ),
+                          ),
+                          tooltip: translate('Enter to Watch'),
                           onPressed: () =>
                               _joinMeetingSessionFromChat(meetingGroup),
                         ),
@@ -594,7 +604,20 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 body: ChatPage(
                   type: ChatPageType.mobileMain,
                   onAttachFile: _sendDirectChatFiles,
-                  onRemoteAssist: _startRemoteFromChat,
+                  // 会议群聊：+ 面板入口为“进入观看”（只读观看演示）；
+                  // 普通会话才是“远程桌面”（可操控）。
+                  isMeetingChat: gFFI.chatModel.currentKey.peerId
+                      .startsWith('meeting:'),
+                  onRemoteAssist: gFFI.chatModel.currentKey.peerId
+                          .startsWith('meeting:')
+                      ? () {
+                          final group = MeetingGroupStore.find(
+                            gFFI.chatModel.currentKey.peerId
+                                .substring('meeting:'.length),
+                          );
+                          if (group != null) _joinMeetingSessionFromChat(group);
+                        }
+                      : _startRemoteFromChat,
                   onForwardMessages: _forwardConversationMessages,
                   onSendImage: _pickImageOrFile,
                   onTakePhoto: _takePhoto,

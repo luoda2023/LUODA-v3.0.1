@@ -242,6 +242,11 @@ class ChatPage extends StatelessWidget implements PageShape {
   final ForwardMessagesCallback? onForwardMessages;
   final bool peerOffline;
 
+  /// 当前会话是否为会议群聊（meeting:xxx）。会议群聊时，输入面板里的
+  /// “远程桌面”入口改为“进入观看”（只读观看演示，不能操控）；观看权限
+  /// 由服务端 viewer 模型保证（viewer 天然只读）。
+  final bool isMeetingChat;
+
   /// PC 端输入栏控制器：截图完成或外部粘贴图片后，通过它把图片放入输入框。
   final DesktopChatComposerController? composerController;
 
@@ -265,6 +270,7 @@ class ChatPage extends StatelessWidget implements PageShape {
     this.composerController,
     this.onSendPendingImage,
     this.peerOffline = false,
+    this.isMeetingChat = false,
   }) {
     this.chatModel = chatModel ?? gFFI.chatModel;
     this.chatModel.refreshLocalIdentity();
@@ -3040,8 +3046,14 @@ class ChatPage extends StatelessWidget implements PageShape {
                                 ),
                               if (onRemoteAssist != null)
                                 composerTool(
-                                  Icons.desktop_windows_outlined,
-                                  'Remote Desktop',
+                                  chatModel.currentKey.peerId
+                                          .startsWith('meeting:')
+                                      ? Icons.visibility_rounded
+                                      : Icons.desktop_windows_outlined,
+                                  chatModel.currentKey.peerId
+                                          .startsWith('meeting:')
+                                      ? 'Enter to Watch'
+                                      : 'Remote Desktop',
                                   onRemoteAssist,
                                 ),
                               const SizedBox(width: 4),
@@ -3993,8 +4005,12 @@ class _MobileChatComposerState extends State<_MobileChatComposer> {
         ),
       if (widget.onRemoteAssist != null)
         (
-          Icons.desktop_windows_outlined,
-          translate('Remote Desktop'),
+          widget.chatModel.currentKey.peerId.startsWith('meeting:')
+              ? Icons.visibility_rounded
+              : Icons.desktop_windows_outlined,
+          widget.chatModel.currentKey.peerId.startsWith('meeting:')
+              ? translate('Enter to Watch')
+              : translate('Remote Desktop'),
           () => _runTool(widget.onRemoteAssist!),
         ),
       (
@@ -4929,8 +4945,14 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
                       ),
                     if (onRemoteAssist != null)
                       _ComposerToolButton(
-                        icon: Icons.desktop_windows_outlined,
-                        tooltip: translate('Remote Desktop'),
+                        icon: chatModel.currentKey.peerId
+                                .startsWith('meeting:')
+                            ? Icons.visibility_rounded
+                            : Icons.desktop_windows_outlined,
+                        tooltip: chatModel.currentKey.peerId
+                                .startsWith('meeting:')
+                            ? translate('Enter to Watch')
+                            : translate('Remote Desktop'),
                         enabled: enabled,
                         onPressed: () => _runToolAction(onRemoteAssist!),
                       ),
