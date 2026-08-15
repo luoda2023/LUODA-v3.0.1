@@ -1105,6 +1105,16 @@ class ChatPage extends StatelessWidget implements PageShape {
         );
       }
     }
+    // 会议群聊：作为转发目标一并列出（群图标 + “会议”副标题区分）。
+    final meetingIds = <String>{};
+    for (final group in MeetingGroupStore.all) {
+      final convId = group.conversationId;
+      if (convId.isEmpty || convId == currentPeerId) continue;
+      targets[convId] = group.title.trim().isNotEmpty
+          ? group.title.trim()
+          : translate('Meeting');
+      meetingIds.add(convId);
+    }
     if (targets.isEmpty) {
       if (context.mounted) {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
@@ -1128,15 +1138,21 @@ class ChatPage extends StatelessWidget implements PageShape {
                   SimpleDialogOption(
                     onPressed: () => Navigator.pop(dialogContext, entry.key),
                     child: ListTile(
-                      leading: CircleAvatar(
-                        child: Text(entry.value.isNotEmpty
-                            ? entry.value.characters.first.toUpperCase()
-                            : '?'),
-                      ),
+                      leading: meetingIds.contains(entry.key)
+                          ? const CircleAvatar(
+                              child: Icon(Icons.groups_rounded, size: 20),
+                            )
+                          : CircleAvatar(
+                              child: Text(entry.value.isNotEmpty
+                                  ? entry.value.characters.first.toUpperCase()
+                                  : '?'),
+                            ),
                       title: Text(entry.value),
-                      subtitle: entry.value == entry.key
-                          ? null
-                          : Text(entry.key, maxLines: 1),
+                      subtitle: meetingIds.contains(entry.key)
+                          ? Text(translate('Meeting'), maxLines: 1)
+                          : entry.value == entry.key
+                              ? null
+                              : Text(entry.key, maxLines: 1),
                       dense: true,
                       contentPadding: EdgeInsets.zero,
                     ),

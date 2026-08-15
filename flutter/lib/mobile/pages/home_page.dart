@@ -1252,14 +1252,22 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final pairing = DirectPairingStore.find(rawTargetPeerId) ??
         DirectPairingStore.findByEndpoint(rawTargetPeerId);
     final peerId = pairing?.peerId ?? rawTargetPeerId.trim();
-    final ensureConnection = gFFI.chatModel.ensureChatConnection;
-    if (peerId.isEmpty ||
-        ensureConnection == null ||
-        await DirectPairingStore.isSelfTarget(peerId)) {
+    if (peerId.isEmpty || await DirectPairingStore.isSelfTarget(peerId)) {
       return false;
     }
-    await ensureConnection(peerId, force: false);
-    if (gFFI.chatModel.currentKey.peerId != peerId) return false;
+    final isMeeting = peerId.startsWith('meeting:');
+    if (isMeeting) {
+      // 会议群聊无需建立 P2P 会话：切换到群聊会话即可发送（与在群聊
+      // 窗口里直接发消息走同一路径，消息会广播给所有成员）。
+      gFFI.chatModel.changeCurrentKey(
+        MessageKey(peerId, ChatModel.clientModeID),
+      );
+    } else {
+      final ensureConnection = gFFI.chatModel.ensureChatConnection;
+      if (ensureConnection == null) return false;
+      await ensureConnection(peerId, force: false);
+      if (gFFI.chatModel.currentKey.peerId != peerId) return false;
+    }
 
     if (merged) {
       final senders = items
@@ -1283,7 +1291,8 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
               File(item.localPath).existsSync(),
         )
         .toList(growable: false);
-    if (transferableFiles.isNotEmpty) {
+    // 会议群聊不走 P2P 文件会话，只发文件记录（聊天记录卡片）。
+    if (transferableFiles.isNotEmpty && !isMeeting) {
       final fileSession = await _ensureDirectFileSession(peerId);
       if (fileSession == null) return false;
       final selected = SelectedItems(isLocal: true);

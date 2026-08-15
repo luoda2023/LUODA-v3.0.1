@@ -82,6 +82,23 @@ void main() {
     });
   });
 
+  group('meeting group as a forward target', () {
+    test('conversationId is the meeting:xxx forward target key', () {
+      final group = _group();
+      expect(group.conversationId, 'meeting:${group.meetingId}');
+      expect(group.conversationId.startsWith('meeting:'), true);
+    });
+
+    test('forward routing treats meeting:xxx as meeting chat', () {
+      // 与 _forwardConversationMessages 的分流一致：meeting 会话跳过
+      // P2P 建连和文件会话，直接用群聊会话发送。
+      bool isMeeting(String peerId) => peerId.startsWith('meeting:');
+      expect(isMeeting('meeting:m-123'), true);
+      expect(isMeeting('peer-123'), false);
+      expect(isMeeting('bt:12:34:56'), false);
+    });
+  });
+
   group('chat-list categorization (meeting excluded from stranger)', () {
     // Mirrors the filter used by the mobile conversation list: meeting
     // conversations (meeting:xxx) must be shown only under the Meeting

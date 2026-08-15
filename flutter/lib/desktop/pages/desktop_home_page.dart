@@ -5106,24 +5106,34 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       return false;
     }
 
-    await _startDirectChat(peerId, activate: false);
-    final direct = _directChatSessionFor(peerId);
-    final incoming = _incomingDirectChatClientFor(peerId);
-    final ChatModel targetModel;
-    if (direct != null && !direct.closed) {
-      targetModel = direct.chatModel;
+    final isMeeting = peerId.startsWith('meeting:');
+    late final ChatModel targetModel;
+    if (isMeeting) {
+      // 会议群聊无需建立 P2P 会话：切换到群聊会话即可发送（与在群聊
+      // 窗口里直接发消息走同一路径，消息会广播给所有成员）。
+      targetModel = gFFI.chatModel;
       targetModel.changeCurrentKey(
         MessageKey(peerId, ChatModel.clientModeID),
       );
-    } else if (incoming != null) {
-      targetModel = gFFI.chatModel;
-      targetModel.changeCurrentKey(MessageKey(peerId, incoming.id));
     } else {
-      _showConversationNotice(
-        translate('Unable to connect to forwarding target.'),
-        tone: _WorkspaceNoticeTone.error,
-      );
-      return false;
+      await _startDirectChat(peerId, activate: false);
+      final direct = _directChatSessionFor(peerId);
+      final incoming = _incomingDirectChatClientFor(peerId);
+      if (direct != null && !direct.closed) {
+        targetModel = direct.chatModel;
+        targetModel.changeCurrentKey(
+          MessageKey(peerId, ChatModel.clientModeID),
+        );
+      } else if (incoming != null) {
+        targetModel = gFFI.chatModel;
+        targetModel.changeCurrentKey(MessageKey(peerId, incoming.id));
+      } else {
+        _showConversationNotice(
+          translate('Unable to connect to forwarding target.'),
+          tone: _WorkspaceNoticeTone.error,
+        );
+        return false;
+      }
     }
 
     if (merged) {
@@ -5148,7 +5158,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               File(item.localPath).existsSync(),
         )
         .toList(growable: false);
-    if (transferableFiles.isNotEmpty) {
+    // 会议群聊不走 P2P 文件会话，只发文件记录（聊天记录卡片）。
+    if (transferableFiles.isNotEmpty && !isMeeting) {
       final fileSession = await _ensureDirectFileSession(peerId);
       if (fileSession == null) return false;
       final selected = SelectedItems(isLocal: true);
