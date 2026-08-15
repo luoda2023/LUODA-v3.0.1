@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -9,9 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:external_path/external_path.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:open_filex/open_filex.dart';
-import 'package:desktop_multi_window/desktop_multi_window.dart';
 
-import '../../utils/multi_window_manager.dart';
 import 'docx_native_preview.dart';
 import 'dwg_preview_view.dart';
 import 'system_share.dart';
@@ -65,7 +62,7 @@ Future<String?> resolveReceivedFilePath(String fileName, int fileSize) async {
   try {
     final ext = await ExternalPath.getExternalStorageDirectories();
     for (final directory in ext) {
-      final dotChat = Directory('${directory}${Platform.pathSeparator}DotChat');
+      final dotChat = Directory('$directory${Platform.pathSeparator}DotChat');
       if (await dotChat.exists() && !dirs.contains(dotChat)) dirs.add(dotChat);
     }
   } catch (_) {}
@@ -139,66 +136,104 @@ Future<void> showFileViewer(
     return;
   }
 
-  // Mobile: use in-app viewer for all types.
-  // Web falls through to desktop path (DesktopMultiWindow or system app).
-  if (isMobile) {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        fullscreenDialog: true,
-        builder: (_) => _FileViewerPage(
-          fileName: fileName,
-          fileSize: fileSize,
-          path: path,
-        ),
+  // All platforms: use the in-app full-screen viewer. This is the most
+  // reliable path everywhere — the desktop separate-window route rendered
+  // a blank white window on some machines (child-window engine not attached),
+  // so we always show preview in-app instead.
+  await Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      fullscreenDialog: true,
+      builder: (_) => _FileViewerPage(
+        fileName: fileName,
+        fileSize: fileSize,
+        path: path,
+        siblingPaths: siblingPaths,
       ),
-    );
-    return;
-  }
-
-  // Desktop: open in a separate OS window.
-  try {
-    final windowController = await DesktopMultiWindow.createWindow(
-      jsonEncode({
-        'type': WindowType.FilePreview.index,
-        'file_path': path,
-        'file_name': fileName,
-        if (siblingPaths != null) 'sibling_paths': siblingPaths,
-      }),
-    );
-    await windowController.setTitle(fileName);
-    if (filePreviewKindForName(fileName) == FilePreviewKind.image) {
-      await windowController.setFrame(
-        const Offset(0, 0) & const Size(1120, 760),
-      );
-      await windowController.center();
-    } else {
-      await windowController.setFrame(
-        const Offset(0, 0) & const Size(960, 720),
-      );
-      await windowController.center();
-    }
-    await windowController.show();
-  } catch (_) {
-    // Last resort: open with system app
-    await OpenFilex.open(path);
-  }
+    ),
+  );
 }
 
-class _FileViewerPage extends StatelessWidget {
+class _FileViewerPage extends StatefulWidget {
   const _FileViewerPage({
     required this.fileName,
     required this.fileSize,
     this.path,
+    this.siblingPaths,
   });
 
   final String fileName;
   final int fileSize;
   final String? path;
+  final List<String>? siblingPaths;
+
+  @override
+  State<_FileViewerPage> createState() => _FileViewerPageState();
+}
+
+class _FileViewerPageState extends State<_FileViewerPage> {
+  late final List<String> _paths;
+  late int _currentIndex;
+  final TransformationController _transformController = TransformationController();
+  int _rotationQuarterTurns = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _paths = <String>{
+      ...?widget.siblingPaths?.where((p) => p.trim().isNotEmpty),
+      if (widget.path != null && widget.path!.trim().isNotEmpty) widget.path!,
+    }.toList(growable: true);
+    if (_paths.isEmpty && widget.path != null) _paths.add(widget.path!);
+    _currentIndex = _paths.indexOf(widget.path ?? '');
+    if (_currentIndex < 0) _currentIndex = 0;
+  }
+
+  @override
+  void dispose() {
+    _transformController.dispose();
+    super.dispose();
+  }
+
+  String get _fileName =>
+      _paths.isNotEmpty ? p.basename(_paths[_currentIndex]) : widget.fileName;
+  String? get _path =>
+      _paths.isNotEmpty ? _paths[_currentIndex] : widget.path;
+  bool get _hasMultiple => _paths.length > 1;
+
+  void _goPrevious() {
+    if (_currentIndex <= 0) return;
+    setState(() {
+      _currentIndex -= 1;
+      _rotationQuarterTurns = 0;
+      _transformController.value = Matrix4.identity();
+    });
+  }
+
+  void _goNext() {
+    if (_currentIndex >= _paths.length - 1) return;
+    setState(() {
+      _currentIndex += 1;
+      _rotationQuarterTurns = 0;
+      _transformController.value = Matrix4.identity();
+    });
+  }
+
+  void _rotate() {
+    setState(() => _rotationQuarterTurns = (_rotationQuarterTurns + 1) % 4);
+  }
+
+  void _resetTransform() {
+    setState(() {
+      _rotationQuarterTurns = 0;
+      _transformController.value = Matrix4.identity();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final kind = filePreviewKindForName(fileName);
+    final kind = filePreviewKindForName(_fileName);
+    final path = _path;
     if (path != null && kind == FilePreviewKind.image) {
       return Scaffold(
         backgroundColor: Colors.black,
@@ -213,9 +248,18 @@ class _FileViewerPage extends StatelessWidget {
               child: SafeArea(
                 child: Row(
                   children: <Widget>[
+                    if (_hasMultiple)
+                      Text(
+                        '${_currentIndex + 1} / ${_paths.length}',
+                        style: const TextStyle(
+                          color: Colors.white60,
+                          fontSize: 12,
+                        ),
+                      ),
+                    const SizedBox(width: 12),
                     Expanded(
                       child: Text(
-                        fileName,
+                        _fileName,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -228,13 +272,31 @@ class _FileViewerPage extends StatelessWidget {
                         ),
                       ),
                     ),
-                    if (path != null) ...<Widget>[
+                    if (path.isNotEmpty) ...<Widget>[
+                      IconButton(
+                        tooltip: translate('Rotate'),
+                        icon: const Icon(Icons.rotate_right_rounded),
+                        color: Colors.white,
+                        onPressed: _rotate,
+                      ),
+                      IconButton(
+                        tooltip: translate('Reset zoom'),
+                        icon: const Icon(Icons.center_focus_strong_rounded),
+                        color: Colors.white,
+                        onPressed: _resetTransform,
+                      ),
                       IconButton(
                         tooltip: translate('Share to WeChat'),
                         icon: const Icon(Icons.share_outlined),
                         color: Colors.white,
                         onPressed: () =>
-                            unawaited(shareFileToSystemApp(path!)),
+                            unawaited(shareFileToSystemApp(path)),
+                      ),
+                      IconButton(
+                        tooltip: translate('Open with system app'),
+                        icon: const Icon(Icons.open_in_new_rounded),
+                        color: Colors.white,
+                        onPressed: () => OpenFilex.open(path),
                       ),
                     ],
                     IconButton(
@@ -247,6 +309,36 @@ class _FileViewerPage extends StatelessWidget {
                 ),
               ),
             ),
+            if (_hasMultiple)
+              Positioned(
+                left: 12,
+                top: 0,
+                bottom: 0,
+                child: Center(
+                  child: IconButton(
+                    tooltip: translate('Previous'),
+                    icon: const Icon(Icons.chevron_left_rounded,
+                        size: 40, color: Colors.white70),
+                    onPressed: _currentIndex > 0 ? _goPrevious : null,
+                  ),
+                ),
+              ),
+            if (_hasMultiple)
+              Positioned(
+                right: 12,
+                top: 0,
+                bottom: 0,
+                child: Center(
+                  child: IconButton(
+                    tooltip: translate('Next'),
+                    icon: const Icon(Icons.chevron_right_rounded,
+                        size: 40, color: Colors.white70),
+                    onPressed: _currentIndex < _paths.length - 1
+                        ? _goNext
+                        : null,
+                  ),
+                ),
+              ),
           ],
         ),
       );
@@ -259,7 +351,7 @@ class _FileViewerPage extends StatelessWidget {
         foregroundColor: dark ? Colors.white : Colors.black87,
         elevation: 0,
         title: Text(
-          fileName,
+          _fileName,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
@@ -269,12 +361,12 @@ class _FileViewerPage extends StatelessWidget {
             IconButton(
               tooltip: translate('Share to WeChat'),
               icon: const Icon(Icons.share_outlined),
-              onPressed: () => unawaited(shareFileToSystemApp(path!)),
+              onPressed: () => unawaited(shareFileToSystemApp(path)),
             ),
             IconButton(
               tooltip: translate('Open with system app'),
               icon: const Icon(Icons.open_in_new_rounded),
-              onPressed: () => OpenFilex.open(path!),
+              onPressed: () => OpenFilex.open(path),
             ),
           ],
           IconButton(
@@ -289,73 +381,77 @@ class _FileViewerPage extends StatelessWidget {
   }
 
   Widget _buildPreview(BuildContext context) {
-    final kind = filePreviewKindForName(fileName);
+    final kind = filePreviewKindForName(_fileName);
     if (kind == FilePreviewKind.image) {
       return InteractiveViewer(
+        transformationController: _transformController,
         minScale: 0.1,
         maxScale: 10.0,
         boundaryMargin: const EdgeInsets.all(80),
         child: Center(
-          child: Image.file(
-            File(path!),
-            fit: BoxFit.contain,
-            errorBuilder: (_, __, ___) => Column(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Icon(Icons.broken_image_outlined,
-                    size: 64,
-                    color: Theme.of(context).brightness == Brightness.dark
-                        ? Colors.white38
-                        : Colors.black26),
-                const SizedBox(height: 12),
-                Text(
-                  translate('Cannot preview this image'),
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Theme.of(context).brightness == Brightness.dark
-                        ? Colors.white54
-                        : Colors.black45,
+          child: RotatedBox(
+            quarterTurns: _rotationQuarterTurns,
+            child: Image.file(
+              File(_path!),
+              fit: BoxFit.contain,
+              errorBuilder: (_, __, ___) => Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Icon(Icons.broken_image_outlined,
+                      size: 64,
+                      color: Theme.of(context).brightness == Brightness.dark
+                          ? Colors.white38
+                          : Colors.black26),
+                  const SizedBox(height: 12),
+                  Text(
+                    translate('Cannot preview this image'),
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Theme.of(context).brightness == Brightness.dark
+                          ? Colors.white54
+                          : Colors.black45,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
       );
     }
-    if (kind == FilePreviewKind.audio) return _AudioPreview(path!, fileName);
+    if (kind == FilePreviewKind.audio) return _AudioPreview(_path!, _fileName);
     if (kind == FilePreviewKind.text || kind == FilePreviewKind.code) {
-      return _TextPreview(path!, fileName);
+      return _TextPreview(_path!, _fileName);
     }
     if (kind == FilePreviewKind.pdf) {
       return PdfNativePreview(
-        path: path!,
-        fileName: fileName,
-        fileSize: fileSize,
+        path: _path!,
+        fileName: _fileName,
+        fileSize: widget.fileSize,
       );
     }
     if (kind == FilePreviewKind.document) {
       return DocxNativePreview(
-        path: path!,
-        fileName: fileName,
-        fileSize: fileSize,
+        path: _path!,
+        fileName: _fileName,
+        fileSize: widget.fileSize,
       );
     }
     if (isOfficeTextPreviewKind(kind)) {
       return OfficeTextPreviewView(
-        path: path!,
-        fileName: fileName,
-        fileSize: fileSize,
+        path: _path!,
+        fileName: _fileName,
+        fileSize: widget.fileSize,
       );
     }
     if (kind == FilePreviewKind.cad) {
       return DwgPreviewView(
-        path: path!,
-        fileName: fileName,
-        fileSize: fileSize,
+        path: _path!,
+        fileName: _fileName,
+        fileSize: widget.fileSize,
       );
     }
-    return _OtherPreview(path!, fileName, fileSize);
+    return _OtherPreview(_path!, _fileName, widget.fileSize);
   }
 
   Widget _buildMissingState(BuildContext context) {
@@ -367,7 +463,7 @@ class _FileViewerPage extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            Icon(filePreviewIcon(fileName), size: 56, color: foreground),
+            Icon(filePreviewIcon(widget.fileName), size: 56, color: foreground),
             const SizedBox(height: 16),
             Text(
               translate('File not found on this device'),
@@ -376,8 +472,8 @@ class _FileViewerPage extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              '${translate('Name')}: $fileName\n'
-              '${translate('Size')}: ${formatFileSize(fileSize)}',
+              '${translate('Name')}: ${widget.fileName}\n'
+              '${translate('Size')}: ${formatFileSize(widget.fileSize)}',
               style: TextStyle(fontSize: 13, color: foreground),
               textAlign: TextAlign.center,
             ),

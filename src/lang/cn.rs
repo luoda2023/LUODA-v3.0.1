@@ -1180,6 +1180,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("P2P direct", "P2P直连"),
         ("P2P endpoint", "P2P端点"),
         ("Previous result", "上一个结果"),
+        ("Rotate", "旋转"),
         ("Rotate right", "向右旋转"),
         ("Scan", "扫描"),
         ("Scan the PC QR code or enter IP:port.", "扫描电脑二维码或输入IP:端口。"),

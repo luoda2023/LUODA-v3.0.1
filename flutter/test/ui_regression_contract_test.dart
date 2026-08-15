@@ -1401,13 +1401,15 @@ void main() {
     );
 
     expect(fileViewerSource, isNot(contains('setFullscreen(true)')));
-    expect(fileViewerSource, contains('windowController.setFrame('));
-    expect(fileViewerSource, contains('windowController.center()'));
+    expect(fileViewerSource, isNot(contains('windowController.setFrame(')));
+    expect(fileViewerSource, isNot(contains('windowController.center()')));
+    // Preview is in-app on all platforms (the desktop separate-window route
+    // rendered a blank white window on some machines).
+    expect(fileViewerSource, contains('MaterialPageRoute<void>'));
+    expect(fileViewerSource, contains('_FileViewerPage('));
+    expect(fileViewerSource, contains('siblingPaths: siblingPaths'));
     expect(fileViewerSource, contains('FilePreviewKind.image'));
-    expect(
-      fileViewerSource,
-      contains("'type': WindowType.FilePreview.index"),
-    );
+    expect(fileViewerSource, isNot(contains('DesktopMultiWindow.createWindow')));
     expect(mainSource, contains('case WindowType.FilePreview:'));
     expect(filePreviewPageSource, contains('filePreviewIcon(fileName)'));
     expect(chatPageSource, contains('Future<void> _openMessageFilePreview('));
