@@ -53,8 +53,9 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
   final TextEditingController _searchController = TextEditingController();
   bool _placesLoading = false;
   List<GeoPlace> _places = const <GeoPlace>[];
+  String _currentName = ''; // 当前选中点地名（逆地理编码 POI 名，随地图移动更新）
   String _currentAddress = ''; // 当前选中点的逆地理编码地址
-  String _selectedName = ''; // 当前选中点名称（默认“我的位置”或 POI 名）
+  String _selectedName = ''; // 当前选中点名称（POI 名；拖动地图时清空）
   bool _addressLoading = false;
 
   @override
@@ -94,10 +95,12 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
   Future<void> _resolveAddress(LatLng center) async {
     if (!AmapService.instance.hasKey) return;
     setState(() => _addressLoading = true);
-    final address =
-        await AmapService.instance.reverseGeocode(center.latitude, center.longitude);
+    final (name, address) = await AmapService.instance
+        .reverseGeocodeDetail(center.latitude, center.longitude);
     if (!mounted) return;
     setState(() {
+      // 地名随地图移动实时更新（微信样式：“我的位置”显示实际地名）。
+      if (name.isNotEmpty) _currentName = name;
       if (address.isNotEmpty) _currentAddress = address;
       _addressLoading = false;
     });
@@ -108,6 +111,7 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
     setState(() {
       _picked = _myLocation;
       _selectedName = '';
+      _currentName = '';
     });
     _searchController.clear();
     _loadNearby(_myLocation);
@@ -119,6 +123,7 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
       _picked = center;
       // 拖动地图即表示选择自定义点，清空已选地点名，避免列表残留高亮。
       _selectedName = '';
+      _currentName = ''; // 地名稍后由逆地理编码刷新
     });
     _loadNearby(center);
     _resolveAddress(center);
@@ -134,6 +139,7 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
     setState(() {
       _picked = target;
       _selectedName = isMyLocation ? '' : place.name;
+      _currentName = isMyLocation ? '' : place.name;
       _searchController.clear();
     });
     _loadNearby(target);
@@ -162,13 +168,16 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
   void _confirm() {
     final picked = _picked;
     if (picked == null) return;
+    // 发送的名字优先用选中地点名，否则用逆地理编码出的实际地名，
+    // 都不再显示笼统的“我的位置”。
+    final name = _selectedName.isNotEmpty
+        ? _selectedName
+        : (_currentName.isNotEmpty ? _currentName : translate('My Location'));
     Navigator.of(context).pop(
       PickedLocation(
         latitude: picked.latitude,
         longitude: picked.longitude,
-        name: _selectedName.isNotEmpty
-            ? _selectedName
-            : translate('My Location'),
+        name: name,
         address: _currentAddress,
       ),
     );
@@ -234,9 +243,10 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
               ),
             ),
           ),
-          // 地图区：约 55% 高度。
+          // 地图区：约 42% 高度（微信样式：地图在上、列表在下，
+          // 底部留出更多空间给地点列表，不再大段空白）。
           SizedBox(
-            height: MediaQuery.of(context).size.height * 0.5,
+            height: MediaQuery.of(context).size.height * 0.42,
             child: Stack(
               children: <Widget>[
                 FlutterMap(
@@ -358,7 +368,11 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
                     children: <Widget>[
                       _locationTile(
                         icon: Icons.navigation_rounded,
-                        title: translate('My Location'),
+                        // 微信样式：第一项显示实际地名（随地图移动实时变化），
+                        // 逆地理编码未返回时才回退到“我的位置”。
+                        title: _currentName.isNotEmpty
+                            ? _currentName
+                            : translate('My Location'),
                         subtitle: _currentAddress.isNotEmpty
                             ? _currentAddress
                             : '${_myLocation.latitude.toStringAsFixed(5)}, '

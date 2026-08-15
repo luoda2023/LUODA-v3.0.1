@@ -135,6 +135,55 @@ class AmapService {
     return '';
   }
 
+  /// 逆地理编码（详情版）：返回（POI 地名，完整地址）。
+  /// 用 extensions=all 拿最近的 POI 名称作为地名（如“协和双语学校”），
+  /// formatted_address 作为完整地址（如“上海市浦东新区xx路xx号”）。
+  /// 无 key / 失败时返回 (空, 空)，调用方回退到坐标。
+  Future<(String, String)> reverseGeocodeDetail(double lat, double lng) async {
+    final data = await _get('/v3/geocode/regeo', <String, String>{
+      'location': '${lng.toStringAsFixed(6)},${lat.toStringAsFixed(6)}',
+      'extensions': 'all',
+    });
+    if (data == null) return ('', '');
+    final regeocode = data['regeocode'];
+    if (regeocode is! Map<String, dynamic>) return ('', '');
+    // 1) 最近 POI 名（地名）：优先用 pois[0].name。
+    var name = '';
+    final pois = regeocode['pois'];
+    if (pois is List && pois.isNotEmpty) {
+      final first = pois.first;
+      if (first is Map<String, dynamic>) {
+        name = (first['name'] ?? '').toString().trim();
+      }
+    }
+    // 2) 完整地址：formatted_address，回退到 addressComponent 拼接。
+    var formatted =
+        (regeocode['formatted_address'] ?? '').toString().trim();
+    if (formatted.isEmpty) {
+      final ac = regeocode['addressComponent'];
+      if (ac is Map<String, dynamic>) {
+        final province = (ac['province'] ?? '').toString().trim();
+        final city = (ac['city'] ?? '').toString().trim();
+        final district = (ac['district'] ?? '').toString().trim();
+        final township = (ac['township'] ?? '').toString().trim();
+        final road = (ac['streetNumber'] is Map<String, dynamic>
+                ? ((ac['streetNumber'] as Map<String, dynamic>)['street'] ?? '')
+                : '')
+            .toString()
+            .trim();
+        final parts = <String>[
+          if (province.isNotEmpty && province != city) province,
+          if (city.isNotEmpty) city,
+          if (district.isNotEmpty) district,
+          if (township.isNotEmpty) township,
+          if (road.isNotEmpty) road,
+        ];
+        formatted = parts.join('');
+      }
+    }
+    return (name, formatted);
+  }
+
   /// 周边地点搜索：返回距 [lat]/[lng] 半径内（默认 3000 米）的地点列表。
   Future<List<GeoPlace>> searchNearby(double lat, double lng,
       {int radius = 3000, String? keyword, int maxResults = 20}) async {
