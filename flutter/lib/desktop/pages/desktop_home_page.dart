@@ -14,6 +14,7 @@ import 'package:luoda_flutter/common/widgets/animated_rotation_widget.dart';
 import 'package:luoda_flutter/common/widgets/ai_config_page.dart';
 import 'package:luoda_flutter/common/widgets/chat_page.dart';
 import 'package:luoda_flutter/common/widgets/direct_connection_details.dart';
+import 'package:luoda_flutter/common/widgets/favorites_page.dart';
 import 'package:luoda_flutter/common/widgets/join_viewer_page.dart';
 import 'package:luoda_flutter/common/widgets/custom_password.dart';
 import 'package:luoda_flutter/common/widgets/dialog.dart';
@@ -762,6 +763,11 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   }
 
   Future<void> _selectSection(String section) async {
+    // 收藏：弹出完整收藏页（图片 / 文件 / 位置 / 文字 / 语音 / 联系人 分类）。
+    if (section == 'favorites') {
+      _showFavoritesPage();
+      return;
+    }
     const sections = <String>{
       'chat',
       'recent',
@@ -777,6 +783,29 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       _contactQuery.value = '';
     }
     await _loadContactSection(section);
+  }
+
+  /// 微信 PC 风格收藏面板：分类查看收藏的图片 / 文件 / 位置 / 聊天内容等。
+  Future<void> _showFavoritesPage() async {
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierColor: Colors.black54,
+      builder: (_) => Center(
+        child: Container(
+          width: 760,
+          height: 600,
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            color: Theme.of(context).brightness == Brightness.dark
+                ? const Color(0xFF1C1E23)
+                : Colors.white,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: const FavoritesPage(),
+        ),
+      ),
+    );
   }
 
   void _openBluetoothScan(BuildContext context) {

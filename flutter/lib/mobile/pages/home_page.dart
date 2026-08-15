@@ -22,6 +22,7 @@ import '../../common/direct_pairing.dart';
 import '../../common/face_login.dart';
 import '../../common/widgets/chat_page.dart';
 import '../../common/widgets/direct_connection_details.dart';
+import '../../common/widgets/favorites_page.dart';
 import '../../common/widgets/location_picker_page.dart';
 import '../../common/widgets/meeting_group_panel.dart';
 import '../../common/widgets/meeting_members_dialog.dart';
@@ -902,6 +903,10 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _handleMoreAction(String action) async {
     if (!mounted) return;
     switch (action) {
+      case 'favorites':
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => FavoritesPage()),
+        );
       case 'scan':
         await Navigator.of(context).push(
           MaterialPageRoute<void>(builder: (_) => ScanPage()),
@@ -1497,6 +1502,15 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 ),
                 onSelected: _handleMoreAction,
                 itemBuilder: (menuContext) => <PopupMenuEntry<String>>[
+                  PopupMenuItem<String>(
+                    value: 'favorites',
+                    height: 46,
+                    child: _moreMenuItem(
+                      Icons.star_rounded,
+                      translate('My Favorites'),
+                      translate('Images, files, locations, chats'),
+                    ),
+                  ),
                   PopupMenuItem<String>(
                     value: 'scan',
                     height: 46,

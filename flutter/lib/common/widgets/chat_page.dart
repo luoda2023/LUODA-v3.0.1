@@ -9,6 +9,7 @@ import 'package:flutter_map/flutter_map.dart' as flutter_map;
 import 'package:latlong2/latlong.dart' as latlong2;
 import 'package:luoda_flutter/common/direct_chat.dart';
 import 'package:luoda_flutter/common/direct_pairing.dart';
+import 'package:luoda_flutter/common/favorites_model.dart';
 import 'package:luoda_flutter/common/widgets/location_detail_page.dart';
 import 'package:luoda_flutter/models/chat_model.dart';
 import 'package:luoda_flutter/models/platform_model.dart';
@@ -366,6 +367,15 @@ class ChatPage extends StatelessWidget implements PageShape {
     }
     actions.add(const _ChatMenuAction(
         'info', Icons.info_outline_rounded, 'Info', group: 1));
+    // 收藏 / 取消收藏：图片、文件、位置、文字、语音、聊天记录都支持。
+    final isFavorited = FavoritesModel.instance.isMessageFavorited(message);
+    actions.add(_ChatMenuAction(
+      isFavorited ? 'unfavorite' : 'favorite',
+      isFavorited ? Icons.star_rounded : Icons.star_border_rounded,
+      isFavorited ? 'Remove from Favorites' : 'Add to Favorites',
+      group: 1,
+      color: isFavorited ? const Color(0xFFF5B50A) : null,
+    ));
 
     // AI Translate — only if configured and message is text
     if (AiConfig.current.enabled &&
@@ -710,6 +720,26 @@ class ChatPage extends StatelessWidget implements PageShape {
       if (context.mounted) {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
           SnackBar(content: Text(translate('Copied to clipboard'))),
+        );
+      }
+      return;
+    }
+    if (action == 'favorite' || action == 'unfavorite') {
+      final senderName = message.user.firstName ?? '';
+      final peerName = senderName.isNotEmpty
+          ? senderName
+          : chatModel.currentUser?.firstName ?? '';
+      final nowFav = await FavoritesModel.instance.toggleMessage(
+        message,
+        peerName: peerName,
+      );
+      if (context.mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(
+            content: Text(translate(
+              nowFav ? 'Added to Favorites' : 'Removed from Favorites',
+            )),
+          ),
         );
       }
       return;
