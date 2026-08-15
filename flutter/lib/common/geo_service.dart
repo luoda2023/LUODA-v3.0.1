@@ -48,11 +48,22 @@ class AmapService {
   static const _storageKey = 'amap-web-service-key';
   static const _base = 'https://restapi.amap.com';
 
+  /// 内置默认高德 Web 服务 key（软件自带，所有用户免配置）。
+  /// 多个 key 轮询以分散每日配额；空列表时回退到腾讯/OSM。
+  static const List<String> _builtinAmapKeys = <String>[
+    // TODO: 填入真实申请的高德 Web 服务 key（32 位）。
+  ];
+
+  /// 内置默认腾讯位置服务 key（第二回退，GCJ-02 坐标系，与高德一致）。
+  static const List<String> _builtinTencentKeys = <String>[
+    // TODO: 填入真实申请的腾讯位置服务 key。
+  ];
+
   String? _cachedKey;
   DateTime? _lastFetch;
 
-  /// 用户配置的高德 Web 服务 key（设置页填写，免费申请）。
-  String? get apiKey {
+  /// 用户自定义 key（设置页填写），优先于内置 key。
+  String? get _userKey {
     final now = DateTime.now();
     if (_cachedKey == null ||
         _lastFetch == null ||
@@ -67,6 +78,16 @@ class AmapService {
     return (_cachedKey == null || _cachedKey!.isEmpty) ? null : _cachedKey;
   }
 
+  /// 解析顺序：用户自定义 key > 内置高德 key。
+  String? get apiKey => _userKey ?? _firstKey(_builtinAmapKeys);
+
+  String? _firstKey(List<String> keys) {
+    for (final k in keys) {
+      if (k.trim().isNotEmpty) return k.trim();
+    }
+    return null;
+  }
+
   Future<void> saveApiKey(String value) async {
     _cachedKey = value.trim();
     _lastFetch = DateTime.now();
@@ -78,6 +99,10 @@ class AmapService {
   }
 
   bool get hasKey => apiKey != null && apiKey!.isNotEmpty;
+
+  /// 高德或腾讯有内置 key 时，就认为有地名解析能力。
+  bool get hasAnyBuiltinKey =>
+      hasKey || _builtinTencentKeys.any((k) => k.trim().isNotEmpty);
 
   Future<Map<String, dynamic>?> _get(
     String path,
@@ -137,7 +162,9 @@ class AmapService {
         }
       }
     }
-    // 回退：无 key 的 OSM Nominatim。
+    // 回退：腾讯（内置 key）→ OSM Nominatim（海外）。
+    final tencent = await _tencentReverse(lat, lng);
+    if (tencent.$2.isNotEmpty) return tencent.$2;
     return (await _nominatimReverse(lat, lng)).$2;
   }
 
@@ -193,8 +220,60 @@ class AmapService {
         }
       }
     }
-    // 回退：无 key 的 OSM Nominatim。
+    // 回退：腾讯（内置 key）→ OSM Nominatim（海外）。
+    final tencent = await _tencentReverse(lat, lng);
+    if (tencent.$1.isNotEmpty || tencent.$2.isNotEmpty) return tencent;
     return _nominatimReverse(lat, lng);
+  }
+
+  /// 腾讯位置服务逆地理编码（GCJ-02，与高德一致），内置 key 时的第二回退。
+  /// 返回（地名, 完整地址）；失败返回 (空, 空)。
+  Future<(String, String)> _tencentReverse(double lat, double lng) async {
+    final key = _firstKey(_builtinTencentKeys);
+    if (key == null) return ('', '');
+    final uri = Uri.parse('https://apis.map.qq.com/ws/geocoder/v1/')
+        .replace(queryParameters: <String, String>{
+      'location': '${lat.toStringAsFixed(6)},${lng.toStringAsFixed(6)}',
+      'key': key,
+    });
+    try {
+      final resp = await http
+          .get(uri)
+          .timeout(const Duration(seconds: 8));
+      if (resp.statusCode != 200) return ('', '');
+      final decoded = jsonDecode(resp.body);
+      if (decoded is! Map<String, dynamic>) return ('', '');
+      if ((decoded['status'] ?? 1) != 0) return ('', '');
+      final result = decoded['result'];
+      if (result is! Map<String, dynamic>) return ('', '');
+      // 地名：优先 landmark_l1（如“协和双语学校”）。
+      var name = '';
+      final ref = result['address_reference'];
+      if (ref is Map<String, dynamic>) {
+        final landmark = ref['landmark_l1'];
+        if (landmark is Map<String, dynamic>) {
+          name = (landmark['title'] ?? '').toString().trim();
+        }
+      }
+      if (name.isEmpty) {
+        final ad = result['ad_info'];
+        if (ad is Map<String, dynamic>) {
+          name = (ad['name'] ?? '').toString().trim();
+        }
+      }
+      // 完整地址：address，回退到 formatted_addresses.recommend。
+      var address = (result['address'] ?? '').toString().trim();
+      if (address.isEmpty) {
+        final fm = result['formatted_addresses'];
+        if (fm is Map<String, dynamic>) {
+          address =
+              (fm['recommend'] ?? fm['rough'] ?? '').toString().trim();
+        }
+      }
+      return (name, address);
+    } catch (_) {
+      return ('', '');
+    }
   }
 
   /// 无需 key 的逆地理编码：OSM Nominatim 公共服务。
