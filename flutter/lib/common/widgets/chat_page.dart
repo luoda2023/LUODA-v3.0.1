@@ -4184,10 +4184,13 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
     );
   }
 
-  @override
   /// 截图时是否隐藏本窗口（剪刀右侧下拉箭头可切换，持久化存储）。
   bool _screenshotHideWindow = true;
 
+  /// 剪刀右侧下拉箭头的 key，用于在按钮正上方定位菜单。
+  final GlobalKey _screenshotArrowKey = GlobalKey();
+
+  @override
   void initState() {
     super.initState();
     _screenshotHideWindow =
@@ -4257,15 +4260,21 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
   /// 剪刀右侧下拉箭头：在按钮正上方弹出“隐藏本窗口”选项菜单。
   /// 输入栏位于窗口底部，默认向下弹出的菜单会被窗口底边裁剪，
   /// 因此用 showMenu 定位在按钮上方，保证菜单完整可见。
-  Future<void> _showScreenshotOptions(BuildContext menuContext) async {
-    final overlay = Overlay.of(menuContext).context.findRenderObject() as RenderBox?;
-    final box = menuContext.findRenderObject() as RenderBox?;
+  Future<void> _showScreenshotOptions() async {
+    final arrowContext = _screenshotArrowKey.currentContext;
+    if (arrowContext == null) return;
+    // showMenu 内部用 root navigator 的 overlay 挂菜单，锚点换算必须
+    // 用同一个 overlay，否则坐标不一致会导致菜单飘到其它位置。
+    final overlay = Overlay.of(arrowContext, rootOverlay: true)
+        .context
+        .findRenderObject() as RenderBox?;
+    final box = arrowContext.findRenderObject() as RenderBox?;
     if (overlay == null || box == null) return;
     final topLeft = box.localToGlobal(Offset.zero, ancestor: overlay);
     // 菜单（两行 + 内边距约 132px）整体位于按钮上方。
     final menuHeight = 132.0;
     final result = await showMenu<bool>(
-      context: menuContext,
+      context: arrowContext,
       position: RelativeRect.fromRect(
         Rect.fromLTWH(
           topLeft.dx,
@@ -4680,10 +4689,11 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
                           // 用 showMenu 在按钮正上方弹出（输入栏位于窗口底部，
                           // 默认向下展开会被窗口底边裁剪导致菜单显示不全）。
                           _ComposerToolButton(
+                            key: _screenshotArrowKey,
                             icon: Icons.arrow_drop_down_rounded,
                             tooltip: translate('Screenshot options'),
                             enabled: enabled,
-                            onPressed: () => _showScreenshotOptions(context),
+                            onPressed: () => _showScreenshotOptions(),
                           ),
                         ],
                       ),
@@ -4857,6 +4867,7 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
 
 class _ComposerToolButton extends StatelessWidget {
   const _ComposerToolButton({
+    super.key,
     required this.icon,
     required this.tooltip,
     required this.enabled,
