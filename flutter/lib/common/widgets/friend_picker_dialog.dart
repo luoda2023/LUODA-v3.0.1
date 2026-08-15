@@ -20,6 +20,7 @@ Future<List<Peer>?> showFriendPickerDialog(
   required List<Peer> peers,
   Set<String> excludePeerIds = const <String>{},
   String? title,
+  int? maxSelections,
 }) {
   return showDialog<List<Peer>>(
     context: context,
@@ -28,6 +29,7 @@ Future<List<Peer>?> showFriendPickerDialog(
       peers: peers,
       excludePeerIds: excludePeerIds,
       title: title,
+      maxSelections: maxSelections,
     ),
   );
 }
@@ -37,11 +39,16 @@ class _FriendPickerDialog extends StatefulWidget {
     required this.peers,
     required this.excludePeerIds,
     this.title,
+    this.maxSelections,
   });
 
   final List<Peer> peers;
   final Set<String> excludePeerIds;
   final String? title;
+
+  /// When set, the user can select at most this many contacts. Useful for
+  /// single-choice flows (e.g. picking a meeting presenter).
+  final int? maxSelections;
 
   @override
   State<_FriendPickerDialog> createState() => _FriendPickerDialogState();
@@ -75,7 +82,16 @@ class _FriendPickerDialogState extends State<_FriendPickerDialog> {
 
   void _toggle(String peerId) {
     setState(() {
-      if (!_selected.remove(peerId)) _selected.add(peerId);
+      if (_selected.contains(peerId)) {
+        _selected.remove(peerId);
+      } else if (widget.maxSelections == null ||
+          _selected.length < widget.maxSelections!) {
+        _selected.add(peerId);
+      } else {
+        // Single-select (or at capacity): replace the current selection.
+        _selected.clear();
+        _selected.add(peerId);
+      }
     });
   }
 

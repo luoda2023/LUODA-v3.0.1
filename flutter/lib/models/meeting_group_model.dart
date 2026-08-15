@@ -23,6 +23,9 @@ class MeetingGroup {
     this.members,
     this.activeSessionEndpoint = '',
     this.inviteShortCode = '',
+    this.presenterPeerId = '',
+    this.presenterDisplayName = '',
+    this.viewerToken = '',
   }) : createdAt = createdAt ?? DateTime.now();
 
   /// Globally unique meeting ID (UUID v4).
@@ -48,7 +51,26 @@ class MeetingGroup {
   /// Current invite short code (Crockford base32). Empty if none active.
   String inviteShortCode;
 
+  /// The peer who presents/demos the screen (the "演示人").
+  /// Defaults to the host when empty. Only the host and the presenter
+  /// may control the mouse/keyboard during a live session; everyone
+  /// else joins as a read-only viewer.
+  String presenterPeerId;
+  String presenterDisplayName;
+
+  /// Viewer invite token issued by the host when a live session starts.
+  /// Members use this token to join as read-only viewers (进入观看); the
+  /// host and the designated presenter keep full control.
+  String viewerToken;
+
   bool get isHost => hostPeerId == gFFI.serverModel.id;
+
+  /// True when the local user is allowed to control the session
+  /// (host or the designated presenter).
+  bool get isPresenter =>
+      presenterPeerId.isNotEmpty
+          ? presenterPeerId == gFFI.serverModel.id
+          : isHost;
   bool get hasActiveSession => activeSessionEndpoint.isNotEmpty;
   bool get hasActiveInvite => inviteShortCode.isNotEmpty;
 
@@ -61,6 +83,9 @@ class MeetingGroup {
     'members': (members ?? []).map((m) => m.toJson()).toList(),
     'active_session_endpoint': activeSessionEndpoint,
     'invite_short_code': inviteShortCode,
+    'presenter_peer_id': presenterPeerId,
+    'presenter_display_name': presenterDisplayName,
+    'viewer_token': viewerToken,
   };
 
   factory MeetingGroup.fromJson(Map<String, dynamic> json) => MeetingGroup(
@@ -74,6 +99,9 @@ class MeetingGroup {
         .toList(),
     activeSessionEndpoint: (json['active_session_endpoint'] ?? '').toString(),
     inviteShortCode: (json['invite_short_code'] ?? '').toString(),
+    presenterPeerId: (json['presenter_peer_id'] ?? '').toString(),
+    presenterDisplayName: (json['presenter_display_name'] ?? '').toString(),
+    viewerToken: (json['viewer_token'] ?? '').toString(),
   );
 
   /// The shared conversation ID used by all members for group chat messages.
@@ -153,12 +181,18 @@ class MeetingGroupStore {
     required String title,
     required String hostPeerId,
     required String hostDisplayName,
+    String? presenterPeerId,
+    String? presenterDisplayName,
   }) {
     final group = MeetingGroup(
       meetingId: const Uuid().v4(),
       title: title.trim().isNotEmpty ? title.trim() : hostDisplayName,
       hostPeerId: hostPeerId,
       hostDisplayName: hostDisplayName,
+      // The presenter defaults to the host (发起人自动是新建会议的人),
+      // but can be reassigned to another member afterwards.
+      presenterPeerId: presenterPeerId ?? hostPeerId,
+      presenterDisplayName: presenterDisplayName ?? hostDisplayName,
       // The host is rendered separately in the member list, so do not
       // duplicate the host inside [members] (older builds persisted the
       // host as a member and showed the host twice).
@@ -208,6 +242,35 @@ class MeetingGroupStore {
     if (group == null) return;
     if (group.members == null || group.members!.isEmpty) return;
     group.members!.removeWhere((m) => m.peerId == peerId);
+    // If the removed member was the presenter, fall back to the host.
+    if (group.presenterPeerId == peerId) {
+      group.presenterPeerId = group.hostPeerId;
+      group.presenterDisplayName = group.hostDisplayName;
+    }
+    final idx = _groups.indexWhere((g) => g.meetingId == meetingId);
+    if (idx >= 0) _groups[idx] = group;
+    _save();
+  }
+
+  /// Assign (or change) the presenter for a meeting. Only meaningful on the
+  /// host side, but harmless elsewhere. Returns true on success.
+  static bool setPresenter(String meetingId, String peerId, String displayName) {
+    final group = find(meetingId);
+    if (group == null) return false;
+    group.presenterPeerId = peerId;
+    group.presenterDisplayName =
+        displayName.trim().isNotEmpty ? displayName : peerId;
+    final idx = _groups.indexWhere((g) => g.meetingId == meetingId);
+    if (idx >= 0) _groups[idx] = group;
+    _save();
+    return true;
+  }
+
+  /// Store the viewer invite token issued by the host for the live session.
+  static void setViewerToken(String meetingId, String token) {
+    final group = find(meetingId);
+    if (group == null) return;
+    group.viewerToken = token.trim();
     final idx = _groups.indexWhere((g) => g.meetingId == meetingId);
     if (idx >= 0) _groups[idx] = group;
     _save();

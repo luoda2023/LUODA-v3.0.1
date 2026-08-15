@@ -3,12 +3,16 @@
 // Provides: add/remove members, invite link generation & sharing,
 // one-tap remote-assist join, member list with online indicators.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:luoda_flutter/common.dart';
 import 'package:luoda_flutter/models/chat_model.dart';
 
+import '../direct_pairing.dart';
+import '../join_meeting_session.dart';
 import '../../models/meeting_group_model.dart';
 import '../../models/peer_model.dart';
 import 'friend_picker_dialog.dart';
@@ -145,13 +149,80 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
   }
 
   void _joinRemoteSession() {
-    if (!_group.hasActiveSession || _group.activeSessionEndpoint.isEmpty) {
-      showToast(translate('No active session'));
+    // 发起人/演示人可控制，其他成员只读观看（进入观看）。
+    unawaited(joinMeetingSession(context, _group));
+  }
+
+  /// 开始演示（仅发起人 host 可用）：打开到演示人电脑的远程会话，
+  /// 并在会话内生成观看令牌广播给成员。发起人和演示人可以是同一人，
+  /// 也可以是不同的人——只有他们能操控鼠标，其他成员只读观看。
+  Future<void> _startPresentation() async {
+    if (!_group.isHost) return;
+    final presenterId = _group.presenterPeerId.isNotEmpty
+        ? _group.presenterPeerId
+        : _group.hostPeerId;
+    if (presenterId == gFFI.serverModel.id) {
+      showToast(translate('You are the presenter - share your screen'));
       return;
     }
-    // Navigate to connect with the active session endpoint
-    connect(context, _group.activeSessionEndpoint,
+    if (await DirectPairingStore.isSelfTarget(presenterId)) {
+      showToast(translate('You are the presenter - share your screen'));
+      return;
+    }
+    // 打开到演示人电脑的远程会话（host 获得操控权）。
+    final endpoint = DirectPairingStore.resolveConnectionTarget(presenterId) ??
+        presenterId;
+    connect(context, endpoint,
         isFileTransfer: false, isViewCamera: false, isTerminal: false);
+    showToast('${translate('Presenter')}: ${_group.presenterDisplayName}');
+  }
+
+  /// 修改演示人（仅 host 可操作）：从联系人或群成员中单选。
+  Future<void> _changePresenter() async {
+    if (!_group.isHost) return;
+    final hostPeer = gFFI.recentPeersModel.peers
+        .firstWhereOrNull((p) => p.id.trim() == _group.hostPeerId);
+    final candidates = <Peer>[
+      // 发起人自己始终可选（若无记录则用占位 Peer）
+      if (hostPeer != null)
+        hostPeer
+      else
+        Peer(
+          id: _group.hostPeerId,
+          hash: '',
+          password: '',
+          username: _group.hostDisplayName,
+          hostname: _group.hostDisplayName,
+          platform: '',
+          alias: '',
+          tags: const [],
+          forceAlwaysRelay: false,
+          rdpPort: '',
+          rdpUsername: '',
+          loginName: '',
+          device_group_name: '',
+          note: '',
+        ),
+      ...gFFI.recentPeersModel.peers.where(
+          (p) => p.id.trim().isNotEmpty && p.id.trim() != _group.hostPeerId),
+    ];
+    final picked = await showFriendPickerDialog(
+      context,
+      peers: candidates,
+      title: translate('Choose presenter'),
+      maxSelections: 1,
+    );
+    if (picked == null || picked.isEmpty) return;
+    final chosen = picked.first;
+    MeetingGroupStore.setPresenter(
+      _group.meetingId,
+      chosen.id,
+      chosen.finalName(),
+    );
+    _group.presenterPeerId = chosen.id;
+    _group.presenterDisplayName = chosen.finalName();
+    if (mounted) setState(() {});
+    showToast('${translate('Presenter')}: ${chosen.finalName()}');
   }
 
   ChatModel? _activeGroupChatModel() {
@@ -247,6 +318,8 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
                 _buildMeetingCard(context, isHost),
                 const SizedBox(height: 14),
                 if (isHost) ...[
+                  _buildPresentationCard(context, surface, border),
+                  const SizedBox(height: 14),
                   _buildInviteCard(context, surface, border),
                   const SizedBox(height: 14),
                 ],
@@ -370,6 +443,52 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
               ],
             ],
           ),
+          const SizedBox(height: 8),
+          // 演示人：显示当前演示人；host 可点击修改（发起人和演示人
+          // 可以是同一人，也可以是不同的人，只有他们能操控鼠标）。
+          InkWell(
+            onTap: isHost ? _changePresenter : null,
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              width: double.infinity,
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.16),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.present_to_all_rounded,
+                      color: Colors.white, size: 15),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      '${translate('Presenter')}: '
+                      '${_group.presenterDisplayName.isNotEmpty ? _group.presenterDisplayName : _group.hostDisplayName}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  if (isHost) ...[
+                    const Icon(Icons.edit_rounded,
+                        color: Colors.white, size: 13),
+                    const SizedBox(width: 2),
+                    Text(
+                      translate('Change'),
+                      style: const TextStyle(
+                          fontSize: 11, color: Colors.white70),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -408,6 +527,123 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// 演示控制卡（仅 host）：发起演示到演示人电脑，或结束演示。
+  Widget _buildPresentationCard(
+      BuildContext context, Color surface, Color border) {
+    final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
+    final presenterLabel = _group.presenterDisplayName.isNotEmpty
+        ? _group.presenterDisplayName
+        : _group.hostDisplayName;
+    final isSelfPresenter = _group.presenterPeerId.isEmpty
+        ? _group.isHost
+        : _group.presenterPeerId == gFFI.serverModel.id;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      decoration: BoxDecoration(
+        color: surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: border.withOpacity(0.6)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF3E0),
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: const Icon(Icons.present_to_all_rounded,
+                    size: 18, color: Color(0xFFE65100)),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  translate('Presentation'),
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: theme.colorScheme.onSurface,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            decoration: BoxDecoration(
+              color: dark
+                  ? MyTheme.surfaceDark
+                  : const Color(0xFFF0F2F5),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.person_pin_circle_rounded,
+                    size: 16, color: Color(0xFFE65100)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '${translate('Presenter')}: $presenterLabel'
+                    '${isSelfPresenter ? '  (${translate('You')})' : ''}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: theme.colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _changePresenter,
+                  icon: const Icon(Icons.swap_horiz_rounded, size: 17),
+                  label: Text(translate('Change presenter')),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFFE65100),
+                  ),
+                  onPressed: _startPresentation,
+                  icon: const Icon(Icons.screen_share_rounded, size: 17),
+                  label: Text(
+                    _group.hasActiveSession
+                        ? translate('End presentation')
+                        : translate('Start presentation'),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            translate('Only host and presenter can control the mouse'),
+            style: TextStyle(
+              fontSize: 11,
+              color: theme.colorScheme.onSurface.withOpacity(0.5),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -651,6 +887,9 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
             peerId: _group.hostPeerId,
             displayName: _group.hostDisplayName,
             isHost: true,
+            isPresenter: _group.presenterPeerId.isEmpty
+                ? true
+                : _group.presenterPeerId == _group.hostPeerId,
             joinedAt: _group.createdAt,
             onRemove: null,
             showDivider: members.isNotEmpty,
@@ -660,6 +899,7 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
               peerId: members[i].peerId,
               displayName: members[i].displayName,
               isHost: false,
+              isPresenter: _group.presenterPeerId == members[i].peerId,
               joinedAt: members[i].joinedAt,
               onRemove: _group.isHost ? () => _removeMember(members[i]) : null,
               showDivider: i < members.length - 1,
@@ -835,6 +1075,7 @@ class _MemberTile extends StatelessWidget {
   final String peerId;
   final String displayName;
   final bool isHost;
+  final bool isPresenter;
   final DateTime joinedAt;
   final VoidCallback? onRemove;
   final bool showDivider;
@@ -843,6 +1084,7 @@ class _MemberTile extends StatelessWidget {
     required this.peerId,
     required this.displayName,
     required this.isHost,
+    this.isPresenter = false,
     required this.joinedAt,
     this.onRemove,
     this.showDivider = true,
@@ -942,6 +1184,25 @@ class _MemberTile extends StatelessWidget {
                               style: const TextStyle(
                                 fontSize: 10,
                                 color: MyTheme.primary,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
+                        if (isPresenter && !isHost) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFF3E0),
+                              borderRadius: BorderRadius.circular(5),
+                            ),
+                            child: Text(
+                              translate('Presenter'),
+                              style: const TextStyle(
+                                fontSize: 10,
+                                color: Color(0xFFE65100),
                                 fontWeight: FontWeight.w700,
                               ),
                             ),

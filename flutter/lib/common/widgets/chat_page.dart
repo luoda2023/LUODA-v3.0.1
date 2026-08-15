@@ -18,6 +18,7 @@ import 'package:get/get.dart';
 import 'package:provider/provider.dart';
 
 import '../../mobile/pages/home_page.dart';
+import '../join_meeting_session.dart';
 import '../../models/meeting_group_model.dart';
 import 'package:luoda_flutter/common/direct_viewer_invite.dart';
 import 'package:url_launcher/url_launcher_string.dart';
@@ -2300,6 +2301,14 @@ class ChatPage extends StatelessWidget implements PageShape {
               return GestureDetector(
                 onTap: () {
                   publishViewerInvite(Uri.parse(link));
+                  // 会议群聊内收到 host 分享的观看链接时，自动保存 token，
+                  // 成员点“进入观看”即可直接使用。
+                  final ck = chatModel.currentKey;
+                  if (ck.peerId.startsWith('meeting:')) {
+                    final g =
+                        MeetingGroupStore.find(ck.peerId.substring(8));
+                    if (g != null) captureMeetingViewerToken(g, link);
+                  }
                 },
                 child: Container(
                   width: 240,

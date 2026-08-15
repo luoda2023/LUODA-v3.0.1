@@ -15,6 +15,7 @@ import 'package:luoda_flutter/common/widgets/ai_config_page.dart';
 import 'package:luoda_flutter/common/widgets/chat_page.dart';
 import 'package:luoda_flutter/common/widgets/direct_connection_details.dart';
 import 'package:luoda_flutter/common/widgets/favorites_page.dart';
+import 'package:luoda_flutter/common/widgets/friend_picker_dialog.dart';
 import 'package:luoda_flutter/common/widgets/join_viewer_page.dart';
 import 'package:luoda_flutter/common/widgets/custom_password.dart';
 import 'package:luoda_flutter/common/widgets/dialog.dart';
@@ -52,6 +53,7 @@ import 'package:window_size/window_size.dart' as window_size;
 import '../clipboard_image_probe.dart';
 import '../widgets/button.dart';
 import '../../common/direct_chat.dart';
+import '../../common/join_meeting_session.dart';
 import '../../common/direct_chat_policy.dart';
 import '../../common/direct_pairing.dart';
 import '../../common/direct_viewer_invite.dart';
@@ -1404,7 +1406,12 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   void _showCreateMeetingDialog(BuildContext context) {
     /// 创建会议页面输入框
     final controller = TextEditingController();
+    // 演示人：默认发起人自己，可改为其他联系人（单选）。
+    Peer? presenter;
     gFFI.dialogManager.show((setState, close, ctx) {
+      final presenterLabel = presenter != null
+          ? presenter!.finalName()
+          : gFFI.serverModel.serverId.text;
       return CustomAlertDialog(
         title: Text(translate('Create Meeting')),
         content: Column(
@@ -1419,6 +1426,62 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               ),
             ),
             const SizedBox(height: 12),
+            InkWell(
+              onTap: () async {
+                final picked = await showFriendPickerDialog(
+                  context,
+                  peers: gFFI.recentPeersModel.peers,
+                  title: translate('Choose presenter'),
+                  maxSelections: 1,
+                );
+                if (picked != null && picked.isNotEmpty) {
+                  setState(() => presenter = picked.first);
+                }
+              },
+              borderRadius: BorderRadius.circular(10),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .surfaceContainerHighest
+                      .withOpacity(0.5),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .outlineVariant
+                        .withOpacity(0.6),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.present_to_all_rounded,
+                        size: 18,
+                        color: Theme.of(context).colorScheme.primary),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '${translate('Presenter')}: $presenterLabel',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Theme.of(context).colorScheme.onSurface,
+                        ),
+                      ),
+                    ),
+                    Icon(Icons.unfold_more_rounded,
+                        size: 16,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurfaceVariant),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
             Text(
               translate('Members can watch your session and chat in group'),
               style: TextStyle(
@@ -1439,6 +1502,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 title: title,
                 hostPeerId: gFFI.serverModel.id,
                 hostDisplayName: gFFI.serverModel.serverId.text,
+                presenterPeerId:
+                    presenter?.id ?? gFFI.serverModel.id,
+                presenterDisplayName:
+                    presenter?.finalName() ?? gFFI.serverModel.serverId.text,
               );
               close();
               // 发送邀请链接到聊天，方便邀请其他人
@@ -1459,6 +1526,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             title: title,
             hostPeerId: gFFI.serverModel.id,
             hostDisplayName: gFFI.serverModel.serverId.text,
+            presenterPeerId: presenter?.id ?? gFFI.serverModel.id,
+            presenterDisplayName:
+                presenter?.finalName() ?? gFFI.serverModel.serverId.text,
           );
           close();
         },
@@ -2178,12 +2248,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
   /// 加入会议群聊的实时远程会话（观看演示/教学）。
   void _joinGroupSession(BuildContext context, MeetingGroup group) {
-    if (!group.hasActiveSession || group.activeSessionEndpoint.isEmpty) {
-      showToast(translate('No active session yet'));
-      return;
-    }
-    connect(context, group.activeSessionEndpoint,
-        isFileTransfer: false, isViewCamera: false, isTerminal: false);
+    // 发起人/演示人可控制，其他成员只读观看（进入观看）。
+    unawaited(joinMeetingSession(context, group));
   }
 
   /// 复制会议邀请链接到剪贴板。

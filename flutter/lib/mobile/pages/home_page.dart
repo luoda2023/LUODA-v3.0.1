@@ -18,6 +18,7 @@ import '../../common.dart';
 import '../../consts.dart';
 import '../../common/direct_chat_policy.dart';
 import '../../common/direct_chat.dart';
+import '../../common/join_meeting_session.dart';
 import '../../common/direct_pairing.dart';
 import '../../common/face_login.dart';
 import '../../common/widgets/chat_page.dart';
@@ -315,13 +316,9 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   /// 从会议群聊标题栏加入实时远程会话（观看演示/教学）。
+  /// 发起人/演示人可控制，其他成员只读观看。
   void _joinMeetingSessionFromChat(MeetingGroup group) {
-    if (!group.hasActiveSession || group.activeSessionEndpoint.isEmpty) {
-      showToast(translate('No active session yet'));
-      return;
-    }
-    connect(context, group.activeSessionEndpoint,
-        isFileTransfer: false, isViewCamera: false, isTerminal: false);
+    unawaited(joinMeetingSession(context, group));
   }
 
   /// 会议群聊标题栏直接添加成员（群主入口）。
@@ -3056,11 +3053,17 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
             ..sort(
               (a, b) => _latestMessageTime(b).compareTo(_latestMessageTime(a)),
             );
+          // 会议群聊（meeting:xxx）只归入“会议”分组，不能混进好友/陌生
+          // 分组（否则同一会议会在两处重复显示）。
           final friends = _mergePersonEntries(entries
-              .where((entry) => access.isFriend(entry.key.peerId))
+              .where((entry) =>
+                  !entry.key.peerId.startsWith('meeting:') &&
+                  access.isFriend(entry.key.peerId))
               .toList(growable: false));
           final strangers = _mergePersonEntries(entries
-              .where((entry) => !access.isFriend(entry.key.peerId))
+              .where((entry) =>
+                  !entry.key.peerId.startsWith('meeting:') &&
+                  !access.isFriend(entry.key.peerId))
               .toList(growable: false));
           final fileHelperRow =
               boundToPc ? model.messages[model.fileHelperKey] : null;
