@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -9,9 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:external_path/external_path.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:open_filex/open_filex.dart';
-import 'package:desktop_multi_window/desktop_multi_window.dart';
 
-import '../../utils/multi_window_manager.dart';
 import 'docx_native_preview.dart';
 import 'dwg_preview_view.dart';
 import 'system_share.dart';
@@ -139,49 +136,26 @@ Future<void> showFileViewer(
     return;
   }
 
-  // Mobile: use the in-app full-screen viewer.
-  if (isMobile) {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        fullscreenDialog: true,
-        builder: (_) => _FileViewerPage(
-          fileName: fileName,
-          fileSize: fileSize,
-          path: path,
-          siblingPaths: siblingPaths,
-        ),
+  // All platforms: use the in-app full-screen viewer.
+  //
+  // LUODA FIX: the desktop separate-window route (a second Flutter engine in
+  // the same process) renders a blank white window on this machine — the
+  // child-window engine never attaches, so the preview is invisible. The
+  // in-app full-screen route is reliable everywhere and keeps zoom / rotate /
+  // prev-next / "open with system app" (a real detached OS window via the
+  // system viewer, e.g. Windows Photos) for the "view outside the software"
+  // need.
+  await Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      fullscreenDialog: true,
+      builder: (_) => _FileViewerPage(
+        fileName: fileName,
+        fileSize: fileSize,
+        path: path,
+        siblingPaths: siblingPaths,
       ),
-    );
-    return;
-  }
-
-  // Desktop: open in an independent OS window that can be maximized or
-  // switched to fullscreen, so the image can be viewed detached from the app.
-  try {
-    final windowController = await DesktopMultiWindow.createWindow(
-      jsonEncode({
-        'type': WindowType.FilePreview.index,
-        'file_path': path,
-        'file_name': fileName,
-        if (siblingPaths != null) 'sibling_paths': siblingPaths,
-      }),
-    );
-    await windowController.setTitle(fileName);
-    if (filePreviewKindForName(fileName) == FilePreviewKind.image) {
-      await windowController.setFrame(
-        const Offset(0, 0) & const Size(1200, 820),
-      );
-    } else {
-      await windowController.setFrame(
-        const Offset(0, 0) & const Size(960, 720),
-      );
-    }
-    await windowController.center();
-    await windowController.show();
-  } catch (_) {
-    // Last resort: open with the system app.
-    await OpenFilex.open(path);
-  }
+    ),
+  );
 }
 
 class _FileViewerPage extends StatefulWidget {

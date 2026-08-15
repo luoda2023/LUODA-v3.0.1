@@ -1403,15 +1403,18 @@ void main() {
     );
 
     expect(fileViewerSource, isNot(contains('setFullscreen(true)')));
-    // Desktop opens an independent OS window (detached, fullscreen-capable);
-    // mobile keeps the in-app page.
-    expect(fileViewerSource, contains('windowController.setFrame('));
-    expect(fileViewerSource, contains('windowController.center()'));
-    expect(fileViewerSource, contains('DesktopMultiWindow.createWindow'));
+    // LUODA FIX (2026-08-15): the DesktopMultiWindow separate-window route
+    // renders a blank white window on this machine (child-window engine never
+    // attaches), so ALL platforms use the reliable in-app full-screen viewer;
+    // "open with system app" (OpenFilex) still provides a real detached OS
+    // window for viewing outside the software.
+    expect(fileViewerSource, isNot(contains('DesktopMultiWindow.createWindow')));
+    expect(fileViewerSource, isNot(contains('windowController.setFrame(')));
     expect(fileViewerSource, contains('MaterialPageRoute<void>'));
     expect(fileViewerSource, contains('_FileViewerPage('));
     expect(fileViewerSource, contains('siblingPaths: siblingPaths'));
     expect(fileViewerSource, contains('FilePreviewKind.image'));
+    expect(fileViewerSource, contains('OpenFilex.open'));
     expect(mainSource, contains('case WindowType.FilePreview:'));
     expect(filePreviewPageSource, contains('filePreviewIcon(fileName)'));
     expect(chatPageSource, contains('Future<void> _openMessageFilePreview('));
