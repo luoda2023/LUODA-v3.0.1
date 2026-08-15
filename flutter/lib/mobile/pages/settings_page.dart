@@ -14,6 +14,7 @@ import 'package:url_launcher/url_launcher_string.dart';
 
 import '../../common.dart';
 import '../../common/direct_chat_policy.dart';
+import '../../common/face_login.dart';
 import '../../common/geo_service.dart';
 import '../../common/widgets/dialog.dart';
 import '../../common/widgets/login.dart';
@@ -625,6 +626,67 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
 
           gFFI.invokeMethod(AndroidChannel.kSetStartOnBootOpt, toValue);
         }));
+
+    enhancementsTiles.add(SettingsTile.switchTile(
+      initialValue: faceLoginEnabled(),
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(translate('face_login_title')),
+          Text(
+            '* ${translate('face_login_setting_tip')}',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      ),
+      onToggle: (toValue) async {
+        if (toValue) {
+          // 开启：确认后将引导录入人脸（未录入时）。
+          final confirmed = await gFFI.dialogManager.show<bool>(
+            (setState, close, context) => CustomAlertDialog(
+              title: Text(translate('face_login_enable_title')),
+              content: Text(translate('face_login_enable_tip')),
+              actions: [
+                dialogButton('Cancel',
+                    onPressed: () => close(false), isOutline: true),
+                dialogButton('Enable', onPressed: () => close(true)),
+              ],
+            ),
+          );
+          if (confirmed != true) return;
+          var enrolled = await faceLoginHasEnrolled();
+          if (!enrolled) {
+            showToast(translate('face_login_enroll_tip'));
+            enrolled = await faceLoginEnroll();
+          }
+          if (!enrolled) {
+            showToast(translate('face_login_enroll_failed'));
+            return;
+          }
+          await faceLoginSetEnabled(true);
+          if (mounted) setState(() {});
+          showToast(translate('face_login_enabled'));
+        } else {
+          // 关闭：确认后删除本地人脸特征并关闭验证。
+          final confirmed = await gFFI.dialogManager.show<bool>(
+            (setState, close, context) => CustomAlertDialog(
+              title: Text(translate('face_login_disable_title')),
+              content: Text(translate('face_login_disable_tip')),
+              actions: [
+                dialogButton('Cancel',
+                    onPressed: () => close(false), isOutline: true),
+                dialogButton('Disable', onPressed: () => close(true)),
+              ],
+            ),
+          );
+          if (confirmed != true) return;
+          await faceLoginSetEnabled(false);
+          await faceLoginDelete();
+          if (mounted) setState(() {});
+          showToast(translate('face_login_disabled'));
+        }
+      },
+    ));
 
     if (!bind.isCustomClient()) {
       enhancementsTiles.add(

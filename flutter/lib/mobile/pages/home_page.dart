@@ -19,6 +19,7 @@ import '../../consts.dart';
 import '../../common/direct_chat_policy.dart';
 import '../../common/direct_chat.dart';
 import '../../common/direct_pairing.dart';
+import '../../common/face_login.dart';
 import '../../common/widgets/chat_page.dart';
 import '../../common/widgets/direct_connection_details.dart';
 import '../../common/widgets/location_picker_page.dart';
@@ -636,6 +637,8 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _pageController = PageController(initialPage: base);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_syncLatestPairing());
+      // 登录人脸验证门：设置里开启后，每次进入应用先做人脸核验。
+      unawaited(faceLoginMaybeShowGate(context));
       // Show one-time permission wizard on first install (Android only).
       // Once it finishes (or was already done), auto-start the service so the
       // device registers with the rendezvous server right away instead of

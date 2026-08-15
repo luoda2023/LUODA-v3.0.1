@@ -25,6 +25,12 @@
 # Keep Rust bridge classes
 -keep class com.luoda.remote.** { *; }
 
+# Keep FaceAISDK (face_recognition_flutter) classes
+-dontwarn com.faceAI.demo.**
+-keep class com.faceAI.demo.** { *; }
+-keep class com.faceaisdk.flutter.** { *; }
+-keep class io.github.faceaisdk.** { *; }
+
 # Keep native methods
 -keepclasseswithmembernames class * {
     native <methods>;

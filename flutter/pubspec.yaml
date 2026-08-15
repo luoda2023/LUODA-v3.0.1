@@ -124,6 +124,7 @@ dependencies:
   share_plus: ^10.1.2
   xml: ^6.5.0
   pdfrx: ^1.0.101
+  face_recognition_flutter: ^2.0.0
 
 dev_dependencies:
   icons_launcher: ^2.0.4
