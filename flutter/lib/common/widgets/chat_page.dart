@@ -1506,15 +1506,144 @@ class ChatPage extends StatelessWidget implements PageShape {
   }
 
   /// Multi-select bottom action bar with batch delete.
+  ///
+  /// Mobile uses a WeChat-style two-row layout (count/select-all on top,
+  /// action buttons below) so nothing overflows the narrow screen; desktop
+  /// keeps a compact single row.
   Widget multiSelectBottomBar(BuildContext context, bool dark) {
+    final selected = chatModel.selectedMessageIds.length;
+    final primary = const Color(0xFF07C160);
+    final borderColor =
+        dark ? const Color(0xFF3A3D43) : const Color(0x80E5E5E5);
+    final countStyle = TextStyle(
+      color: dark ? const Color(0xFF999CA2) : const Color(0xFF888888),
+      fontSize: 13,
+      fontWeight: FontWeight.w600,
+    );
+    final hasSelection = selected > 0;
+
+    // 转发：多选（含图片/文件/消息混合）→ 打包转发或逐条转发。
+    Widget forwardButton({required bool compact}) => compact
+        ? _MultiSelectActionButton(
+            icon: Icons.forward_outlined,
+            label: translate('Forward'),
+            color: primary,
+            enabled: hasSelection,
+            onPressed: hasSelection
+                ? () => _showForwardPicker(
+                      context,
+                      _selectedMessagesForForward(),
+                    )
+                : null,
+          )
+        : OutlinedButton.icon(
+            onPressed: hasSelection
+                ? () => _showForwardPicker(
+                      context,
+                      _selectedMessagesForForward(),
+                    )
+                : null,
+            icon: const Icon(Icons.forward_outlined, size: 18),
+            label: Text(translate('Forward')),
+          );
+
+    Widget favoriteButton({required bool compact}) => compact
+        ? _MultiSelectActionButton(
+            icon: Icons.star_outline_rounded,
+            label: translate('Favorite'),
+            color: primary,
+            enabled: hasSelection,
+            onPressed: hasSelection
+                ? () => _favoriteSelectedMessages(context)
+                : null,
+          )
+        : OutlinedButton.icon(
+            onPressed: hasSelection
+                ? () => _favoriteSelectedMessages(context)
+                : null,
+            icon: const Icon(Icons.star_outline_rounded, size: 18),
+            label: Text(translate('Favorite')),
+          );
+
+    Widget deleteButton({required bool compact}) => compact
+        ? _MultiSelectActionButton(
+            icon: Icons.delete_outline,
+            label: translate('Delete'),
+            color: const Color(0xFFFA5151),
+            enabled: hasSelection,
+            onPressed: hasSelection ? () => _confirmDeleteSelected(context) : null,
+          )
+        : FilledButton.tonalIcon(
+            onPressed: hasSelection
+                ? () => _confirmDeleteSelected(context)
+                : null,
+            icon: const Icon(Icons.delete_outline, size: 18),
+            label: Text(translate('Delete')),
+          );
+
+    final children = <Widget>[
+      TextButton(
+        onPressed: () => chatModel.exitMultiSelect(),
+        child: Text(translate('Cancel')),
+      ),
+      const Spacer(),
+      Text('$selected ${translate('selected')}', style: countStyle),
+      const SizedBox(width: 12),
+      TextButton(
+        onPressed: () => chatModel.selectAllInConversation(),
+        child: Text(translate('Select all')),
+      ),
+    ];
+
+    if (isMobile) {
+      // 微信式两行：上排计数/全选/取消，下排三个大按钮均分。
+      return Container(
+        padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
+        decoration: BoxDecoration(
+          color: dark ? kWeChatCanvasColorDark : const Color(0xFFF8F8F8),
+          border: Border(top: BorderSide(color: borderColor)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.08),
+              blurRadius: 6,
+              offset: const Offset(0, -2),
+            ),
+          ],
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Row(children: children),
+              const SizedBox(height: 6),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: forwardButton(compact: true),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: favoriteButton(compact: true),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: deleteButton(compact: true),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // 桌面：单行紧凑布局（窗口足够宽，不溢出）。
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
         color: dark ? kWeChatCanvasColorDark : const Color(0xFFF8F8F8),
-        border: Border(
-            top: BorderSide(
-          color: dark ? const Color(0xFF3A3D43) : const Color(0x80E5E5E5),
-        )),
+        border: Border(top: BorderSide(color: borderColor)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.08),
@@ -1524,89 +1653,52 @@ class ChatPage extends StatelessWidget implements PageShape {
         ],
       ),
       child: SafeArea(
-          top: false,
-          child: Row(children: [
-            TextButton(
-              onPressed: () => chatModel.exitMultiSelect(),
-              child: Text(translate('Cancel')),
-            ),
-            const Spacer(),
-            Text(
-              '${chatModel.selectedMessageIds.length} ${translate('selected')}',
-              style: TextStyle(
-                color: dark ? const Color(0xFF999CA2) : const Color(0xFF888888),
-                fontSize: 13,
-              ),
-            ),
-            const SizedBox(width: 12),
-            TextButton(
-              onPressed: () => chatModel.selectAllInConversation(),
-              child: Text(translate('Select all')),
-            ),
-            const SizedBox(width: 8),
-            OutlinedButton.icon(
-              onPressed: chatModel.selectedMessageIds.isEmpty
-                  ? null
-                  : () => _showForwardPicker(
-                        context,
-                        _selectedMessagesForForward(),
-                      ),
-              icon: const Icon(Icons.forward_outlined, size: 18),
-              label: Text(translate('Forward')),
-            ),
-            const SizedBox(width: 8),
-            OutlinedButton.icon(
-              onPressed: chatModel.selectedMessageIds.isEmpty
-                  ? null
-                  : () => _favoriteSelectedMessages(context),
-              icon: const Icon(Icons.star_outline_rounded, size: 18),
-              label: Text(translate('Favorite')),
-            ),
-            const SizedBox(width: 8),
-            FilledButton.tonalIcon(
-              onPressed: chatModel.selectedMessageIds.isEmpty
-                  ? null
-                  : () async {
-                      final confirmed = await showDialog<bool>(
-                        context: context,
-                        builder: (ctx) => AlertDialog(
-                          title: Text(translate('Delete messages')),
-                          content: Text(
-                              '${translate('Delete')} ${chatModel.selectedMessageIds.length} ${translate('messages')}?'),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(ctx, false),
-                              child: Text(translate('Cancel')),
-                            ),
-                            FilledButton(
-                              onPressed: () => Navigator.pop(ctx, true),
-                              style: FilledButton.styleFrom(
-                                backgroundColor:
-                                    Theme.of(ctx).colorScheme.error,
-                              ),
-                              child: Text(translate('Delete')),
-                            ),
-                          ],
-                        ),
-                      );
-                      if (confirmed != true || !context.mounted) return;
-                      final deleted = await chatModel.batchDeleteMessages(
-                        Set<String>.from(chatModel.selectedMessageIds),
-                      );
-                      chatModel.exitMultiSelect();
-                      if (context.mounted && !deleted) {
-                        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-                          SnackBar(
-                              content:
-                                  Text(translate('Failed to delete messages'))),
-                        );
-                      }
-                    },
-              icon: const Icon(Icons.delete_outline, size: 18),
-              label: Text(translate('Delete')),
-            ),
-          ])),
+        top: false,
+        child: Row(children: <Widget>[
+          ...children,
+          const SizedBox(width: 8),
+          forwardButton(compact: false),
+          const SizedBox(width: 8),
+          favoriteButton(compact: false),
+          const SizedBox(width: 8),
+          deleteButton(compact: false),
+        ]),
+      ),
     );
+  }
+
+  Future<void> _confirmDeleteSelected(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(translate('Delete messages')),
+        content: Text(
+            '${translate('Delete')} ${chatModel.selectedMessageIds.length} ${translate('messages')}?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(translate('Cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+            ),
+            child: Text(translate('Delete')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    final deleted = await chatModel.batchDeleteMessages(
+      Set<String>.from(chatModel.selectedMessageIds),
+    );
+    chatModel.exitMultiSelect();
+    if (context.mounted && !deleted) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text(translate('Failed to delete messages'))),
+      );
+    }
   }
 
   List<Map<String, dynamic>> _forwardItems(ChatMessage message) {
@@ -3703,6 +3795,65 @@ class ChatPage extends StatelessWidget implements PageShape {
           child: emptyCard,
         ),
       ],
+    );
+  }
+}
+
+/// Compact vertical action button used in the mobile multi-select bar.
+class _MultiSelectActionButton extends StatelessWidget {
+  const _MultiSelectActionButton({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.enabled,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+  final bool enabled;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final opacity = enabled ? 1.0 : 0.35;
+    return Opacity(
+      opacity: opacity,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: enabled ? onPressed : null,
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            decoration: BoxDecoration(
+              color: enabled
+                  ? color.withOpacity(0.10)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: enabled ? color.withOpacity(0.45) : const Color(0x33000000),
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 22, color: enabled ? color : const Color(0xFF999999)),
+                const SizedBox(height: 3),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: enabled ? color : const Color(0xFF999999),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
