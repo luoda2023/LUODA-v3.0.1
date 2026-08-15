@@ -183,10 +183,11 @@ class _FileViewerPageState extends State<_FileViewerPage> {
   int _rotationQuarterTurns = 0;
   Offset? _savedPos;
   Size? _savedSize;
-  bool _windowMaximized = false;
+  bool _wasMaximized = false;
+  bool _enteredFullScreen = false;
 
-  /// 图片预览在桌面端临时把主窗口最大化（微信图片查看器风格），
-  /// 关闭时恢复原窗口大小。
+  /// 图片预览在桌面端临时把主窗口切到全屏（微信图片查看器风格，
+  /// 无边框无标题栏覆盖整个屏幕），关闭时恢复原窗口位置和大小。
   bool get _isImagePreview =>
       filePreviewKindForName(widget.fileName) == FilePreviewKind.image;
 
@@ -209,28 +210,36 @@ class _FileViewerPageState extends State<_FileViewerPage> {
     try {
       _savedPos = await windowManager.getPosition();
       _savedSize = await windowManager.getSize();
-      await windowManager.maximize();
-      _windowMaximized = true;
+      _wasMaximized = await windowManager.isMaximized();
+      // 若已全屏则无需重复切换。
+      if (await windowManager.isFullScreen()) return;
+      await windowManager.setFullScreen(true);
+      _enteredFullScreen = true;
     } catch (_) {
-      _windowMaximized = false;
+      _enteredFullScreen = false;
     }
   }
 
   Future<void> _restoreWindow() async {
     final pos = _savedPos;
     final size = _savedSize;
-    if (pos == null || size == null) return;
     try {
-      await windowManager.unmaximize();
-      await windowManager.setSize(size);
-      await windowManager.setPosition(pos);
+      if (await windowManager.isFullScreen()) {
+        await windowManager.setFullScreen(false);
+      }
+      if (!_wasMaximized) {
+        if (pos != null && size != null) {
+          await windowManager.setSize(size);
+          await windowManager.setPosition(pos);
+        }
+      }
     } catch (_) {}
   }
 
   @override
   void dispose() {
     _transformController.dispose();
-    if (_windowMaximized) {
+    if (_enteredFullScreen) {
       unawaited(_restoreWindow());
     }
     super.dispose();
