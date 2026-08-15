@@ -488,13 +488,13 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     final actions = <Widget>[
       actionButton(
         icon: const Icon(Icons.close_rounded),
-        tooltip: 'Close',
+        tooltip: translate('Close'),
         color: const Color(0xFFFF7B72),
         onPressed: () => clientClose(sessionId, gFFI),
       ),
       actionButton(
         icon: const Icon(Icons.tune_rounded),
-        tooltip: 'Display',
+        tooltip: translate('Display'),
         onPressed: () {
           setState(() => _showEdit = false);
           showOptions(context, widget.id, gFFI.dialogManager);
@@ -504,13 +504,13 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     if (!isWebDesktop && !ffiModel.viewOnly && ffiModel.keyboard) {
       actions.add(actionButton(
         icon: const Icon(Icons.keyboard_rounded),
-        tooltip: 'Keyboard',
+        tooltip: translate('Keyboard'),
         onPressed: openKeyboard,
       ));
       if (gFFI.ffiModel.isPeerAndroid) {
         actions.add(actionButton(
           icon: const Icon(Icons.touch_app_rounded),
-          tooltip: 'Actions',
+          tooltip: translate('Actions'),
           onPressed: () =>
               gFFI.dialogManager.toggleMobileActionsOverlay(ffi: gFFI),
         ));
@@ -521,7 +521,9 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
                 ? Icons.touch_app_rounded
                 : Icons.mouse_rounded,
           ),
-          tooltip: gFFI.ffiModel.touchMode ? 'Touch mode' : 'Mouse mode',
+          tooltip: gFFI.ffiModel.touchMode
+              ? translate('Touch mode')
+              : translate('Mouse mode'),
           onPressed: () => setState(() => _showGestureHelp = !_showGestureHelp),
         ));
       }
@@ -542,7 +544,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
                   ),
                 )
               : const Icon(Icons.chat_bubble_outline_rounded),
-          tooltip: 'Text chat',
+          tooltip: translate('Text chat'),
           onPressed: () => isAndroid && isSupportVoiceCall
               ? showChatOptions(widget.id)
               : onPressedTextChat(widget.id),
@@ -581,7 +583,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
               Obx(
                 () => actionButton(
                   icon: const Icon(Icons.expand_more_rounded),
-                  tooltip: 'Collapse',
+                  tooltip: translate('Collapse'),
                   onPressed: gFFI.ffiModel.waitForFirstImage.isTrue
                       ? null
                       : () => setState(() => _showBar = !_showBar),

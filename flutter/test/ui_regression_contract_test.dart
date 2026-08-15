@@ -1257,7 +1257,9 @@ void main() {
     expect(permissionRow, isNot(contains('Divider(')));
     expect(mobileToolbar, contains('const Color(0xFF20252E)'));
     expect(mobileToolbar, contains('SingleChildScrollView('));
-    expect(mobileToolbar, contains("tooltip: 'Close'"));
+    expect(mobileToolbar, contains("tooltip: translate('Close')"));
+    expect(mobileToolbar, contains("tooltip: translate('Display')"));
+    expect(mobileToolbar, contains("tooltip: translate('Text chat')"));
     expect(mobileToolbar, contains('width: 48'));
     expect(remoteToolbarSource, contains('SingleChildScrollView('));
     expect(remoteToolbarSource, contains('_MobileActionMenu'));

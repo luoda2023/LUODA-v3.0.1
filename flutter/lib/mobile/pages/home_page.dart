@@ -891,6 +891,11 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   /// “+”菜单动作分发（扫码绑定 / 添加好友 / 蓝牙扫描 / 远程连接 /
   /// 访问历史 / 我的设置）。
+  ///
+  /// 远程连接 / 访问历史两个页面托管在联系人 tab 内（复用其状态卡与连接
+  /// 输入组件），但 PageView 懒加载——点聊 tab 下联系人页尚未构建时
+  /// `_contactsPageKey.currentState` 为 null，点击会无反应。因此先切到
+  /// 联系人 tab 等待页面构建完成，再调用对应入口，保证菜单点击必定跳转。
   Future<void> _handleMoreAction(String action) async {
     if (!mounted) return;
     switch (action) {
@@ -905,13 +910,34 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
           MaterialPageRoute<void>(builder: (_) => const BluetoothChatPage()),
         );
       case 'connect':
-        _contactsPageKey.currentState?.openConnectionAndIdentity();
       case 'history':
-        _contactsPageKey.currentState?.openDeviceHistory();
+        await _openContactsTabAction(action == 'connect'
+            ? () => _contactsPageKey.currentState?.openConnectionAndIdentity()
+            : () => _contactsPageKey.currentState?.openDeviceHistory());
       case 'settings':
         await Navigator.of(context).push(
           MaterialPageRoute<void>(builder: (_) => SettingsPage()),
         );
+    }
+  }
+
+  /// 在联系人 tab 内执行动作：页面未构建时先切换到联系人 tab 并等待其
+  /// 构建完成（最多等 2 秒），确保菜单入口必定生效。
+  Future<void> _openContactsTabAction(VoidCallback action) async {
+    final targetTab = _contactsPageTabIndex;
+    if (targetTab < 0) return;
+    if (_contactsPageKey.currentState != null) {
+      action();
+      return;
+    }
+    _goToPage(targetTab);
+    for (var i = 0; i < 40; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      if (!mounted) return;
+      if (_contactsPageKey.currentState != null) {
+        action();
+        return;
+      }
     }
   }
 

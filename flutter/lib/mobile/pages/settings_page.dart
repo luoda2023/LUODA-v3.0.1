@@ -687,12 +687,13 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
             : onFloatingWindowChanged));
 
     enhancementsTiles.add(_getPopupDialogRadioEntry(
-      title: 'Keep screen on',
+      title: translate('Keep screen on'),
       list: [
-        _RadioEntry('Never', _keepScreenOnToOption(KeepScreenOn.never)),
-        _RadioEntry('During controlled',
+        _RadioEntry(translate('Never'),
+            _keepScreenOnToOption(KeepScreenOn.never)),
+        _RadioEntry(translate('During controlled'),
             _keepScreenOnToOption(KeepScreenOn.duringControlled)),
-        _RadioEntry('During service is on',
+        _RadioEntry(translate('During service is on'),
             _keepScreenOnToOption(KeepScreenOn.serviceOn)),
       ],
       getter: () => _keepScreenOnToOption(_floatingWindowDisabled
@@ -1720,10 +1721,10 @@ class __DisplayPageState extends State<_DisplayPage> {
         SettingsSection(
           tiles: [
             _getPopupDialogRadioEntry(
-              title: 'Default View Style',
+              title: translate('Default View Style'),
               list: [
-                _RadioEntry('Scale original', kRemoteViewStyleOriginal),
-                _RadioEntry('Scale adaptive', kRemoteViewStyleAdaptive)
+                _RadioEntry(translate('Scale original'), kRemoteViewStyleOriginal),
+                _RadioEntry(translate('Scale adaptive'), kRemoteViewStyleAdaptive)
               ],
               getter: () =>
                   bind.mainGetUserDefaultOption(key: kOptionViewStyle),
@@ -1735,12 +1736,14 @@ class __DisplayPageState extends State<_DisplayPage> {
                     },
             ),
             _getPopupDialogRadioEntry(
-              title: 'Default Image Quality',
+              title: translate('Default Image Quality'),
               list: [
-                _RadioEntry('Good image quality', kRemoteImageQualityBest),
-                _RadioEntry('Balanced', kRemoteImageQualityBalanced),
-                _RadioEntry('Optimize reaction time', kRemoteImageQualityLow),
-                _RadioEntry('Custom', kRemoteImageQualityCustom),
+                _RadioEntry(
+                    translate('Good image quality'), kRemoteImageQualityBest),
+                _RadioEntry(translate('Balanced'), kRemoteImageQualityBalanced),
+                _RadioEntry(
+                    translate('Optimize reaction time'), kRemoteImageQualityLow),
+                _RadioEntry(translate('Custom'), kRemoteImageQualityCustom),
               ],
               getter: () {
                 final v =
@@ -1761,7 +1764,7 @@ class __DisplayPageState extends State<_DisplayPage> {
               notCloseValue: kRemoteImageQualityCustom,
             ),
             _getPopupDialogRadioEntry(
-              title: 'Default Codec',
+              title: translate('Default Codec'),
               list: codecList,
               getter: () =>
                   bind.mainGetUserDefaultOption(key: kOptionCodecPreference),
