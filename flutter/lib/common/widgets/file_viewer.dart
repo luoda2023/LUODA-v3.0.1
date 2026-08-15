@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:external_path/external_path.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:open_filex/open_filex.dart';
+import 'package:window_manager/window_manager.dart';
 
 import 'docx_native_preview.dart';
 import 'dwg_preview_view.dart';
@@ -180,6 +181,14 @@ class _FileViewerPageState extends State<_FileViewerPage> {
   late int _currentIndex;
   final TransformationController _transformController = TransformationController();
   int _rotationQuarterTurns = 0;
+  Offset? _savedPos;
+  Size? _savedSize;
+  bool _windowMaximized = false;
+
+  /// 图片预览在桌面端临时把主窗口最大化（微信图片查看器风格），
+  /// 关闭时恢复原窗口大小。
+  bool get _isImagePreview =>
+      filePreviewKindForName(widget.fileName) == FilePreviewKind.image;
 
   @override
   void initState() {
@@ -191,11 +200,39 @@ class _FileViewerPageState extends State<_FileViewerPage> {
     if (_paths.isEmpty && widget.path != null) _paths.add(widget.path!);
     _currentIndex = _paths.indexOf(widget.path ?? '');
     if (_currentIndex < 0) _currentIndex = 0;
+    if (_isImagePreview && !isMobile) {
+      unawaited(_enterFullscreenPreview());
+    }
+  }
+
+  Future<void> _enterFullscreenPreview() async {
+    try {
+      _savedPos = await windowManager.getPosition();
+      _savedSize = await windowManager.getSize();
+      await windowManager.maximize();
+      _windowMaximized = true;
+    } catch (_) {
+      _windowMaximized = false;
+    }
+  }
+
+  Future<void> _restoreWindow() async {
+    final pos = _savedPos;
+    final size = _savedSize;
+    if (pos == null || size == null) return;
+    try {
+      await windowManager.unmaximize();
+      await windowManager.setSize(size);
+      await windowManager.setPosition(pos);
+    } catch (_) {}
   }
 
   @override
   void dispose() {
     _transformController.dispose();
+    if (_windowMaximized) {
+      unawaited(_restoreWindow());
+    }
     super.dispose();
   }
 
