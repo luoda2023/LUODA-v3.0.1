@@ -4498,55 +4498,112 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
     action();
   }
 
-  /// 剪刀右侧下拉箭头：在按钮正上方弹出“隐藏本窗口”选项菜单。
-  /// 输入栏位于窗口底部，默认向下弹出的菜单会被窗口底边裁剪，
-  /// 因此用 showMenu 定位在按钮上方，保证菜单完整可见。
+  /// 剪刀右侧下拉箭头：微信式下拉菜单，紧贴箭头正下方弹出。
+  /// 菜单项：隐藏窗口截图（勾选）+ 设置。
+  /// 输入栏位于窗口底部时，向下弹出会被窗口底边裁剪，因此先判断
+  /// 下方可用空间，不足则自动改为向上弹出——但始终贴近图标。
   Future<void> _showScreenshotOptions() async {
     final arrowContext = _screenshotArrowKey.currentContext;
     if (arrowContext == null) return;
-    // showMenu 内部用 root navigator 的 overlay 挂菜单，锚点换算必须
-    // 用同一个 overlay，否则坐标不一致会导致菜单飘到其它位置。
-    final overlay = Overlay.of(arrowContext, rootOverlay: true)
-        .context
-        .findRenderObject() as RenderBox?;
+    final overlay = Overlay.of(arrowContext, rootOverlay: true);
+    final overlayBox =
+        overlay.context.findRenderObject() as RenderBox?;
     final box = arrowContext.findRenderObject() as RenderBox?;
-    if (overlay == null || box == null) return;
-    final topLeft = box.localToGlobal(Offset.zero, ancestor: overlay);
-    // 菜单（两行 + 内边距约 132px）整体位于按钮上方。
-    final menuHeight = 132.0;
-    final result = await showMenu<bool>(
-      context: arrowContext,
-      position: RelativeRect.fromRect(
-        Rect.fromLTWH(
-          topLeft.dx,
-          topLeft.dy - menuHeight,
-          box.size.width,
-          menuHeight,
-        ),
-        Offset.zero & overlay.size,
+    if (overlayBox == null || box == null) return;
+    final topLeft = box.localToGlobal(Offset.zero, ancestor: overlayBox);
+    final menuWidth = 168.0;
+    // 两行菜单 + 内边距 + 分割线。
+    final menuHeight = 92.0;
+    final gap = 4.0;
+    // 微信风格：优先向下弹出（紧贴图标下方）。下方空间不足时向上。
+    final spaceBelow =
+        overlayBox.size.height - (topLeft.dy + box.size.height);
+    final showBelow = spaceBelow >= menuHeight + gap;
+    final menuLeft = (topLeft.dx + box.size.width - menuWidth).clamp(
+      4.0,
+      overlayBox.size.width - menuWidth - 4.0,
+    );
+    final menuTop = showBelow
+        ? topLeft.dy + box.size.height + gap
+        : topLeft.dy - menuHeight - gap;
+
+    late final OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (context) => Stack(
+        children: [
+          // 全屏透明遮罩：点击任意处关闭菜单。
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onTap: () => entry.remove(),
+            ),
+          ),
+          Positioned(
+            left: menuLeft,
+            top: menuTop,
+            width: menuWidth,
+            child: _ScreenshotDropdownMenu(
+              hideWindow: _screenshotHideWindow,
+              onHideWindowChanged: (value) {
+                entry.remove();
+                if (!mounted) return;
+                setState(() => _screenshotHideWindow = value);
+                bind.mainSetLocalOption(
+                  key: 'screenshot_hide_window',
+                  value: value ? '1' : '0',
+                );
+                showToast(value
+                    ? translate('Screenshot hides this window')
+                    : translate('Screenshot keeps window visible'));
+              },
+              onOpenSettings: () {
+                entry.remove();
+                _openScreenshotSettings();
+              },
+            ),
+          ),
+        ],
       ),
-      items: <PopupMenuEntry<bool>>[
-        CheckedPopupMenuItem<bool>(
-          value: true,
-          checked: _screenshotHideWindow,
-          child: Text(translate('Hide this window')),
-        ),
-        CheckedPopupMenuItem<bool>(
-          value: false,
-          checked: !_screenshotHideWindow,
-          child: Text(translate('Keep window visible')),
-        ),
-      ],
     );
-    if (result == null || !mounted) return;
-    setState(() => _screenshotHideWindow = result);
-    bind.mainSetLocalOption(
-      key: 'screenshot_hide_window',
-      value: result ? '1' : '0',
+    overlay.insert(entry);
+  }
+
+  /// 打开截图设置弹窗（目前包含隐藏窗口偏好）。
+  Future<void> _openScreenshotSettings() async {
+    final theme = Theme.of(context);
+    final current = _screenshotHideWindow;
+    final updated = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: theme.colorScheme.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(translate('Screenshot settings')),
+        content: StatefulBuilder(
+          builder: (ctx, setDialogState) => SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text(translate('Hide window during screenshot')),
+            value: current,
+            onChanged: (value) {
+              setDialogState(() {});
+              _screenshotHideWindow = value;
+              bind.mainSetLocalOption(
+                key: 'screenshot_hide_window',
+                value: value ? '1' : '0',
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, _screenshotHideWindow),
+            child: Text(translate('OK')),
+          ),
+        ],
+      ),
     );
-    showToast(result
-        ? translate('Screenshot hides this window')
-        : translate('Screenshot keeps window visible'));
+    if (updated != null && mounted) {
+      setState(() => _screenshotHideWindow = updated);
+    }
   }
 
   void _onFocusChanged() {
@@ -5112,6 +5169,106 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
   }
 }
 
+/// 微信式截图下拉菜单：白色圆角卡片 + 阴影，紧贴触发按钮弹出。
+/// 两行：隐藏窗口截图（勾选）+ 设置。
+class _ScreenshotDropdownMenu extends StatelessWidget {
+  const _ScreenshotDropdownMenu({
+    super.key,
+    required this.hideWindow,
+    required this.onHideWindowChanged,
+    required this.onOpenSettings,
+  });
+
+  final bool hideWindow;
+  final ValueChanged<bool> onHideWindowChanged;
+  final VoidCallback onOpenSettings;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
+    final surface = dark ? MyTheme.surfaceDark : Colors.white;
+    final border = dark ? MyTheme.borderDark : MyTheme.borderLight;
+    return Material(
+      color: surface,
+      elevation: 6,
+      shadowColor: Colors.black.withOpacity(0.18),
+      borderRadius: BorderRadius.circular(10),
+      clipBehavior: Clip.antiAlias,
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: border.withOpacity(0.6)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            InkWell(
+              onTap: () => onHideWindowChanged(!hideWindow),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                child: Row(
+                  children: <Widget>[
+                    Icon(
+                      hideWindow
+                          ? Icons.check_rounded
+                          : Icons.check_box_outline_blank_rounded,
+                      size: 17,
+                      color: hideWindow
+                          ? MyTheme.primary
+                          : theme.colorScheme.onSurface.withOpacity(0.35),
+                    ),
+                    const SizedBox(width: 9),
+                    Expanded(
+                      child: Text(
+                        translate('Hide window during screenshot'),
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: theme.colorScheme.onSurface,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Divider(
+              height: 1,
+              thickness: 0.5,
+              color: dark ? const Color(0xFF3A3D43) : const Color(0x1F000000),
+            ),
+            InkWell(
+              onTap: onOpenSettings,
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                child: Row(
+                  children: <Widget>[
+                    Icon(Icons.settings_outlined,
+                        size: 17,
+                        color: theme.colorScheme.onSurface.withOpacity(0.7)),
+                    const SizedBox(width: 9),
+                    Expanded(
+                      child: Text(
+                        translate('Settings'),
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: theme.colorScheme.onSurface,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _ComposerToolButton extends StatelessWidget {
   const _ComposerToolButton({
     super.key,
@@ -5133,9 +5290,10 @@ class _ComposerToolButton extends StatelessWidget {
       child: IconButton(
         onPressed: enabled ? onPressed : null,
         constraints: const BoxConstraints.tightFor(width: 32, height: 36),
-        padding: EdgeInsets.zero,                            icon: Icon(icon, size: 20),
-                      ),
-                    );
+        padding: EdgeInsets.zero,
+        icon: Icon(icon, size: 20),
+      ),
+    );
   }
 }
 
