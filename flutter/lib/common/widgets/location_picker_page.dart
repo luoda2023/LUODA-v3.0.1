@@ -51,7 +51,6 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
   late final LatLng _myLocation; // GCJ-02（显示用）
   LatLng? _picked; // 当前中心选择点（GCJ-02）
   final TextEditingController _searchController = TextEditingController();
-  bool _searching = false;
   bool _placesLoading = false;
   List<GeoPlace> _places = const <GeoPlace>[];
   String _currentAddress = ''; // 当前选中点的逆地理编码地址
@@ -116,7 +115,11 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
   }
 
   void _onMapMoved(LatLng center) {
-    setState(() => _picked = center);
+    setState(() {
+      _picked = center;
+      // 拖动地图即表示选择自定义点，清空已选地点名，避免列表残留高亮。
+      _selectedName = '';
+    });
     _loadNearby(center);
     _resolveAddress(center);
   }
@@ -131,7 +134,6 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
     setState(() {
       _picked = target;
       _selectedName = isMyLocation ? '' : place.name;
-      _searching = false;
       _searchController.clear();
     });
     _loadNearby(target);
@@ -141,7 +143,6 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
   Future<void> _submitSearch(String text) async {
     final keyword = text.trim();
     if (keyword.isEmpty) {
-      setState(() => _searching = false);
       return;
     }
     if (!AmapService.instance.hasKey) {
@@ -155,7 +156,6 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
     setState(() {
       _places = results;
       _placesLoading = false;
-      _searching = true;
     });
   }
 
@@ -209,9 +209,34 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
       ),
       body: Column(
         children: <Widget>[
+          // 搜索框（微信布局：标题栏下方，地图上方）。
+          Container(
+            color: cardBg,
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+            child: TextField(
+              controller: _searchController,
+              textInputAction: TextInputAction.search,
+              onSubmitted: _submitSearch,
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: translate('Search places'),
+                prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                filled: true,
+                fillColor: dark
+                    ? const Color(0xFF1E2024)
+                    : const Color(0xFFF2F3F5),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+              ),
+            ),
+          ),
           // 地图区：约 55% 高度。
           SizedBox(
-            height: MediaQuery.of(context).size.height * 0.52,
+            height: MediaQuery.of(context).size.height * 0.5,
             child: Stack(
               children: <Widget>[
                 FlutterMap(
@@ -324,31 +349,6 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
               ],
             ),
           ),
-          // 搜索框。
-          Container(
-            color: cardBg,
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
-            child: TextField(
-              controller: _searchController,
-              textInputAction: TextInputAction.search,
-              onSubmitted: _submitSearch,
-              decoration: InputDecoration(
-                isDense: true,
-                hintText: translate('Search places'),
-                prefixIcon: const Icon(Icons.search_rounded, size: 20),
-                filled: true,
-                fillColor: dark
-                    ? const Color(0xFF1E2024)
-                    : const Color(0xFFF2F3F5),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: BorderSide.none,
-                ),
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-              ),
-            ),
-          ),
           // 地点列表：我的位置 + 周边/搜索结果。
           Expanded(
             child: _placesLoading
@@ -384,6 +384,19 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
     );
   }
 
+  /// 当前是否选中了该项（用于列表选中高亮）。
+  bool _isPicked({
+    GeoPlace? place,
+    bool isMyLocation = false,
+  }) {
+    if (isMyLocation) {
+      return _selectedName.isEmpty && _picked == _myLocation;
+    }
+    final picked = _picked;
+    if (picked == null || _selectedName.isEmpty) return false;
+    return place != null && place.name == _selectedName;
+  }
+
   Widget _locationTile({
     required IconData icon,
     required String title,
@@ -393,13 +406,20 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
   }) {
     final theme = Theme.of(context);
     final dark = theme.brightness == Brightness.dark;
+    final selected = _isPicked(place: place, isMyLocation: isMyLocation);
+    final primary = const Color(0xFF07C160);
     return InkWell(
       onTap: () => _pickPlace(place ?? GeoPlace(name: title), isMyLocation: isMyLocation),
-      child: Padding(
+      child: Container(
+        color: selected
+            ? (dark ? primary.withOpacity(0.12) : primary.withOpacity(0.06))
+            : Colors.transparent,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         child: Row(
           children: <Widget>[
-            Icon(icon, size: 22, color: const Color(0xFF07C160)),
+            Icon(icon,
+                size: 22,
+                color: selected ? primary : (dark ? Colors.white54 : const Color(0xFF9AA0A6))),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -412,8 +432,11 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 15,
-                      fontWeight: FontWeight.w500,
-                      color: dark ? Colors.white : const Color(0xFF222222),
+                      fontWeight:
+                          selected ? FontWeight.w600 : FontWeight.w500,
+                      color: selected
+                          ? primary
+                          : (dark ? Colors.white : const Color(0xFF222222)),
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -430,8 +453,12 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right_rounded,
-                size: 18, color: Color(0xFFBBBBBB)),
+            if (selected)
+              const Icon(Icons.check_circle_rounded,
+                  size: 18, color: Color(0xFF07C160))
+            else
+              const Icon(Icons.chevron_right_rounded,
+                  size: 18, color: Color(0xFFBBBBBB)),
           ],
         ),
       ),

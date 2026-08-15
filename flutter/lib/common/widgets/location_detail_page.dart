@@ -16,6 +16,7 @@ import 'package:url_launcher/url_launcher_string.dart';
 import '../../common.dart';
 import '../direct_chat.dart';
 import '../geo_service.dart';
+import 'system_share.dart';
 
 class LocationDetailPage extends StatefulWidget {
   const LocationDetailPage({super.key, required this.location});
@@ -121,6 +122,22 @@ class _LocationDetailPageState extends State<LocationDetailPage> {
         '${location.longitude.toStringAsFixed(6)}';
     Clipboard.setData(ClipboardData(text: text));
     if (mounted) showToast(translate('Copied'));
+  }
+
+  /// 分享位置文本（名称 + 坐标 + 地址）到系统分享面板（微信等）。
+  Future<void> _shareLocation() async {
+    final name = _displayName;
+    final address = _address;
+    final text = <String>[
+      name,
+      if (address != null && address.isNotEmpty) address,
+      '${location.latitude.toStringAsFixed(6)}, '
+          '${location.longitude.toStringAsFixed(6)}',
+    ].join('\n');
+    final ok = await shareTextToSystemApp(text, subject: name);
+    if (!ok && mounted) {
+      showToast(translate('Share failed'));
+    }
   }
 
   @override
@@ -244,6 +261,14 @@ class _LocationDetailPageState extends State<LocationDetailPage> {
                             icon: Icons.copy_rounded,
                             label: translate('Copy'),
                             onTap: _copyLocation,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _actionButton(
+                            icon: Icons.ios_share_rounded,
+                            label: translate('Share'),
+                            onTap: _shareLocation,
                           ),
                         ),
                       ],

@@ -1243,6 +1243,8 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Contact unblocked", "已取消屏蔽联系人"),
         ("Continue", "继续"),
         ("Copy", "复制"),
+        ("Share", "分享"),
+        ("Share failed", "分享失败"),
         ("Copy invite link", "复制邀请链接"),
         ("Copy link", "复制链接"),
 ("Invite code", "邀请码"),
