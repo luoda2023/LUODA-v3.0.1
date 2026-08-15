@@ -173,14 +173,14 @@ void main() {
     await tapPos.up();
     await tester.pump();
 
-    // 微信式图板内输入：点击图板后出现输入条，直接输入文字。
+    // 微信式图板内输入：点击图板后在原地出现输入框，直接输入文字，
+    // 回车提交（无弹出对话框/完成按钮）。
     expect(find.byKey(const ValueKey<String>('shot-text-field')),
         findsOneWidget);
     await tester.enterText(
         find.byKey(const ValueKey<String>('shot-text-field')), 'Hello 标注');
     await tester.pump();
-    // 点“完成”提交（输入条右上角的对勾）。
-    await tester.tap(find.byKey(const ValueKey<String>('shot-text-done')));
+    await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pump();
 
     // Save and confirm the composed file exists.

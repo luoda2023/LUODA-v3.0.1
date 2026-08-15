@@ -167,6 +167,16 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
 
   DateTime _lastHoverScan = DateTime.fromMillisecondsSinceEpoch(0);
 
+  /// 最近一次窗口枚举缓存（hover 高频触发时避免每次全量 EnumWindows）。
+  List<ScreenshotWindow>? _windowScanCache;
+  DateTime _windowScanAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// 指针移动节流：合并 1 帧内的多次 move，只保留最后一个位置，
+  /// 避免每个鼠标事件都触发全量重建（截图性能/鼠标飘逸的直接根源）。
+  DateTime _lastMoveAt = DateTime.fromMillisecondsSinceEpoch(0);
+  Offset? _pendingMovePos;
+  bool _moveScheduled = false;
+
   static const List<Color> _palette = <Color>[
     Color(0xFFE53935),
     Color(0xFFFB8C00),
@@ -203,15 +213,22 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
           }
         }
       });
-      // 马赛克工具需要逐像素采样，异步提取一次 RGBA 缓存。
-      unawaited(_extractPixels(image));
+      // 马赛克工具的逐像素采样改为按需加载：首次使用马赛克时才提取
+      // 整屏 RGBA（4K 屏约 33MB），避免启动即占用大内存拖慢截图。
     });
   }
 
-  Future<void> _extractPixels(ui.Image image) async {
-    final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
-    if (data == null || !mounted) return;
-    setState(() => _pixels = data.buffer.asUint8List());
+  /// 首次使用马赛克工具时提取一次 RGBA 像素缓存（懒加载）。
+  void _ensurePixels() {
+    if (_pixels != null) return;
+    final image = _image;
+    if (image == null) return;
+    unawaited(() async {
+      final data =
+          await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      if (data == null || !mounted) return;
+      setState(() => _pixels = data.buffer.asUint8List());
+    }());
   }
 
   @override
@@ -293,7 +310,8 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
     if (_image == null || _compositing) return;
     if (_selection != null || (_mode != _ShotMode.window && !_ctrlDown)) return;
     final now = DateTime.now();
-    if (now.difference(_lastHoverScan).inMilliseconds < 50) return;
+    // 窗口枚举很贵（EnumWindows 全量扫描），降到 120ms 一次。
+    if (now.difference(_lastHoverScan).inMilliseconds < 120) return;
     _lastHoverScan = now;
     final win = _windowAtPointer(event.localPosition);
     if (win?.hwnd != _hoverWindow?.hwnd) {
@@ -302,11 +320,28 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
   }
 
   /// 把指针位置换算为屏幕物理坐标，查询该点所在的顶层窗口。
+  /// 带 400ms 窗口枚举缓存：hover 高频触发时复用最近一次枚举结果，
+  /// 避免每次移动都 EnumWindows 全量扫描（鼠标飘逸根因之一）。
   ScreenshotWindow? _windowAtPointer(Offset local) {
     final dpr = _devicePixelRatio;
-    final screen =
-        localToScreenPhysical(local, dpr);
-    return windowAtPoint(screen, excludeHwnd: _selfHwnd);
+    final screen = localToScreenPhysical(local, dpr);
+    final now = DateTime.now();
+    var windows = _windowScanCache;
+    if (windows == null ||
+        now.difference(_windowScanAt).inMilliseconds > 400) {
+      try {
+        windows = scanVisibleWindows(excludeHwnd: _selfHwnd);
+      } catch (_) {
+        windows = null;
+      }
+      _windowScanCache = windows;
+      _windowScanAt = now;
+    }
+    if (windows == null) return null;
+    for (final w in windows) {
+      if (w.rect.contains(screen)) return w;
+    }
+    return null;
   }
 
   double get _devicePixelRatio {
@@ -319,6 +354,22 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
     if (event.pointer != _activePointer) return;
     if (event.buttons != kPrimaryButton) return;
     final pos = _toImage(event.localPosition);
+    // 帧级节流：一帧（≈16ms）内合并所有移动，只处理最后一次，
+    // 用调度器在下一帧统一应用，避免每个事件 setState 全量重建。
+    _pendingMovePos = pos;
+    if (_moveScheduled) return;
+    _moveScheduled = true;
+    WidgetsBinding.instance.scheduleFrameCallback((_) {
+      _moveScheduled = false;
+      final p = _pendingMovePos;
+      _pendingMovePos = null;
+      if (!mounted || p == null) return;
+      _applyMove(p);
+    });
+  }
+
+  void _applyMove(Offset pos) {
+    if (_image == null || _compositing) return;
     if (_selection == null) {
       if (_selectDrag != null) {
         setState(() {
@@ -328,11 +379,16 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
       return;
     }
     if (!_drawing) return;
+    final isFreeStroke = _tool == _ShotTool.pen ||
+        _tool == _ShotTool.highlight ||
+        _tool == _ShotTool.mosaic;
+    if (isFreeStroke &&
+        _activeStroke.isNotEmpty &&
+        (_activeStroke.last - pos).distance < 2) {
+      return; // 距离过近的点跳过，不触发重建。
+    }
     setState(() {
-      // 画笔/高亮/马赛克是自由笔迹，其余是两点确定的形状。
-      if (_tool == _ShotTool.pen ||
-          _tool == _ShotTool.highlight ||
-          _tool == _ShotTool.mosaic) {
+      if (isFreeStroke) {
         _activeStroke.add(pos);
       } else {
         _shapeEnd = pos;
@@ -342,6 +398,15 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
 
   void _onPointerUp(PointerUpEvent event) {
     if (event.pointer != _activePointer) return;
+    // 先应用尚未处理的最后一个 move 位置：帧级节流会把移动延迟到下一帧，
+    // 若用户快速松开，末尾的拖拽位置可能还没被应用，导致选区/笔迹
+    // 提前结束（缺最后一段）。抬起前同步刷新，保证真实鼠标与测试一致。
+    if (_pendingMovePos != null) {
+      final p = _pendingMovePos!;
+      _pendingMovePos = null;
+      _moveScheduled = false;
+      _applyMove(p);
+    }
     _activePointer = null;
     if (_hoverWindow != null && mounted) {
       setState(() => _hoverWindow = null);
@@ -420,9 +485,32 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
           break;
         case _ShotTool.text:
           // 不在图板上弹对话框：记录点击位置，随后在图板上直接输入。
+          // 若已有未提交文字，先提交，再在新位置开始（微信式连续输入）。
           if (_shapeStart != null) {
+            if (_pendingTextPos != null) {
+              // 提交已输入的文字（内部 setState，不能在下面
+              // setState 回调里嵌套调用，故先提出来执行）。
+              final text = _textController.text.trim();
+              if (text.isNotEmpty) {
+                _marks.add(_ShotText(
+                  _pendingTextPos!,
+                  text,
+                  (10 * _width).clamp(20.0, 72.0),
+                  _color,
+                  _width,
+                ));
+              }
+              _pendingTextPos = null;
+              _textFocus.unfocus();
+            }
             _pendingTextPos = _shapeStart;
             _textController.clear();
+            // 输入框重建后 autofocus 会重新聚焦；此处再兜底请求一次焦点。
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted && _pendingTextPos != null) {
+                _textFocus.requestFocus();
+              }
+            });
           }
           break;
       }
@@ -545,7 +633,11 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
     final half = cellSize / 2;
     for (final metric in path.computeMetrics()) {
       for (var d = 0.0; d <= metric.length; d += step) {
-        final pos = metric.getTangentForOffset(d)!.position;
+        // 边界处 getTangentForOffset 可能返回 null，强解包会崩溃
+        // （用户反馈“截图导致程序退出”的根因之一），判空跳过。
+        final tangent = metric.getTangentForOffset(d);
+        if (tangent == null) continue;
+        final pos = tangent.position;
         final left = (pos.dx - half).floorToDouble();
         final top = (pos.dy - half).floorToDouble();
         _paintMosaicCell(canvas, left, top, cellSize);
@@ -946,75 +1038,10 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
                                   ),
                                 ),
                               ),
-                            // 文字工具：在图板上直接输入（微信式，无对话框）。
+                            // 文字工具：直接在点击位置的图板上就地输入
+                            // （微信式，无弹出输入框）。
                             if (_pendingTextPos != null)
-                              Positioned(
-                                top: 12,
-                                left: 0,
-                                right: 0,
-                                child: Center(
-                                  child: Material(
-                                    color: Colors.white,
-                                    elevation: 8,
-                                    borderRadius: BorderRadius.circular(10),
-                                    child: Container(
-                                      width: 340,
-                                      padding: const EdgeInsets.fromLTRB(
-                                          10, 2, 4, 2),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: <Widget>[
-                                          Expanded(
-                                            child: TextField(
-                                              key: const ValueKey<String>(
-                                                  'shot-text-field'),
-                                              controller: _textController,
-                                              focusNode: _textFocus,
-                                              autofocus: true,
-                                              maxLength: 120,
-                                              style: const TextStyle(
-                                                  fontSize: 15),
-                                              decoration:
-                                                  const InputDecoration(
-                                                hintText: 'Enter text…',
-                                                counterText: '',
-                                                border: InputBorder.none,
-                                              ),
-                                              onSubmitted: (_) =>
-                                                  _commitPendingText(),
-                                              onTapOutside: (_) =>
-                                                  _commitPendingText(),
-                                            ),
-                                          ),
-                                          IconButton(
-                                            key: const ValueKey<String>(
-                                                'shot-text-done'),
-                                            tooltip: translate('Done'),
-                                            visualDensity:
-                                                VisualDensity.compact,
-                                            icon: const Icon(
-                                              Icons.check_rounded,
-                                              color: Color(0xFF07C160),
-                                            ),
-                                            onPressed: _commitPendingText,
-                                          ),
-                                          IconButton(
-                                            tooltip: translate('Cancel'),
-                                            visualDensity:
-                                                VisualDensity.compact,
-                                            icon: const Icon(
-                                              Icons.close_rounded,
-                                            ),
-                                            onPressed: () => setState(() {
-                                              _pendingTextPos = null;
-                                            }),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
+                              _buildInlineTextEditor(),
                             if (_selection != null)
                               Align(
                                 alignment: Alignment.bottomCenter,
@@ -1059,12 +1086,68 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
     );
   }
 
+  /// 文字工具的就地输入框：渲染在点击位置的图板上（微信式），
+  /// 透明背景 + 白字黑描边，宽度自适应内容，回车提交。
+  Widget _buildInlineTextEditor() {
+    final pos = _pendingTextPos;
+    if (pos == null) return const SizedBox.shrink();
+    // 图片坐标 → 图板（overlay）坐标。
+    final left = _fitRect.left + pos.dx * _scale;
+    final top = _fitRect.top + pos.dy * _scale;
+    final maxWidth = (_fitRect.width - 24).clamp(80.0, 600.0);
+    return Positioned(
+      left: left,
+      top: top,
+      child: Container(
+        constraints: BoxConstraints(
+          maxWidth: maxWidth,
+          minWidth: 32,
+        ),
+        decoration: BoxDecoration(
+          // 半透明黑底仅作输入时的临时底，提交后由 painter 画正式白字。
+          color: Colors.black.withOpacity(0.35),
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: TextField(
+          key: const ValueKey<String>('shot-text-field'),
+          controller: _textController,
+          focusNode: _textFocus,
+          autofocus: true,
+          maxLength: 120,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+            shadows: <Shadow>[
+              Shadow(color: Colors.black, blurRadius: 2),
+            ],
+          ),
+          decoration: const InputDecoration(
+            hintText: '输入文字…',
+            hintStyle: TextStyle(color: Colors.white54, fontSize: 18),
+            counterText: '',
+            isDense: true,
+            contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            border: InputBorder.none,
+          ),
+          onSubmitted: (_) => _commitPendingText(),
+          // 点击图板其它位置提交（微信：点击空白处落定文字）。
+          onTapOutside: (_) => _commitPendingText(),
+        ),
+      ),
+    );
+  }
+
   Widget _buildToolbar(ThemeData theme) {
     final dark = theme.brightness == Brightness.dark;
     Widget toolButton(_ShotTool tool, IconData icon, String label) {
       final selected = _tool == tool;
       return InkWell(
-        onTap: () => setState(() => _tool = tool),
+        onTap: () {
+          setState(() => _tool = tool);
+          // 马赛克需要原图像素缓存，切换到该工具时按需提取。
+          if (tool == _ShotTool.mosaic) _ensurePixels();
+        },
         borderRadius: BorderRadius.circular(8),
         child: Container(
           width: 38,
