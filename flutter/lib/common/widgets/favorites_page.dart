@@ -16,7 +16,10 @@ import 'package:luoda_flutter/models/platform_model.dart';
 /// 收藏页（PC / 手机共用）：微信式收藏，支持分类查看图片 / 文件 / 位置 /
 /// 文字 / 语音 / 联系人，以及搜索与删除。
 class FavoritesPage extends StatefulWidget {
-  const FavoritesPage({super.key});
+  const FavoritesPage({super.key, this.detailPane = false});
+
+  /// 桌面端使用左右分栏（左侧列表 + 右侧详情），手机端保持单列点击跳转。
+  final bool detailPane;
 
   @override
   State<FavoritesPage> createState() => _FavoritesPageState();
@@ -25,6 +28,8 @@ class FavoritesPage extends StatefulWidget {
 class _FavoritesPageState extends State<FavoritesPage> {
   String _category = 'all';
   String _query = '';
+  FavoriteItem? _selected;
+  Peer? _selectedPeer;
   final TextEditingController _searchController = TextEditingController();
 
   FavoritesModel get _fav => FavoritesModel.instance;
@@ -109,6 +114,24 @@ class _FavoritesPageState extends State<FavoritesPage> {
     final messages = _messageItems();
     final contacts = _showContacts() ? _contactItems() : const <Peer>[];
 
+    final listPane = Column(
+      children: <Widget>[
+        _buildSearchBar(dark),
+        _buildCategoryTabs(dark),
+        Expanded(
+          child: (messages.isEmpty && contacts.isEmpty)
+              ? _buildEmpty(dark)
+              : ListView(
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 20),
+                  children: <Widget>[
+                    for (final item in messages) _buildMessageTile(item, dark),
+                    for (final peer in contacts) _buildContactTile(peer, dark),
+                  ],
+                ),
+        ),
+      ],
+    );
+
     return Scaffold(
       backgroundColor: dark ? const Color(0xFF15171B) : const Color(0xFFF7F7F7),
       appBar: AppBar(
@@ -122,24 +145,22 @@ class _FavoritesPageState extends State<FavoritesPage> {
           style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
         ),
       ),
-      body: Column(
-        children: <Widget>[
-          _buildSearchBar(dark),
-          _buildCategoryTabs(dark),
-          Expanded(
-            child: (messages.isEmpty && contacts.isEmpty)
-                ? _buildEmpty(dark)
-                : ListView(
-                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 20),
-                    children: <Widget>[
-                      for (final item in messages) _buildMessageTile(item, dark),
-                      for (final peer in contacts)
-                        _buildContactTile(peer, dark),
-                    ],
-                  ),
-          ),
-        ],
-      ),
+      body: widget.detailPane
+          ? Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                // 左侧：收藏列表（固定宽），与点聊主界面一致的列表形式。
+                SizedBox(width: 300, child: listPane),
+                VerticalDivider(
+                  width: 1,
+                  thickness: 1,
+                  color: dark ? const Color(0xFF2A2D33) : const Color(0xFFEDEDED),
+                ),
+                // 右侧：选中项的详情。
+                Expanded(child: _buildDetailPane(dark)),
+              ],
+            )
+          : listPane,
     );
   }
 
@@ -302,17 +323,348 @@ class _FavoritesPageState extends State<FavoritesPage> {
   }
 
   // ------------------------------------------------------------------
+  // 右侧详情面板（仅桌面端左右分栏使用）
+  // ------------------------------------------------------------------
+  Widget _buildDetailPane(bool dark) {
+    final peer = _selectedPeer;
+    final item = _selected;
+    if (peer == null && item == null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(
+              Icons.star_rounded,
+              size: 52,
+              color: dark ? Colors.white24 : const Color(0xFF07C160).withOpacity(0.3),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              translate('Pick a favorite to view details'),
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 14,
+                color: dark ? Colors.white38 : Colors.black38,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    if (peer != null) return _buildPeerDetail(peer, dark);
+    return _buildItemDetail(item!, dark);
+  }
+
+  Widget _buildPeerDetail(Peer peer, bool dark) {
+    final id = peer.getId();
+    return Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: <Widget>[
+          CircleAvatar(
+            radius: 44,
+            backgroundColor:
+                dark ? const Color(0xFF2B6B45) : const Color(0xFFE8F7EE),
+            child: Text(
+              id.isNotEmpty ? id.characters.first : '?',
+              style: const TextStyle(
+                fontSize: 30,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF07C160),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            id,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: dark ? Colors.white : Colors.black87,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            translate('favorites_cat_contact'),
+            style: TextStyle(
+              fontSize: 13,
+              color: dark ? Colors.white38 : Colors.black45,
+            ),
+          ),
+          const Spacer(),
+          _detailActions(
+            dark,
+            onOpen: () => _openContact(peer),
+            onDelete: () => _showContactDeleteMenu(peer),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildItemDetail(FavoriteItem item, bool dark) {
+    final primary = const Color(0xFF07C160);
+    final typeLabel = translate('favorites_cat_${item.type}');
+    return Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              _buildLeading(item, dark),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      _itemTitle(item),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: dark ? Colors.white : Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      [
+                        typeLabel,
+                        item.peerName,
+                      ].where((e) => e.isNotEmpty).join(' · '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: dark ? Colors.white38 : Colors.black45,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Text(
+            '${translate('Saved at')} ${_formatFullTime(item.createdAt)}',
+            style: TextStyle(
+              fontSize: 12,
+              color: dark ? Colors.white30 : Colors.black38,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Expanded(child: _buildDetailContent(item, dark)),
+          _detailActions(
+            dark,
+            onOpen: () => _openFavorite(item),
+            onDelete: () => _showDeleteMenu(item),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 详情内容区（按收藏类型展示预览）。
+  Widget _buildDetailContent(FavoriteItem item, bool dark) {
+    switch (item.type) {
+      case FavoriteItemType.image:
+        final path = item.localPath;
+        if (path != null && path.isNotEmpty && File(path).existsSync()) {
+          return Center(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.file(
+                File(path),
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => _detailFallback(dark,
+                    Icons.image_outlined, translate('favorites_cat_image')),
+              ),
+            ),
+          );
+        }
+        return _detailFallback(
+            dark, Icons.image_outlined, translate('favorites_cat_image'));
+      case FavoriteItemType.file:
+        return _detailFallback(
+            dark, Icons.insert_drive_file_outlined, _itemTitle(item),
+            subtitle: _fmtSize(item.fileSize));
+      case FavoriteItemType.location:
+        return _detailFallback(
+            dark, Icons.location_on_rounded, item.title ?? translate('Location'),
+            subtitle: item.subtitle ?? '');
+      case FavoriteItemType.voice:
+        return _detailFallback(
+            dark, Icons.mic_rounded, item.title ?? translate('Voice message'),
+            subtitle: item.subtitle ?? '');
+      case FavoriteItemType.forward:
+        final msgs = item.chatMessages;
+        if (msgs.isEmpty) {
+          return _detailFallback(dark, Icons.forward_rounded,
+              item.title ?? translate('Chat history'));
+        }
+        return Container(
+          decoration: BoxDecoration(
+            color: dark ? const Color(0xFF1C1E23) : const Color(0xFFF7F7F7),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: dark ? const Color(0xFF2A2D33) : const Color(0xFFEDEDED),
+            ),
+          ),
+          child: ListView.separated(
+            padding: const EdgeInsets.all(12),
+            itemCount: msgs.length,
+            separatorBuilder: (_, __) => const Divider(height: 12),
+            itemBuilder: (_, i) {
+              final m = msgs[i];
+              final sender = (m['sender'] ?? '').toString();
+              final text = (m['text'] ?? '').toString();
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    sender,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF07C160),
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    text,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 13,
+                      height: 1.4,
+                      color: dark ? Colors.white70 : Colors.black87,
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        );
+      case FavoriteItemType.text:
+      default:
+        return SingleChildScrollView(
+          child: Text(
+            item.title ?? '',
+            style: TextStyle(
+              fontSize: 15,
+              height: 1.6,
+              color: dark ? Colors.white : Colors.black87,
+            ),
+          ),
+        );
+    }
+  }
+
+  Widget _detailFallback(bool dark, IconData icon, String title,
+          {String? subtitle}) =>
+      Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(icon, size: 52, color: const Color(0xFF07C160).withOpacity(0.5)),
+            const SizedBox(height: 10),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w500,
+                color: dark ? Colors.white70 : Colors.black87,
+              ),
+            ),
+            if (subtitle != null && subtitle.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                subtitle,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: dark ? Colors.white38 : Colors.black45,
+                ),
+              ),
+            ],
+          ],
+        ),
+      );
+
+  Widget _detailActions(
+    bool dark, {
+    required VoidCallback onOpen,
+    required VoidCallback onDelete,
+  }) {
+    return Row(
+      children: <Widget>[
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: onOpen,
+            icon: const Icon(Icons.open_in_full_rounded, size: 17),
+            label: Text(translate('Open')),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFF07C160),
+              side: const BorderSide(color: Color(0xFF07C160)),
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: onDelete,
+            icon: const Icon(Icons.delete_outline_rounded, size: 17),
+            label: Text(translate('Delete')),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFFFA5151),
+              side: const BorderSide(color: Color(0x66FA5151)),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _formatFullTime(int ms) {
+    if (ms <= 0) return '';
+    final dt = DateTime.fromMillisecondsSinceEpoch(ms);
+    final two = (int n) => n.toString().padLeft(2, '0');
+    return '${dt.year}/${two(dt.month)}/${two(dt.day)} ${two(dt.hour)}:${two(dt.minute)}';
+  }
+
+  String _fmtSize(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    if (bytes < 1024 * 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
+  }
+
+  // ------------------------------------------------------------------
   // 卡片
   // ------------------------------------------------------------------
-  Widget _card({required bool dark, required Widget child}) {
+  Widget _card({required bool dark, required Widget child, bool selected = false}) {
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
-        color: dark ? const Color(0xFF1C1E23) : Colors.white,
+        color: selected
+            ? const Color(0xFF07C160).withOpacity(dark ? 0.16 : 0.06)
+            : dark
+                ? const Color(0xFF1C1E23)
+                : Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: dark ? const Color(0xFF2A2D33) : const Color(0xFFEDEDED),
-          width: 0.8,
+          color: selected
+              ? const Color(0xFF07C160)
+              : dark
+                  ? const Color(0xFF2A2D33)
+                  : const Color(0xFFEDEDED),
+          width: selected ? 1.2 : 0.8,
         ),
       ),
       child: child,
@@ -329,11 +681,22 @@ class _FavoritesPageState extends State<FavoritesPage> {
     ].join(' · ');
     final time = _formatTime(item.createdAt);
 
+    final selected = widget.detailPane && _selected?.id == item.id;
     return _card(
       dark: dark,
+      selected: selected,
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
-        onTap: () => _openFavorite(item),
+        onTap: () {
+          if (widget.detailPane) {
+            setState(() {
+              _selected = item;
+              _selectedPeer = null;
+            });
+          } else {
+            _openFavorite(item);
+          }
+        },
         onLongPress: () => _showDeleteMenu(item),
         child: Padding(
           padding: const EdgeInsets.all(10),
@@ -646,11 +1009,22 @@ class _FavoritesPageState extends State<FavoritesPage> {
     final id = peer.getId();
     final avatarColor =
         dark ? const Color(0xFF2B6B45) : const Color(0xFFE8F7EE);
+    final selected = widget.detailPane && _selectedPeer?.getId() == id;
     return _card(
       dark: dark,
+      selected: selected,
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
-        onTap: () => _openContact(peer),
+        onTap: () {
+          if (widget.detailPane) {
+            setState(() {
+              _selectedPeer = peer;
+              _selected = null;
+            });
+          } else {
+            _openContact(peer);
+          }
+        },
         onLongPress: () => _showContactDeleteMenu(peer),
         child: Padding(
           padding: const EdgeInsets.all(10),

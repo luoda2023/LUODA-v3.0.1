@@ -795,7 +795,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       barrierColor: Colors.black54,
       builder: (_) => Center(
         child: Container(
-          width: 760,
+          width: 860,
           height: 600,
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
@@ -804,7 +804,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 : Colors.white,
             borderRadius: BorderRadius.circular(12),
           ),
-          child: const FavoritesPage(),
+          // 桌面端：左右分栏（左侧列表 + 右侧详情）。
+          child: const FavoritesPage(detailPane: true),
         ),
       ),
     );
