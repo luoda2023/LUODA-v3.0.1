@@ -111,18 +111,13 @@ class _FavoritesPageState extends State<FavoritesPage> {
       appBar: AppBar(
         backgroundColor: surface,
         foregroundColor: dark ? Colors.white : Colors.black87,
-        elevation: 0.5,
+        elevation: 0,
+        scrolledUnderElevation: 0.5,
+        centerTitle: false,
         title: Text(
           translate('Favorites'),
           style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
         ),
-        actions: <Widget>[
-          IconButton(
-            tooltip: translate('Search'),
-            icon: const Icon(Icons.search_rounded),
-            onPressed: () => _focusSearch(),
-          ),
-        ],
       ),
       body: Column(
         children: <Widget>[
@@ -132,7 +127,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
             child: (messages.isEmpty && contacts.isEmpty)
                 ? _buildEmpty(dark)
                 : ListView(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 20),
                     children: <Widget>[
                       for (final item in messages) _buildMessageTile(item, dark),
                       for (final peer in contacts)
@@ -145,124 +140,132 @@ class _FavoritesPageState extends State<FavoritesPage> {
     );
   }
 
-  void _focusSearch() {
-    // 简单实现：弹出搜索输入框
-    showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor:
-            Theme.of(ctx).brightness == Brightness.dark
-                ? const Color(0xFF1C1E23)
-                : Colors.white,
-        title: Text(translate('Search favorites')),
-        content: TextField(
-          controller: _searchController,
-          autofocus: true,
-          decoration: InputDecoration(
-            hintText: translate('Search favorites'),
-            border: const OutlineInputBorder(),
-          ),
-          onSubmitted: (v) {
-            Navigator.pop(ctx, v);
-          },
-        ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text(translate('Cancel')),
-          ),
-          FilledButton(
-            onPressed: () =>
-                Navigator.pop(ctx, _searchController.text.trim()),
-            child: Text(translate('Search')),
-          ),
-        ],
-      ),
-    ).then((value) {
-      if (value == null) return;
-      setState(() => _query = value);
-    });
-  }
-
+  // ------------------------------------------------------------------
+  // 顶部：搜索条（内嵌圆角）+ 分类 tab（微信风格下划线）
+  // ------------------------------------------------------------------
   Widget _buildSearchBar(bool dark) {
-    if (_query.isEmpty) return const SizedBox.shrink();
-    return Container(
-      color: dark ? const Color(0xFF1C1E23) : Colors.white,
-      padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
-      child: Row(
-        children: <Widget>[
-          Icon(Icons.search_rounded,
-              size: 18, color: dark ? Colors.white54 : Colors.black45),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              _query,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                  color: dark ? Colors.white70 : Colors.black87),
+    final inputColor =
+        dark ? const Color(0xFF2A2D33) : const Color(0xFFF2F3F5);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+      child: Container(
+        height: 36,
+        decoration: BoxDecoration(
+          color: inputColor,
+          borderRadius: BorderRadius.circular(9),
+        ),
+        child: Row(
+          children: <Widget>[
+            const SizedBox(width: 10),
+            Icon(Icons.search_rounded,
+                size: 18, color: dark ? Colors.white38 : Colors.black38),
+            const SizedBox(width: 6),
+            Expanded(
+              child: TextField(
+                controller: _searchController,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: dark ? Colors.white : Colors.black87,
+                ),
+                decoration: InputDecoration(
+                  hintText: translate('Search favorites'),
+                  hintStyle: TextStyle(
+                    fontSize: 14,
+                    color: dark ? Colors.white30 : Colors.black26,
+                  ),
+                  border: InputBorder.none,
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                ),
+                onChanged: (v) => setState(() => _query = v.trim()),
+              ),
             ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.close_rounded, size: 18),
-            onPressed: () {
-              _searchController.clear();
-              setState(() => _query = '');
-            },
-          ),
-        ],
+            if (_query.isNotEmpty)
+              IconButton(
+                padding: EdgeInsets.zero,
+                constraints:
+                    const BoxConstraints(minWidth: 32, minHeight: 32),
+                icon: Icon(Icons.cancel_rounded,
+                    size: 16,
+                    color: dark ? Colors.white30 : Colors.black26),
+                onPressed: () {
+                  _searchController.clear();
+                  setState(() => _query = '');
+                },
+              )
+            else
+              const SizedBox(width: 8),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildCategoryTabs(bool dark) {
+    final primary = const Color(0xFF07C160);
     return Container(
       color: dark ? const Color(0xFF1C1E23) : Colors.white,
       height: 46,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        itemCount: _categories.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
-        itemBuilder: (context, index) {
-          final (key, icon) = _categories[index];
-          final selected = _category == key;
-          return InkWell(
-            borderRadius: BorderRadius.circular(18),
-            onTap: () => setState(() => _category = key),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: selected
-                    ? (dark ? const Color(0xFF2B6B45) : const Color(0xFFE8F7EE))
-                    : Colors.transparent,
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Icon(icon,
-                      size: 16,
-                      color: selected
-                          ? (dark ? const Color(0xFF4CAF50) : const Color(0xFF07C160))
-                          : (dark ? Colors.white54 : Colors.black54)),
-                  const SizedBox(width: 5),
-                  Text(
-                    translate('favorites_cat_$key'),
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                      color: selected
-                          ? (dark ? const Color(0xFF4CAF50) : const Color(0xFF07C160))
-                          : (dark ? Colors.white70 : Colors.black87),
-                    ),
-                  ),
-                ],
+      child: Row(
+        children: <Widget>[
+          for (var i = 0; i < _categories.length; i++)
+            Expanded(
+              child: _buildTab(
+                _categories[i].$1,
+                _categories[i].$2,
+                dark,
+                primary,
               ),
             ),
-          );
-        },
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTab(String key, IconData icon, bool dark, Color primary) {
+    final selected = _category == key;
+    return InkWell(
+      onTap: () => setState(() => _category = key),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: <Widget>[
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              Icon(
+                icon,
+                size: 15,
+                color: selected
+                    ? primary
+                    : (dark ? Colors.white54 : Colors.black45),
+              ),
+              const SizedBox(width: 4),
+              Flexible(
+                child: Text(
+                  translate('favorites_cat_$key'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                    color: selected
+                        ? primary
+                        : (dark ? Colors.white70 : Colors.black87),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Container(
+            width: 22,
+            height: 3,
+            decoration: BoxDecoration(
+              color: selected ? primary : Colors.transparent,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -272,13 +275,28 @@ class _FavoritesPageState extends State<FavoritesPage> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Icon(Icons.star_border_rounded,
-              size: 56, color: dark ? Colors.white24 : Colors.black26),
-          const SizedBox(height: 12),
+          Container(
+            width: 76,
+            height: 76,
+            decoration: BoxDecoration(
+              color: (dark ? Colors.white : const Color(0xFF07C160))
+                  .withOpacity(0.06),
+              shape: BoxShape.circle,
+            ),
+            alignment: Alignment.center,
+            child: Icon(
+              Icons.star_rounded,
+              size: 36,
+              color: dark ? Colors.white24 : const Color(0xFF07C160).withOpacity(0.35),
+            ),
+          ),
+          const SizedBox(height: 16),
           Text(
             translate('favorites_empty'),
+            textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 14,
+              height: 1.6,
               color: dark ? Colors.white38 : Colors.black38,
             ),
           ),
@@ -288,133 +306,164 @@ class _FavoritesPageState extends State<FavoritesPage> {
   }
 
   // ------------------------------------------------------------------
+  // 卡片
+  // ------------------------------------------------------------------
+  Widget _card({required bool dark, required Widget child}) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: dark ? const Color(0xFF1C1E23) : Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: dark ? const Color(0xFF2A2D33) : const Color(0xFFEDEDED),
+          width: 0.8,
+        ),
+      ),
+      child: child,
+    );
+  }
+
+  // ------------------------------------------------------------------
   // 消息收藏项
   // ------------------------------------------------------------------
   Widget _buildMessageTile(FavoriteItem item, bool dark) {
-    final subtitle = item.subtitle ?? '';
-    final time = _formatTime(item.createdAt);
     final secondary = <String>[
       item.peerName,
-      if (subtitle.isNotEmpty) subtitle,
-      time,
+      if ((item.subtitle ?? '').isNotEmpty) item.subtitle!,
     ].join(' · ');
+    final time = _formatTime(item.createdAt);
 
-    return InkWell(
-      onTap: () => _openFavorite(item),
-      onLongPress: () => _showDeleteMenu(item),
-      child: Container(
-        color: dark ? const Color(0xFF1C1E23) : Colors.white,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            _buildLeading(item, dark),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+    return _card(
+      dark: dark,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => _openFavorite(item),
+        onLongPress: () => _showDeleteMenu(item),
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              _buildLeading(item, dark),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      _itemTitle(item),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 15,
+                        height: 1.3,
+                        fontWeight: FontWeight.w500,
+                        color: dark ? Colors.white : Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      secondary,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: dark ? Colors.white38 : Colors.black45,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: <Widget>[
                   Text(
-                    _itemTitle(item),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                    time,
                     style: TextStyle(
-                      fontSize: 14.5,
-                      height: 1.3,
-                      color: dark ? Colors.white : Colors.black87,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    secondary,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: dark ? Colors.white38 : Colors.black45,
+                      fontSize: 11,
+                      color: dark ? Colors.white30 : Colors.black38,
                     ),
                   ),
                 ],
               ),
-            ),
-            const SizedBox(width: 8),
-            Icon(Icons.chevron_right_rounded,
-                size: 18, color: dark ? Colors.white24 : Colors.black26),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 
   Widget _buildLeading(FavoriteItem item, bool dark) {
-    const double size = 54;
+    const double size = 60;
     switch (item.type) {
       case FavoriteItemType.image:
         final path = item.localPath;
         if (path != null && path.isNotEmpty && File(path).existsSync()) {
           return ClipRRect(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(10),
             child: Image.file(
               File(path),
               width: size,
               height: size,
               fit: BoxFit.cover,
-              cacheWidth: 160,
+              cacheWidth: 180,
               errorBuilder: (_, __, ___) => _iconBox(
-                  Icons.image_outlined, dark, size),
+                  Icons.image_outlined, dark, size,
+                  bg: const Color(0xFFEAF2FF), fg: const Color(0xFF3B82F6)),
             ),
           );
         }
-        return _iconBox(Icons.image_outlined, dark, size);
+        return _iconBox(Icons.image_outlined, dark, size,
+            bg: const Color(0xFFEAF2FF), fg: const Color(0xFF3B82F6));
       case FavoriteItemType.file:
         return _iconBox(Icons.insert_drive_file_outlined, dark, size,
-            color: const Color(0xFF3B82F6));
+            bg: const Color(0xFFEAF2FF), fg: const Color(0xFF3B82F6));
       case FavoriteItemType.location:
         return _iconBox(Icons.location_on_rounded, dark, size,
-            color: const Color(0xFF07C160));
+            bg: const Color(0xFFE8F7EE), fg: const Color(0xFF07C160));
       case FavoriteItemType.voice:
         return _iconBox(Icons.mic_rounded, dark, size,
-            color: const Color(0xFF07C160));
+            bg: const Color(0xFFE8F7EE), fg: const Color(0xFF07C160));
       case FavoriteItemType.forward:
         return _iconBox(Icons.forward_rounded, dark, size,
-            color: const Color(0xFF8B5CF6));
+            bg: const Color(0xFFF3EDFF), fg: const Color(0xFF8B5CF6));
       default:
         return _iconBox(Icons.notes_rounded, dark, size,
-            color: const Color(0xFFF59E0B));
+            bg: const Color(0xFFFFF4E5), fg: const Color(0xFFF59E0B));
     }
   }
 
   Widget _iconBox(IconData icon, bool dark, double size,
-      {Color color = const Color(0xFF07C160)}) {
+      {required Color bg, required Color fg}) {
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: color.withOpacity(dark ? 0.22 : 0.12),
-        borderRadius: BorderRadius.circular(8),
+        color: dark ? bg.withOpacity(0.16) : bg,
+        borderRadius: BorderRadius.circular(10),
       ),
       alignment: Alignment.center,
-      child: Icon(icon, size: 26, color: color),
+      child: Icon(icon, size: 28, color: fg),
     );
   }
 
   String _itemTitle(FavoriteItem item) {
     switch (item.type) {
       case FavoriteItemType.image:
-        return '[${translate('favorites_cat_image')}] '
-            '${_fav.fileNameOf(item)}';
       case FavoriteItemType.file:
-        return '[${translate('favorites_cat_file')}] '
-            '${_fav.fileNameOf(item)}';
+        final name = _fav.fileNameOf(item);
+        return name.isNotEmpty ? name : item.title ?? '';
       case FavoriteItemType.location:
-        return '[${translate('favorites_cat_location')}] '
-            '${item.title ?? translate('Location')}';
+        return item.title?.isNotEmpty == true
+            ? item.title!
+            : translate('Location');
       case FavoriteItemType.voice:
-        return '[${translate('favorites_cat_voice')}] '
-            '${item.title ?? translate('Voice message')}';
+        return item.title?.isNotEmpty == true
+            ? item.title!
+            : translate('Voice message');
       case FavoriteItemType.forward:
-        return '[${translate('favorites_cat_text')}] '
-            '${item.title ?? ''}';
+        return item.title?.isNotEmpty == true ? item.title! : '';
       default:
         return item.title ?? '';
     }
@@ -569,57 +618,63 @@ class _FavoritesPageState extends State<FavoritesPage> {
   // 联系人收藏项（复用原有收藏联系人）
   // ------------------------------------------------------------------
   Widget _buildContactTile(Peer peer, bool dark) {
-    return InkWell(
-      onTap: () => _openContact(peer),
-      onLongPress: () => _showContactDeleteMenu(peer),
-      child: Container(
-        color: dark ? const Color(0xFF1C1E23) : Colors.white,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        child: Row(
-          children: <Widget>[
-            CircleAvatar(
-              radius: 26,
-              backgroundColor:
-                  (dark ? const Color(0xFF2B6B45) : const Color(0xFFE8F7EE)),
-              child: Text(
-                peer.getId().isNotEmpty ? peer.getId().characters.first : '?',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  color: const Color(0xFF07C160),
+    final id = peer.getId();
+    final avatarColor =
+        dark ? const Color(0xFF2B6B45) : const Color(0xFFE8F7EE);
+    return _card(
+      dark: dark,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => _openContact(peer),
+        onLongPress: () => _showContactDeleteMenu(peer),
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Row(
+            children: <Widget>[
+              CircleAvatar(
+                radius: 30,
+                backgroundColor: avatarColor,
+                child: Text(
+                  id.isNotEmpty ? id.characters.first : '?',
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF07C160),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    peer.getId(),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 14.5,
-                      color: dark ? Colors.white : Colors.black87,
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      id,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                        color: dark ? Colors.white : Colors.black87,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    peer.id,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: dark ? Colors.white38 : Colors.black45,
+                    const SizedBox(height: 5),
+                    Text(
+                      peer.id,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: dark ? Colors.white38 : Colors.black45,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            Icon(Icons.chevron_right_rounded,
-                size: 18, color: dark ? Colors.white24 : Colors.black26),
-          ],
+              Icon(Icons.chevron_right_rounded,
+                  size: 18, color: dark ? Colors.white24 : Colors.black26),
+            ],
+          ),
         ),
       ),
     );
