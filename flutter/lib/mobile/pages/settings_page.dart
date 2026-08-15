@@ -663,8 +663,23 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
             enrolled = await faceLoginEnroll();
           }
           if (!enrolled) {
+            // 录入失败（SDK 相机不可用等）：引导用户改用「登录密令」
+            // 作为验证方式，避免开了开关却没有任何可验证方式。
             showToast(translate('face_login_enroll_failed'));
-            return;
+            final usePass = await gFFI.dialogManager.show<bool>(
+              (setState, close, context) => CustomAlertDialog(
+                title: Text(translate('passcode_fallback_title')),
+                content: Text(translate('passcode_fallback_tip')),
+                actions: [
+                  dialogButton('Cancel',
+                      onPressed: () => close(false), isOutline: true),
+                  dialogButton('Enable', onPressed: () => close(true)),
+                ],
+              ),
+            );
+            if (usePass != true || !mounted) return;
+            await _editPasscode();
+            if (!faceLoginPasscodeSet()) return;
           }
           await faceLoginSetEnabled(true);
           if (mounted) setState(() {});
@@ -721,6 +736,26 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
       description: Text(_graceDescription()),
       trailing: const Icon(Icons.chevron_right_rounded),
       onPressed: (_) => _editGrace(),
+    ));
+
+    // USB 调试连接时跳过验证（默认开启，可关闭）。
+    securityTiles.add(SettingsTile.switchTile(
+      initialValue: faceLoginUsbSkip(),
+      leading: const Icon(Icons.usb_rounded),
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(translate('face_login_usb_skip')),
+          Text(
+            '* ${translate('face_login_usb_skip_tip')}',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      ),
+      onToggle: (value) async {
+        await faceLoginSetUsbSkip(value);
+        if (mounted) setState(() {});
+      },
     ));
 
     // 人脸验证静音：开启后验证全程静音。

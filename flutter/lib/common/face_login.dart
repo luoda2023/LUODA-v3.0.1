@@ -18,6 +18,9 @@ const String kFacePasscodeHash = 'face_login_passcode_hash';
 /// 本地配置 key：免验证时长（分钟，0 表示关闭）。
 const String kFaceGraceMinutes = 'face_login_grace_minutes';
 
+/// 本地配置 key：USB 调试连接时是否跳过验证（默认跳过）。
+const String kFaceUsbSkip = 'face_login_usb_skip';
+
 /// 本地配置 key：最近一次验证通过的时间戳（epoch 秒）。
 const String kFaceLastOkAt = 'face_login_last_ok_at';
 
@@ -218,6 +221,15 @@ Future<bool> faceLoginUsbDebugging() async {
   } catch (_) {
     return false;
   }
+}
+
+/// 是否在 USB 调试连接时跳过验证（默认跳过，可关闭）。
+bool faceLoginUsbSkip() {
+  return bind.mainGetLocalOption(key: kFaceUsbSkip) != 'N';
+}
+
+Future<void> faceLoginSetUsbSkip(bool value) async {
+  await bind.mainSetLocalOption(key: kFaceUsbSkip, value: value ? 'Y' : 'N');
 }
 
 // ---------------------------------------------------------------------------
@@ -530,13 +542,12 @@ class _FaceLoginGateState extends State<FaceLoginGate> {
 ///   - 处于免验证时间窗口内（最近一次验证通过后的设定时长内）。
 Future<void> faceLoginMaybeShowGate(BuildContext context) async {
   if (!isAndroid || !faceLoginEnabled()) return;
-  // USB 调试连接时跳过验证。
-  if (await faceLoginUsbDebugging()) return;
+  // USB 调试连接时跳过验证（可在设置里关闭，关闭后插 USB 也验证）。
+  if (faceLoginUsbSkip() && await faceLoginUsbDebugging()) return;
   // 免验证时间窗口内跳过验证。
   if (faceLoginInGraceWindow()) return;
-  // 已录入人脸或已设置密令才需要验证门（否则直接进入，设置页负责引导录入）。
-  final hasEnrolled = await faceLoginHasEnrolled();
-  if (!hasEnrolled && !faceLoginPasscodeSet()) return;
+  // 只要开启了登录验证就弹验证门；未录入人脸/未设密令时门内会给出
+  // 提示与「关闭人脸验证」入口，避免用户以为已开启却静默进入。
   if (!context.mounted) return;
   await showGeneralDialog<void>(
     context: context,
