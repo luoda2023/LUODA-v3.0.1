@@ -548,6 +548,16 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
     });
   }
 
+  /// 完成标注并返回合成图路径（与工具条“发送”按钮一致，
+  /// 供 Enter 快捷键复用）。
+  Future<void> _confirmAndSend() async {
+    if (_compositing) return;
+    final path = await _compose();
+    if (path != null && mounted) {
+      Navigator.of(context).pop(path);
+    }
+  }
+
   Future<String?> _compose() async {
     final image = _image;
     if (image == null) return null;
@@ -814,6 +824,29 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
           final down = event is KeyDownEvent || event is KeyRepeatEvent;
           if (down != _ctrlDown && mounted) {
             setState(() => _ctrlDown = down);
+          }
+          return KeyEventResult.handled;
+        }
+        final isDown = event is KeyDownEvent;
+        // Enter：标注阶段直接合成并发送（与工具条“发送”一致）。
+        if (key == LogicalKeyboardKey.enter ||
+            key == LogicalKeyboardKey.numpadEnter) {
+          if (isDown && _selection != null && !_compositing && mounted) {
+            unawaited(_confirmAndSend());
+          }
+          return KeyEventResult.handled;
+        }
+        // Esc：取消截图，返回 null。
+        if (key == LogicalKeyboardKey.escape) {
+          if (isDown && !_compositing && mounted) {
+            Navigator.of(context).pop();
+          }
+          return KeyEventResult.handled;
+        }
+        // Ctrl+Z：撤销最后一个标注。
+        if (key == LogicalKeyboardKey.keyZ && _ctrlDown) {
+          if (isDown && _marks.isNotEmpty && mounted) {
+            setState(() => _marks.removeLast());
           }
           return KeyEventResult.handled;
         }
@@ -1285,14 +1318,7 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
           ),
           const SizedBox(width: 4),
           FilledButton.icon(
-            onPressed: _compositing
-                ? null
-                : () async {
-                    final path = await _compose();
-                    if (path != null && mounted) {
-                      Navigator.of(context).pop(path);
-                    }
-                  },
+            onPressed: _compositing ? null : _confirmAndSend,
             icon: const Icon(Icons.check_rounded, size: 18),
             // 工具条确认按钮：完成标注后把图片放入消息输入框（待发送），
             // 用户在输入框点“发送”才真正发出（微信截图流程一致）。
