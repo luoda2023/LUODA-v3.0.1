@@ -1770,6 +1770,7 @@ class ChatPage extends StatelessWidget implements PageShape {
         : '${loc.latitude.toStringAsFixed(6)}, '
             '${loc.longitude.toStringAsFixed(6)}';
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: () {
         Navigator.of(context).push<void>(
           MaterialPageRoute<void>(
@@ -1797,38 +1798,45 @@ class ChatPage extends StatelessWidget implements PageShape {
             SizedBox(
               width: 232,
               height: 112,
-              child: flutter_map.FlutterMap(
-                options: flutter_map.MapOptions(
-                  initialCenter: latlong2.LatLng(loc.latitude, loc.longitude),
-                  initialZoom: 16,
-                  interactionOptions: const flutter_map.InteractionOptions(
-                    flags: flutter_map.InteractiveFlag.none,
+              // 卡片内地图仅为展示（不可拖动）：IgnorePointer 让点击穿透到
+              // 外层 GestureDetector，否则 flutter_map 内部注册的
+              // TapGestureRecognizer 会吞掉点击，详情页打不开。
+              child: IgnorePointer(
+                child: flutter_map.FlutterMap(
+                  options: flutter_map.MapOptions(
+                    initialCenter:
+                        latlong2.LatLng(loc.latitude, loc.longitude),
+                    initialZoom: 16,
+                    interactionOptions: const flutter_map.InteractionOptions(
+                      flags: flutter_map.InteractiveFlag.none,
+                    ),
                   ),
-                ),
-                children: <Widget>[
-                  flutter_map.TileLayer(
-                    urlTemplate:
-                        'https://webrd0{s}.is.autonavi.com/appmaptile'
-                        '?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}',
-                    subdomains: const <String>['1', '2', '3', '4'],
-                    userAgentPackageName: 'com.luoda.remote',
-                    maxNativeZoom: 19,
-                  ),
-                  flutter_map.MarkerLayer(
-                    markers: <flutter_map.Marker>[
-                      flutter_map.Marker(
-                        point: latlong2.LatLng(loc.latitude, loc.longitude),
-                        width: 36,
-                        height: 36,
-                        child: const Icon(
-                          Icons.location_on_rounded,
-                          size: 30,
-                          color: Color(0xFFFF4D4F),
+                  children: <Widget>[
+                    flutter_map.TileLayer(
+                      urlTemplate:
+                          'https://webrd0{s}.is.autonavi.com/appmaptile'
+                          '?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}',
+                      subdomains: const <String>['1', '2', '3', '4'],
+                      userAgentPackageName: 'com.luoda.remote',
+                      maxNativeZoom: 19,
+                    ),
+                    flutter_map.MarkerLayer(
+                      markers: <flutter_map.Marker>[
+                        flutter_map.Marker(
+                          point:
+                              latlong2.LatLng(loc.latitude, loc.longitude),
+                          width: 36,
+                          height: 36,
+                          child: const Icon(
+                            Icons.location_on_rounded,
+                            size: 30,
+                            color: Color(0xFFFF4D4F),
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                ],
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
             Padding(
