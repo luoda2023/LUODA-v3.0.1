@@ -20,14 +20,14 @@ void main() {
     // AppBar title 与分类 tabs 应渲染（测试环境 translate 返回原 key）。
     expect(find.text('Favorites'), findsWidgets);
 
-    // 测试环境 translate 返回英文 key（较长），只断言视口内可见的分类 tab；
-    // 末尾 tab（语音/联系人）在真机中文环境下必然显示。
+    // 分类已改为横向滚动 chip：只断言视口内可见的前几个分类；
+    // 末尾分类（语音/文字/联系人）需横向滚动后可见。
     for (final cat in <String>[
       'favorites_cat_all',
       'favorites_cat_image',
       'favorites_cat_file',
       'favorites_cat_location',
-      'favorites_cat_text',
+      'favorites_cat_chat',
     ]) {
       expect(find.text(cat), findsOneWidget, reason: 'missing tab $cat');
     }

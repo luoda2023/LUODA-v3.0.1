@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:luoda_flutter/common.dart';
 import 'package:luoda_flutter/common/direct_chat.dart';
 import 'package:luoda_flutter/common/favorites_model.dart';
+import 'package:luoda_flutter/common/favorites_send.dart';
+import 'package:luoda_flutter/common/widgets/favorite_chat_history_page.dart';
 import 'package:luoda_flutter/common/widgets/file_viewer.dart';
 import 'package:luoda_flutter/common/widgets/location_detail_page.dart';
 import 'package:luoda_flutter/models/chat_model.dart';
@@ -32,8 +34,9 @@ class _FavoritesPageState extends State<FavoritesPage> {
     ('image', Icons.image_rounded),
     ('file', Icons.insert_drive_file_outlined),
     ('location', Icons.location_on_outlined),
-    ('text', Icons.notes_rounded),
+    ('chat', Icons.chat_bubble_outline_rounded),
     ('voice', Icons.mic_rounded),
+    ('text', Icons.notes_rounded),
     ('contact', Icons.people_alt_outlined),
   ];
 
@@ -203,69 +206,62 @@ class _FavoritesPageState extends State<FavoritesPage> {
 
   Widget _buildCategoryTabs(bool dark) {
     final primary = const Color(0xFF07C160);
+    // 微信式：横向滚动分类条（chip 样式），类别多也不会拥挤。
     return Container(
       color: dark ? const Color(0xFF1C1E23) : Colors.white,
-      height: 46,
-      child: Row(
-        children: <Widget>[
-          for (var i = 0; i < _categories.length; i++)
-            Expanded(
-              child: _buildTab(
-                _categories[i].$1,
-                _categories[i].$2,
-                dark,
-                primary,
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTab(String key, IconData icon, bool dark, Color primary) {
-    final selected = _category == key;
-    return InkWell(
-      onTap: () => setState(() => _category = key),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: <Widget>[
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: <Widget>[
-              Icon(
-                icon,
-                size: 15,
+      height: 44,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        itemCount: _categories.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (_, index) {
+          final key = _categories[index].$1;
+          final icon = _categories[index].$2;
+          final selected = _category == key;
+          return InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: () => setState(() => _category = key),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
                 color: selected
-                    ? primary
-                    : (dark ? Colors.white54 : Colors.black45),
+                    ? primary.withOpacity(dark ? 0.22 : 0.12)
+                    : (dark
+                        ? const Color(0xFF2A2D33)
+                        : const Color(0xFFF2F3F5)),
+                borderRadius: BorderRadius.circular(16),
               ),
-              const SizedBox(width: 4),
-              Flexible(
-                child: Text(
-                  translate('favorites_cat_$key'),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 13.5,
-                    fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Icon(
+                    icon,
+                    size: 15,
                     color: selected
                         ? primary
-                        : (dark ? Colors.white70 : Colors.black87),
+                        : (dark ? Colors.white54 : Colors.black45),
                   ),
-                ),
+                  const SizedBox(width: 5),
+                  Text(
+                    translate('favorites_cat_$key'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                      color: selected
+                          ? primary
+                          : (dark ? Colors.white70 : Colors.black87),
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Container(
-            width: 22,
-            height: 3,
-            decoration: BoxDecoration(
-              color: selected ? primary : Colors.transparent,
-              borderRadius: BorderRadius.circular(2),
             ),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
@@ -473,17 +469,14 @@ class _FavoritesPageState extends State<FavoritesPage> {
     if (ms <= 0) return '';
     final dt = DateTime.fromMillisecondsSinceEpoch(ms);
     final now = DateTime.now();
-    final sameDay = dt.year == now.year &&
-        dt.month == now.month &&
-        dt.day == now.day;
-    if (sameDay) {
-      return '${dt.hour.toString().padLeft(2, '0')}:'
-          '${dt.minute.toString().padLeft(2, '0')}';
-    }
-    final sameYear = dt.year == now.year;
-    if (sameYear) {
-      return '${dt.month}月${dt.day}日';
-    }
+    final today = DateTime(now.year, now.month, now.day);
+    final day = DateTime(dt.year, dt.month, dt.day);
+    final hm = '${dt.hour.toString().padLeft(2, '0')}:'
+        '${dt.minute.toString().padLeft(2, '0')}';
+    final diff = today.difference(day).inDays;
+    if (diff == 0) return hm;
+    if (diff == 1) return '${translate('Yesterday')} $hm';
+    if (dt.year == now.year) return '${dt.month}月${dt.day}日';
     return '${dt.year}/${dt.month}/${dt.day}';
   }
 
@@ -526,6 +519,16 @@ class _FavoritesPageState extends State<FavoritesPage> {
         }
         break;
       case FavoriteItemType.forward:
+        if (item.chatMessages.isNotEmpty) {
+          await Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => FavoriteChatHistoryPage(item: item),
+            ),
+          );
+        } else {
+          await _showTextDetail(item);
+        }
+        break;
       case FavoriteItemType.text:
         await _showTextDetail(item);
         break;
@@ -593,6 +596,12 @@ class _FavoritesPageState extends State<FavoritesPage> {
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             ListTile(
+              title: Text(translate('Send to chat')),
+              leading: const Icon(Icons.send_rounded,
+                  color: Color(0xFF07C160)),
+              onTap: () => Navigator.pop(sheetContext, 'send'),
+            ),
+            ListTile(
               title: Text(
                 translate('Delete favorite'),
                 style: const TextStyle(color: Color(0xFFFA5151)),
@@ -609,8 +618,24 @@ class _FavoritesPageState extends State<FavoritesPage> {
         ),
       ),
     );
-    if (result == 'delete') {
+    if (result == 'send') {
+      await _sendToCurrentChat(item);
+    } else if (result == 'delete') {
       await _fav.remove(item.id);
+    }
+  }
+
+  /// 把收藏项作为消息发送到当前打开的会话（PC/手机主会话）。
+  Future<void> _sendToCurrentChat(FavoriteItem item) async {
+    try {
+      await sendFavoriteItemToChat(
+        gFFI.chatModel,
+        item,
+      );
+      if (mounted) showToast(translate('Sent'));
+      Navigator.of(context).maybePop();
+    } catch (e) {
+      if (mounted) showToast('${translate('Send failed')}: $e');
     }
   }
 

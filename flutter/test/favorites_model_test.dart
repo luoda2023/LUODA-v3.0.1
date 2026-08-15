@@ -141,5 +141,94 @@ void main() {
       await model.remove(item.id);
       expect(model.items, isEmpty);
     });
+
+    test('toggleChatHistory saves full conversation with timestamps',
+        () async {
+      final model = FavoritesModel.instance;
+      await model.removeAll(model.items.map((e) => e.id));
+
+      final now = DateTime(2026, 8, 15, 10, 30);
+      final msgA = ChatMessage(
+        text: '第一条消息',
+        createdAt: now,
+        user: _user('peer-1', 'Peer One'),
+        customProperties: <String, dynamic>{
+          'ldesk_kind': 'text',
+          'ldesk_id': 'h1',
+        },
+      );
+      final msgB = ChatMessage(
+        text: '第二条消息',
+        createdAt: now.add(const Duration(minutes: 2)),
+        user: _user('peer-1', 'Peer One'),
+        customProperties: <String, dynamic>{
+          'ldesk_kind': 'text',
+          'ldesk_id': 'h2',
+        },
+      );
+      await model.toggleChatHistory(
+        messages: <ChatMessage>[msgA, msgB],
+        peerId: 'peer-1',
+        peerName: 'Peer One',
+        meId: 'me',
+      );
+
+      expect(model.items.length, 1);
+      final item = model.items.first;
+      expect(item.type, FavoriteItemType.forward);
+      expect(item.chatMessages.length, 2);
+      expect(item.chatMessages.first['text'], '第一条消息');
+      expect(item.chatMessages.first['created_at'],
+          now.millisecondsSinceEpoch);
+      expect(item.chatMessages.last['created_at'],
+          now.add(const Duration(minutes: 2)).millisecondsSinceEpoch);
+      expect(item.chatMessages.first['is_me'], isFalse);
+
+      // 重复收藏同一段聊天记录会取消。
+      final again = await model.toggleChatHistory(
+        messages: <ChatMessage>[msgA, msgB],
+        peerId: 'peer-1',
+        peerName: 'Peer One',
+        meId: 'me',
+      );
+      expect(again, isFalse);
+      expect(model.items, isEmpty);
+    });
+
+    test('forward favorite keeps forward items', () async {
+      final model = FavoritesModel.instance;
+      await model.removeAll(model.items.map((e) => e.id));
+
+      final msg = ChatMessage(
+        text: '聊天记录',
+        createdAt: DateTime.now(),
+        user: _user('peer-1', 'Peer One'),
+        customProperties: <String, dynamic>{
+          'ldesk_kind': 'forward',
+          'ldesk_id': 'fwd-1',
+          'ldesk_forward_title': '某会话的聊天记录',
+          'ldesk_forward_items': <Map<String, dynamic>>[
+            <String, dynamic>{
+              'sender_name': '张三',
+              'kind': 'text',
+              'text': '第一条',
+            },
+            <String, dynamic>{
+              'sender_name': '李四',
+              'kind': 'file',
+              'text': '文件',
+              'file_name': 'a.pdf',
+            },
+          ],
+        },
+      );
+      await model.toggleMessage(msg, peerName: 'Peer One');
+      expect(model.items.length, 1);
+      final item = model.items.first;
+      expect(item.type, FavoriteItemType.forward);
+      expect(item.forwardItems.length, 2);
+      expect(item.forwardItems.first['text'], '第一条');
+      expect(item.forwardItems.last['file_name'], 'a.pdf');
+    });
   });
 }

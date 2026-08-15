@@ -114,7 +114,18 @@ class FavoriteItem {
       }
     } else if (kind == 'forward') {
       type = FavoriteItemType.forward;
-      title = message.text ?? '聊天记录';
+      title = (properties['ldesk_forward_title'] ?? message.text ?? '')
+          .toString();
+      if (title.isEmpty) title = '聊天记录';
+      // 保存完整聊天记录：标题 + 每条消息（发送者/内容/类型/文件名等）。
+      final items = properties['ldesk_forward_items'];
+      if (items is List) {
+        extra['forward_items'] = items
+            .whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .toList(growable: false);
+      }
+      extra['forward_title'] = title;
     } else {
       type = FavoriteItemType.text;
       title = message.text ?? '';
@@ -135,6 +146,84 @@ class FavoriteItem {
       localPath: localPath.isNotEmpty ? localPath : null,
       fileSize: fileSize,
       extra: extra,
+    );
+  }
+
+  /// 收藏的多条聊天记录（extra['messages']），每条结构见 fromMessages。
+  List<Map<String, dynamic>> get chatMessages {
+    final raw = extra['messages'];
+    if (raw is! List) return const <Map<String, dynamic>>[];
+    return raw
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList(growable: false);
+  }
+
+  /// 合并转发内容（extra['forward_items']），格式同 ldesk_forward_items。
+  List<Map<String, dynamic>> get forwardItems {
+    final raw = extra['forward_items'];
+    if (raw is! List) return const <Map<String, dynamic>>[];
+    return raw
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList(growable: false);
+  }
+
+  /// 从多条聊天消息构造「聊天记录」收藏项：保留每条消息的收发时间、
+  /// 发送者与内容，打开收藏后可按聊天记录样式完整回看。
+  factory FavoriteItem.fromMessages({
+    required List<ChatMessage> messages,
+    required String peerId,
+    required String peerName,
+    required String meId,
+  }) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final msgs = <Map<String, dynamic>>[];
+    for (final m in messages) {
+      final properties = m.customProperties ?? <String, dynamic>{};
+      final kind = (properties['ldesk_kind'] ?? 'text').toString();
+      final location = DirectChatLocation.tryParse(m.text ?? '');
+      final sender = m.user.firstName ?? m.user.id;
+      final isMe = m.user.id == meId;
+      final localPath = (properties['ldesk_local_path'] ?? '').toString();
+      final fileName = (properties['ldesk_file_name'] ?? '').toString();
+      final fileSize =
+          int.tryParse('${properties['ldesk_file_size'] ?? 0}') ?? 0;
+      final item = <String, dynamic>{
+        'kind': kind,
+        'text': m.text ?? '',
+        'created_at': m.createdAt.millisecondsSinceEpoch,
+        'sender': sender,
+        'is_me': isMe,
+        if (localPath.isNotEmpty) 'local_path': localPath,
+        if (fileName.isNotEmpty) 'file_name': fileName,
+        if (fileSize > 0) 'file_size': fileSize,
+        if (location != null) ...<String, dynamic>{
+          'lat': location.latitude,
+          'lng': location.longitude,
+          'name': location.name ?? '',
+          'address': location.address ?? '',
+        },
+      };
+      msgs.add(item);
+    }
+    final preview = switch (msgs.length) {
+      0 => '聊天记录',
+      1 => (msgs.first['text'] ?? '').toString().trim(),
+      _ =>
+        '${(msgs.first['text'] ?? '').toString().trim()}…（共 ${msgs.length} 条）',
+    };
+    return FavoriteItem(
+      id: 'history-${now}-${messages.hashCode}',
+      type: FavoriteItemType.forward,
+      peerId: peerId,
+      peerName: peerName,
+      createdAt: now,
+      title: preview,
+      extra: <String, dynamic>{
+        'messages': msgs,
+        'count': msgs.length,
+      },
     );
   }
 
@@ -228,6 +317,41 @@ class FavoritesModel extends ChangeNotifier {
     return _items.any((e) => FavoriteItem.sameMessage(e, item));
   }
 
+  /// 收藏多条聊天记录（保留每条收发时间，打开可按聊天记录样式回看）。
+  /// 已存在相同聊天记录（同来源、同首条消息时间）时取消收藏。
+  Future<bool> toggleChatHistory({
+    required List<ChatMessage> messages,
+    required String peerId,
+    required String peerName,
+    required String meId,
+  }) async {
+    await load();
+    if (messages.isEmpty) return false;
+    final item = FavoriteItem.fromMessages(
+      messages: messages,
+      peerId: peerId,
+      peerName: peerName,
+      meId: meId,
+    );
+    final firstTs = messages.first.createdAt.millisecondsSinceEpoch;
+    final existingIndex = _items.indexWhere(
+      (e) =>
+          e.type == FavoriteItemType.forward &&
+          e.peerId == peerId &&
+          (e.chatMessages.isNotEmpty
+              ? (e.chatMessages.first['created_at'] ?? 0) == firstTs
+              : false),
+    );
+    if (existingIndex >= 0) {
+      _items.removeAt(existingIndex);
+      await _save();
+      return false;
+    }
+    _items.insert(0, item);
+    await _save();
+    return true;
+  }
+
   /// 删除单条收藏。
   Future<void> remove(String id) async {
     await load();
@@ -243,10 +367,11 @@ class FavoritesModel extends ChangeNotifier {
     await _save();
   }
 
-  /// 按类型过滤。
+  /// 按类型过滤（'chat' 映射到聊天记录 forward）。
   List<FavoriteItem> byType(String? type) {
     if (type == null || type == 'all') return List<FavoriteItem>.from(_items);
-    return _items.where((e) => e.type == type).toList();
+    final target = type == 'chat' ? FavoriteItemType.forward : type;
+    return _items.where((e) => e.type == target).toList();
   }
 
   /// 文件路径可能失效（文件被移动/删除），用于收藏页判断。
