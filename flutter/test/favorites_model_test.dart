@@ -230,5 +230,37 @@ void main() {
       expect(item.forwardItems.first['text'], '第一条');
       expect(item.forwardItems.last['file_name'], 'a.pdf');
     });
+
+    test('toggleChatHistory stores the chosen category label', () async {
+      final model = FavoritesModel.instance;
+      await model.removeAll(model.items.map((e) => e.id));
+
+      final msg = ChatMessage(
+        text: '一张图',
+        createdAt: DateTime(2026, 8, 15, 11, 0),
+        user: _user('peer-1', 'Peer One'),
+        customProperties: <String, dynamic>{
+          'ldesk_kind': 'text',
+          'ldesk_id': 'c1',
+        },
+      );
+
+      await model.toggleChatHistory(
+        messages: <ChatMessage>[msg],
+        peerId: 'peer-1',
+        peerName: 'Peer One',
+        meId: 'me',
+        category: FavoriteItemType.image,
+      );
+
+      expect(model.items.length, 1);
+      expect(model.items.first.type, FavoriteItemType.image);
+      expect(model.items.first.chatMessages.length, 1);
+      // 按分类过滤：命中 image，而不是默认的 forward。
+      expect(model.byType(FavoriteItemType.image).length, 1);
+      expect(model.byType(FavoriteItemType.forward), isEmpty);
+
+      await model.removeAll(model.items.map((e) => e.id));
+    });
   });
 }

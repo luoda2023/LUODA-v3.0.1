@@ -1236,15 +1236,19 @@ class ChatPage extends StatelessWidget implements PageShape {
   }
 
   /// 把多选的消息收藏为一条「聊天记录」收藏（保留每条收发时间）。
+  /// 收藏前弹出分类选择，用户选的分类标签存入收藏条目。
   Future<void> _favoriteSelectedMessages(BuildContext context) async {
     final messages = _selectedMessagesForForward();
     if (messages.isEmpty) return;
+    final category = await _chooseFavoriteCategory(context);
+    if (category == null) return; // 用户取消。
     final nowFav = await FavoritesModel.instance.toggleChatHistory(
       messages: messages,
       peerId: chatModel.currentKey.peerId,
       peerName: chatModel.currentUser?.firstName ??
           chatModel.currentKey.peerId,
       meId: chatModel.me.id,
+      category: category,
     );
     chatModel.exitMultiSelect();
     if (context.mounted) {
@@ -1256,6 +1260,105 @@ class ChatPage extends StatelessWidget implements PageShape {
         ),
       );
     }
+  }
+
+  /// 弹出收藏分类选择（聊天记录 / 图片 / 文件 / 位置）。
+  Future<String?> _chooseFavoriteCategory(BuildContext context) async {
+    final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
+    final surface = dark ? const Color(0xFF1C1E22) : Colors.white;
+    final options = <(String, IconData, String)>[
+      (FavoriteItemType.forward, Icons.chat_bubble_outline_rounded,
+          translate('Chat history')),
+      (FavoriteItemType.image, Icons.image_rounded, translate('Images')),
+      (FavoriteItemType.file, Icons.insert_drive_file_outlined,
+          translate('Files')),
+      (FavoriteItemType.location, Icons.location_on_outlined,
+          translate('Location')),
+    ];
+    return showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 6),
+                child: Text(
+                  translate('Choose favorite category'),
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: theme.colorScheme.onSurface.withOpacity(0.6),
+                  ),
+                ),
+              ),
+              GridView.count(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                crossAxisCount: 4,
+                padding: const EdgeInsets.fromLTRB(8, 6, 8, 12),
+                mainAxisSpacing: 4,
+                crossAxisSpacing: 4,
+                childAspectRatio: 0.86,
+                children: [
+                  for (final opt in options)
+                    _favoriteCategoryTile(
+                      ctx,
+                      category: opt.$1,
+                      icon: opt.$2,
+                      label: opt.$3,
+                    ),
+                ],
+              ),
+              const SizedBox(height: 4),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _favoriteCategoryTile(
+    BuildContext ctx, {
+    required String category,
+    required IconData icon,
+    required String label,
+  }) {
+    final theme = Theme.of(ctx);
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () => Navigator.of(ctx).pop(category),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: const Color(0xFF07C160).withOpacity(0.1),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(icon, color: const Color(0xFF07C160), size: 24),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(
+              fontSize: 12,
+              color: theme.colorScheme.onSurface.withOpacity(0.85),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _openMessageFilePreview(

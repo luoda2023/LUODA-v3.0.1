@@ -176,6 +176,7 @@ class FavoriteItem {
     required String peerId,
     required String peerName,
     required String meId,
+    String category = FavoriteItemType.forward,
   }) {
     final now = DateTime.now().millisecondsSinceEpoch;
     final msgs = <Map<String, dynamic>>[];
@@ -215,7 +216,7 @@ class FavoriteItem {
     };
     return FavoriteItem(
       id: 'history-${now}-${messages.hashCode}',
-      type: FavoriteItemType.forward,
+      type: category,
       peerId: peerId,
       peerName: peerName,
       createdAt: now,
@@ -324,6 +325,7 @@ class FavoritesModel extends ChangeNotifier {
     required String peerId,
     required String peerName,
     required String meId,
+    String category = FavoriteItemType.forward,
   }) async {
     await load();
     if (messages.isEmpty) return false;
@@ -332,11 +334,12 @@ class FavoritesModel extends ChangeNotifier {
       peerId: peerId,
       peerName: peerName,
       meId: meId,
+      category: category,
     );
     final firstTs = messages.first.createdAt.millisecondsSinceEpoch;
     final existingIndex = _items.indexWhere(
       (e) =>
-          e.type == FavoriteItemType.forward &&
+          e.type == category &&
           e.peerId == peerId &&
           (e.chatMessages.isNotEmpty
               ? (e.chatMessages.first['created_at'] ?? 0) == firstTs
