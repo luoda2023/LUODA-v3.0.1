@@ -146,6 +146,8 @@ class ChatModel with ChangeNotifier {
   // Multi-select mode
   bool _multiSelectMode = false;
   final Set<String> _selectedMessageIds = {};
+  // Shift+点击连续多选的锚点（上一次点击/选中的消息 id）。
+  String? _anchorMessageId;
   bool get isMultiSelectMode => _multiSelectMode;
   Set<String> get selectedMessageIds => _selectedMessageIds;
 
@@ -3533,6 +3535,7 @@ class ChatModel with ChangeNotifier {
     _multiSelectMode = true;
     _selectedMessageIds.clear();
     _selectedMessageIds.add(firstMessageId);
+    _anchorMessageId = firstMessageId;
     notifyListeners();
   }
 
@@ -3541,11 +3544,62 @@ class ChatModel with ChangeNotifier {
       _selectedMessageIds.remove(messageId);
       if (_selectedMessageIds.isEmpty) {
         _multiSelectMode = false;
+        _anchorMessageId = null;
       }
     } else {
       _selectedMessageIds.add(messageId);
     }
+    if (_multiSelectMode) _anchorMessageId = messageId;
     notifyListeners();
+  }
+
+  /// Ctrl+点击：切换单条消息选中状态，保持多选模式（即使清空也不退出）。
+  void toggleSelectionKeepMode(String messageId) {
+    if (_selectedMessageIds.contains(messageId)) {
+      _selectedMessageIds.remove(messageId);
+    } else {
+      _selectedMessageIds.add(messageId);
+    }
+    _multiSelectMode = true;
+    _anchorMessageId = messageId;
+    notifyListeners();
+  }
+
+  /// Shift+点击：选中从锚点到 [targetMessageId] 之间的连续区间（含两端）。
+  void selectRange(String targetMessageId) {
+    final body = _messages[_currentKey];
+    if (body == null) return;
+    final ids = <String>[
+      for (final msg in body.chatMessages)
+        (msg.customProperties?['ldesk_id'] ?? '').toString(),
+    ]..removeWhere((id) => id.isEmpty);
+    final anchor = _anchorMessageId;
+    if (anchor == null || !ids.contains(anchor)) {
+      _selectedMessageIds.clear();
+      _selectedMessageIds.add(targetMessageId);
+    } else {
+      _selectedMessageIds
+        ..clear()
+        ..addAll(computeRange(ids, anchor, targetMessageId));
+    }
+    _multiSelectMode = true;
+    _anchorMessageId = targetMessageId;
+    notifyListeners();
+  }
+
+  /// 计算 [anchor] 到 [target] 之间的连续消息 id 区间（含两端）。
+  /// 锚点或目标不在列表时返回 [target]（退化单选）。纯函数便于测试。
+  static List<String> computeRange(
+    List<String> orderedIds,
+    String anchor,
+    String target,
+  ) {
+    final a = orderedIds.indexOf(anchor);
+    final b = orderedIds.indexOf(target);
+    if (a < 0 || b < 0) return <String>[target];
+    final lo = a < b ? a : b;
+    final hi = a < b ? b : a;
+    return orderedIds.sublist(lo, hi + 1);
   }
 
   void selectAllInConversation() {
@@ -3561,6 +3615,7 @@ class ChatModel with ChangeNotifier {
   void exitMultiSelect() {
     _multiSelectMode = false;
     _selectedMessageIds.clear();
+    _anchorMessageId = null;
     notifyListeners();
   }
 

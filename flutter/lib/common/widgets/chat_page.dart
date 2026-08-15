@@ -1496,6 +1496,20 @@ class ChatPage extends StatelessWidget implements PageShape {
     if (id.isNotEmpty) chatModel.enterMultiSelect(id);
   }
 
+  /// 多选模式下点击消息：Shift 连续区间，Ctrl 切换单条，普通点击切换。
+  void _handleMultiSelectTap(String messageId) {
+    final shift = HardwareKeyboard.instance.isShiftPressed;
+    final ctrl = HardwareKeyboard.instance.isControlPressed ||
+        HardwareKeyboard.instance.isMetaPressed;
+    if (shift) {
+      chatModel.selectRange(messageId);
+    } else if (ctrl) {
+      chatModel.toggleSelectionKeepMode(messageId);
+    } else {
+      chatModel.toggleSelection(messageId);
+    }
+  }
+
   /// Show media gallery for the current conversation.
   Future<void> _showMediaGallery(BuildContext context) async {
     final records = await chatModel.mediaForConversation();
@@ -3044,6 +3058,9 @@ class ChatPage extends StatelessWidget implements PageShape {
                             ),
                           ],
                         );
+              final inMultiSelect = chatModel.isMultiSelectMode;
+              final messageId =
+                  (message.customProperties?['ldesk_id'] ?? '').toString();
               final messageColumn = Flexible(
                 child: MessageContextRegion(
                   // 桌面端右键 / 移动端长按：都弹出消息操作菜单。
@@ -3063,6 +3080,11 @@ class ChatPage extends StatelessWidget implements PageShape {
                       alignToAvatarLeft: isOwnMessage,
                     ));
                   },
+                  // 多选模式下点击消息：Ctrl 切换单条，Shift 连续区间，
+                  // 普通点击切换单条（清空时退出多选）。
+                  onTap: inMultiSelect && messageId.isNotEmpty
+                      ? () => _handleMultiSelectTap(messageId)
+                      : null,
                   child: Column(
                     crossAxisAlignment: isOwnMessage
                         ? CrossAxisAlignment.end
@@ -3153,9 +3175,6 @@ class ChatPage extends StatelessWidget implements PageShape {
               final avatar = maybePhoneBadge(
                   message, messageAvatar(message.user, null, null));
               final avatarKey = GlobalKey();
-              final inMultiSelect = chatModel.isMultiSelectMode;
-              final messageId =
-                  (message.customProperties?['ldesk_id'] ?? '').toString();
               final isSelected =
                   chatModel.selectedMessageIds.contains(messageId);
               // Multi-select checkbox
