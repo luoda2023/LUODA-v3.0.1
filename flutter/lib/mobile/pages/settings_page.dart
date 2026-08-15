@@ -670,7 +670,17 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
           if (mounted) setState(() {});
           showToast(translate('face_login_enabled'));
         } else {
-          // 关闭：确认后删除本地人脸特征并关闭验证。
+          // 关闭：已设置密令时必须先输入正确密令才能关闭。
+          if (faceLoginPasscodeSet()) {
+            final pass = await faceLoginPromptPasscode(
+              context,
+              title: translate('passcode_required_to_disable'),
+            );
+            if (!pass) {
+              if (mounted) showToast(translate('passcode_wrong'));
+              return;
+            }
+          }
           final confirmed = await gFFI.dialogManager.show<bool>(
             (setState, close, context) => CustomAlertDialog(
               title: Text(translate('face_login_disable_title')),
@@ -688,6 +698,48 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
           if (mounted) setState(() {});
           showToast(translate('face_login_disabled'));
         }
+      },
+    ));
+
+    // 登录密令：人脸验证的备用登录方式，同时用于保护关闭人脸验证。
+    securityTiles.add(SettingsTile.navigation(
+      leading: const Icon(Icons.password_rounded),
+      title: Text(translate('passcode_title')),
+      description: Text(
+        faceLoginPasscodeSet()
+            ? translate('passcode_already_set')
+            : translate('passcode_not_set'),
+      ),
+      trailing: const Icon(Icons.chevron_right_rounded),
+      onPressed: (_) => _editPasscode(),
+    ));
+
+    // 免验证时间窗口：设定时长内再次打开应用免输入密令/人脸验证。
+    securityTiles.add(SettingsTile.navigation(
+      leading: const Icon(Icons.timer_outlined),
+      title: Text(translate('grace_window_title')),
+      description: Text(_graceDescription()),
+      trailing: const Icon(Icons.chevron_right_rounded),
+      onPressed: (_) => _editGrace(),
+    ));
+
+    // 人脸验证静音：开启后验证全程静音。
+    securityTiles.add(SettingsTile.switchTile(
+      initialValue: faceLoginSilent(),
+      leading: const Icon(Icons.volume_off_rounded),
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(translate('face_login_silent')),
+          Text(
+            '* ${translate('face_login_silent_tip')}',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      ),
+      onToggle: (value) async {
+        await faceLoginSetSilent(value);
+        if (mounted) setState(() {});
       },
     ));
 
@@ -1299,6 +1351,135 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
       ),
     );
   }
+
+  /// 设置 / 修改登录密令（已设置时先验证旧密令）。
+  Future<void> _editPasscode() async {
+    if (faceLoginPasscodeSet()) {
+      final pass = await faceLoginPromptPasscode(
+        context,
+        title: translate('passcode_old_verify'),
+      );
+      if (!pass) {
+        if (mounted) showToast(translate('passcode_wrong'));
+        return;
+      }
+    }
+    final controller = TextEditingController();
+    final confirmController = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(translate('passcode_set_title')),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            TextField(
+              controller: controller,
+              obscureText: true,
+              maxLength: 20,
+              decoration: InputDecoration(
+                labelText: translate('passcode_new'),
+                prefixIcon: const Icon(Icons.lock_outline_rounded),
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: confirmController,
+              obscureText: true,
+              maxLength: 20,
+              decoration: InputDecoration(
+                labelText: translate('passcode_confirm'),
+                prefixIcon: const Icon(Icons.lock_reset_rounded),
+              ),
+            ),
+          ],
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(translate('Cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(translate('OK')),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final code = controller.text.trim();
+    if (code.isEmpty) {
+      // 清空密令（需要先验证旧密令，上面已处理）。
+      await faceLoginSetPasscode('');
+      if (mounted) setState(() {});
+      if (mounted) showToast(translate('passcode_cleared'));
+      return;
+    }
+    if (code.length < 4) {
+      if (mounted) showToast(translate('passcode_too_short'));
+      return;
+    }
+    if (code != confirmController.text.trim()) {
+      if (mounted) showToast(translate('passcode_not_match'));
+      return;
+    }
+    await faceLoginSetPasscode(code);
+    if (mounted) setState(() {});
+    if (mounted) showToast(translate('passcode_set_done'));
+  }
+
+  String _graceLabel(int m) {
+    switch (m) {
+      case 5:
+        return translate('grace_5min');
+      case 15:
+        return translate('grace_15min');
+      case 30:
+        return translate('grace_30min');
+      case 60:
+        return translate('grace_1h');
+      default:
+        return translate('grace_off');
+    }
+  }
+
+  /// 设置免验证时间窗口。
+  Future<void> _editGrace() async {
+    const options = <int>[0, 5, 15, 30, 60];
+    final current = faceLoginGraceMinutes();
+    final picked = await showDialog<int>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: Text(translate('grace_window_title')),
+        children: options.map((m) {
+          final selected = m == current;
+          return SimpleDialogOption(
+            onPressed: () => Navigator.pop(ctx, m),
+            child: Row(
+              children: <Widget>[
+                Icon(
+                  selected
+                      ? Icons.check_circle_rounded
+                      : Icons.circle_outlined,
+                  size: 20,
+                  color: selected
+                      ? const Color(0xFF07C160)
+                      : Colors.grey,
+                ),
+                const SizedBox(width: 12),
+                Text(_graceLabel(m)),
+              ],
+            ),
+          );
+        }).toList(),
+      ),
+    );
+    if (picked == null) return;
+    await faceLoginSetGraceMinutes(picked);
+    if (mounted) setState(() {});
+  }
+
+  String _graceDescription() => _graceLabel(faceLoginGraceMinutes());
 
   Future<void> _editLocalProfile() async {
     final profile = _localProfile();

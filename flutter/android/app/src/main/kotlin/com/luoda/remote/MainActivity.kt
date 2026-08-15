@@ -14,6 +14,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.ClipboardManager
+import android.hardware.usb.UsbManager
+import android.media.AudioManager
 import android.os.Bundle
 import android.provider.Settings
 import android.os.Build
@@ -256,6 +258,54 @@ class MainActivity : FlutterActivity() {
                     mainService?.let {
                         result.success(it.checkMediaPermission())
                     } ?: let {
+                        result.success(false)
+                    }
+                }
+                "is_usb_debugging" -> {
+                    // USB 调试（ADB）连接时返回 true，用于跳过登录验证。
+                    // 注意：手机作为 USB device 时 UsbManager.getDeviceList()
+                    // 恒为空（那是 host 模式 API），所以用 sys.usb.state 系统
+                    // 属性检测是否处于 adb 调试连接。
+                    val usbState = try {
+                        val p = Runtime.getRuntime().exec(
+                            arrayOf("getprop", "sys.usb.state"),
+                        )
+                        p.inputStream.bufferedReader().readText().trim()
+                    } catch (_: Exception) {
+                        ""
+                    }
+                    result.success(usbState.contains("adb"))
+                }
+                "mute_media" -> {
+                    // 保存当前媒体音量并静音（人脸验证静音用）。
+                    val am = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                    if (am != null) {
+                        getSharedPreferences(KEY_SHARED_PREFERENCES, MODE_PRIVATE)
+                            .edit()
+                            .putInt(
+                                "saved_media_volume",
+                                am.getStreamVolume(AudioManager.STREAM_MUSIC),
+                            )
+                            .apply()
+                        am.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0)
+                        result.success(true)
+                    } else {
+                        result.success(false)
+                    }
+                }
+                "unmute_media" -> {
+                    // 恢复之前保存的媒体音量。
+                    val am = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                    if (am != null) {
+                        val saved = getSharedPreferences(
+                            KEY_SHARED_PREFERENCES,
+                            MODE_PRIVATE,
+                        ).getInt("saved_media_volume", -1)
+                        if (saved >= 0) {
+                            am.setStreamVolume(AudioManager.STREAM_MUSIC, saved, 0)
+                        }
+                        result.success(true)
+                    } else {
                         result.success(false)
                     }
                 }

@@ -447,6 +447,11 @@ class AndroidChannel {
   static final kGetStartOnBootOpt = "get_start_on_boot_opt";
   static final kSetStartOnBootOpt = "set_start_on_boot_opt";
   static final kSyncAppDirConfigPath = "sync_app_dir";
+
+  // 人脸验证辅助：USB 调试检测 / 验证静音
+  static final kIsUsbDebugging = "is_usb_debugging";
+  static final kMuteMedia = "mute_media";
+  static final kUnmuteMedia = "unmute_media";
 }
 
 /// flutter/packages/flutter/lib/src/services/keyboard_key.dart -> _keyLabels
