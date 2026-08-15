@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:face_recognition_flutter/face_recognition_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:luoda_flutter/common.dart';
+import 'package:luoda_flutter/common/direct_chat.dart';
 import 'package:luoda_flutter/models/platform_model.dart';
 
 /// 本地配置 key：是否开启「登录人脸验证」。
@@ -21,9 +22,22 @@ Future<void> faceLoginSetEnabled(bool value) async {
   );
 }
 
-/// 人脸验证使用的 faceId：始终绑定当前用户自己的 ID，
-/// 换设备 / 换 ID 后需要重新录入。
-String faceLoginFaceId() {
+String? _cachedFaceId;
+
+/// 人脸验证使用的 faceId：使用设备持久化的稳定 ID，保证录入与每次
+/// 启动验证使用同一个 ID。
+Future<String> faceLoginFaceId() async {
+  final cached = _cachedFaceId;
+  if (cached != null && cached.isNotEmpty) return cached;
+  try {
+    final deviceId = await DirectChatRepository.instance.deviceId;
+    if (deviceId.trim().isNotEmpty) {
+      _cachedFaceId = deviceId.trim();
+      return deviceId.trim();
+    }
+  } catch (_) {
+    // 存储不可用时回退到 me.id
+  }
   final id = gFFI.chatModel.me.id.trim();
   return id.isEmpty ? 'dotchat-user' : id;
 }
@@ -31,7 +45,8 @@ String faceLoginFaceId() {
 /// 当前设备是否已录入该用户的人脸特征。
 Future<bool> faceLoginHasEnrolled() async {
   try {
-    return await FaceRecognitionFlutter.isFaceExist(faceLoginFaceId());
+    final faceId = await faceLoginFaceId();
+    return await FaceRecognitionFlutter.isFaceExist(faceId);
   } catch (_) {
     return false;
   }
@@ -41,8 +56,9 @@ Future<bool> faceLoginHasEnrolled() async {
 /// 返回是否录入成功。
 Future<bool> faceLoginEnroll() async {
   try {
+    final faceId = await faceLoginFaceId();
     final result = await FaceRecognitionFlutter.addFaceBySDKCamera(
-      faceId: faceLoginFaceId(),
+      faceId: faceId,
       addFacePerformanceMode: 2, // 精确模式，人脸品质更高
       needShowConfirmDialog: true,
     );
@@ -58,7 +74,8 @@ Future<bool> faceLoginEnroll() async {
 /// 删除本地录入的人脸特征。
 Future<void> faceLoginDelete() async {
   try {
-    await FaceRecognitionFlutter.deleteFaceFeature(faceLoginFaceId());
+    final faceId = await faceLoginFaceId();
+    await FaceRecognitionFlutter.deleteFaceFeature(faceId);
   } catch (_) {
     // 忽略：特征不存在或 SDK 不可用时无需处理
   }
@@ -67,8 +84,9 @@ Future<void> faceLoginDelete() async {
 /// 执行 1:1 人脸核验 + 动作活体。
 /// 返回核验结果（isSuccess 表示通过）。
 Future<FaceRecognitionResult> faceLoginVerify() async {
+  final faceId = await faceLoginFaceId();
   return FaceRecognitionFlutter.faceVerify(
-    faceId: faceLoginFaceId(),
+    faceId: faceId,
     threshold: 0.84,
     livenessType: 1, // 动作活体（张嘴/微笑/眨眼/摇头/点头）
     motionLivenessTypes: '1,2,3,4,5',

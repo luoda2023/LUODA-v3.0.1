@@ -325,6 +325,8 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
       ],
     ));
     final List<AbstractSettingsTile> enhancementsTiles = [];
+    // 安全设置（始终可见，不依赖“高级设置”折叠）。
+    final List<AbstractSettingsTile> securityTiles = [];
     final enable2fa = bind.mainHasValid2FaSync();
     final List<AbstractSettingsTile> tfaTiles = [
       SettingsTile.switchTile(
@@ -627,8 +629,9 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
           gFFI.invokeMethod(AndroidChannel.kSetStartOnBootOpt, toValue);
         }));
 
-    enhancementsTiles.add(SettingsTile.switchTile(
+    securityTiles.add(SettingsTile.switchTile(
       initialValue: faceLoginEnabled(),
+      leading: const Icon(Icons.face_retouching_natural_rounded),
       title: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1083,6 +1086,15 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
               },
             ),
         ]),
+        if (isAndroid &&
+            !disabledSettings &&
+            !outgoingOnly &&
+            !hideSecuritySettings &&
+            securityTiles.isNotEmpty)
+          SettingsSection(
+            title: Text(translate('Security')),
+            tiles: securityTiles,
+          ),
         SettingsSection(
           title: Text(translate('More')),
           tiles: [
