@@ -206,20 +206,41 @@ $draw.Add_Paint({ param($s, $e)
       } finally { $frame.Dispose() }
 
       if (-not $script:ctrlMode) {
+        # Size label follows the selection's BOTTOM-RIGHT corner (Snipaste /
+        # WeChat style) instead of being pinned to the top-left.
         $label = ("{0} x {1}" -f $sel.Width, $sel.Height)
         $font = New-Object System.Drawing.Font("Segoe UI", 11, [System.Drawing.FontStyle]::Bold)
         try {
           $sz = $g.MeasureString($label, $font)
-          $lx = $sel.X + 4
-          $ly = $sel.Y - $sz.Height - 10
-          if ($ly -lt 2) { $ly = $sel.Y + 4 }
-          $bg = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(200, 0, 0, 0))
+          $lx = $sel.Right - $sz.Width - 14
+          $ly = $sel.Bottom + 10
+          # Keep the label on-screen: flip above the selection if it would
+          # overflow the bottom edge.
+          if (($ly + $sz.Height + 8) -gt $vsH) { $ly = $sel.Top - $sz.Height - 10 }
+          if ($lx -lt 2) { $lx = $sel.Left + 4 }
+          if ($ly -lt 2) { $ly = $sel.Top + 4 }
+          $bg = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(210, 0, 0, 0))
           try {
             $g.FillRectangle($bg, $lx, $ly, ($sz.Width + 12), ($sz.Height + 6))
           } finally { $bg.Dispose() }
           $g.DrawString($label, $font, [System.Drawing.Brushes]::White, ($lx + 6), ($ly + 3))
         } finally { $font.Dispose() }
       }
+    } else {
+      # No selection yet: draw a top-center hint bar (dimmable so it is easy
+      # for first-time users to understand what to do).
+      $hint = "按住左键拖拽框选截图区域 · 按住 Ctrl 自动选择窗口 · Esc 取消"
+      $hFont = New-Object System.Drawing.Font("Microsoft YaHei UI", 12, [System.Drawing.FontStyle]::Bold)
+      try {
+        $hSz = $g.MeasureString($hint, $hFont)
+        $hx = [int](($vsW - $hSz.Width) / 2) - 18
+        $hy = 34
+        $hBg = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(215, 20, 20, 20))
+        try {
+          $g.FillRectangle($hBg, $hx, $hy, ($hSz.Width + 36), ($hSz.Height + 16))
+          $g.DrawString($hint, $hFont, [System.Drawing.Brushes]::White, ($hx + 18), ($hy + 8))
+        } finally { $hBg.Dispose() }
+      } finally { $hFont.Dispose() }
     }
   } catch {
     Write-Log ("Paint: " + $_.Exception.Message)
@@ -252,113 +273,150 @@ function Get-WindowRectForm([IntPtr]$h) {
   return New-Object System.Drawing.Rectangle(($r.L - $vsX), ($r.T - $vsY), ($r.R - $r.L), ($r.B - $r.T))
 }
 
-# --- Mouse / keyboard events (all bound to the base mask) ----------------------
-$base.Add_MouseDown({ param($s, $e)
-  try {
-    if ($e.Button -ne [System.Windows.Forms.MouseButtons]::Left) { return }
-    $script:active = $true
-    $script:mouse = $e.Location
-    if ($script:ctrlMode) {
-      $h = Find-TopWindow ($e.X + $vsX) ($e.Y + $vsY)
-      if ($h) {
-        $script:hoverWin = Get-WindowRectForm $h
-        Update-Mask
-        Confirm-Selection $script:hoverWin
-      }
-      return
-    }
-    $script:start = $e.Location
-    $script:end = $e.Location
-    $base.Capture = $true
-    Update-Mask
-  } catch {
-    Write-Log ("MouseDown: " + $_.Exception.Message)
-  }
-})
+# --- Mouse / keyboard events -------------------------------------------------
+# IMPORTANT: the transparent draw form covers the whole screen and (until a
+# selection exists) its Region is the full virtual screen, so EVERY mouse click
+# lands on $draw — NOT on $base.  That was the bug that made dragging
+# impossible: $draw had no handlers, so all input vanished.
+# Fix: bind the SAME handlers to every form ($base, the 3 other masks and
+# $draw), and translate coordinates with each form's own Bounds so the shared
+# logic always works in virtual-screen coordinates.
+function Get-VsPoint($f, [System.Windows.Forms.MouseEventArgs]$e) {
+  New-Object System.Drawing.Point (($f.Bounds.X + $e.X) - $vsX), (($f.Bounds.Y + $e.Y) - $vsY)
+}
 
-$base.Add_MouseMove({ param($s, $e)
-  try {
-    if ($script:done) { return }
-    $script:mouse = $e.Location
-    if ($script:ctrlMode) {
-      $h = Find-TopWindow ($e.X + $vsX) ($e.Y + $vsY)
-      $rect = if ($h) { Get-WindowRectForm $h } else { $null }
-      $changed = $false
-      if ($rect -and -not $script:hoverWin) { $changed = $true }
-      elseif (-not $rect -and $script:hoverWin) { $changed = $true }
-      elseif ($rect -and $script:hoverWin -and ($rect.X -ne $script:hoverWin.X -or $rect.Y -ne $script:hoverWin.Y -or $rect.Width -ne $script:hoverWin.Width -or $rect.Height -ne $script:hoverWin.Height)) { $changed = $true }
-      if ($changed) {
-        $script:hoverWin = $rect
-        Update-Mask
-      } else {
-        $draw.Invalidate()
-      }
-      return
+# Core drag logic, extracted so both the real event handlers and the
+# AutoTest harness exercise exactly the same code path.
+function Handle-MouseDown([System.Drawing.Point]$pt) {
+  $script:active = $true
+  $script:mouse = $pt
+  if ($script:ctrlMode) {
+    $h = Find-TopWindow ($pt.X + $vsX) ($pt.Y + $vsY)
+    if ($h) {
+      $script:hoverWin = Get-WindowRectForm $h
+      Update-Mask
+      Confirm-Selection $script:hoverWin
     }
-    if ($script:active -and $script:start) {
-      $script:end = $e.Location
+    return
+  }
+  $script:start = $pt
+  $script:end = $pt
+  Update-Mask
+}
+
+function Handle-MouseMove([System.Drawing.Point]$pt) {
+  if ($script:done) { return }
+  $script:mouse = $pt
+  if ($script:ctrlMode) {
+    $h = Find-TopWindow ($pt.X + $vsX) ($pt.Y + $vsY)
+    $rect = if ($h) { Get-WindowRectForm $h } else { $null }
+    $changed = $false
+    if ($rect -and -not $script:hoverWin) { $changed = $true }
+    elseif (-not $rect -and $script:hoverWin) { $changed = $true }
+    elseif ($rect -and $script:hoverWin -and ($rect.X -ne $script:hoverWin.X -or $rect.Y -ne $script:hoverWin.Y -or $rect.Width -ne $script:hoverWin.Width -or $rect.Height -ne $script:hoverWin.Height)) { $changed = $true }
+    if ($changed) {
+      $script:hoverWin = $rect
       Update-Mask
     } else {
       $draw.Invalidate()
     }
-  } catch {
-    Write-Log ("MouseMove: " + $_.Exception.Message)
+    return
   }
-})
-
-$base.Add_MouseUp({ param($s, $e)
-  try {
-    if ($e.Button -ne [System.Windows.Forms.MouseButtons]::Left) { return }
-    $script:active = $false
-    $base.Capture = $false
-    if ($script:ctrlMode) { return }
-    $sel = Get-SelRect
-    if ($sel -and $sel.Width -gt 8 -and $sel.Height -gt 8) {
-      Confirm-Selection $sel
-    } else {
-      $script:start = $null; $script:end = $null
-      Update-Mask
-    }
-  } catch {
-    Write-Log ("MouseUp: " + $_.Exception.Message)
+  if ($script:active -and $script:start) {
+    $script:end = $pt
+    Update-Mask
+  } else {
+    $draw.Invalidate()
   }
-})
+}
 
-$base.Add_KeyDown({ param($s, $e)
-  try {
-    if ($e.KeyCode -eq [System.Windows.Forms.Keys]::Escape) {
-      $script:done = $true
-      $script:confirmed = $false
-      $base.Close()
-      return
+function Handle-MouseUp() {
+  $script:active = $false
+  if ($script:ctrlMode) { return }
+  $sel = Get-SelRect
+  if ($sel -and $sel.Width -gt 8 -and $sel.Height -gt 8) {
+    Confirm-Selection $sel
+  } else {
+    $script:start = $null; $script:end = $null
+    Update-Mask
+  }
+}
+
+function Add-ShotEvents($f) {
+  $f.Add_MouseDown({
+    param($s, $e)
+    try {
+      if ($e.Button -ne [System.Windows.Forms.MouseButtons]::Left) { return }
+      $s.Capture = $true
+      Handle-MouseDown (Get-VsPoint $s $e)
+    } catch {
+      Write-Log ("MouseDown: " + $_.Exception.Message)
     }
-    if ($e.KeyCode -eq [System.Windows.Forms.Keys]::ControlKey -or $e.KeyCode -eq [System.Windows.Forms.Keys]::LControlKey -or $e.KeyCode -eq [System.Windows.Forms.Keys]::RControlKey) {
-      if (-not $script:ctrlMode) {
-        $script:ctrlMode = $true
-        $script:start = $null; $script:end = $null
-        Update-Mask
+  })
+
+  $f.Add_MouseMove({
+    param($s, $e)
+    try {
+      Handle-MouseMove (Get-VsPoint $s $e)
+    } catch {
+      Write-Log ("MouseMove: " + $_.Exception.Message)
+    }
+  })
+
+  $f.Add_MouseUp({
+    param($s, $e)
+    try {
+      if ($e.Button -ne [System.Windows.Forms.MouseButtons]::Left) { return }
+      $s.Capture = $false
+      Handle-MouseUp
+    } catch {
+      Write-Log ("MouseUp: " + $_.Exception.Message)
+    }
+  })
+
+  $f.Add_KeyDown({
+    param($s, $e)
+    try {
+      if ($e.KeyCode -eq [System.Windows.Forms.Keys]::Escape) {
+        $script:done = $true
+        $script:confirmed = $false
+        $f.Close()
+        return
       }
-      $e.SuppressKeyPress = $true
-    }
-  } catch {
-    Write-Log ("KeyDown: " + $_.Exception.Message)
-  }
-})
-
-$base.Add_KeyUp({ param($s, $e)
-  try {
-    if ($e.KeyCode -eq [System.Windows.Forms.Keys]::ControlKey -or $e.KeyCode -eq [System.Windows.Forms.Keys]::LControlKey -or $e.KeyCode -eq [System.Windows.Forms.Keys]::RControlKey) {
-      if ($script:ctrlMode) {
-        $script:ctrlMode = $false
-        $script:hoverWin = $null
-        Update-Mask
+      if ($e.KeyCode -eq [System.Windows.Forms.Keys]::ControlKey -or $e.KeyCode -eq [System.Windows.Forms.Keys]::LControlKey -or $e.KeyCode -eq [System.Windows.Forms.Keys]::RControlKey) {
+        if (-not $script:ctrlMode) {
+          $script:ctrlMode = $true
+          $script:start = $null; $script:end = $null
+          Update-Mask
+        }
+        $e.SuppressKeyPress = $true
       }
-      $e.SuppressKeyPress = $true
+    } catch {
+      Write-Log ("KeyDown: " + $_.Exception.Message)
     }
-  } catch {
-    Write-Log ("KeyUp: " + $_.Exception.Message)
-  }
-})
+  })
+
+  $f.Add_KeyUp({
+    param($s, $e)
+    try {
+      if ($e.KeyCode -eq [System.Windows.Forms.Keys]::ControlKey -or $e.KeyCode -eq [System.Windows.Forms.Keys]::LControlKey -or $e.KeyCode -eq [System.Windows.Forms.Keys]::RControlKey) {
+        if ($script:ctrlMode) {
+          $script:ctrlMode = $false
+          $script:hoverWin = $null
+          Update-Mask
+        }
+        $e.SuppressKeyPress = $true
+      }
+    } catch {
+      Write-Log ("KeyUp: " + $_.Exception.Message)
+    }
+  })
+}
+
+# Bind to every form so clicks anywhere on the virtual screen reach us.
+Add-ShotEvents $base
+for ($i = 1; $i -lt 4; $i++) { Add-ShotEvents $script:masks[$i] }
+Add-ShotEvents $draw
 
 # --- Confirmation --------------------------------------------------------------
 function Confirm-Selection([System.Drawing.Rectangle]$region) {
@@ -397,12 +455,30 @@ function Confirm-Selection([System.Drawing.Rectangle]$region) {
 
 # --- Run -----------------------------------------------------------------------
 if ($AutoTest) {
+  # Simulate a REAL drag: MouseDown at (300,200) then MouseMove through
+  # several points (which exercises the shared Handle-* code path exactly
+  # like a real user drag) then MouseUp at (800,600).
   try {
     $autoTimer = New-Object System.Windows.Forms.Timer
-    $autoTimer.Interval = 900
+    $autoTimer.Interval = 700
     $autoTimer.Add_Tick({
       $autoTimer.Stop()
-      Confirm-Selection (New-Object System.Drawing.Rectangle(300, 200, 500, 400))
+      try {
+        Handle-MouseDown (New-Object System.Drawing.Point(300, 200))
+        foreach ($step in @(@(400, 300), @(600, 450), @(800, 600))) {
+          Start-Sleep -Milliseconds 60
+          Handle-MouseMove (New-Object System.Drawing.Point($step[0], $step[1]))
+        }
+        Start-Sleep -Milliseconds 60
+        Handle-MouseUp
+        if (-not $script:confirmed) {
+          Write-Output "FAIL no selection confirmed after simulated drag"
+          [Environment]::Exit(2)
+        }
+      } catch {
+        Write-Output ("FAIL " + $_.Exception.Message)
+        [Environment]::Exit(2)
+      }
     })
     $draw.Add_Shown({ param($s, $e) $autoTimer.Start() })
   } catch {
@@ -413,8 +489,8 @@ if ($AutoTest) {
 
 $base.Show()
 $draw.Show()
-$base.Activate()
-$base.Focus()
+$draw.Activate()
+$draw.Focus()
 Update-Mask
 
 # Message pump until the base form is closed.

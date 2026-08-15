@@ -855,6 +855,8 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
                                   // 模式选择（向下箭头）：矩形框选 / 自动选择窗口。
                                   PopupMenuButton<_ShotMode>(
                                     tooltip: translate('Capture mode'),
+                                    // 菜单向上展开，避免超出窗口底部被裁剪。
+                                    position: PopupMenuPosition.over,
                                     initialValue: _mode,
                                     onSelected: (mode) => setState(() {
                                       _mode = mode;
