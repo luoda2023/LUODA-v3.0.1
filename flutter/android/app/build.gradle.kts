@@ -231,4 +231,6 @@ dependencies {
     }
     implementation("com.caverock:androidsvg-aar:1.4")
     implementation("rustls:rustls-platform-verifier:0.1.1")
+    // FaceAISDK 宿主库：插件的 FaceSDKLib 是 compileOnly，运行时类必须由宿主提供
+    implementation(files("libs/FaceSDKLib-release.aar"))
 }
