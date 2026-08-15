@@ -234,6 +234,10 @@ void main() {
     await gesture.up();
     await tester.pump();
 
+    // 粗细滑块存在（工具条右下角：粗/细图标 + Slider）。
+    expect(find.byIcon(Icons.add_rounded), findsWidgets);
+    expect(find.byType(Slider), findsOneWidget);
+
     // Ellipse tool: drag a circle.
     expect(find.byIcon(Icons.circle_outlined), findsOneWidget);
     await tester.tap(find.byIcon(Icons.circle_outlined));

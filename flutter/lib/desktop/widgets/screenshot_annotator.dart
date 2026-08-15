@@ -1044,8 +1044,14 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
                               _buildInlineTextEditor(),
                             if (_selection != null)
                               Align(
-                                alignment: Alignment.bottomCenter,
-                                child: _buildToolbar(theme),
+                                // 工具条固定在右下角（微信截图风格），
+                                // 避免与底部居中的区域信息重叠。
+                                alignment: Alignment.bottomRight,
+                                child: Padding(
+                                  padding:
+                                      const EdgeInsets.only(right: 16),
+                                  child: _buildToolbar(theme),
+                                ),
                               ),
                             if (_compositing)
                               Container(
@@ -1244,6 +1250,39 @@ class _ScreenshotAnnotatorOverlayState extends State<ScreenshotAnnotatorOverlay>
             height: 26,
             color: Colors.black12,
           ),
+          // 笔头粗细滑块：实时调整画笔/马赛克/高亮笔粗细。
+          SizedBox(
+            width: 120,
+            child: Row(
+              children: <Widget>[
+                const Icon(Icons.remove_rounded,
+                    size: 13, color: Colors.black45),
+                Expanded(
+                  child: SliderTheme(
+                    data: SliderThemeData(
+                      trackHeight: 3,
+                      thumbShape: const RoundSliderThumbShape(
+                          enabledThumbRadius: 7),
+                      overlayShape: const RoundSliderOverlayShape(
+                          overlayRadius: 13),
+                      activeTrackColor: const Color(0xFF07C160),
+                      inactiveTrackColor: Colors.black12,
+                      thumbColor: const Color(0xFF07C160),
+                    ),
+                    child: Slider(
+                      value: _width,
+                      min: 2,
+                      max: 16,
+                      onChanged: (value) =>
+                          setState(() => _width = value),
+                    ),
+                  ),
+                ),
+                const Icon(Icons.add_rounded,
+                    size: 16, color: Colors.black54),
+              ],
+            ),
+          ),
           const SizedBox(width: 4),
           FilledButton.icon(
             onPressed: _compositing
@@ -1374,15 +1413,14 @@ class _ScreenshotPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Dim the whole overlay first.
-    canvas.drawRect(Offset.zero & size, Paint()..color = Colors.black54);
-
     canvas.save();
     canvas.translate(fitRect.left, fitRect.top);
     canvas.scale(scale);
 
     if (selection == null) {
-      // Selecting phase: full image visible, outside-selection dimmed.
+      // Selecting phase: the full image stays crisp. A *light* dim outside
+      // the drag box gives focus, but never a dark/black overlay over the
+      // whole canvas (the user explicitly asked for no grey backdrop).
       canvas.drawImage(image, Offset.zero, Paint());
       final drag = selectDrag;
       if (drag != null) {
@@ -1392,13 +1430,13 @@ class _ScreenshotPainter extends CustomPainter {
           Offset(drag.right.clamp(0, image.width.toDouble()),
               drag.bottom.clamp(0, image.height.toDouble())),
         );
-        // 拖拽框选过程中实时生效：选框内亮、选框外变暗（微信式“浮现”）。
+        // 框选时：选框外仅轻微变暗（强调选区，不产生“黑屏”观感）。
         final dimOutside = Path()
           ..addRect(Rect.fromLTWH(
               0, 0, image.width.toDouble(), image.height.toDouble()))
           ..addRect(dragRect)
           ..fillType = PathFillType.evenOdd;
-        canvas.drawPath(dimOutside, Paint()..color = Colors.black45);
+        canvas.drawPath(dimOutside, Paint()..color = const Color(0x33000000));
         canvas.drawRect(
           dragRect,
           Paint()
@@ -1456,26 +1494,24 @@ class _ScreenshotPainter extends CustomPainter {
       return;
     }
 
-    // Annotating phase: show only the selected region, dim the rest.
+    // Annotating phase: ONLY the selected region, no dark overlay at all.
+    // The user complained the region turned black / the grey backdrop made
+    // the annotation tools unusable — so we drop every dim layer here and
+    // paint the crisp selection with marks on top.
     canvas.clipRect(selection!);
     canvas.drawImageRect(image, selection!, Offset.zero & selection!.size, Paint());
     canvas.translate(-selection!.left, -selection!.top);
     _paintMarks(canvas);
     canvas.restore();
 
-    // Re-draw the dim overlay for everything outside the selection and the
-    // selection border on top (in widget space).
+    // A thin green dashed border (in widget space) marks the selection;
+    // no dim outside it during annotation.
     final selWidget = Rect.fromLTWH(
       fitRect.left + selection!.left * scale,
       fitRect.top + selection!.top * scale,
       selection!.width * scale,
       selection!.height * scale,
     );
-    final outside = Path()
-      ..addRect(Offset.zero & size)
-      ..addRect(selWidget)
-      ..fillType = PathFillType.evenOdd;
-    canvas.drawPath(outside, Paint()..color = Colors.black45);
     _dashedRect(canvas, selWidget, const Color(0xFF07C160), 2);
   }
 
