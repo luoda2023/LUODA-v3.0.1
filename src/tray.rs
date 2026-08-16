@@ -183,14 +183,15 @@ fn make_tray() -> hbb_common::ResultType<()> {
         start_query_session_count(ipc_sender.clone());
     });
 
-    // 双击托盘图标：若主窗口可见则最小化到托盘（隐藏），否则恢复显示。
-    // 主窗口是 Flutter 原生窗口，类名固定 FLUTTER_RUNNER_WIN32_WINDOW，
-    // 标题为应用名（main.cpp 用同一对参数 FindWindowW 查找）。
+    // 双击托盘图标：始终显示/还原主窗口并置前（打开软件窗口），
+    // 不切换隐藏——用户双击就是想看到窗口。主窗口是 Flutter 原生窗口，
+    // 类名固定 FLUTTER_RUNNER_WIN32_WINDOW，标题为应用名
+    // （main.cpp 用同一对参数 FindWindowW 查找）。
     #[cfg(target_os = "windows")]
-    fn toggle_main_window<F: Fn()>(open: &F) {
+    fn show_main_window<F: Fn()>(open: &F) {
         use windows::core::PCWSTR;
         use windows::Win32::UI::WindowsAndMessaging::{
-            FindWindowW, IsWindowVisible, SetForegroundWindow, ShowWindow, SW_HIDE, SW_SHOW,
+            FindWindowW, SetForegroundWindow, ShowWindow, SW_RESTORE, SW_SHOW,
         };
         let class_name = crate::platform::wide_string(
             crate::platform::FLUTTER_RUNNER_WIN32_WINDOW_CLASS,
@@ -203,7 +204,7 @@ fn make_tray() -> hbb_common::ResultType<()> {
             )
         };
         let Ok(window) = window else {
-            log::warn!("FindWindowW failed in toggle_main_window");
+            log::warn!("FindWindowW failed in show_main_window");
             return;
         };
         if window.0.is_null() {
@@ -211,19 +212,15 @@ fn make_tray() -> hbb_common::ResultType<()> {
             open();
             return;
         }
-        if unsafe { IsWindowVisible(window) }.as_bool() {
-            // 可见 -> 最小化到托盘（隐藏窗口，托盘图标保持活动）。
-            unsafe { ShowWindow(window, SW_HIDE) };
-        } else {
-            // 已隐藏 -> 恢复显示并置前。
-            unsafe {
-                ShowWindow(window, SW_SHOW);
-                SetForegroundWindow(window);
-            }
+        // 显示 + 还原（若最小化）+ 置前。
+        unsafe {
+            ShowWindow(window, SW_SHOW);
+            ShowWindow(window, SW_RESTORE);
+            SetForegroundWindow(window);
         }
     }
     // 单击/双击区分：单击（打开窗口）延迟到双击窗口期过后再执行；
-    // 双击（切换显示/最小化到托盘）立即执行。Windows 双击事件流是
+    // 双击（始终显示主窗口）立即执行。Windows 双击事件流是
     // Click(down/up) -> DoubleClick -> Click(up)，若不延迟单击，双击的
     // 第一击就会被当作单击直接打开窗口，再被 DoubleClick 隐藏，体验错乱。
     #[cfg(windows)]
@@ -394,7 +391,8 @@ fn make_tray() -> hbb_common::ResultType<()> {
                         // 取消挂起的单击，避免稍后又被当成单击打开。
                         pending_single_click = false;
                         last_click = std::time::Instant::now();
-                        toggle_main_window(&open_func);
+                        // 双击 = 打开软件窗口（显示/还原/置前），不隐藏。
+                        show_main_window(&open_func);
                     }
                 }
                 _ => {}

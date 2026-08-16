@@ -69,6 +69,22 @@ fn acquire_single_instance_lock(app_dir: &str) {
     };
     unsafe {
         if GetLastError() == ERROR_ALREADY_EXISTS {
+            // 第二实例启动：优先唤起已有实例的主窗口（显示 + 还原 + 置前），
+            // 然后退出，保持现有会话/窗口状态不变（不杀旧实例重启）。
+            // 锁持有者进程存在且能找到主窗口（含最小化/隐藏到托盘的情况）
+            // 时走此路径；无主窗口的僵尸实例才走下面的接管逻辑。
+            if let Some(owner_pid) = read_lock_owner_pid(app_dir) {
+                if owner_pid != std::process::id()
+                    && activate_existing_main_window(owner_pid)
+                {
+                    log::warn!(
+                        "Another instance (pid {}) already has a main window; activating it and exiting",
+                        owner_pid
+                    );
+                    let _ = CloseHandle(handle);
+                    std::process::exit(0);
+                }
+            }
             // Another instance (usually a stale process from an older build)
             // holds the lock. Take over instead of silently exiting, otherwise
             // an upgraded build never starts its main window on machines where
@@ -185,6 +201,65 @@ fn terminate_windowless_lock_owner(app_dir: &str) {
         }
     }
     let _ = std::fs::remove_file(format!("{}\\.single_instance.pid", app_dir));
+}
+
+/// 唤起已有实例的主窗口（第二实例启动时使用）。
+///
+/// 枚举 [pid] 的所有顶层窗口，找到 Flutter 主窗口（类名
+/// FLUTTER_RUNNER_WIN32_WINDOW 或标题等于应用名，含最小化/隐藏到托盘
+/// 的情况）后显示 + 还原 + 置前。返回是否成功唤起。
+#[cfg(target_os = "windows")]
+fn activate_existing_main_window(pid: u32) -> bool {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use windows::core::BOOL;
+    use windows::Win32::Foundation::{HWND, LPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetClassNameW, GetWindowTextW, GetWindowThreadProcessId,
+        SetForegroundWindow, ShowWindow, SW_RESTORE, SW_SHOW, WNDENUMPROC,
+    };
+    // EnumWindows 回调拿不到外部变量，用静态全局记录命中结果
+    // （本函数只在启动早期单线程调用，安全）。
+    static FOUND: AtomicBool = AtomicBool::new(false);
+    FOUND.store(false, Ordering::SeqCst);
+    unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let pid = (lparam.0 & 0xFFFF_FFFF) as u32;
+        let mut wnd_pid: u32 = 0;
+        unsafe { GetWindowThreadProcessId(hwnd, Some(&mut wnd_pid)) };
+        if wnd_pid != pid {
+            return BOOL(1);
+        }
+        // 匹配 Flutter 主窗口：类名或标题与应用名一致（隐藏窗口也算）。
+        let mut class_buf = [0u16; 256];
+        let class_len = unsafe { GetClassNameW(hwnd, &mut class_buf) };
+        let class_name = if class_len > 0 {
+            String::from_utf16_lossy(&class_buf[..class_len as usize])
+        } else {
+            String::new()
+        };
+        let class_match =
+            class_name == crate::platform::FLUTTER_RUNNER_WIN32_WINDOW_CLASS;
+        let mut title_buf = [0u16; 512];
+        let title_len = unsafe { GetWindowTextW(hwnd, &mut title_buf) };
+        let title = if title_len > 0 {
+            String::from_utf16_lossy(&title_buf[..title_len as usize])
+        } else {
+            String::new()
+        };
+        let title_match = title == crate::get_app_name();
+        if class_match || title_match {
+            unsafe {
+                ShowWindow(hwnd, SW_SHOW);
+                ShowWindow(hwnd, SW_RESTORE);
+                SetForegroundWindow(hwnd);
+            }
+            FOUND.store(true, Ordering::SeqCst);
+            return BOOL(0); // stop enumerating
+        }
+        BOOL(1)
+    }
+    let cb: WNDENUMPROC = Some(enum_proc);
+    unsafe { EnumWindows(cb, LPARAM(pid as isize)) };
+    FOUND.load(Ordering::SeqCst)
 }
 
 /// Best-effort termination of stale LDesk/DotChat instances.
