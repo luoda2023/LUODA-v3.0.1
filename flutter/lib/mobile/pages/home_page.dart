@@ -19,6 +19,7 @@ import '../../consts.dart';
 import '../../common/direct_chat_policy.dart';
 import '../../common/direct_chat.dart';
 import '../../common/join_meeting_session.dart';
+import '../../common/system_announcement.dart';
 import '../../common/direct_pairing.dart';
 import '../../common/face_login.dart';
 import '../../common/widgets/chat_page.dart';
@@ -38,6 +39,7 @@ import '../../models/platform_model.dart';
 import '../../models/state_model.dart';
 import 'connection_page.dart';
 import 'remote_meeting_page.dart';
+import 'announcement_page.dart';
 import 'first_run_wizard.dart';
 
 abstract class PageShape extends Widget {
@@ -61,6 +63,9 @@ class _MobileChatGroup {
   final String key;
   final List<MapEntry<MessageKey, MessageBody>> conversations;
 }
+
+/// 点聊列表里的“系统通知”入口（会议分类上方）。
+class _SystemNoticeEntry {}
 
 /// ???????????/???????????ID ????????????
 /// peerId?????????ID ???????????
@@ -2038,6 +2043,7 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
   // lit up the dot after a manual P2P poke).
   final Map<String, bool> _onlineByPeer = <String, bool>{};
   Timer? _onlineQueryTimer;
+  Timer? _announceTimer;
   static const String _onlineHandlerName = 'messages_online';
 
   @override
@@ -2077,6 +2083,12 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
     _onlineQueryTimer = Timer.periodic(
         const Duration(seconds: 10), (_) => _queryOnlineStates());
     _queryOnlineStates();
+    // 系统通知：启动即拉取，之后每 5 分钟刷新一次（未读红点）。
+    SystemAnnouncementStore.instance.load();
+    unawaited(SystemAnnouncementStore.instance.refresh());
+    _announceTimer = Timer.periodic(const Duration(minutes: 5), (_) {
+      unawaited(SystemAnnouncementStore.instance.refresh());
+    });
     unawaited(_loadSelfTargets());
     // 会议群聊数据变化时刷新点聊列表（创建/加入/解散会议后立即反映）。
     _meetingsSub = MeetingGroupStore.reactive.listen((_) {
@@ -2178,6 +2190,7 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _onlineQueryTimer?.cancel();
+    _announceTimer?.cancel();
     platformFFI.unregisterEventHandler(
         'callback_query_onlines', _onlineHandlerName);
     _meetingsSub?.cancel();
@@ -2628,6 +2641,98 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
     if (diff == 0) return '$hh:$mm';
     if (diff == 1) return '${translate('Yesterday')} $hh:$mm';
     return '${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')} $hh:$mm';
+  }
+
+  /// 点聊列表里的“系统通知”入口行（微信“服务通知”风格）。
+  Widget _buildSystemNoticeRow(BuildContext context, bool dark) {
+    final store = SystemAnnouncementStore.instance;
+    final muted = dark ? MyTheme.mutedDark : MyTheme.mutedLight;
+    return ValueListenableBuilder<int>(
+      valueListenable: store.revision,
+      builder: (context, _, __) {
+        final count = store.unreadCount;
+        final latest = store.items.isEmpty ? null : store.items.first;
+        return Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () {
+              unawaited(Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => const AnnouncementPage(),
+              )));
+            },
+            highlightColor: dark
+                ? const Color(0xFF34373D)
+                : const Color(0xFFE5E8E6),
+            splashColor: Colors.transparent,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 11, 16, 11),
+              child: Row(
+                children: <Widget>[
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF07C160).withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(Icons.campaign_rounded,
+                        color: Color(0xFF07C160), size: 22),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          translate('System notices'),
+                          style: const TextStyle(
+                            fontSize: MobileText.bodyLg,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          latest == null
+                              ? translate('No system notices')
+                              : latest.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: MobileText.caption,
+                            color: muted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (count > 0)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFA5151),
+                        borderRadius: BorderRadius.circular(9),
+                      ),
+                      constraints: const BoxConstraints(minWidth: 18),
+                      alignment: Alignment.center,
+                      child: Text(
+                        count > 99 ? '99+' : '$count',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  const SizedBox(width: 4),
+                  Icon(Icons.chevron_right_rounded, color: muted, size: 20),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Widget _buildMessageGroupHeader(
@@ -3104,6 +3209,8 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
                         .contains(query)))
               MapEntry<MessageKey, MessageBody>(
                   model.fileHelperKey, fileHelperRow),
+            // 系统通知入口：点聊列表里会议分类上方（微信“服务通知”风格）。
+            if (query.isEmpty) _SystemNoticeEntry(),
             // 会议群聊混排：一次会议就是一个群聊会话，直接出现在点聊列表里
             // （已与独立“会议”tab 合并，微信风格）。
             if (_visibleMeetings(query).isNotEmpty) ...<Object>[
@@ -3197,6 +3304,12 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
                                       itemCount: rows.length,
                                       itemBuilder: (context, index) {
                                         final row = rows[index];
+                                        if (row is _SystemNoticeEntry) {
+                                          return _buildSystemNoticeRow(
+                                            context,
+                                            dark,
+                                          );
+                                        }
                                         if (row is _MobilePeopleGroupHeader) {
                                           return _buildMessageGroupHeader(
                                             context,

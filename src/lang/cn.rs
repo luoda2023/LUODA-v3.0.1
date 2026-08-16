@@ -1534,5 +1534,8 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Vibrate when a new message arrives", "新消息到达时震动"),
         ("Choose audio file", "选择音频文件"),
         ("Failed to load audio", "音频加载失败"),
+        ("System notices", "系统通知"),
+        ("No system notices", "暂无系统通知"),
+        ("Important", "重要"),
     ].iter().cloned().collect();
 }

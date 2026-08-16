@@ -666,5 +666,8 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Vibrate when a new message arrives", "Vibrate when a new message arrives"),
         ("Choose audio file", "Choose audio file"),
         ("Failed to load audio", "Failed to load audio"),
+        ("System notices", "System notices"),
+        ("No system notices", "No system notices"),
+        ("Important", "Important"),
     ].iter().cloned().collect();
 }

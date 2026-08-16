@@ -55,6 +55,7 @@ import '../widgets/button.dart';
 import '../../common/direct_chat.dart';
 import '../../common/join_meeting_session.dart';
 import '../../common/direct_chat_policy.dart';
+import '../../common/system_announcement.dart';
 import '../../common/direct_pairing.dart';
 import '../../common/direct_viewer_invite.dart';
 import '../../common/wechat_ui_tokens.dart';
@@ -333,6 +334,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   static const Duration _contactSectionRefreshInterval = Duration(seconds: 30);
   final Map<String, DateTime> _lastContactSectionLoad = <String, DateTime>{};
   Timer? _workspaceNoticeTimer;
+  Timer? _announceTimer;
   String? _workspaceNotice;
   _WorkspaceNoticeTone _workspaceNoticeTone = _WorkspaceNoticeTone.info;
   int _workspaceNoticeRevision = 0;
@@ -1123,10 +1125,105 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             builder: (context, _) => _buildPresenceStatusStrip(context),
           ),
           if (_selectedRailId == 'contacts') _buildCategoryFilterBar(context),
+          if (_selectedRailId == 'chat') _buildSystemNoticeEntryStrip(context),
           if (_selectedRailId == 'chat') _buildMeetingEntryStrip(context),
           Expanded(child: _buildContactSection(context)),
         ],
       ),
+    );
+  }
+
+  /// 点聊列表顶部的“系统通知”入口条（会议中心上方）。
+  Widget _buildSystemNoticeEntryStrip(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final store = SystemAnnouncementStore.instance;
+    return ValueListenableBuilder<int>(
+      valueListenable: store.revision,
+      builder: (context, _, __) {
+        final count = store.unreadCount;
+        final latest = store.items.isEmpty ? null : store.items.first;
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(12, 6, 12, 4),
+          child: Material(
+            color: dark ? const Color(0xFF23272F) : const Color(0xFFF0F2F5),
+            borderRadius: BorderRadius.circular(10),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: () => _showAnnouncementsDialog(context),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                child: Row(
+                  children: <Widget>[
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: kWeChatPrimaryColor.withOpacity(0.14),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(Icons.campaign_rounded,
+                          size: 19, color: kWeChatPrimaryColor),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(
+                            translate('System notices'),
+                            style: const TextStyle(
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            latest == null
+                                ? translate('No system notices')
+                                : latest.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              color: dark
+                                  ? const Color(0xFF8A8F98)
+                                  : const Color(0xFF6B7076),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (count > 0)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 7, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFA5151),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          count > 99 ? '99+' : '$count',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    const SizedBox(width: 4),
+                    Icon(Icons.chevron_right_rounded,
+                        size: 18,
+                        color: dark
+                            ? const Color(0xFF8A8F98)
+                            : const Color(0xFF6B7076)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -1229,6 +1326,152 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         ),
       ),
     );
+  }
+
+  /// 弹出系统通知对话框：拉取最新通知并展示，关闭后标记已读。
+  Future<void> _showAnnouncementsDialog(BuildContext context) async {
+    final store = SystemAnnouncementStore.instance;
+    store.load();
+    await store.refresh();
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        final dark =
+            Theme.of(dialogContext).brightness == Brightness.dark;
+        final muted = dark ? MyTheme.mutedDark : MyTheme.mutedLight;
+        return AlertDialog(
+          contentPadding: EdgeInsets.zero,
+          content: SizedBox(
+            width: 440,
+            height: 540,
+            child: Column(
+              children: <Widget>[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 12, 12),
+                  child: Row(
+                    children: <Widget>[
+                      Icon(Icons.campaign_rounded,
+                          size: 20, color: kWeChatPrimaryColor),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          translate('System notices'),
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: translate('Refresh'),
+                        onPressed: () => store.refresh(),
+                        icon: const Icon(Icons.refresh_rounded, size: 20),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        icon: const Icon(Icons.close_rounded, size: 20),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: ValueListenableBuilder<int>(
+                    valueListenable: store.revision,
+                    builder: (context, _, __) {
+                      if (store.items.isEmpty) {
+                        return Center(
+                          child: Text(
+                            translate('No system notices'),
+                            style: TextStyle(color: muted),
+                          ),
+                        );
+                      }
+                      return ListView.separated(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: store.items.length,
+                        separatorBuilder: (_, __) =>
+                            const SizedBox(height: 10),
+                        itemBuilder: (context, index) {
+                          final a = store.items[index];
+                          return Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: dark
+                                  ? const Color(0xFF26282E)
+                                  : const Color(0xFFF5F6F7),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Column(
+                              crossAxisAlignment:
+                                  CrossAxisAlignment.start,
+                              children: <Widget>[
+                                Row(
+                                  children: <Widget>[
+                                    if (a.important)
+                                      Container(
+                                        padding:
+                                            const EdgeInsets.symmetric(
+                                                horizontal: 6,
+                                                vertical: 1),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFFA5151)
+                                              .withOpacity(0.12),
+                                          borderRadius:
+                                              BorderRadius.circular(4),
+                                        ),
+                                        child: Text(
+                                          translate('Important'),
+                                          style: const TextStyle(
+                                            fontSize: 11,
+                                            color: Color(0xFFFA5151),
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ),
+                                    if (a.important)
+                                      const SizedBox(width: 6),
+                                    if (a.pinned)
+                                      Icon(Icons.push_pin_rounded,
+                                          size: 14, color: muted),
+                                    Expanded(
+                                      child: Text(
+                                        a.title,
+                                        style: const TextStyle(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  a.content,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    height: 1.5,
+                                    color: dark
+                                        ? const Color(0xFFC8CCD3)
+                                        : const Color(0xFF3B3F45),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    await store.markAllRead();
   }
 
   /// 构建分类筛选相关控件：按分类过滤会话列表。
@@ -7659,6 +7902,12 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     _directChatAccess.load();
     _categoryModel.load();
     MeetingGroupStore.load();
+    // 系统通知：启动即拉取，之后每 5 分钟刷新一次（未读红点）。
+    SystemAnnouncementStore.instance.load();
+    unawaited(SystemAnnouncementStore.instance.refresh());
+    _announceTimer = Timer.periodic(const Duration(minutes: 5), (_) {
+      unawaited(SystemAnnouncementStore.instance.refresh());
+    });
     platformFFI.registerEventHandler(
       'callback_query_onlines',
       _peerOnlineHandlerName,
@@ -8006,6 +8255,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     _directChatAttemptedAt.clear();
     _openingDirectChatPeers.clear();
     _workspaceNoticeTimer?.cancel();
+    _announceTimer?.cancel();
     _peerOnlineQueryTimer?.cancel();
     platformFFI.unregisterEventHandler(
         'callback_query_onlines', _peerOnlineHandlerName);
