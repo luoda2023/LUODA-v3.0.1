@@ -44,4 +44,30 @@ void main() {
     expect(name, isEmpty);
     expect(address, isEmpty);
   });
+
+  group('GeoReverseResult', () {
+    test('empty result flags isEmpty', () {
+      const r = GeoReverseResult.empty();
+      expect(r.isEmpty, isTrue);
+      expect(r.fromCache, isFalse);
+      expect(r.quotaLimited, isFalse);
+    });
+
+    test('cache hit result carries fromCache flag', () {
+      const r = GeoReverseResult(name: '人民广场', address: '上海市黄浦区', fromCache: true);
+      expect(r.isEmpty, isFalse);
+      expect(r.fromCache, isTrue);
+      expect(r.quotaLimited, isFalse);
+    });
+
+    test('quota limited result carries quotaLimited flag', () {
+      const r = GeoReverseResult(
+        name: '',
+        address: '',
+        quotaLimited: true,
+      );
+      expect(r.isEmpty, isTrue);
+      expect(r.quotaLimited, isTrue);
+    });
+  });
 }

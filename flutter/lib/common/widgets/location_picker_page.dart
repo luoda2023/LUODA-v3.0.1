@@ -59,6 +59,8 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
   String _currentAddress = ''; // 当前选中点的逆地理编码地址
   String _selectedName = ''; // 当前选中点名称（POI 名；拖动地图时清空）
   bool _addressLoading = false;
+  bool _fromCache = false; // 当前地名是否来自缓存（提示可手动刷新）
+  bool _quotaLimited = false; // 地图服务配额耗尽（友好提示）
   Timer? _addressDebounce; // 拖动地图防抖，避免连续请求超 Nominatim 限流
   int _addressSeq = 0; // 只应用最后一次解析结果，防竞态乱序
 
@@ -97,19 +99,36 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
     });
   }
 
-  Future<void> _resolveAddress(LatLng center) async {
+  Future<void> _resolveAddress(LatLng center, {bool forceRefresh = false}) async {
     // 无需判断 hasKey：有 key 用高德，无 key 自动回退 OSM Nominatim。
     final seq = ++_addressSeq;
-    setState(() => _addressLoading = true);
-    final (name, address) = await AmapService.instance
-        .reverseGeocodeDetail(center.latitude, center.longitude);
+    setState(() {
+      _addressLoading = true;
+      if (forceRefresh) {
+        _fromCache = false;
+        _quotaLimited = false;
+      }
+    });
+    final result = await AmapService.instance.reverseGeocodeDetail(
+      center.latitude,
+      center.longitude,
+      forceRefresh: forceRefresh,
+    );
     if (!mounted || seq != _addressSeq) return;
     setState(() {
       // 地名随地图移动实时更新（微信样式：“我的位置”显示实际地名）。
-      if (name.isNotEmpty) _currentName = name;
-      if (address.isNotEmpty) _currentAddress = address;
+      if (result.name.isNotEmpty) _currentName = result.name;
+      if (result.address.isNotEmpty) _currentAddress = result.address;
+      _fromCache = result.fromCache;
+      _quotaLimited = result.quotaLimited;
       _addressLoading = false;
     });
+  }
+
+  /// 手动刷新地名（跳过缓存直接请求）。
+  void _refreshAddress() {
+    final picked = _picked ?? _myLocation;
+    _resolveAddress(picked, forceRefresh: true);
   }
 
   void _backToMyLocation() {
@@ -321,14 +340,62 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     ),
                   )
-                else if (_currentAddress.isNotEmpty)
+                else if (_quotaLimited)
+                  // 配额耗尽友好提示：地名暂时无法获取。
                   Positioned(
                     left: 12,
                     right: 12,
                     top: 12,
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 6),
+                          horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFF7E6),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFFF5C97B)),
+                        boxShadow: const <BoxShadow>[
+                          BoxShadow(color: Colors.black12, blurRadius: 6),
+                        ],
+                      ),
+                      child: Row(
+                        children: <Widget>[
+                          const Icon(Icons.warning_amber_rounded,
+                              size: 16, color: Color(0xFFE6A23C)),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              translate('Map service quota exhausted, '
+                                  'place name temporarily unavailable'),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                height: 1.35,
+                                color: Color(0xFF8A6D3B),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          InkWell(
+                            onTap: _refreshAddress,
+                            borderRadius: BorderRadius.circular(6),
+                            child: const Padding(
+                              padding: EdgeInsets.all(4),
+                              child: Icon(Icons.refresh_rounded,
+                                  size: 16, color: Color(0xFF8A6D3B)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else if (_currentAddress.isNotEmpty)
+                  Positioned(
+                    left: 12,
+                    right: 12,
+                    top: 12,
+                    child: Container(
+                      padding: const EdgeInsets.fromLTRB(10, 6, 4, 6),
                       decoration: BoxDecoration(
                         color: cardBg.withOpacity(0.92),
                         borderRadius: BorderRadius.circular(8),
@@ -336,15 +403,50 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
                           BoxShadow(color: Colors.black12, blurRadius: 6),
                         ],
                       ),
-                      child: Text(
-                        _currentAddress,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 12,
-                          height: 1.35,
-                          color: dark ? Colors.white : const Color(0xFF444444),
-                        ),
+                      child: Row(
+                        children: <Widget>[
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: <Widget>[
+                                Text(
+                                  _currentAddress,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    height: 1.35,
+                                    color: dark
+                                        ? Colors.white
+                                        : const Color(0xFF444444),
+                                  ),
+                                ),
+                                if (_fromCache) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    translate('Cached place name, tap to '
+                                        'refresh'),
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: dark
+                                          ? Colors.white38
+                                          : const Color(0xFF999999),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          // 手动刷新（跳过缓存重新解析）。
+                          IconButton(
+                            tooltip: translate('Refresh place name'),
+                            onPressed: _refreshAddress,
+                            visualDensity: VisualDensity.compact,
+                            icon: const Icon(Icons.refresh_rounded,
+                                size: 18, color: Color(0xFF07C160)),
+                          ),
+                        ],
                       ),
                     ),
                   ),
