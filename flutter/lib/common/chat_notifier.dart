@@ -1,11 +1,18 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import '../common.dart';
+import '../consts.dart';
 import '../models/chat_model.dart';
+import '../models/platform_model.dart';
 
 /// 手机端消息横幅通知（微信式）：收到新消息时在系统顶部弹出横幅，
-/// 点击跳转到对应会话。PC 端不启用（桌面端有自己的窗口闪烁/托盘提醒）。
+/// 点击跳转到对应会话。附带提示音 + 震动（可在设置中开关）。
+/// PC 端不启用（桌面端有自己的窗口闪烁/托盘提醒）。
 class ChatNotifier {
   ChatNotifier._();
 
@@ -17,6 +24,7 @@ class ChatNotifier {
 
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
+  final AudioPlayer _tonePlayer = AudioPlayer();
   bool _ready = false;
 
   /// 初始化通知插件并申请 Android 13+ 通知权限。
@@ -51,6 +59,42 @@ class ChatNotifier {
     }
   }
 
+  /// 消息提示音是否开启（默认开启）。
+  bool get soundEnabled {
+    try {
+      return option2bool(kOptionMessageSound,
+          bind.mainGetOptionSync(key: kOptionMessageSound));
+    } catch (e) {
+      return true;
+    }
+  }
+
+  /// 消息震动是否开启（默认开启）。
+  bool get vibrationEnabled {
+    try {
+      return option2bool(kOptionMessageVibration,
+          bind.mainGetOptionSync(key: kOptionMessageVibration));
+    } catch (e) {
+      return true;
+    }
+  }
+
+  /// 播放提示音：优先用户自定义声音文件，否则内置"叮咚"音。
+  Future<void> _playTone() async {
+    try {
+      final custom =
+          bind.mainGetOptionSync(key: kOptionMessageSoundPath).trim();
+      await _tonePlayer.stop();
+      if (custom.isNotEmpty && File(custom).existsSync()) {
+        await _tonePlayer.play(DeviceFileSource(custom));
+      } else {
+        await _tonePlayer.play(AssetSource('assets/msg_tone.wav'));
+      }
+    } catch (e) {
+      debugPrint('ChatNotifier play tone failed: $e');
+    }
+  }
+
   /// 弹出一条新消息通知。[peerId] 用于点击跳转；[senderName] 是标题；
   /// [body] 是消息摘要。
   Future<void> showIncomingMessage({
@@ -58,8 +102,13 @@ class ChatNotifier {
     required String senderName,
     required String body,
   }) async {
+    // 提示音两端都播；通知横幅仅手机端。
+    if (soundEnabled) {
+      unawaited(_playTone());
+    }
     if (!_ready || !isMobile) return;
     try {
+      final vibrate = vibrationEnabled;
       final details = NotificationDetails(
         android: AndroidNotificationDetails(
           _channelId,
@@ -67,7 +116,9 @@ class ChatNotifier {
           channelDescription: _channelDescription,
           importance: Importance.high,
           priority: Priority.high,
-          enableVibration: true,
+          enableVibration: vibrate,
+          // 提示音由 audioplayers 自己播放，避免系统通知音与自定义音叠加
+          playSound: false,
           styleInformation: BigTextStyleInformation(
             body,
             htmlFormatBigText: false,

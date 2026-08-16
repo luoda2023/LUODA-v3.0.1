@@ -1525,5 +1525,14 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Yesterday", "昨天"),
         ("Delete favorite", "删除收藏"),
         ("Search favorites", "搜索收藏"),
+        ("Message notifications", "消息通知"),
+        ("Message sound", "消息声音"),
+        ("Play a tone when a new message arrives", "新消息到达时播放提示音"),
+        ("Notification sound", "提示音"),
+        ("Default tone", "默认提示音"),
+        ("Message vibration", "消息震动"),
+        ("Vibrate when a new message arrives", "新消息到达时震动"),
+        ("Choose audio file", "选择音频文件"),
+        ("Failed to load audio", "音频加载失败"),
     ].iter().cloned().collect();
 }

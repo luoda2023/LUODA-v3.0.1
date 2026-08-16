@@ -657,5 +657,14 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Replace bound PC?", "Replace bound PC?"),
         ("Already bound to", "Already bound to"),
         ("A phone is already bound. Unbind before pairing another.", "A phone is already bound. Unbind before pairing another."),
+        ("Message notifications", "Message notifications"),
+        ("Message sound", "Message sound"),
+        ("Play a tone when a new message arrives", "Play a tone when a new message arrives"),
+        ("Notification sound", "Notification sound"),
+        ("Default tone", "Default tone"),
+        ("Message vibration", "Message vibration"),
+        ("Vibrate when a new message arrives", "Vibrate when a new message arrives"),
+        ("Choose audio file", "Choose audio file"),
+        ("Failed to load audio", "Failed to load audio"),
     ].iter().cloned().collect();
 }

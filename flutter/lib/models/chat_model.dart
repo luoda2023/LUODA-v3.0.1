@@ -3183,7 +3183,6 @@ class ChatModel with ChangeNotifier {
   /// Same as _toChatMessage but tags the message with connection source info.
   /// 收到对方消息时触发手机端横幅通知（当前会话且窗口有焦点时不弹）。
   void _maybeNotifyIncoming(DirectChatRecord record, String targetId) {
-    if (!isMobile) return;
     if (record.isOutgoing) return;
     // 用户正在看这个会话时，不再弹通知打扰。
     final isActiveConversation =

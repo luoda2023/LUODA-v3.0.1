@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -7,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:luoda_flutter/common/widgets/setting_widgets.dart';
 import 'package:luoda_flutter/desktop/pages/desktop_setting_page.dart';
 import 'package:get/get.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:settings_ui/settings_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -112,6 +114,9 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
   VoidCallback? _directChatAccessListener;
   var _serverlessDirectOnly = false;
   var _showAdvancedSettings = false;
+  var _messageSoundEnabled = true;
+  var _messageVibrationEnabled = true;
+  var _messageSoundName = "";
 
   _SettingsState() {
     _enableAbr = option2bool(
@@ -163,6 +168,13 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
     _directChatAutoReconnect = directChatAccess.autoReconnect;
     _serverlessDirectOnly =
         bind.mainGetOptionSync(key: kOptionServerlessDirectOnly) == 'Y';
+    _messageSoundEnabled = option2bool(
+        kOptionMessageSound, bind.mainGetOptionSync(key: kOptionMessageSound));
+    _messageVibrationEnabled = option2bool(kOptionMessageVibration,
+        bind.mainGetOptionSync(key: kOptionMessageVibration));
+    final soundPath =
+        bind.mainGetOptionSync(key: kOptionMessageSoundPath).trim();
+    _messageSoundName = soundPath.isEmpty ? '' : translate('Custom');
   }
 
   @override
@@ -956,6 +968,48 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                     ? (_) => _showContactMessagePermissions()
                     : null,
               ),
+          ],
+        ),
+        SettingsSection(
+          title: Text(translate('Message notifications')),
+          tiles: [
+            SettingsTile.switchTile(
+              leading: const Icon(Icons.notifications_active_outlined),
+              title: Text(translate('Message sound')),
+              description: Text(
+                translate('Play a tone when a new message arrives'),
+              ),
+              initialValue: _messageSoundEnabled,
+              onToggle: (value) async {
+                await mainSetBoolOption(kOptionMessageSound, value);
+                if (mounted) setState(() => _messageSoundEnabled = value);
+              },
+            ),
+            SettingsTile.navigation(
+              leading: const Icon(Icons.music_note_outlined),
+              title: Text(translate('Notification sound')),
+              description: Text(
+                _messageSoundName.isEmpty
+                    ? translate('Default tone')
+                    : _messageSoundName,
+              ),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              enabled: _messageSoundEnabled,
+              onPressed:
+                  _messageSoundEnabled ? (_) => _showSoundPicker() : null,
+            ),
+            SettingsTile.switchTile(
+              leading: const Icon(Icons.vibration_outlined),
+              title: Text(translate('Message vibration')),
+              description: Text(
+                translate('Vibrate when a new message arrives'),
+              ),
+              initialValue: _messageVibrationEnabled,
+              onToggle: (value) async {
+                await mainSetBoolOption(kOptionMessageVibration, value);
+                if (mounted) setState(() => _messageVibrationEnabled = value);
+              },
+            ),
           ],
         ),
         if (!kLocalProfileOnly && !bind.isDisableAccount())
@@ -1832,6 +1886,72 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
         ),
       ),
     );
+  }
+
+  Future<void> _showSoundPicker() async {
+    final isDefault =
+        bind.mainGetOptionSync(key: kOptionMessageSoundPath).trim().isEmpty;
+    await gFFI.dialogManager.show<void>(
+      (setState, close, context) => CustomAlertDialog(
+        title: Text(translate('Notification sound')),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.music_note_outlined),
+              title: Text(translate('Default tone')),
+              trailing: isDefault
+                  ? const Icon(Icons.check, color: Color(0xFF07C160))
+                  : null,
+              onTap: () async {
+                await bind.mainSetOption(
+                    key: kOptionMessageSoundPath, value: '');
+                if (mounted) setState(() => _messageSoundName = '');
+                close();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.folder_open_outlined),
+              title: Text(translate('Choose audio file')),
+              trailing: !isDefault
+                  ? const Icon(Icons.check, color: Color(0xFF07C160))
+                  : null,
+              onTap: () async {
+                close();
+                await _pickCustomSound();
+              },
+            ),
+          ],
+        ),
+        actions: [
+          dialogButton(translate('Cancel'),
+              onPressed: () => close(), isOutline: true),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _pickCustomSound() async {
+    final result = await FilePicker.platform.pickFiles(type: FileType.audio);
+    final file = result?.files.single;
+    final srcPath = file?.path;
+    if (srcPath == null || srcPath.isEmpty) return;
+    try {
+      final docs = await getApplicationDocumentsDirectory();
+      final rawName =
+          file!.name.isNotEmpty ? file.name : 'custom_tone.mp3';
+      final safeName = rawName.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+      final dest = '${docs.path}/msg_tone_$safeName';
+      await File(srcPath).copy(dest);
+      await bind.mainSetOption(key: kOptionMessageSoundPath, value: dest);
+      if (mounted) setState(() => _messageSoundName = translate('Custom'));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(translate('Failed to load audio'))),
+        );
+      }
+    }
   }
 
   Future<bool> canStartOnBoot() async {

@@ -125,6 +125,10 @@ const String kOptionApproveMode = "approve-mode";
 const String kOptionAllowNumericOneTimePassword =
     "allow-numeric-one-time-password";
 const String kOptionCollapseToolbar = "collapse_toolbar";
+// Chat notifications
+const String kOptionMessageSound = "message-sound";
+const String kOptionMessageVibration = "message-vibration";
+const String kOptionMessageSoundPath = "message-sound-path";
 const String kOptionHideToolbar = "hide-toolbar";
 const String kOptionShowRemoteCursor = "show_remote_cursor";
 const String kOptionFollowRemoteCursor = "follow_remote_cursor";
