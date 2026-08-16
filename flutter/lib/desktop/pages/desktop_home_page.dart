@@ -1149,7 +1149,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             borderRadius: BorderRadius.circular(10),
             child: InkWell(
               borderRadius: BorderRadius.circular(10),
-              onTap: () => _showAnnouncementsDialog(context),
+              onTap: () => _showAnnouncementsPanel(context),
               child: Padding(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
@@ -1328,223 +1328,27 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     );
   }
 
-  /// 弹出系统通知对话框：拉取最新通知并展示，关闭后标记已读。
-  Future<void> _showAnnouncementsDialog(BuildContext context) async {
+  /// 打开系统通知面板：不弹窗，而是把右侧窗口分成两列——
+  /// 第 1 列通知列表、第 2 列详情。面板宽度跟随主窗口（约 72%），
+  /// 拖动分隔条可调整左列宽度；拖大主窗口时详情列随之变宽。
+  Future<void> _showAnnouncementsPanel(BuildContext context) async {
     final store = SystemAnnouncementStore.instance;
     store.load();
     await store.refresh();
     if (!mounted) return;
-    await showDialog<void>(
+    await showGeneralDialog<void>(
       context: context,
-      builder: (dialogContext) {
-        final dark =
-            Theme.of(dialogContext).brightness == Brightness.dark;
-        final muted = dark ? MyTheme.mutedDark : MyTheme.mutedLight;
-        return AlertDialog(
-          contentPadding: EdgeInsets.zero,
-          content: SizedBox(
-            width: 440,
-            height: 540,
-            child: Column(
-              children: <Widget>[
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 12, 12),
-                  child: Row(
-                    children: <Widget>[
-                      Icon(Icons.campaign_rounded,
-                          size: 20, color: kWeChatPrimaryColor),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          translate('System notices'),
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: translate('Refresh'),
-                        onPressed: () => store.refresh(),
-                        icon: const Icon(Icons.refresh_rounded, size: 20),
-                      ),
-                      IconButton(
-                        onPressed: () => Navigator.of(dialogContext).pop(),
-                        icon: const Icon(Icons.close_rounded, size: 20),
-                      ),
-                    ],
-                  ),
-                ),
-                const Divider(height: 1),
-                Expanded(
-                  child: ValueListenableBuilder<int>(
-                    valueListenable: store.revision,
-                    builder: (context, _, __) {
-                      if (store.items.isEmpty) {
-                        return Center(
-                          child: Text(
-                            translate('No system notices'),
-                            style: TextStyle(color: muted),
-                          ),
-                        );
-                      }
-                      return ListView.separated(
-                        padding: const EdgeInsets.all(16),
-                        itemCount: store.items.length,
-                        separatorBuilder: (_, __) =>
-                            const SizedBox(height: 10),
-                        itemBuilder: (context, index) {
-                          final a = store.items[index];
-                          return Container(
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: dark
-                                  ? const Color(0xFF26282E)
-                                  : const Color(0xFFF5F6F7),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Column(
-                              crossAxisAlignment:
-                                  CrossAxisAlignment.start,
-                              children: <Widget>[
-                                Row(
-                                  children: <Widget>[
-                                    if (a.important)
-                                      Container(
-                                        padding:
-                                            const EdgeInsets.symmetric(
-                                                horizontal: 6,
-                                                vertical: 1),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFFA5151)
-                                              .withOpacity(0.12),
-                                          borderRadius:
-                                              BorderRadius.circular(4),
-                                        ),
-                                        child: Text(
-                                          translate('Important'),
-                                          style: const TextStyle(
-                                            fontSize: 11,
-                                            color: Color(0xFFFA5151),
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
-                                      ),
-                                    if (a.important)
-                                      const SizedBox(width: 6),
-                                    if (a.pinned)
-                                      Icon(Icons.push_pin_rounded,
-                                          size: 14, color: muted),
-                                    Expanded(
-                                      child: Text(
-                                        a.title,
-                                        style: const TextStyle(
-                                          fontSize: 15,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  a.content,
-                                  maxLines: 3,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    height: 1.5,
-                                    color: dark
-                                        ? const Color(0xFFC8CCD3)
-                                        : const Color(0xFF3B3F45),
-                                  ),
-                                ),
-                                Align(
-                                  alignment: Alignment.centerRight,
-                                  child: TextButton(
-                                    onPressed: () =>
-                                        _showNoticeDetail(context, a),
-                                    child: Text(translate('View detail')),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
+      barrierDismissible: true,
+      barrierLabel: '',
+      barrierColor: Colors.black45,
+      transitionDuration: const Duration(milliseconds: 220),
+      pageBuilder: (dialogContext, _, __) {
+        return _SystemNoticePanel(
+          lastReadId: store.lastReadId,
         );
       },
     );
     await store.markAllRead();
-  }
-
-  /// 系统通知详情对话框：全屏展示标题、时间与完整内容。
-  void _showNoticeDetail(BuildContext context, SystemAnnouncement a) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        titlePadding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
-        contentPadding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-        title: Row(
-          children: <Widget>[
-            Icon(Icons.campaign_rounded,
-                size: 18,
-                color: a.important
-                    ? const Color(0xFFFA5151)
-                    : kWeChatPrimaryColor),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                a.title,
-                style: const TextStyle(
-                    fontSize: 16, fontWeight: FontWeight.w600),
-              ),
-            ),
-          ],
-        ),
-        content: SizedBox(
-          width: 480,
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  '${translate('Time')}: ${a.createdAt.toLocal()}'
-                      .replaceAll('.', ' '),
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: dark ? MyTheme.mutedDark : MyTheme.mutedLight,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  a.content,
-                  style: TextStyle(
-                    fontSize: 14,
-                    height: 1.7,
-                    color:
-                        dark ? const Color(0xFFC8CCD3) : const Color(0xFF3B3F45),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: Text(translate('OK')),
-          ),
-        ],
-      ),
-    );
   }
 
   /// 构建分类筛选相关控件：按分类过滤会话列表。
@@ -8841,4 +8645,319 @@ void setPasswordDialog({VoidCallback? notEmptyCallback}) async {
       onCancel: close,
     );
   });
+}
+/// 系统通知分栏面板：左侧通知列表 + 右侧详情。
+/// 面板宽度跟随主窗口（约 72%），拖动左右分隔条可调整列表列宽；
+/// 拖大主窗口时详情列自动变宽。
+class _SystemNoticePanel extends StatefulWidget {
+  const _SystemNoticePanel({required this.lastReadId});
+
+  final int lastReadId;
+
+  @override
+  State<_SystemNoticePanel> createState() => _SystemNoticePanelState();
+}
+
+class _SystemNoticePanelState extends State<_SystemNoticePanel> {
+  SystemAnnouncement? _selected;
+  double _listWidth = 280;
+
+  @override
+  void initState() {
+    super.initState();
+    final items = SystemAnnouncementStore.instance.items;
+    if (items.isNotEmpty) _selected = items.first;
+  }
+
+  String _formatTime(DateTime t) {
+    final local = t.toLocal();
+    final now = DateTime.now();
+    final day = DateTime(now.year, now.month, now.day);
+    final d = DateTime(local.year, local.month, local.day);
+    final hh = local.hour.toString().padLeft(2, '0');
+    final mm = local.minute.toString().padLeft(2, '0');
+    final diff = day.difference(d).inDays;
+    if (diff == 0) return '$hh:$mm';
+    if (diff == 1) return '${translate('Yesterday')} $hh:$mm';
+    return '${local.year}-${local.month.toString().padLeft(2, '0')}-'
+        '${local.day.toString().padLeft(2, '0')} $hh:$mm';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final store = SystemAnnouncementStore.instance;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final muted = dark ? MyTheme.mutedDark : MyTheme.mutedLight;
+    final surface = dark ? MyTheme.surfaceDark : Colors.white;
+    return Align(
+      alignment: Alignment.centerRight,
+      child: FractionallySizedBox(
+        widthFactor: 0.72,
+        heightFactor: 1.0,
+        child: Material(
+          color: surface,
+          elevation: 8,
+          child: Column(
+            children: <Widget>[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 14, 12, 10),
+                child: Row(
+                  children: <Widget>[
+                    const Icon(Icons.campaign_rounded,
+                        size: 20, color: kWeChatPrimaryColor),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        translate('System notices'),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: translate('Refresh'),
+                      onPressed: () => store.refresh(),
+                      icon: const Icon(Icons.refresh_rounded, size: 20),
+                    ),
+                    IconButton(
+                      tooltip: translate('Close'),
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close_rounded, size: 20),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: ValueListenableBuilder<int>(
+                  valueListenable: store.revision,
+                  builder: (context, _, __) {
+                    if (store.items.isEmpty) {
+                      return Center(
+                        child: Text(
+                          translate('No system notices'),
+                          style: TextStyle(color: muted),
+                        ),
+                      );
+                    }
+                    if (_selected == null ||
+                        !store.items.contains(_selected)) {
+                      _selected = store.items.first;
+                    }
+                    return Row(
+                      children: <Widget>[
+                        SizedBox(
+                          width: _listWidth,
+                          child: ListView.builder(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            itemCount: store.items.length,
+                            itemBuilder: (context, index) {
+                              final a = store.items[index];
+                              return _buildListItem(
+                                  context, store, a, dark, muted);
+                            },
+                          ),
+                        ),
+                        MouseRegion(
+                          cursor: SystemMouseCursors.resizeColumn,
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onHorizontalDragUpdate: (details) {
+                              setState(() {
+                                _listWidth = (_listWidth + details.delta.dx)
+                                    .clamp(220.0, 420.0);
+                              });
+                            },
+                            child: Container(
+                              width: 6,
+                              color: dark
+                                  ? const Color(0xFF2A2D33)
+                                  : const Color(0xFFEDEDED),
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child:
+                              _buildDetail(context, _selected!, dark, muted),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildListItem(
+    BuildContext context,
+    SystemAnnouncementStore store,
+    SystemAnnouncement a,
+    bool dark,
+    Color muted,
+  ) {
+    final isSelected = _selected?.id == a.id;
+    final unread = a.id > widget.lastReadId;
+    final bg = isSelected
+        ? (dark
+            ? const Color(0xFF2E5B3F)
+            : const Color(0xFFE7F5EC))
+        : Colors.transparent;
+    return InkWell(
+      onTap: () => setState(() => _selected = a),
+      child: Container(
+        color: bg,
+        padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                if (unread)
+                  Container(
+                    width: 8,
+                    height: 8,
+                    margin: const EdgeInsets.only(right: 6),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFFA5151),
+                      shape: BoxShape.circle,
+                    ),
+                  )
+                else
+                  const SizedBox(width: 14),
+                if (a.important)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 5, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFA5151).withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      translate('Important'),
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: Color(0xFFFA5151),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                if (a.important) const SizedBox(width: 5),
+                if (a.pinned)
+                  Icon(Icons.push_pin_rounded, size: 13, color: muted),
+                Expanded(
+                  child: Text(
+                    a.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: unread ? FontWeight.w700 : FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  _formatTime(a.createdAt),
+                  style: TextStyle(fontSize: 11, color: muted),
+                ),
+              ],
+            ),
+            const SizedBox(height: 5),
+            Text(
+              a.content,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.4,
+                color: dark ? const Color(0xFFAEB4BC) : const Color(0xFF6B7076),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDetail(
+    BuildContext context,
+    SystemAnnouncement a,
+    bool dark,
+    Color muted,
+  ) {
+    return Container(
+      color: dark ? const Color(0xFF1E2024) : const Color(0xFFF5F6F7),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                Icon(
+                  Icons.campaign_rounded,
+                  size: 22,
+                  color: a.important
+                      ? const Color(0xFFFA5151)
+                      : kWeChatPrimaryColor,
+                ),
+                const SizedBox(width: 10),
+                if (a.important)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 7, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFA5151).withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                    child: Text(
+                      translate('Important'),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Color(0xFFFA5151),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                if (a.important) const SizedBox(width: 8),
+                if (a.pinned)
+                  Icon(Icons.push_pin_rounded, size: 16, color: muted),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Text(
+              a.title,
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+                height: 1.3,
+                color: dark ? Colors.white : const Color(0xFF1B1D21),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              '${translate('Time')} · ${_formatTime(a.createdAt)}',
+              style: TextStyle(fontSize: 12.5, color: muted),
+            ),
+            const SizedBox(height: 22),
+            const Divider(height: 1),
+            const SizedBox(height: 18),
+            Text(
+              a.content,
+              style: TextStyle(
+                fontSize: 14.5,
+                height: 1.8,
+                color: dark ? const Color(0xFFC8CCD3) : const Color(0xFF3B3F45),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
