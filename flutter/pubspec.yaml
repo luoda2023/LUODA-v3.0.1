@@ -168,6 +168,7 @@ flutter:
   assets:
     - assets/
     - assets/scripts/
+    - assets/tones/
 
   fonts:
     - family: LDeskNotoSansCJKSC
