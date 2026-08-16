@@ -228,7 +228,14 @@ class _JoinViewerPageState extends State<JoinViewerPage> {
                     labelText: translate('ID or IP:port'),
                     hintText: translate('Enter Remote ID'),
                     prefixIcon: const Icon(Icons.link_rounded),
-                    border: const OutlineInputBorder(),
+                    filled: true,
+                    fillColor: Theme.of(context).brightness == Brightness.dark
+                        ? const Color(0xFF1E2024)
+                        : const Color(0xFFF2F3F5),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide.none,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -238,7 +245,14 @@ class _JoinViewerPageState extends State<JoinViewerPage> {
                   decoration: InputDecoration(
                     labelText: translate('Invite Code'),
                     hintText: 'ABCD-EFGH-JKMN',
-                    border: const OutlineInputBorder(),
+                    filled: true,
+                    fillColor: Theme.of(context).brightness == Brightness.dark
+                        ? const Color(0xFF1E2024)
+                        : const Color(0xFFF2F3F5),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide.none,
+                    ),
                   ),
                   inputFormatters: [
                     FilteringTextInputFormatter.allow(
@@ -250,7 +264,14 @@ class _JoinViewerPageState extends State<JoinViewerPage> {
                   controller: _displayNameCtrl,
                   decoration: InputDecoration(
                     labelText: translate('Display Name'),
-                    border: const OutlineInputBorder(),
+                    filled: true,
+                    fillColor: Theme.of(context).brightness == Brightness.dark
+                        ? const Color(0xFF1E2024)
+                        : const Color(0xFFF2F3F5),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide.none,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 24),

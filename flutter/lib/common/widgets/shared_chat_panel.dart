@@ -233,7 +233,14 @@ class _SharedChatPanelState extends State<SharedChatPanel> {
                   decoration: InputDecoration(
                     isDense: true,
                     hintText: translate('Shared Chat'),
-                    border: const OutlineInputBorder(),
+                    filled: true,
+                    fillColor: Theme.of(context).brightness == Brightness.dark
+                        ? const Color(0xFF1E2024)
+                        : const Color(0xFFF2F3F5),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide.none,
+                    ),
                   ),
                   onSubmitted: _sending ? null : (_) => _send(),
                 ),

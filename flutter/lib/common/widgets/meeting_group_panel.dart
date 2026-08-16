@@ -248,7 +248,14 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
           maxLength: 30,
           decoration: InputDecoration(
             hintText: translate('Group name'),
-            border: const OutlineInputBorder(),
+            filled: true,
+            fillColor: Theme.of(ctx).brightness == Brightness.dark
+                ? const Color(0xFF1E2024)
+                : const Color(0xFFF2F3F5),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide.none,
+            ),
           ),
         ),
         actions: [
@@ -945,10 +952,21 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
                     decoration: InputDecoration(
                       hintText: translate('Enter peer ID or name'),
                       isDense: true,
+                      filled: true,
+                      fillColor: dark
+                          ? const Color(0xFF1E2024)
+                          : const Color(0xFFF2F3F5),
                       contentPadding: const EdgeInsets.symmetric(
                           horizontal: 12, vertical: 10),
                       border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10)),
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: BorderSide.none,
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide:
+                            const BorderSide(color: MyTheme.primary, width: 1.2),
+                      ),
                     ),
                     onSubmitted: (v) => _addMember(v),
                   ),
