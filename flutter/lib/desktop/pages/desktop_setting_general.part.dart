@@ -82,6 +82,7 @@ class _GeneralState extends State<_General> {
         if (!isWeb) service(),
         theme(),
         language(),
+        messageNotifications(),
         _otherSettings(),
       ],
     ).marginOnly(bottom: _kListViewBottomMargin);
@@ -890,5 +891,77 @@ class _GeneralState extends State<_General> {
         );
       },
     );
+  }
+
+  /// 消息到达提醒：提示音开关 + 震动开关 + 自定义提示音。
+  /// 与手机端共用同一组配置键（message-sound / message-vibration /
+  /// message-sound-path），收到新消息时两端行为一致。
+  Widget messageNotifications() {
+    final soundPath =
+        bind.mainGetOptionSync(key: kOptionMessageSoundPath).trim();
+    final soundName = soundPath.isEmpty
+        ? translate('Default tone')
+        : soundPath.split(Platform.pathSeparator).last;
+    return _Card(
+      title: 'Message notifications',
+      description: 'Play a tone or vibrate when a new message arrives',
+      children: [
+        _OptionCheckBox(
+          context,
+          'Message sound',
+          kOptionMessageSound,
+          isServer: true,
+        ),
+        _OptionCheckBox(
+          context,
+          'Message vibration',
+          kOptionMessageVibration,
+          isServer: true,
+        ),
+        Padding(
+          padding: const EdgeInsets.only(left: _kCheckBoxLeftMargin),
+          child: Row(
+            children: [
+              const Icon(Icons.music_note_outlined, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  soundName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(height: 1.25),
+                ),
+              ),
+              TextButton(
+                onPressed: _pickCustomSound,
+                child: Text(translate('Choose audio file')),
+              ),
+              if (soundPath.isNotEmpty)
+                TextButton(
+                  onPressed: () async {
+                    await bind.mainSetOption(
+                        key: kOptionMessageSoundPath, value: '');
+                    if (mounted) setState(() {});
+                  },
+                  child: Text(translate('Reset')),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _pickCustomSound() async {
+    try {
+      final result =
+          await FilePicker.platform.pickFiles(type: FileType.audio);
+      final srcPath = result?.files.single.path;
+      if (srcPath == null || srcPath.isEmpty) return;
+      await bind.mainSetOption(key: kOptionMessageSoundPath, value: srcPath);
+      if (mounted) setState(() {});
+    } catch (e) {
+      debugPrint('pick custom sound failed: $e');
+    }
   }
 }
