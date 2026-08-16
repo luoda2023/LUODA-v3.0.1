@@ -54,9 +54,18 @@ class AmapService {
     // TODO: 填入真实申请的高德 Web 服务 key（32 位）。
   ];
 
-  /// 内置默认腾讯位置服务 key（第二回退，GCJ-02 坐标系，与高德一致）。
+  /// 内置默认腾讯位置服务 key（第三回退，GCJ-02 坐标系，与高德一致）。
+  /// 腾讯官方示例 key 与社区公开 key 均已失效（未开启/被停用 WebService），
+  /// 保留结构以便后续填入有效 key。
   static const List<String> _builtinTencentKeys = <String>[
-    // TODO: 填入真实申请的腾讯位置服务 key。
+    // TODO: 填入真实申请的腾讯位置服务 key（需在控制台开启 WebServiceAPI）。
+  ];
+
+  /// 内置默认百度地图 Web 服务 key（第二回退，输入 GCJ-02 自动转 BD-09）。
+  /// 来自开源项目公开分享的可用 key，作为免配置兑底；若被停用，
+  /// 用户仍可在设置页填自定义 key，或由回退链自动降级到 OSM。
+  static const List<String> _builtinBaiduKeys = <String>[
+    'YY5lVvoVmMSw7AHA11VQvw57GVdA6fLp',
   ];
 
   String? _cachedKey;
@@ -100,9 +109,11 @@ class AmapService {
 
   bool get hasKey => apiKey != null && apiKey!.isNotEmpty;
 
-  /// 高德或腾讯有内置 key 时，就认为有地名解析能力。
+  /// 高德/百度/腾讯有内置 key 时，就认为有地名解析能力。
   bool get hasAnyBuiltinKey =>
-      hasKey || _builtinTencentKeys.any((k) => k.trim().isNotEmpty);
+      hasKey ||
+      _builtinBaiduKeys.any((k) => k.trim().isNotEmpty) ||
+      _builtinTencentKeys.any((k) => k.trim().isNotEmpty);
 
   Future<Map<String, dynamic>?> _get(
     String path,
@@ -162,7 +173,9 @@ class AmapService {
         }
       }
     }
-    // 回退：腾讯（内置 key）→ OSM Nominatim（海外）。
+    // 回退：百度（内置 key）→ 腾讯（内置 key）→ OSM Nominatim（海外）。
+    final baidu = await _baiduReverse(lat, lng);
+    if (baidu.$2.isNotEmpty) return baidu.$2;
     final tencent = await _tencentReverse(lat, lng);
     if (tencent.$2.isNotEmpty) return tencent.$2;
     return (await _nominatimReverse(lat, lng)).$2;
@@ -220,13 +233,63 @@ class AmapService {
         }
       }
     }
-    // 回退：腾讯（内置 key）→ OSM Nominatim（海外）。
+    // 回退：百度（内置 key）→ 腾讯（内置 key）→ OSM Nominatim（海外）。
+    final baidu = await _baiduReverse(lat, lng);
+    if (baidu.$1.isNotEmpty || baidu.$2.isNotEmpty) return baidu;
     final tencent = await _tencentReverse(lat, lng);
     if (tencent.$1.isNotEmpty || tencent.$2.isNotEmpty) return tencent;
     return _nominatimReverse(lat, lng);
   }
 
-  /// 腾讯位置服务逆地理编码（GCJ-02，与高德一致），内置 key 时的第二回退。
+  /// 解析百度逆地理响应为（地名, 完整地址）。公开便于单元测试。
+  static (String, String) parseBaiduResponse(Map<String, dynamic> decoded) {
+    if ((decoded['status'] ?? 1) != 0) return ('', '');
+    final result = decoded['result'];
+    if (result is! Map<String, dynamic>) return ('', '');
+    // 地名：优先商圈名（如“人民广场”），其次行政区名。
+    var name = '';
+    final business = (result['business'] ?? '').toString().trim();
+    if (business.isNotEmpty) {
+      name = business.split(',').first.trim();
+    }
+    if (name.isEmpty) {
+      final ac = result['addressComponent'];
+      if (ac is Map<String, dynamic>) {
+        name = (ac['district'] ?? '').toString().trim();
+      }
+    }
+    // 完整地址：formatted_address。
+    final address = (result['formatted_address'] ?? '').toString().trim();
+    return (name, address);
+  }
+
+  /// 百度地图逆地理编码（输入 GCJ-02，coordtype=gcj02ll 由百度内部转 BD-09）。
+  /// 返回（地名, 完整地址）；失败返回 (空, 空)。
+  Future<(String, String)> _baiduReverse(double lat, double lng) async {
+    final key = _firstKey(_builtinBaiduKeys);
+    if (key == null) return ('', '');
+    final uri = Uri.parse('https://api.map.baidu.com/reverse_geocoding/v3/')
+        .replace(queryParameters: <String, String>{
+      'ak': key,
+      'output': 'json',
+      'coordtype': 'gcj02ll',
+      'location': '${lat.toStringAsFixed(6)},${lng.toStringAsFixed(6)}',
+      'pois': '1',
+    });
+    try {
+      final resp = await http
+          .get(uri)
+          .timeout(const Duration(seconds: 8));
+      if (resp.statusCode != 200) return ('', '');
+      final decoded = jsonDecode(resp.body);
+      if (decoded is! Map<String, dynamic>) return ('', '');
+      return parseBaiduResponse(decoded);
+    } catch (_) {
+      return ('', '');
+    }
+  }
+
+  /// 腾讯位置服务逆地理编码（GCJ-02，与高德一致），内置 key 时的第三回退。
   /// 返回（地名, 完整地址）；失败返回 (空, 空)。
   Future<(String, String)> _tencentReverse(double lat, double lng) async {
     final key = _firstKey(_builtinTencentKeys);
