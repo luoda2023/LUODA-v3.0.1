@@ -39,6 +39,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Delete this conversation? This removes its messages on this device.", "Delete this conversation? This removes its messages on this device."),
         ("Delete contact", "Delete contact"),
         ("Delete this contact? This removes its devices and conversations on this device.", "Delete this contact? This removes its devices and conversations on this device."),
+        ("Mark all read", "Mark all read"),
         ("Multi Select", "Multi select"),
         ("Select All", "Select all"),
         ("Unselect All", "Unselect all"),

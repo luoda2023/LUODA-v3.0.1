@@ -1309,6 +1309,36 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                           ),
                         ),
                       ),
+                    if (count > 0)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 6),
+                        child: MouseRegion(
+                          cursor: SystemMouseCursors.click,
+                          child: GestureDetector(
+                            onTap: () => store.markAllRead(),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: dark
+                                    ? const Color(0xFF2A2D33)
+                                    : const Color(0xFFE4E6EB),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                translate('Mark all read'),
+                                style: TextStyle(
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: dark
+                                      ? const Color(0xFFB9BEC6)
+                                      : const Color(0xFF5A5F66),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                     const SizedBox(width: 4),
                     Icon(Icons.chevron_right_rounded,
                         size: 18,

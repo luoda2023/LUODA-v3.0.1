@@ -2,6 +2,7 @@ lazy_static::lazy_static! {
 pub static ref T: std::collections::HashMap<&'static str, &'static str> =
     [
         ("Status", "状态"),
+        ("Mark all read", "全部已读"),
         ("Meetings", "会议"),
         ("People", "人"),
         ("Tap create to start one", "点击右上角新建会议"),
