@@ -20,8 +20,8 @@ class ChatNotifier {
   static final ChatNotifier instance = ChatNotifier._();
 
   static const String _channelId = 'chat_messages';
-  static const String _channelName = 'Chat messages';
-  static const String _channelDescription = 'New incoming chat messages';
+  static const String _channelName = '点聊消息';
+  static const String _channelDescription = '收到点聊消息提醒';
 
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();

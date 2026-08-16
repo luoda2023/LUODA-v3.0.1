@@ -46,7 +46,7 @@ import java.nio.ByteBuffer
 import kotlin.math.max
 import kotlin.math.min
 
-const val DEFAULT_NOTIFY_TITLE = "DotChat"
+const val DEFAULT_NOTIFY_TITLE = "点聊"
 const val DEFAULT_NOTIFY_TEXT = "Service is running"
 const val DEFAULT_NOTIFY_ID = 1
 const val NOTIFY_ID_OFFSET = 100
@@ -572,7 +572,7 @@ class MainService : Service() {
                 it.setSurface(s)
             } ?: let {
                 virtualDisplay = mp.createVirtualDisplay(
-                    "DotChat",
+                    "点聊",
                     SCREEN_INFO.width, SCREEN_INFO.height, SCREEN_INFO.dpi, VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
                     s, null, null
                 )

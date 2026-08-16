@@ -908,9 +908,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       _contactQuery.value = '';
     }
     if (mounted) {
+      final hadPanel =
+          _noticesOpen.value || _favoritesOpen.value || _meetingsOpen.value;
       _noticesOpen.value = false;
       _favoritesOpen.value = false;
       _meetingsOpen.value = false;
+      // 从收藏夹/系统通知/会议面板切回会话区时恢复输入框焦点。
+      if (hadPanel) _restoreChatInputFocus();
     }
     await _loadContactSection(section);
   }
@@ -919,6 +923,31 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   void _closeFavoritesPane() {
     if (!mounted) return;
     _favoritesOpen.value = false;
+    _restoreChatInputFocus();
+  }
+
+  /// 面板关闭后自动把焦点还给聊天输入框（微信 PC 风格：
+  /// 关掉收藏夹/系统通知/会议面板后可以直接继续打字）。
+  void _restoreChatInputFocus() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future<void>.delayed(const Duration(milliseconds: 380), () {
+        if (!mounted) return;
+        // 与 _buildConversationWorkspace 保持一致的会话解析逻辑，
+        // 确保焦点落在当前真正显示的聊天页输入框上。
+        final configuredFfi = _activeDirectChatPeerId == null
+            ? null
+            : _directChatSessionFor(_activeDirectChatPeerId!);
+        final peerId = DirectPairingStore.canonicalConversationId(
+          _activeDirectChatPeerId ??
+              _selectedConversationPeerId ??
+              _selectedContact?.id ??
+              '',
+        );
+        final incoming = _incomingDirectChatClientFor(peerId);
+        final activeFfi = incoming == null ? configuredFfi : null;
+        (activeFfi?.chatModel ?? gFFI.chatModel).inputNode.requestFocus();
+      });
+    });
   }
 
   /// 微信 PC 风格收藏面板：分类查看收藏的图片 / 文件 / 位置 / 聊天内容等。
@@ -1503,6 +1532,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   Future<void> _closeNoticesPanel() async {
     if (!mounted) return;
     _noticesOpen.value = false;
+    _restoreChatInputFocus();
     await SystemAnnouncementStore.instance.markAllRead();
   }
 

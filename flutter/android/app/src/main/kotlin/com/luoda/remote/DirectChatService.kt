@@ -76,7 +76,7 @@ class DirectChatService : Service() {
                 contactPeerIds[id] = peerId
             }
             val displayName = client.optString("name").ifBlank {
-                peerId.ifBlank { "DotChat" }
+                peerId.ifBlank { "点聊" }
             }
             contactNames[id] = displayName
         }
@@ -93,10 +93,10 @@ class DirectChatService : Service() {
                 manager.createNotificationChannel(
                     NotificationChannel(
                         MESSAGE_CHANNEL_ID,
-                        "DotChat messages",
+                        "点聊消息",
                         NotificationManager.IMPORTANCE_HIGH,
                     ).apply {
-                        description = "Alerts for incoming direct messages"
+                        description = "收到点聊消息提醒"
                     },
                 )
             }
@@ -109,7 +109,7 @@ class DirectChatService : Service() {
             persistIncomingMessage(event)
             val notification = NotificationCompat.Builder(this, MESSAGE_CHANNEL_ID)
                 .setSmallIcon(R.mipmap.ic_launcher)
-                .setContentTitle(contactNames[id] ?: "DotChat")
+                .setContentTitle(contactNames[id] ?: "点聊")
                 .setContentText(preview.take(160))
                 .setStyle(NotificationCompat.BigTextStyle().bigText(preview.take(500)))
                 .setContentIntent(openApp)
@@ -235,10 +235,10 @@ class DirectChatService : Service() {
             manager.createNotificationChannel(
                 NotificationChannel(
                     CHANNEL_ID,
-                    "DotChat messages",
+                    "点聊消息",
                     NotificationManager.IMPORTANCE_LOW,
                 ).apply {
-                    description = "Keeps direct messages available"
+                    description = "保持点聊消息在线可用"
                 },
             )
         }
@@ -250,8 +250,8 @@ class DirectChatService : Service() {
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("DotChat")
-            .setContentText("Direct messages are available")
+            .setContentTitle("点聊")
+            .setContentText("点聊消息服务运行中")
             .setContentIntent(openApp)
             .setOngoing(true)
             .setOnlyAlertOnce(true)

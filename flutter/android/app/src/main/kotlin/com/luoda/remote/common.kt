@@ -132,7 +132,12 @@ fun loadMediaProjectionIntent(context: Context): Intent? {
 fun launchMainService(context: Context, mediaProjectionResultIntent: Intent?, fromBoot: Boolean = false) {
     val serviceIntent = Intent(context, MainService::class.java)
     serviceIntent.action = ACT_INIT_MEDIA_PROJECTION_AND_SERVICE
-    if (fromBoot) serviceIntent.putExtra(EXT_INIT_FROM_BOOT, true)
+    // LUODA fix: whenever the capture service starts (boot OR regular app
+    // launch), tell the Rust side to restart its rendezvous mediator and
+    // register with the server. Previously FFI.startService() only ran on the
+    // boot path, so a normal launch left the device unregistered ("online"
+    // status stale) and chat / remote control by ID silently failed.
+    serviceIntent.putExtra(EXT_INIT_FROM_BOOT, true)
     if (mediaProjectionResultIntent != null) {
         serviceIntent.putExtra(EXT_MEDIA_PROJECTION_RES_INTENT, mediaProjectionResultIntent)
     }

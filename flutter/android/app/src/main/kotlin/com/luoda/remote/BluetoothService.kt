@@ -46,7 +46,7 @@ object BluetoothService {
     private const val TAG = "LDeskBT"
     private const val CHANNEL = "bluetooth_channel"
     private const val EVENTS = "bluetooth_channel_events"
-    private const val SERVICE_NAME = "DotChat-BT"
+    private const val SERVICE_NAME = "点聊-BT"
     // App-specific SPP UUID: both ends run LDesk, so no collision with
     // third-party serial apps.
     private val APP_UUID: UUID = UUID.fromString("e18b0f2c-1f2a-4f8e-9c5a-6b7f1a2b3c4d")

@@ -534,13 +534,21 @@ class ServerModel with ChangeNotifier {
         'maybeAutoStartService autoStartOpt=$autoStartOpt hasToken=$hasToken wizardDone=$wizardDone');
     if (autoStartOpt != 'Y' && !hasToken && wizardDone != 'Y') return;
     // MediaProjection tokens are Binders and cannot survive a process death,
-    // so hasToken is only true while the consent intent is still alive. When
-    // no token exists, asking again on every launch shows the system
-    // screen-capture dialog every time the app opens. Instead of nagging, skip
-    // the capture service for this launch: the chat backbone (DirectChatService)
-    // keeps running regardless, and the user can authorize once from the
-    // Assist page when they actually want remote control.
-    if (!hasToken) return;
+    // so hasToken is only true while the consent intent is still alive.
+    //
+    // LUODA fix: when the user has explicitly enabled the auto-start option
+    // (autoStartOpt == 'Y') OR completed the one-time permission wizard
+    // (wizardDone == 'Y'), start the service even without a live token.
+    // The native startService flow re-requests MediaProjection consent via the
+    // system screen-capture dialog, and the user approving it is a one-time
+    // tap. Previously a missing token made auto-start a no-op, which left the
+    // device without a registered rendezvous session on every cold launch
+    // (chat/remote control unreachable by ID even though the UI said online).
+    //
+    // Only skip when the user NEVER authorized the service (no option, no
+    // token, no wizard) so we don't nag fresh installs with a permission
+    // dialog on first launch.
+    if (autoStartOpt != 'Y' && wizardDone != 'Y' && !hasToken) return;
     // Ask the native side for the current state; if the service is already
     // running, its on_state_changed(media) event restarts the model state.
     await gFFI.invokeMethod("check_service");

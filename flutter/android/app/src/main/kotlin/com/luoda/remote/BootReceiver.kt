@@ -51,7 +51,7 @@ class BootReceiver : BroadcastReceiver() {
             // Reuse the persisted MediaProjection token when available so the
             // service can start after reboot without a fresh consent dialog.
             val savedProjection = loadMediaProjectionIntent(context)
-            Toast.makeText(context, "DotChat is open", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "点聊已启动", Toast.LENGTH_LONG).show()
             launchMainService(context, savedProjection, fromBoot = true)
         }
     }
