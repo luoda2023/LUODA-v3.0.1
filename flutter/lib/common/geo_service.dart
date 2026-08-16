@@ -12,6 +12,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
 
 import '../models/platform_model.dart';
@@ -97,6 +98,45 @@ class AmapService {
     return null;
   }
 
+  /// 逆地理结果缓存：按 0.001 度网格（约 111 米）+ 10 分钟 TTL 去重。
+  /// 免费地图 key 的每日配额有限，用户反复拖动地图/重开定位页会快速打爆
+  /// 配额，导致地名突然不显示。缓存同一小区域的结果，显著降低请求量。
+  static final Map<String, (String, String)> _geoCache =
+      <String, (String, String)>{};
+  static final Map<String, DateTime> _geoCacheAt = <String, DateTime>{};
+  static const Duration _geoCacheTtl = Duration(minutes: 10);
+  static const int _geoCacheDigits = 3; // 0.001 度 ≈ 111 米
+
+  static String _geoCacheKey(double lat, double lng) =>
+      '${lat.toStringAsFixed(_geoCacheDigits)},'
+      '${lng.toStringAsFixed(_geoCacheDigits)}';
+
+  static (String, String)? _geoCacheGet(double lat, double lng) {
+    final key = _geoCacheKey(lat, lng);
+    final at = _geoCacheAt[key];
+    if (at == null) return null;
+    if (DateTime.now().difference(at) > _geoCacheTtl) {
+      _geoCache.remove(key);
+      _geoCacheAt.remove(key);
+      return null;
+    }
+    return _geoCache[key];
+  }
+
+  static void _geoCachePut(double lat, double lng, (String, String) value) {
+    // 失败结果（地名和地址都为空）不缓存，下次仍会重试。
+    if (value.$1.isEmpty && value.$2.isEmpty) return;
+    final key = _geoCacheKey(lat, lng);
+    _geoCache[key] = value;
+    _geoCacheAt[key] = DateTime.now();
+    // 防止极端情况下缓存无限增长（同一时间只会有少量活跃网格）。
+    if (_geoCache.length > 64) {
+      final oldestKey = _geoCacheAt.keys.first;
+      _geoCache.remove(oldestKey);
+      _geoCacheAt.remove(oldestKey);
+    }
+  }
+
   Future<void> saveApiKey(String value) async {
     _cachedKey = value.trim();
     _lastFetch = DateTime.now();
@@ -140,52 +180,27 @@ class AmapService {
   /// 逆地理编码：GCJ-02 坐标 → 中文地址。
   /// 优先高德（需 key），失败/无 key 时回退到 OSM Nominatim（免 key）。
   Future<String> reverseGeocode(double lat, double lng) async {
-    final data = await _get('/v3/geocode/regeo', <String, String>{
-      'location': '${lng.toStringAsFixed(6)},${lat.toStringAsFixed(6)}',
-      'extensions': 'base',
-    });
-    if (data != null) {
-      final regeocode = data['regeocode'];
-      if (regeocode is Map<String, dynamic>) {
-        final formatted =
-            (regeocode['formatted_address'] ?? '').toString().trim();
-        if (formatted.isNotEmpty) return formatted;
-        final ac = regeocode['addressComponent'];
-        if (ac is Map<String, dynamic>) {
-          final province = (ac['province'] ?? '').toString().trim();
-          final city = (ac['city'] ?? '').toString().trim();
-          final district = (ac['district'] ?? '').toString().trim();
-          final township = (ac['township'] ?? '').toString().trim();
-          final road = (ac['streetNumber'] is Map<String, dynamic>
-                  ? ((ac['streetNumber'] as Map<String, dynamic>)['street'] ??
-                      '')
-                  : '')
-              .toString()
-              .trim();
-          final parts = <String>[
-            if (province.isNotEmpty && province != city) province,
-            if (city.isNotEmpty) city,
-            if (district.isNotEmpty) district,
-            if (township.isNotEmpty) township,
-            if (road.isNotEmpty) road,
-          ];
-          if (parts.isNotEmpty) return parts.join('');
-        }
-      }
-    }
-    // 回退：百度（内置 key）→ 腾讯（内置 key）→ OSM Nominatim（海外）。
-    final baidu = await _baiduReverse(lat, lng);
-    if (baidu.$2.isNotEmpty) return baidu.$2;
-    final tencent = await _tencentReverse(lat, lng);
-    if (tencent.$2.isNotEmpty) return tencent.$2;
-    return (await _nominatimReverse(lat, lng)).$2;
+    // 复用详情版逻辑（含缓存与回退链），只取地址部分。
+    final (_, address) = await reverseGeocodeDetail(lat, lng);
+    return address;
   }
 
   /// 逆地理编码（详情版）：返回（POI 地名，完整地址）。
   /// 用 extensions=all 拿最近的 POI 名称作为地名（如“协和双语学校”），
   /// formatted_address 作为完整地址（如“上海市浦东新区xx路xx号”）。
-  /// 无 key / 失败时回退到 OSM Nominatim（免 key），不再返回空串。
+  /// 解析顺序：缓存 → 内置百度 key（免配置，目前唯一稳定可用）→ 高德（用户
+  /// key）→ 腾讯（内置 key）→ OSM Nominatim（海外免 key）。结果按 111 米网格
+  /// 缓存 10 分钟，避免打爆免费 key 的每日配额。
   Future<(String, String)> reverseGeocodeDetail(double lat, double lng) async {
+    final cached = _geoCacheGet(lat, lng);
+    if (cached != null && (cached.$1.isNotEmpty || cached.$2.isNotEmpty)) {
+      return cached;
+    }
+    final baidu = await _baiduReverse(lat, lng);
+    if (baidu.$1.isNotEmpty || baidu.$2.isNotEmpty) {
+      _geoCachePut(lat, lng, baidu);
+      return baidu;
+    }
     final data = await _get('/v3/geocode/regeo', <String, String>{
       'location': '${lng.toStringAsFixed(6)},${lat.toStringAsFixed(6)}',
       'extensions': 'all',
@@ -229,16 +244,21 @@ class AmapService {
           }
         }
         if (name.isNotEmpty || formatted.isNotEmpty) {
-          return (name, formatted);
+          final r = (name, formatted);
+          _geoCachePut(lat, lng, r);
+          return r;
         }
       }
     }
-    // 回退：百度（内置 key）→ 腾讯（内置 key）→ OSM Nominatim（海外）。
-    final baidu = await _baiduReverse(lat, lng);
-    if (baidu.$1.isNotEmpty || baidu.$2.isNotEmpty) return baidu;
+    // 回退：腾讯（内置 key）→ OSM Nominatim（海外）。
     final tencent = await _tencentReverse(lat, lng);
-    if (tencent.$1.isNotEmpty || tencent.$2.isNotEmpty) return tencent;
-    return _nominatimReverse(lat, lng);
+    if (tencent.$1.isNotEmpty || tencent.$2.isNotEmpty) {
+      _geoCachePut(lat, lng, tencent);
+      return tencent;
+    }
+    final nom = await _nominatimReverse(lat, lng);
+    if (nom.$1.isNotEmpty || nom.$2.isNotEmpty) _geoCachePut(lat, lng, nom);
+    return nom;
   }
 
   /// 解析百度逆地理响应为（地名, 完整地址）。公开便于单元测试。
@@ -264,10 +284,20 @@ class AmapService {
   }
 
   /// 百度地图逆地理编码（输入 GCJ-02，coordtype=gcj02ll 由百度内部转 BD-09）。
-  /// 返回（地名, 完整地址）；失败返回 (空, 空)。
+  /// 多 key 轮询分散每日配额；单 key 被限流/禁用时自动尝试下一个。
   Future<(String, String)> _baiduReverse(double lat, double lng) async {
-    final key = _firstKey(_builtinBaiduKeys);
-    if (key == null) return ('', '');
+    for (final key in _builtinBaiduKeys) {
+      final k = key.trim();
+      if (k.isEmpty) continue;
+      final result = await _baiduReverseOnce(k, lat, lng);
+      if (result.$1.isNotEmpty || result.$2.isNotEmpty) return result;
+    }
+    return ('', '');
+  }
+
+  /// 单次百度逆地理请求；移动网络抖动常见，失败重试一次。
+  Future<(String, String)> _baiduReverseOnce(
+      String key, double lat, double lng) async {
     final uri = Uri.parse('https://api.map.baidu.com/reverse_geocoding/v3/')
         .replace(queryParameters: <String, String>{
       'ak': key,
@@ -276,17 +306,23 @@ class AmapService {
       'location': '${lat.toStringAsFixed(6)},${lng.toStringAsFixed(6)}',
       'pois': '1',
     });
-    try {
-      final resp = await http
-          .get(uri)
-          .timeout(const Duration(seconds: 8));
-      if (resp.statusCode != 200) return ('', '');
-      final decoded = jsonDecode(resp.body);
-      if (decoded is! Map<String, dynamic>) return ('', '');
-      return parseBaiduResponse(decoded);
-    } catch (_) {
-      return ('', '');
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        final resp = await http.get(uri).timeout(const Duration(seconds: 6));
+        if (resp.statusCode != 200) {
+          debugPrint('geo: baidu http ${resp.statusCode} (attempt $attempt)');
+          continue;
+        }
+        final decoded = jsonDecode(resp.body);
+        if (decoded is! Map<String, dynamic>) continue;
+        final result = parseBaiduResponse(decoded);
+        if (result.$1.isNotEmpty || result.$2.isNotEmpty) return result;
+        debugPrint('geo: baidu status=${decoded['status']}');
+      } catch (e) {
+        debugPrint('geo: baidu error $e (attempt $attempt)');
+      }
     }
+    return ('', '');
   }
 
   /// 腾讯位置服务逆地理编码（GCJ-02，与高德一致），内置 key 时的第三回退。
