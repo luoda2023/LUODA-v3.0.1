@@ -9535,7 +9535,9 @@ class _MeetingCenterPanelState extends State<_MeetingCenterPanel> {
           const SizedBox(height: 6),
           Expanded(
             child: Obx(() {
-              final meetings = MeetingGroupStore.all
+              // all 返回不可变列表，必须拷贝后再排序，否则非空列表 sort 会抛
+              // UnsupportedError，导致创建会议后列表不刷新。
+              final meetings = List<MeetingGroup>.of(MeetingGroupStore.all)
                 ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
               if (meetings.isEmpty) {
                 return Center(
