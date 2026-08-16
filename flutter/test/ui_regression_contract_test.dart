@@ -1142,12 +1142,12 @@ void main() {
       chatModelSource,
       contains("msg.customProperties!['ldesk_conn_mode'] = record.connMode;"),
     );
-    // 提示文字与时间统一字号、20% 透明度，浅深色主题各一种中性灰。
+    // 提示文字与时间统一字号，85% 不透明度的中性灰小字，浅深色主题各一种。
     final sourceRender = chatPageSource.split('if (showMessageSource)')[1];
     expect(sourceRender, contains('fontSize: 10'));
-    expect(sourceRender, contains('.withOpacity(0.2)'));
-    expect(sourceRender, contains('const Color(0xFFA9ADB5)'));
-    expect(sourceRender, contains('const Color(0xFF6B7280)'));
+    expect(sourceRender, contains('.withOpacity(0.85)'));
+    expect(sourceRender, contains('const Color(0xFF9AA0A8)'));
+    expect(sourceRender, contains('const Color(0xFF8A8F98)'));
   });
 
   test('mobile QR scanner exposes camera and gallery controls', () {

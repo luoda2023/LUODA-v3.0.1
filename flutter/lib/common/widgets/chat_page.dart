@@ -3244,9 +3244,9 @@ class ChatPage extends StatelessWidget implements PageShape {
                               fontSize: 10,
                               height: 1.2,
                               color: (dark
-                                      ? const Color(0xFFA9ADB5)
-                                      : const Color(0xFF6B7280))
-                                  .withOpacity(0.2),
+                                      ? const Color(0xFF9AA0A8)
+                                      : const Color(0xFF8A8F98))
+                                  .withOpacity(0.85),
                             ),
                           ),
                         ),
