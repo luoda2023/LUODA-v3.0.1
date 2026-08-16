@@ -85,6 +85,7 @@ dependencies:
   crypto: 3.0.6
   record: 5.2.1
   audioplayers: 6.1.0
+  flutter_local_notifications: 17.2.4
   auto_size_text: ^3.0.0
   bot_toast: ^4.0.3
   win32: any

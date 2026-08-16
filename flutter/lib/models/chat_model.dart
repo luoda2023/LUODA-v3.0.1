@@ -32,6 +32,7 @@ import '../common/direct_pairing.dart';
 import '../common/direct_chat_policy.dart';
 import '../common/backup_restore.dart';
 import '../common/direct_voice_storage.dart';
+import '../common/chat_notifier.dart';
 import '../common/widgets/overlay.dart';
 import '../main.dart';
 import 'model.dart';
@@ -2318,6 +2319,9 @@ class ChatModel with ChangeNotifier {
                     ChatUser(id: targetId, firstName: record.senderName));
             insertMessage(targetKey, _taggedChatMessage(record, user));
             notifyListeners();
+            if (!record.isOutgoing) {
+              _maybeNotifyIncoming(record, targetId);
+            }
           }
         } catch (_) {}
         return;
@@ -3177,6 +3181,44 @@ class ChatModel with ChangeNotifier {
   }
 
   /// Same as _toChatMessage but tags the message with connection source info.
+  /// 收到对方消息时触发手机端横幅通知（当前会话且窗口有焦点时不弹）。
+  void _maybeNotifyIncoming(DirectChatRecord record, String targetId) {
+    if (!isMobile) return;
+    if (record.isOutgoing) return;
+    // 用户正在看这个会话时，不再弹通知打扰。
+    final isActiveConversation =
+        _currentKey.peerId == targetId && isWindowFocus.value;
+    if (isActiveConversation) return;
+    final sender = record.senderName.trim().isNotEmpty
+        ? record.senderName.trim()
+        : targetId;
+    final body = _notificationBody(record);
+    if (body.isEmpty) return;
+    unawaited(
+      ChatNotifier.instance.showIncomingMessage(
+        peerId: targetId,
+        senderName: sender,
+        body: body,
+      ),
+    );
+  }
+
+  String _notificationBody(DirectChatRecord record) {
+    switch (record.kind) {
+      case DirectChatKind.file:
+        return '[${translate('File')}] ${record.fileName}';
+      case DirectChatKind.voice:
+        return '[${translate('Voice message')}]';
+      case DirectChatKind.forward:
+        return '[${translate('Chat history')}]';
+      case DirectChatKind.text:
+      default:
+        final t = record.text.trim();
+        if (t.isEmpty) return '';
+        return t.length > 60 ? '${t.substring(0, 60)}…' : t;
+    }
+  }
+
   ChatMessage _taggedChatMessage(DirectChatRecord record, ChatUser user,
       {bool wasIpSource = false}) {
     final msg = _toChatMessage(record, user);

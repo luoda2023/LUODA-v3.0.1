@@ -20,6 +20,7 @@ import 'package:luoda_flutter/desktop/pages/file_preview_page.dart';
 import 'package:luoda_flutter/desktop/widgets/refresh_wrapper.dart';
 import 'package:luoda_flutter/common/direct_pairing.dart';
 import 'package:luoda_flutter/common/direct_chat.dart';
+import 'package:luoda_flutter/common/chat_notifier.dart';
 import 'package:luoda_flutter/common/bt_service.dart';
 import 'package:luoda_flutter/common/relay_bridge.dart';
 import 'package:luoda_flutter/models/state_model.dart';
@@ -244,6 +245,8 @@ void runMobileApp() async {
   draggablePositions.load();
   await Future.wait([gFFI.abModel.loadCache(), gFFI.groupModel.loadCache()]);
   gFFI.userModel.refreshCurrentUser();
+  // 手机端消息横幅通知（微信式）
+  unawaited(ChatNotifier.instance.init());
   runApp(App());
   await initUniLinks();
   if (isAndroid) {
