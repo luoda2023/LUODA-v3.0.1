@@ -316,7 +316,11 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   bool _openingViewerInvite = false;
 
   /// 系统通知分栏面板是否打开（嵌入右侧内容区，不遮挡左侧列表）。
-  bool _noticesOpen = false;
+  /// 用 ValueNotifier 驱动，避免整页 setState 重建。
+  final ValueNotifier<bool> _noticesOpen = ValueNotifier<bool>(false);
+
+  /// 收藏夹分栏面板是否打开（同样嵌入右侧内容区，左侧列表保持原样）。
+  final ValueNotifier<bool> _favoritesOpen = ValueNotifier<bool>(false);
 
   final Map<String, FFI> _directChatSessions = <String, FFI>{};
   final Map<String, DateTime> _directChatAttemptedAt = <String, DateTime>{};
@@ -669,35 +673,51 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                               child: _buildContactsPane(context),
                             ),
                             Expanded(
-                              child: AnimatedSwitcher(
-                                duration: const Duration(milliseconds: 260),
-                                switchInCurve: Curves.easeOutCubic,
-                                switchOutCurve: Curves.easeInCubic,
-                                transitionBuilder: (child, animation) {
-                                  return SlideTransition(
-                                    position: Tween<Offset>(
-                                      begin: const Offset(0.06, 0),
-                                      end: Offset.zero,
-                                    ).animate(animation),
-                                    child: FadeTransition(
-                                      opacity: animation,
-                                      child: child,
-                                    ),
-                                  );
-                                },
-                                child: _noticesOpen
-                                    ? _SystemNoticePanel(
-                                        key:
-                                            const ValueKey('notice-panel'),
-                                        lastReadId: SystemAnnouncementStore
-                                            .instance
-                                            .lastReadId,
-                                        onClose: _closeNoticesPanel,
-                                      )
-                                    : KeyedSubtree(
-                                        key: const ValueKey('workspace'),
-                                        child: workspace!,
+                              child: AnimatedBuilder(
+                                animation: Listenable.merge(<Listenable>[
+                                  _noticesOpen,
+                                  _favoritesOpen,
+                                ]),
+                                builder: (context, _) => AnimatedSwitcher(
+                                  duration:
+                                      const Duration(milliseconds: 260),
+                                  switchInCurve: Curves.easeOutCubic,
+                                  switchOutCurve: Curves.easeInCubic,
+                                  transitionBuilder: (child, animation) {
+                                    return SlideTransition(
+                                      position: Tween<Offset>(
+                                        begin: const Offset(0.06, 0),
+                                        end: Offset.zero,
+                                      ).animate(animation),
+                                      child: FadeTransition(
+                                        opacity: animation,
+                                        child: child,
                                       ),
+                                    );
+                                  },
+                                  child: _noticesOpen.value
+                                      ? _SystemNoticePanel(
+                                          key: const ValueKey(
+                                              'notice-panel'),
+                                          lastReadId:
+                                              SystemAnnouncementStore
+                                                  .instance
+                                                  .lastReadId,
+                                          onClose: _closeNoticesPanel,
+                                        )
+                                      : _favoritesOpen.value
+                                          ? FavoritesPage(
+                                              key: const ValueKey(
+                                                  'favorites-panel'),
+                                              detailPane: true,
+                                              onClose: _closeFavoritesPane,
+                                            )
+                                          : KeyedSubtree(
+                                              key: const ValueKey(
+                                                  'workspace'),
+                                              child: workspace!,
+                                            ),
+                                ),
                               ),
                             ),
                           ],
@@ -802,9 +822,12 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   }
 
   Future<void> _selectSection(String section) async {
-    // 收藏：弹出完整收藏页（图片 / 文件 / 位置 / 文字 / 语音 / 联系人 分类）。
+    // 收藏：不再弹窗，改为嵌入右侧内容区的分栏面板
+    // （左侧列表栏保持原样，右侧分两列：分类列表 + 详情）。
     if (section == 'favorites') {
-      _showFavoritesPage();
+      if (!mounted) return;
+      _noticesOpen.value = false;
+      _favoritesOpen.value = true;
       return;
     }
     const sections = <String>{
@@ -821,7 +844,17 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       _contactSearchController.clear();
       _contactQuery.value = '';
     }
+    if (mounted) {
+      _noticesOpen.value = false;
+      _favoritesOpen.value = false;
+    }
     await _loadContactSection(section);
+  }
+
+  /// 关闭收藏夹分栏面板（返回按钮触发）。
+  void _closeFavoritesPane() {
+    if (!mounted) return;
+    _favoritesOpen.value = false;
   }
 
   /// 微信 PC 风格收藏面板：分类查看收藏的图片 / 文件 / 位置 / 聊天内容等。
@@ -1370,13 +1403,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     store.load();
     await store.refresh();
     if (!mounted) return;
-    setState(() => _noticesOpen = true);
+    _noticesOpen.value = true;
   }
 
   /// 关闭系统通知面板并标记全部已读。
   Future<void> _closeNoticesPanel() async {
     if (!mounted) return;
-    setState(() => _noticesOpen = false);
+    _noticesOpen.value = false;
     await SystemAnnouncementStore.instance.markAllRead();
   }
 

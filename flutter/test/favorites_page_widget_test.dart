@@ -81,4 +81,34 @@ void main() {
 
     await model.removeAll(model.items.map((e) => e.id));
   });
+
+  testWidgets('FavoritesPage detailPane embedded shows list + detail and close',
+      (tester) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    var closed = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: FavoritesPage(
+          detailPane: true,
+          onClose: () => closed = true,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 标题与分类 tabs 正常渲染。
+    expect(find.text('Favorites'), findsWidgets);
+    expect(find.text('favorites_cat_all'), findsOneWidget);
+    // 关闭按钮（返回箭头）存在。
+    expect(find.byIcon(Icons.arrow_back_rounded), findsOneWidget);
+    // 空态在左侧列表区。
+    expect(find.text('favorites_empty'), findsOneWidget);
+
+    // 点击返回按钮触发 onClose。
+    await tester.tap(find.byIcon(Icons.arrow_back_rounded));
+    await tester.pump();
+    expect(closed, isTrue);
+  });
 }

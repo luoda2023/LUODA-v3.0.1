@@ -16,10 +16,17 @@ import 'package:luoda_flutter/models/platform_model.dart';
 /// 收藏页（PC / 手机共用）：微信式收藏，支持分类查看图片 / 文件 / 位置 /
 /// 文字 / 语音 / 联系人，以及搜索与删除。
 class FavoritesPage extends StatefulWidget {
-  const FavoritesPage({super.key, this.detailPane = false});
+  const FavoritesPage({
+    super.key,
+    this.detailPane = false,
+    this.onClose,
+  });
 
   /// 桌面端使用左右分栏（左侧列表 + 右侧详情），手机端保持单列点击跳转。
   final bool detailPane;
+
+  /// 嵌入主内容区时的关闭回调（AppBar 返回按钮）。
+  final VoidCallback? onClose;
 
   @override
   State<FavoritesPage> createState() => _FavoritesPageState();
@@ -140,6 +147,13 @@ class _FavoritesPageState extends State<FavoritesPage> {
         elevation: 0,
         scrolledUnderElevation: 0.5,
         centerTitle: false,
+        leading: widget.onClose == null
+            ? null
+            : IconButton(
+                tooltip: translate('Back'),
+                icon: const Icon(Icons.arrow_back_rounded),
+                onPressed: widget.onClose,
+              ),
         title: Text(
           translate('Favorites'),
           style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
