@@ -8866,11 +8866,13 @@ class _SystemNoticePanelState extends State<_SystemNoticePanel> {
             ? const Color(0xFF2E5B3F)
             : const Color(0xFFE7F5EC))
         : Colors.transparent;
-    return InkWell(
-      onTap: () => setState(() => _selected = a),
-      child: Container(
-        color: bg,
-        padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: InkWell(
+        onTap: () => setState(() => _selected = a),
+        child: Container(
+          color: bg,
+          padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
@@ -8938,6 +8940,7 @@ class _SystemNoticePanelState extends State<_SystemNoticePanel> {
               ),
             ),
           ],
+          ),
         ),
       ),
     );

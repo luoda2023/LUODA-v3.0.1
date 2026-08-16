@@ -241,62 +241,69 @@ class _FavoritesPageState extends State<FavoritesPage> {
 
   Widget _buildCategoryTabs(bool dark) {
     final primary = const Color(0xFF07C160);
-    // 微信式：横向滚动分类条（chip 样式），类别多也不会拥挤。
+    // 分类全部可见：Wrap 自动换行，无需横向滚动（避免末尾分类点不到）。
     return Container(
       color: dark ? const Color(0xFF1C1E23) : Colors.white,
-      height: 44,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        itemCount: _categories.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
-        itemBuilder: (_, index) {
-          final key = _categories[index].$1;
-          final icon = _categories[index].$2;
-          final selected = _category == key;
-          return InkWell(
-            borderRadius: BorderRadius.circular(16),
-            onTap: () => setState(() => _category = key),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              decoration: BoxDecoration(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(10, 9, 10, 7),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: <Widget>[
+          for (final cat in _categories)
+            _buildCategoryChip(cat.$1, cat.$2, dark, primary),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCategoryChip(String key, IconData icon, bool dark, Color primary) {
+    final selected = _category == key;
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: () => setState(() => _category = key),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
+        decoration: BoxDecoration(
+          color: selected
+              ? primary.withOpacity(dark ? 0.22 : 0.12)
+              : (dark
+                  ? const Color(0xFF2A2D33)
+                  : const Color(0xFFF2F3F5)),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 118),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(
+                icon,
+                size: 14,
                 color: selected
-                    ? primary.withOpacity(dark ? 0.22 : 0.12)
-                    : (dark
-                        ? const Color(0xFF2A2D33)
-                        : const Color(0xFFF2F3F5)),
-                borderRadius: BorderRadius.circular(16),
+                    ? primary
+                    : (dark ? Colors.white54 : Colors.black45),
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Icon(
-                    icon,
-                    size: 15,
+              const SizedBox(width: 5),
+              Flexible(
+                child: Text(
+                  translate('favorites_cat_$key'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight:
+                        selected ? FontWeight.w600 : FontWeight.w400,
                     color: selected
                         ? primary
-                        : (dark ? Colors.white54 : Colors.black45),
+                        : (dark ? Colors.white70 : Colors.black87),
                   ),
-                  const SizedBox(width: 5),
-                  Text(
-                    translate('favorites_cat_$key'),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                      color: selected
-                          ? primary
-                          : (dark ? Colors.white70 : Colors.black87),
-                    ),
-                  ),
-                ],
+                ),
               ),
-            ),
-          );
-        },
+            ],
+          ),
+        ),
       ),
     );
   }
