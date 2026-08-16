@@ -37,18 +37,46 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
           .toList();
   late final TextEditingController _addPeerCtrl;
   String? _inviteLink;
+  // 成员列表搜索过滤与排序。
+  final TextEditingController _memberSearchCtrl = TextEditingController();
+  bool _memberSortNewest = true; // true=按加入时间倒序（最新在前）
 
   @override
   void initState() {
     super.initState();
     _addPeerCtrl = TextEditingController();
+    _memberSearchCtrl.addListener(_onMemberSearchChanged);
     _refreshInviteLink();
   }
 
   @override
   void dispose() {
     _addPeerCtrl.dispose();
+    _memberSearchCtrl.removeListener(_onMemberSearchChanged);
+    _memberSearchCtrl.dispose();
     super.dispose();
+  }
+
+  void _onMemberSearchChanged() {
+    if (mounted) setState(() {});
+  }
+
+  /// 过滤 + 排序后的成员列表（host 始终单独置顶，不参与排序）。
+  List<MeetingMember> get _filteredMembers {
+    final query = _memberSearchCtrl.text.trim().toLowerCase();
+    var list = _members;
+    if (query.isNotEmpty) {
+      list = list
+          .where((m) =>
+              m.displayName.toLowerCase().contains(query) ||
+              m.peerId.toLowerCase().contains(query))
+          .toList();
+    }
+    final sorted = List<MeetingMember>.of(list);
+    sorted.sort((a, b) => _memberSortNewest
+        ? b.joinedAt.compareTo(a.joinedAt)
+        : a.joinedAt.compareTo(b.joinedAt));
+    return sorted;
   }
 
   void _refreshInviteLink() {
@@ -960,7 +988,8 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
   Widget _buildMembersCard(BuildContext context, Color surface, Color border) {
     final theme = Theme.of(context);
     final dark = theme.brightness == Brightness.dark;
-    final members = _members;
+    final members = _filteredMembers;
+    final total = _members.length + 1;
     final active = _group.hasActiveSession;
     final isHost = _group.isHost;
     return _groupCard(
@@ -991,7 +1020,7 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
                     borderRadius: BorderRadius.circular(9),
                   ),
                   child: Text(
-                    '${members.length + 1}',
+                    '$total',
                     style: const TextStyle(
                       fontSize: 11,
                       color: MyTheme.primary,
@@ -1000,6 +1029,44 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
                   ),
                 ),
                 const Spacer(),
+                // 排序切换：按加入时间倒序 / 正序。
+                InkWell(
+                  onTap: () => setState(() => _memberSortNewest =
+                      !_memberSortNewest),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: MyTheme.primarySoft,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _memberSortNewest
+                              ? Icons.arrow_downward_rounded
+                              : Icons.arrow_upward_rounded,
+                          size: 14,
+                          color: MyTheme.primary,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          _memberSortNewest
+                              ? translate('Newest')
+                              : translate('Oldest'),
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: MyTheme.primary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
                 Container(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -1045,44 +1112,101 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
               ],
             ),
           ),
+          // 成员搜索框（按昵称 / ID 过滤）。
+          if (total > 2 || _memberSearchCtrl.text.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 4, 14, 4),
+              child: TextField(
+                controller: _memberSearchCtrl,
+                decoration: InputDecoration(
+                  hintText: translate('Search members'),
+                  isDense: true,
+                  filled: true,
+                  fillColor: dark
+                      ? const Color(0xFF1E2024)
+                      : const Color(0xFFF2F3F5),
+                  prefixIcon: const Icon(Icons.search_rounded, size: 18),
+                  suffixIcon: _memberSearchCtrl.text.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear_rounded, size: 18),
+                          onPressed: () =>
+                              _memberSearchCtrl.clear(),
+                        )
+                      : null,
+                  contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 8),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+            ),
           const SizedBox(height: 6),
           // 微信成员网格：host + 成员 + (host) 添加，5 列。
-          GridView.count(
-            crossAxisCount: 5,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(8, 0, 8, 10),
-            mainAxisSpacing: 10,
-            crossAxisSpacing: 4,
-            childAspectRatio: 0.82,
-            children: [
-              _MemberGridTile(
-                peerId: _group.hostPeerId,
-                displayName: _group.hostDisplayName,
-                isHost: true,
-                isPresenter: _group.presenterPeerId.isEmpty
-                    ? true
-                    : _group.presenterPeerId == _group.hostPeerId,
-                online: _memberOnline(_group.hostPeerId),
-                onRemove: null,
-              ),
-              for (var i = 0; i < members.length; i++)
-                _MemberGridTile(
-                  peerId: members[i].peerId,
-                  displayName: members[i].displayName,
-                  isHost: false,
-                  isPresenter: _group.presenterPeerId == members[i].peerId,
-                  online: _memberOnline(members[i].peerId),
-                  onRemove:
-                      isHost ? () => _removeMember(members[i]) : null,
+          if (members.isEmpty && _memberSearchCtrl.text.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 24),
+              child: Center(
+                child: Text(
+                  translate('No matching members'),
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: theme.colorScheme.onSurface.withOpacity(0.45),
+                  ),
                 ),
-              if (isHost)
-                _MemberGridTile.addTile(onTap: _openFriendPicker),
-            ],
-          ),
+              ),
+            )
+          else
+            GridView.count(
+              crossAxisCount: 5,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(8, 0, 8, 10),
+              mainAxisSpacing: 10,
+              crossAxisSpacing: 4,
+              childAspectRatio: 0.82,
+              children: [
+                // host 始终置顶（搜索时也保留，除非搜索词完全不含 host）。
+                if (_memberHostMatches)
+                  _MemberGridTile(
+                    peerId: _group.hostPeerId,
+                    displayName: _group.hostDisplayName,
+                    isHost: true,
+                    isPresenter: _group.presenterPeerId.isEmpty
+                        ? true
+                        : _group.presenterPeerId == _group.hostPeerId,
+                    online: _memberOnline(_group.hostPeerId),
+                    onRemove: null,
+                  ),
+                for (var i = 0; i < members.length; i++)
+                  _MemberGridTile(
+                    peerId: members[i].peerId,
+                    displayName: members[i].displayName,
+                    isHost: false,
+                    isPresenter:
+                        _group.presenterPeerId == members[i].peerId,
+                    online: _memberOnline(members[i].peerId),
+                    onRemove:
+                        isHost ? () => _removeMember(members[i]) : null,
+                  ),
+                if (isHost &&
+                    (_memberSearchCtrl.text.isEmpty ||
+                        _memberHostMatches))
+                  _MemberGridTile.addTile(onTap: _openFriendPicker),
+              ],
+            ),
         ],
       ),
     );
+  }
+
+  /// host 是否匹配当前搜索词。
+  bool get _memberHostMatches {
+    final query = _memberSearchCtrl.text.trim().toLowerCase();
+    if (query.isEmpty) return true;
+    return _group.hostDisplayName.toLowerCase().contains(query) ||
+        _group.hostPeerId.toLowerCase().contains(query);
   }
 
   bool _memberOnline(String peerId) {
