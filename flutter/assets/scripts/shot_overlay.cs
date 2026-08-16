@@ -102,6 +102,21 @@ namespace LuodaShot
             }
             Native.SetProcessDPIAware();
 
+            // Never show a JIT / unhandled-exception dialog: log and exit
+            // quietly instead (the old PowerShell overlay did the same).
+            // MUST be installed before any control is created.
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+            Application.ThreadException += delegate(object s, System.Threading.ThreadExceptionEventArgs e)
+            {
+                Log("ThreadException: " + e.Exception);
+                try { Cancel(); } catch { }
+            };
+            AppDomain.CurrentDomain.UnhandledException += delegate(object s, UnhandledExceptionEventArgs e)
+            {
+                Log("UnhandledException: " + e.ExceptionObject);
+                try { Cancel(); } catch { }
+            };
+
             Rectangle vs = SystemInformation.VirtualScreen;
             _vsX = vs.X; _vsY = vs.Y; _vsW = vs.Width; _vsH = vs.Height;
 
