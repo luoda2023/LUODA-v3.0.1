@@ -26,6 +26,8 @@ class MeetingGroup {
     this.presenterPeerId = '',
     this.presenterDisplayName = '',
     this.viewerToken = '',
+    this.startTime,
+    this.durationMinutes = 60,
   }) : createdAt = createdAt ?? DateTime.now();
 
   /// Globally unique meeting ID (UUID v4).
@@ -63,6 +65,12 @@ class MeetingGroup {
   /// host and the designated presenter keep full control.
   String viewerToken;
 
+  /// 会议计划开始时间（UTC）。为空表示“立即开始”。
+  DateTime? startTime;
+
+  /// 会议时长（分钟）。0 表示不限时长，默认 60 分钟。
+  int durationMinutes;
+
   bool get isHost => hostPeerId == gFFI.serverModel.id;
 
   /// True when the local user is allowed to control the session
@@ -86,6 +94,8 @@ class MeetingGroup {
     'presenter_peer_id': presenterPeerId,
     'presenter_display_name': presenterDisplayName,
     'viewer_token': viewerToken,
+    'start_time': startTime?.toUtc().toIso8601String(),
+    'duration_minutes': durationMinutes,
   };
 
   factory MeetingGroup.fromJson(Map<String, dynamic> json) => MeetingGroup(
@@ -102,6 +112,8 @@ class MeetingGroup {
     presenterPeerId: (json['presenter_peer_id'] ?? '').toString(),
     presenterDisplayName: (json['presenter_display_name'] ?? '').toString(),
     viewerToken: (json['viewer_token'] ?? '').toString(),
+    startTime: DateTime.tryParse((json['start_time'] ?? '').toString()),
+    durationMinutes: int.tryParse('${json['duration_minutes'] ?? 60}') ?? 60,
   );
 
   /// The shared conversation ID used by all members for group chat messages.
@@ -183,6 +195,8 @@ class MeetingGroupStore {
     required String hostDisplayName,
     String? presenterPeerId,
     String? presenterDisplayName,
+    DateTime? startTime,
+    int durationMinutes = 60,
   }) {
     final group = MeetingGroup(
       meetingId: const Uuid().v4(),
@@ -197,6 +211,8 @@ class MeetingGroupStore {
       // duplicate the host inside [members] (older builds persisted the
       // host as a member and showed the host twice).
       members: const [],
+      startTime: startTime,
+      durationMinutes: durationMinutes,
     );
     _groups.add(group);
     _save();

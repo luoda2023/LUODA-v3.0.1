@@ -79,6 +79,32 @@ void main() {
       expect(group.presenterDisplayName, '');
       expect(group.viewerToken, '');
       expect(group.title, 'Old');
+      expect(group.startTime, isNull);
+      expect(group.durationMinutes, 60);
+    });
+
+    test('startTime and durationMinutes round-trip through JSON', () {
+      final group = _group();
+      group.startTime = DateTime.utc(2026, 8, 20, 14, 30);
+      group.durationMinutes = 120;
+      final restored = MeetingGroup.fromJson(
+        Map<String, dynamic>.from(
+            jsonDecode(jsonEncode(group.toJson())) as Map),
+      );
+      expect(restored.startTime, isNotNull);
+      expect(restored.startTime!.toUtc(), DateTime.utc(2026, 8, 20, 14, 30));
+      expect(restored.durationMinutes, 120);
+    });
+
+    test('startTime stays null for immediate meetings', () {
+      final group = _group();
+      group.durationMinutes = 0;
+      final restored = MeetingGroup.fromJson(
+        Map<String, dynamic>.from(
+            jsonDecode(jsonEncode(group.toJson())) as Map),
+      );
+      expect(restored.startTime, isNull);
+      expect(restored.durationMinutes, 0);
     });
   });
 

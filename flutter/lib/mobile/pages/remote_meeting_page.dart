@@ -41,10 +41,24 @@ class _RemoteMeetingPageState extends State<RemoteMeetingPage> {
   }
 
   Future<void> _startMeeting() async {
+    final draft = await showModalBottomSheet<_MeetingDraft>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => const _CreateMeetingSheet(),
+    );
+    if (draft == null || !mounted) return;
     final group = MeetingGroupStore.create(
-      title: translate('New meeting'),
+      title: draft.title,
       hostPeerId: gFFI.serverModel.id,
       hostDisplayName: gFFI.serverModel.serverId.text,
+      startTime: draft.startTime,
+      durationMinutes: draft.durationMinutes,
     );
     await MeetingGroupStore.save();
     _reload();
@@ -705,4 +719,315 @@ Widget _sheetItem(
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
     onTap: onTap,
   );
+}
+
+/// 新建会议表单数据。
+class _MeetingDraft {
+  const _MeetingDraft({
+    required this.title,
+    required this.startTime,
+    required this.durationMinutes,
+  });
+
+  final String title;
+  final DateTime? startTime; // null = 立即开始
+  final int durationMinutes; // 0 = 不限时长
+}
+
+/// 新建会议底部表单：会议名称 + 开始时间（立即/定时）+ 会议时长。
+class _CreateMeetingSheet extends StatefulWidget {
+  const _CreateMeetingSheet();
+
+  @override
+  State<_CreateMeetingSheet> createState() => _CreateMeetingSheetState();
+}
+
+class _CreateMeetingSheetState extends State<_CreateMeetingSheet> {
+  final TextEditingController _titleController = TextEditingController();
+  bool _startNow = true;
+  DateTime? _startTime;
+  int _durationMinutes = 60;
+
+  static const List<int> _durationChoices = <int>[30, 60, 120, 0];
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickStartTime() async {
+    final now = DateTime.now();
+    final date = await showDatePicker(
+      context: context,
+      initialDate: _startTime ?? now,
+      firstDate: now.subtract(const Duration(days: 1)),
+      lastDate: now.add(const Duration(days: 365)),
+    );
+    if (date == null || !mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(_startTime ?? now),
+    );
+    if (time == null) return;
+    setState(() {
+      _startTime = DateTime(
+        date.year,
+        date.month,
+        date.day,
+        time.hour,
+        time.minute,
+      );
+      _startNow = false;
+    });
+  }
+
+  String _formatStartTime(DateTime dt) {
+    final two = (int n) => n.toString().padLeft(2, '0');
+    return '${dt.month}月${dt.day}日 ${two(dt.hour)}:${two(dt.minute)}';
+  }
+
+  void _submit() {
+    final title = _titleController.text.trim();
+    if (title.isEmpty) {
+      showToast(translate('Please enter a meeting name'));
+      return;
+    }
+    Navigator.of(context).pop(
+      _MeetingDraft(
+        title: title,
+        startTime: _startNow ? null : _startTime,
+        durationMinutes: _durationMinutes,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
+    final muted = theme.colorScheme.onSurface.withOpacity(0.5);
+    final cardBg =
+        dark ? const Color(0xFF2B2D32) : theme.colorScheme.surface;
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+        top: 4,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(
+              translate('Start meeting'),
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                color: theme.colorScheme.onSurface,
+              ),
+            ),
+            const SizedBox(height: 16),
+            // 会议名称
+            _fieldLabel(theme, translate('Meeting name')),
+            const SizedBox(height: 6),
+            TextField(
+              controller: _titleController,
+              autofocus: false,
+              maxLength: 32,
+              style: TextStyle(
+                fontSize: 15,
+                color: theme.colorScheme.onSurface,
+              ),
+              decoration: InputDecoration(
+                hintText: translate('Enter meeting name'),
+                counterText: '',
+                filled: true,
+                fillColor: cardBg,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: theme.dividerColor),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: theme.dividerColor),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide:
+                      const BorderSide(color: MyTheme.primary, width: 1.4),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            // 开始时间
+            _fieldLabel(theme, translate('Start time')),
+            const SizedBox(height: 6),
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: _choiceCard(
+                    theme,
+                    selected: _startNow,
+                    icon: Icons.play_circle_outline_rounded,
+                    label: translate('Start now'),
+                    onTap: () => setState(() => _startNow = true),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _choiceCard(
+                    theme,
+                    selected: !_startNow,
+                    icon: Icons.schedule_rounded,
+                    label: _startTime == null
+                        ? translate('Schedule')
+                        : _formatStartTime(_startTime!),
+                    onTap: () async {
+                      await _pickStartTime();
+                    },
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            // 会议时长
+            _fieldLabel(theme, translate('Meeting duration')),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
+                for (final minutes in _durationChoices)
+                  _durationChip(theme, minutes),
+              ],
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: MyTheme.primary,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                onPressed: _submit,
+                child: Text(
+                  translate('Create meeting'),
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _fieldLabel(ThemeData theme, String text) {
+    return Text(
+      text,
+      style: TextStyle(
+        fontSize: 13,
+        fontWeight: FontWeight.w600,
+        color: theme.colorScheme.onSurface.withOpacity(0.65),
+      ),
+    );
+  }
+
+  Widget _choiceCard(
+    ThemeData theme, {
+    required bool selected,
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    final dark = theme.brightness == Brightness.dark;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        decoration: BoxDecoration(
+          color: selected
+              ? MyTheme.primary.withOpacity(0.1)
+              : (dark ? const Color(0xFF2B2D32) : theme.colorScheme.surface),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected ? MyTheme.primary : theme.dividerColor,
+            width: selected ? 1.4 : 0.8,
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            Icon(
+              icon,
+              size: 17,
+              color: selected ? MyTheme.primary : theme.colorScheme.onSurface,
+            ),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                  color: selected
+                      ? MyTheme.primary
+                      : theme.colorScheme.onSurface,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _durationChip(ThemeData theme, int minutes) {
+    final selected = _durationMinutes == minutes;
+    final dark = theme.brightness == Brightness.dark;
+    final label = minutes == 0
+        ? translate('No limit')
+        : minutes >= 60
+            ? '${minutes ~/ 60}${translate('hour')}'
+            : '$minutes${translate('minute')}';
+    return InkWell(
+      onTap: () => setState(() => _durationMinutes = minutes),
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+        decoration: BoxDecoration(
+          color: selected
+              ? MyTheme.primary
+              : (dark ? const Color(0xFF2B2D32) : theme.colorScheme.surface),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: selected ? MyTheme.primary : theme.dividerColor,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: selected ? Colors.white : theme.colorScheme.onSurface,
+          ),
+        ),
+      ),
+    );
+  }
 }
