@@ -79,13 +79,16 @@ class ChatNotifier {
     }
   }
 
-  /// 播放提示音：优先用户自定义声音文件，否则内置"叮咚"音。
+  /// 播放提示音：内置多选音（builtin:x）→ 用户自定义文件 → 默认"叮咚"音。
   Future<void> _playTone() async {
     try {
       final custom =
           bind.mainGetOptionSync(key: kOptionMessageSoundPath).trim();
       await _tonePlayer.stop();
-      if (custom.isNotEmpty && File(custom).existsSync()) {
+      if (custom.startsWith(kBuiltinTonePrefix)) {
+        final name = custom.substring(kBuiltinTonePrefix.length);
+        await _tonePlayer.play(AssetSource('assets/tones/$name.wav'));
+      } else if (custom.isNotEmpty && File(custom).existsSync()) {
         await _tonePlayer.play(DeviceFileSource(custom));
       } else {
         await _tonePlayer.play(AssetSource('assets/msg_tone.wav'));

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:luoda_flutter/common/widgets/setting_widgets.dart';
@@ -174,7 +175,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
         bind.mainGetOptionSync(key: kOptionMessageVibration));
     final soundPath =
         bind.mainGetOptionSync(key: kOptionMessageSoundPath).trim();
-    _messageSoundName = soundPath.isEmpty ? '' : translate('Custom');
+    _messageSoundName = _toneDisplayName(soundPath);
   }
 
   @override
@@ -1888,40 +1889,99 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
     );
   }
 
+  /// 提示音显示名：内置音 → 中文名，空 → 默认音，其它 → 自定义。
+  String _toneDisplayName(String value) {
+    final v = value.trim();
+    if (v.isEmpty) return '';
+    if (v.startsWith(kBuiltinTonePrefix)) {
+      final name = v.substring(kBuiltinTonePrefix.length);
+      final found = kBuiltinTones
+          .where((t) => t['key'] == name)
+          .toList();
+      if (found.isNotEmpty) {
+        return translate('Tone ${found.first['label']}');
+      }
+    }
+    return translate('Custom');
+  }
+
   Future<void> _showSoundPicker() async {
-    final isDefault =
-        bind.mainGetOptionSync(key: kOptionMessageSoundPath).trim().isEmpty;
+    final current =
+        bind.mainGetOptionSync(key: kOptionMessageSoundPath).trim();
+    final tonePlayer = AudioPlayer();
     await gFFI.dialogManager.show<void>(
       (setState, close, context) => CustomAlertDialog(
         title: Text(translate('Notification sound')),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.music_note_outlined),
-              title: Text(translate('Default tone')),
-              trailing: isDefault
-                  ? const Icon(Icons.check, color: Color(0xFF07C160))
-                  : null,
-              onTap: () async {
-                await bind.mainSetOption(
-                    key: kOptionMessageSoundPath, value: '');
-                if (mounted) setState(() => _messageSoundName = '');
-                close();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.folder_open_outlined),
-              title: Text(translate('Choose audio file')),
-              trailing: !isDefault
-                  ? const Icon(Icons.check, color: Color(0xFF07C160))
-                  : null,
-              onTap: () async {
-                close();
-                await _pickCustomSound();
-              },
-            ),
-          ],
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // 内置提示音（可试听）。
+              for (final tone in kBuiltinTones) ...<Widget>[
+                ListTile(
+                  leading: const Icon(Icons.music_note_outlined),
+                  title: Text(translate('Tone ${tone['label']}')),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      IconButton(
+                        icon: const Icon(Icons.play_circle_outline,
+                            color: Color(0xFF07C160)),
+                        tooltip: translate('Preview'),
+                        onPressed: () async {
+                          try {
+                            await tonePlayer.stop();
+                            await tonePlayer.play(AssetSource(
+                                'assets/tones/${tone['key']}.wav'));
+                          } catch (_) {}
+                        },
+                      ),
+                      if (current ==
+                          '$kBuiltinTonePrefix${tone['key']}')
+                        const Icon(Icons.check, color: Color(0xFF07C160)),
+                    ],
+                  ),
+                  onTap: () async {
+                    await bind.mainSetOption(
+                        key: kOptionMessageSoundPath,
+                        value: '$kBuiltinTonePrefix${tone['key']}');
+                    if (mounted) {
+                      setState(() => _messageSoundName =
+                          translate('Tone ${tone['label']}'));
+                    }
+                    close();
+                  },
+                ),
+              ],
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.notifications_none_outlined),
+                title: Text(translate('Default tone')),
+                trailing: current.isEmpty
+                    ? const Icon(Icons.check, color: Color(0xFF07C160))
+                    : null,
+                onTap: () async {
+                  await bind.mainSetOption(
+                      key: kOptionMessageSoundPath, value: '');
+                  if (mounted) setState(() => _messageSoundName = '');
+                  close();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.folder_open_outlined),
+                title: Text(translate('Choose audio file')),
+                trailing:
+                    (current.isNotEmpty &&
+                            !current.startsWith(kBuiltinTonePrefix))
+                        ? const Icon(Icons.check, color: Color(0xFF07C160))
+                        : null,
+                onTap: () async {
+                  close();
+                  await _pickCustomSound();
+                },
+              ),
+            ],
+          ),
         ),
         actions: [
           dialogButton(translate('Cancel'),
@@ -1929,6 +1989,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
         ],
       ),
     );
+    await tonePlayer.dispose();
   }
 
   Future<void> _pickCustomSound() async {

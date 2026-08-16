@@ -899,9 +899,7 @@ class _GeneralState extends State<_General> {
   Widget messageNotifications() {
     final soundPath =
         bind.mainGetOptionSync(key: kOptionMessageSoundPath).trim();
-    final soundName = soundPath.isEmpty
-        ? translate('Default tone')
-        : soundPath.split(Platform.pathSeparator).last;
+    final soundName = _toneDisplayName(soundPath);
     return _Card(
       title: 'Message notifications',
       description: 'Play a tone or vibrate when a new message arrives',
@@ -932,9 +930,63 @@ class _GeneralState extends State<_General> {
                   style: const TextStyle(height: 1.25),
                 ),
               ),
-              TextButton(
-                onPressed: _pickCustomSound,
-                child: Text(translate('Choose audio file')),
+              PopupMenuButton<String>(
+                tooltip: translate('Notification sound'),
+                onSelected: (value) async {
+                  if (value == '__default__') {
+                    await bind.mainSetOption(
+                        key: kOptionMessageSoundPath, value: '');
+                  } else if (value == '__file__') {
+                    await _pickCustomSound();
+                  } else {
+                    await bind.mainSetOption(
+                        key: kOptionMessageSoundPath,
+                        value: '$kBuiltinTonePrefix$value');
+                  }
+                  if (mounted) setState(() {});
+                },
+                itemBuilder: (context) => <PopupMenuEntry<String>>[
+                  const PopupMenuItem<String>(
+                    value: '__default__',
+                    child: Text('Default tone'),
+                  ),
+                  for (final tone in kBuiltinTones)
+                    PopupMenuItem<String>(
+                      value: tone['key']!,
+                      child: Text(translate('Tone ${tone['label']}')),
+                    ),
+                  const PopupMenuDivider(),
+                  const PopupMenuItem<String>(
+                    value: '__file__',
+                    child: Text('Choose audio file'),
+                  ),
+                ],
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                        color: Theme.of(context).colorScheme.primary,
+                        width: 1),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Text(
+                        translate('Choose'),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.primary,
+                          fontSize: 13,
+                        ),
+                      ),
+                      Icon(
+                        Icons.arrow_drop_down_rounded,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ],
+                  ),
+                ),
               ),
               if (soundPath.isNotEmpty)
                 TextButton(
@@ -950,6 +1002,22 @@ class _GeneralState extends State<_General> {
         ),
       ],
     );
+  }
+
+  /// 提示音显示名：内置音 → 中文名，空 → 默认音，其它 → 自定义文件名。
+  String _toneDisplayName(String value) {
+    final v = value.trim();
+    if (v.isEmpty) return translate('Default tone');
+    if (v.startsWith(kBuiltinTonePrefix)) {
+      final name = v.substring(kBuiltinTonePrefix.length);
+      final found = kBuiltinTones
+          .where((t) => t['key'] == name)
+          .toList();
+      if (found.isNotEmpty) {
+        return translate('Tone ${found.first['label']}');
+      }
+    }
+    return v.split(Platform.pathSeparator).last;
   }
 
   Future<void> _pickCustomSound() async {

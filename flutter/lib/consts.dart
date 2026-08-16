@@ -129,6 +129,29 @@ const String kOptionCollapseToolbar = "collapse_toolbar";
 const String kOptionMessageSound = "message-sound";
 const String kOptionMessageVibration = "message-vibration";
 const String kOptionMessageSoundPath = "message-sound-path";
+
+/// 内置消息提示音（原创合成音，无版权风险）。
+/// 存储值：`builtin:<key>` 存到 [kOptionMessageSoundPath]，播放时解析为
+/// assets/tones/<key>.wav；空串表示默认音（assets/msg_tone.wav）。
+const String kBuiltinTonePrefix = "builtin:";
+const List<Map<String, String>> kBuiltinTones = <Map<String, String>>[
+  <String, String>{'key': 'crisp', 'label': 'Crisp'},
+  <String, String>{'key': 'soft', 'label': 'Soft'},
+  <String, String>{'key': 'electronic', 'label': 'Electronic'},
+  <String, String>{'key': 'droplet', 'label': 'Droplet'},
+  <String, String>{'key': 'triple', 'label': 'Triple'},
+];
+
+/// 根据提示音配置值解析出资源路径：空 → 默认音；builtin:x → 内置音；
+/// 否则原样返回（自定义文件路径）。
+String resolveToneAsset(String value) {
+  final v = value.trim();
+  if (v.startsWith(kBuiltinTonePrefix)) {
+    final name = v.substring(kBuiltinTonePrefix.length);
+    return 'assets/tones/$name.wav';
+  }
+  return v;
+}
 const String kOptionHideToolbar = "hide-toolbar";
 const String kOptionShowRemoteCursor = "show_remote_cursor";
 const String kOptionFollowRemoteCursor = "follow_remote_cursor";

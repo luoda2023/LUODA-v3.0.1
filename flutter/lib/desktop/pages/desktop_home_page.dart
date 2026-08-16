@@ -1449,12 +1449,22 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                 const SizedBox(height: 6),
                                 Text(
                                   a.content,
+                                  maxLines: 3,
+                                  overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
                                     fontSize: 13,
                                     height: 1.5,
                                     color: dark
                                         ? const Color(0xFFC8CCD3)
                                         : const Color(0xFF3B3F45),
+                                  ),
+                                ),
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: TextButton(
+                                    onPressed: () =>
+                                        _showNoticeDetail(context, a),
+                                    child: Text(translate('View detail')),
                                   ),
                                 ),
                               ],
@@ -1472,6 +1482,69 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       },
     );
     await store.markAllRead();
+  }
+
+  /// 系统通知详情对话框：全屏展示标题、时间与完整内容。
+  void _showNoticeDetail(BuildContext context, SystemAnnouncement a) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        titlePadding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+        contentPadding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+        title: Row(
+          children: <Widget>[
+            Icon(Icons.campaign_rounded,
+                size: 18,
+                color: a.important
+                    ? const Color(0xFFFA5151)
+                    : kWeChatPrimaryColor),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                a.title,
+                style: const TextStyle(
+                    fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: 480,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  '${translate('Time')}: ${a.createdAt.toLocal()}'
+                      .replaceAll('.', ' '),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: dark ? MyTheme.mutedDark : MyTheme.mutedLight,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  a.content,
+                  style: TextStyle(
+                    fontSize: 14,
+                    height: 1.7,
+                    color:
+                        dark ? const Color(0xFFC8CCD3) : const Color(0xFF3B3F45),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(translate('OK')),
+          ),
+        ],
+      ),
+    );
   }
 
   /// 构建分类筛选相关控件：按分类过滤会话列表。
