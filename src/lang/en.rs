@@ -361,6 +361,8 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Navigate", "Navigate"),
         ("Navigate with", "Navigate with"),
         ("Search places", "Search places"),
+        ("No matching places", "No matching places"),
+        ("No nearby places found", "No nearby places found"),
         ("Map service key not configured", "Map service key not configured"),
         ("Map service key", "Map service key"),
         ("Connect and help your devices anytime", "Connect and help your devices anytime"),

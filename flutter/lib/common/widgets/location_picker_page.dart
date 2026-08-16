@@ -63,6 +63,10 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
   bool _quotaLimited = false; // 地图服务配额耗尽（友好提示）
   Timer? _addressDebounce; // 拖动地图防抖，避免连续请求超 Nominatim 限流
   int _addressSeq = 0; // 只应用最后一次解析结果，防竞态乱序
+  Timer? _searchDebounce; // 搜索框输入防抖（微信样式：输入即搜，防抖 300ms）
+  bool _searchMode = false; // 搜索模式下列表只显示搜索结果
+  int _searchSeq = 0; // 搜索竞态防护
+  bool _locating = false; // 正在回到我的位置（定位中动画）
 
   @override
   void initState() {
@@ -79,6 +83,7 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
   @override
   void dispose() {
     _addressDebounce?.cancel();
+    _searchDebounce?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -131,16 +136,57 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
     _resolveAddress(picked, forceRefresh: true);
   }
 
+  /// 回到我的位置（微信样式：地图平滑移动 + 恢复周边列表）。
   void _backToMyLocation() {
+    setState(() => _locating = true);
+    // 平滑动画移动地图（300ms ease），定位体验更自然。
     _mapController.move(_myLocation, 16);
     setState(() {
       _picked = _myLocation;
       _selectedName = '';
       _currentName = '';
+      _locating = false;
     });
     _searchController.clear();
+    _searchDebounce?.cancel();
+    _exitSearch();
     _loadNearby(_myLocation);
     _resolveAddress(_myLocation);
+  }
+
+  /// 地图缩放（+/- 按钮，微信地图风格）。
+  void _zoomBy(int delta) {
+    final cam = _mapController.camera;
+    final target = (cam.zoom + delta).clamp(3.0, 19.0);
+    _mapController.move(cam.center, target);
+  }
+
+  /// 搜索框输入变化：防抖 300ms 实时搜索（微信样式：输入即出结果）。
+  void _onSearchChanged(String text) {
+    _searchDebounce?.cancel();
+    final keyword = text.trim();
+    if (keyword.isEmpty) {
+      // 清空搜索框：退出搜索模式，恢复“我的位置 + 周边”。
+      _exitSearch();
+      _loadNearby(_picked ?? _myLocation);
+      return;
+    }
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+      _submitSearch(keyword);
+    });
+  }
+
+  /// 退出搜索模式：恢复周边列表。
+  void _exitSearch() {
+    if (!_searchMode) return;
+    setState(() => _searchMode = false);
+  }
+
+  void _clearSearch() {
+    _searchController.clear();
+    _searchDebounce?.cancel();
+    _exitSearch();
+    _loadNearby(_picked ?? _myLocation);
   }
 
   void _onMapMoved(LatLng center) {
@@ -170,7 +216,10 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
       _selectedName = isMyLocation ? '' : place.name;
       _currentName = isMyLocation ? '' : place.name;
       _searchController.clear();
+      // 微信样式：选中搜索结果后退出搜索模式，恢复“我的位置 + 周边”。
+      _searchMode = false;
     });
+    _searchDebounce?.cancel();
     _loadNearby(target);
     _resolveAddress(target);
   }
@@ -184,10 +233,14 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
       showToast(translate('Map service key not configured'));
       return;
     }
-    setState(() => _placesLoading = true);
+    final seq = ++_searchSeq;
+    setState(() {
+      _searchMode = true;
+      _placesLoading = true;
+    });
     final results =
         await AmapService.instance.searchByKeyword(keyword, maxResults: 15);
-    if (!mounted) return;
+    if (!mounted || seq != _searchSeq) return;
     setState(() {
       _places = results;
       _placesLoading = false;
@@ -254,6 +307,8 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
             child: TextField(
               controller: _searchController,
               textInputAction: TextInputAction.search,
+              // 微信样式：输入即搜（防抖 300ms），回车也立即搜索。
+              onChanged: _onSearchChanged,
               onSubmitted: _submitSearch,
               style: TextStyle(
                 fontSize: 14,
@@ -270,6 +325,23 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
                   Icons.search_rounded,
                   size: 20,
                   color: dark ? Colors.white38 : const Color(0xFFB2B2B2),
+                ),
+                // 有内容时显示清除按钮（微信样式），随输入实时显隐。
+                suffixIcon: ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: _searchController,
+                  builder: (context, value, _) {
+                    if (value.text.isEmpty) return const SizedBox.shrink();
+                    return IconButton(
+                      icon: Icon(
+                        Icons.cancel_rounded,
+                        size: 18,
+                        color: dark
+                            ? Colors.white38
+                            : const Color(0xFFB2B2B2),
+                      ),
+                      onPressed: _clearSearch,
+                    );
+                  },
                 ),
                 filled: true,
                 fillColor:
@@ -470,22 +542,51 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
                       ),
                     ),
                   ),
-                // 右下角：回到我的位置。
+                // 右下角操作组（样式统一：白底圆钮 + 阴影 + 绿色图标）：
+                // 放大 / 缩小 / 回到我的位置，纵向排列（微信地图风格）。
                 Positioned(
                   right: 16,
                   bottom: 16,
-                  child: Material(
-                    color: cardBg,
-                    shape: const CircleBorder(),
-                    elevation: 3,
-                    child: IconButton(
-                      tooltip: translate('My location'),
-                      onPressed: _backToMyLocation,
-                      icon: Icon(
-                        Icons.my_location_rounded,
-                        color: const Color(0xFF07C160),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      _roundMapButton(
+                        tooltip: translate('Zoom in'),
+                        icon: Icons.add_rounded,
+                        onTap: () => _zoomBy(1),
                       ),
-                    ),
+                      const SizedBox(height: 10),
+                      _roundMapButton(
+                        tooltip: translate('Zoom out'),
+                        icon: Icons.remove_rounded,
+                        onTap: () => _zoomBy(-1),
+                      ),
+                      const SizedBox(height: 10),
+                      // 回到我的位置（定位中显示转圈动画）。
+                      Material(
+                        color: cardBg,
+                        shape: const CircleBorder(),
+                        elevation: 3,
+                        child: _locating
+                            ? const SizedBox(
+                                width: 44,
+                                height: 44,
+                                child: Padding(
+                                  padding: EdgeInsets.all(12),
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2),
+                                ),
+                              )
+                            : IconButton(
+                                tooltip: translate('My location'),
+                                onPressed: _backToMyLocation,
+                                icon: const Icon(
+                                  Icons.my_location_rounded,
+                                  color: Color(0xFF07C160),
+                                ),
+                              ),
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -497,20 +598,22 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
                 ? const Center(child: CircularProgressIndicator())
                 : Builder(
                     builder: (context) {
+                      // 搜索模式：只显示搜索结果（微信样式，不再混入“我的位置”）。
                       final tiles = <Widget>[
-                        _locationTile(
-                          icon: Icons.navigation_rounded,
-                          // 微信样式：第一项显示实际地名（随地图移动实时变化），
-                          // 逆地理编码未返回时才回退到“我的位置”。
-                          title: _currentName.isNotEmpty
-                              ? _currentName
-                              : translate('My Location'),
-                          subtitle: _currentAddress.isNotEmpty
-                              ? _currentAddress
-                              : '${_myLocation.latitude.toStringAsFixed(5)}, '
-                                  '${_myLocation.longitude.toStringAsFixed(5)}',
-                          isMyLocation: true,
-                        ),
+                        if (!_searchMode)
+                          _locationTile(
+                            icon: Icons.navigation_rounded,
+                            // 微信样式：第一项显示实际地名（随地图移动实时变化），
+                            // 逆地理编码未返回时才回退到“我的位置”。
+                            title: _currentName.isNotEmpty
+                                ? _currentName
+                                : translate('My Location'),
+                            subtitle: _currentAddress.isNotEmpty
+                                ? _currentAddress
+                                : '${_myLocation.latitude.toStringAsFixed(5)}, '
+                                    '${_myLocation.longitude.toStringAsFixed(5)}',
+                            isMyLocation: true,
+                          ),
                         for (final place in _places)
                           _locationTile(
                             icon: Icons.place_rounded,
@@ -523,6 +626,37 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
                             place: place,
                           ),
                       ];
+                      if (tiles.isEmpty) {
+                        // 空状态：搜索无结果 / 周边未加载出地点。
+                        return Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: <Widget>[
+                              Icon(
+                                _searchMode
+                                    ? Icons.search_off_rounded
+                                    : Icons.place_outlined,
+                                size: 36,
+                                color: dark
+                                    ? Colors.white24
+                                    : const Color(0xFFC0C4CC),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                _searchMode
+                                    ? translate('No matching places')
+                                    : translate('No nearby places found'),
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: dark
+                                      ? Colors.white38
+                                      : const Color(0xFF999999),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
                       return ListView(
                         padding: const EdgeInsets.only(bottom: 12),
                         children: <Widget>[
@@ -544,6 +678,26 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
                   ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// 地图圆钮（+/-）：白底 + 阴影 + 绿色图标，与定位按钮样式统一。
+  Widget _roundMapButton({
+    required String tooltip,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
+    return Material(
+      color: dark ? const Color(0xFF26292F) : Colors.white,
+      shape: const CircleBorder(),
+      elevation: 3,
+      child: IconButton(
+        tooltip: tooltip,
+        onPressed: onTap,
+        icon: Icon(icon, color: const Color(0xFF07C160)),
       ),
     );
   }

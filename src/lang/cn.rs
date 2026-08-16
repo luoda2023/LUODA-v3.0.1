@@ -1003,6 +1003,8 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Navigate", "导航"),
         ("Navigate with", "使用地图导航"),
         ("Search places", "搜索地点"),
+        ("No matching places", "未找到匹配的地点"),
+        ("No nearby places found", "附近暂未找到地点"),
         ("Map service key not configured", "未配置地图服务 Key，搜索不可用"),
         ("Map service key", "高德地图服务 Key"),
         ("Screenshot annotator", "截图标注"),
