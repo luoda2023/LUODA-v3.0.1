@@ -530,6 +530,15 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           ),
         ),
         PopupMenuItem<String>(
+          value: 'vibrationOff',
+          height: 36,
+          child: menuText(
+            gFFI.chatSettingsModel.isVibrationOff(id)
+                ? translate('Enable vibration')
+                : translate('Disable vibration'),
+          ),
+        ),
+        PopupMenuItem<String>(
           value: 'block',
           height: 36,
           child: menuText(
@@ -585,6 +594,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             ),
           );
         }
+        break;
+      case 'vibrationOff':
+        await gFFI.chatSettingsModel.toggleVibrationOff(id);
         break;
       case 'block':
         final willBlock = !gFFI.chatSettingsModel.isBlocked(id);

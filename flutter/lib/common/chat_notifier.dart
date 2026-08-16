@@ -134,13 +134,17 @@ class ChatNotifier {
     required String senderName,
     required String body,
   }) async {
+    // 会话内免打扰（静音）：不播提示音、不震动，横幅仍显示。
+    final chatSettings = gFFI.chatSettingsModel;
+    final peerMuted = chatSettings.isDoNotDisturb(peerId);
+    final peerVibrationOff = chatSettings.isVibrationOff(peerId);
     // 提示音两端都播；通知横幅仅手机端。
-    if (soundEnabled) {
+    if (soundEnabled && !peerMuted) {
       unawaited(_playTone());
     }
     if (!_ready || !isMobile) return;
     try {
-      final vibrate = vibrationEnabled;
+      final vibrate = vibrationEnabled && !peerMuted && !peerVibrationOff;
       final details = NotificationDetails(
         android: AndroidNotificationDetails(
           _channelId,

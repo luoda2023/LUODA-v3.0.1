@@ -558,6 +558,8 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           }
                         } else if (action == 'mute') {
                           gFFI.chatSettingsModel.toggleMute(peerId);
+                        } else if (action == 'vibrationOff') {
+                          gFFI.chatSettingsModel.toggleVibrationOff(peerId);
                         } else if (action == 'block') {
                           gFFI.chatSettingsModel.toggleBlock(peerId);
                         } else if (action == 'connectionDetails') {
@@ -597,18 +599,54 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             ),
                           PopupMenuItem(
                             value: 'mute',
-                            child: Text(
-                              gFFI.chatSettingsModel.isMuted(peerId)
-                                  ? translate('Unmute')
-                                  : translate('Mute'),
+                            child: Row(
+                              children: <Widget>[
+                                Icon(
+                                  gFFI.chatSettingsModel.isMuted(peerId)
+                                      ? Icons.notifications_off_rounded
+                                      : Icons.notifications_off_outlined,
+                                  size: 18,
+                                ),
+                                const SizedBox(width: 10),
+                                Text(
+                                  gFFI.chatSettingsModel.isMuted(peerId)
+                                      ? translate('Unmute')
+                                      : translate('Mute'),
+                                ),
+                              ],
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: 'vibrationOff',
+                            child: Row(
+                              children: <Widget>[
+                                Icon(
+                                  gFFI.chatSettingsModel.isVibrationOff(peerId)
+                                      ? Icons.vibration_rounded
+                                      : Icons.vibration_outlined,
+                                  size: 18,
+                                ),
+                                const SizedBox(width: 10),
+                                Text(
+                                  gFFI.chatSettingsModel.isVibrationOff(peerId)
+                                      ? translate('Enable vibration')
+                                      : translate('Disable vibration'),
+                                ),
+                              ],
                             ),
                           ),
                           PopupMenuItem(
                             value: 'block',
-                            child: Text(
-                              gFFI.chatSettingsModel.isBlocked(peerId)
-                                  ? translate('Unblock')
-                                  : translate('Block'),
+                            child: Row(
+                              children: <Widget>[
+                                const Icon(Icons.block_rounded, size: 18),
+                                const SizedBox(width: 10),
+                                Text(
+                                  gFFI.chatSettingsModel.isBlocked(peerId)
+                                      ? translate('Unblock')
+                                      : translate('Block'),
+                                ),
+                              ],
                             ),
                           ),
                         ];

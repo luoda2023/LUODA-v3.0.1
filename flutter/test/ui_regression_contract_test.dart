@@ -546,7 +546,8 @@ void main() {
         .split('Future<void> _showManagedEntryMenu(')[1]
         .split('@override\n  Widget build(BuildContext context)')[0];
 
-    expect('height: 36'.allMatches(managedEntryMenu).length, 8);
+    // 9 项：选择/收藏/好友或陌生/标签/移动/静音/关闭震动/拉黑/删除。
+    expect('height: 36'.allMatches(managedEntryMenu).length, 9);
     expect(managedEntryMenu, contains('fontSize: 13'));
     expect(managedEntryMenu, contains('height: 1'));
     expect(managedEntryMenu, contains('letterSpacing: 0'));

@@ -5,6 +5,8 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Phone", "Phone"),
         ("Not bound to PC yet, tap to scan and bind", "Not bound to PC yet, tap to scan and bind"),
         ("Back", "Back"),
+        ("Disable vibration", "Disable vibration"),
+        ("Enable vibration", "Enable vibration"),
         ("Bound to PC", "Bound to PC"),
         ("Not bound to phone yet, scan the QR code with your phone", "Not bound to phone yet, scan the QR code with your phone"),
         ("Bound to phone", "Bound to phone"),

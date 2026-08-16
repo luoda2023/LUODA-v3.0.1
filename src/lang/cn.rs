@@ -1424,6 +1424,8 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("bt_dotchat_hint", "仅可连接已安装“点聊”的设备，其它蓝牙设备无法连接聊天。"),
         ("Unknown peer", "未知对象"),
         ("Unmute", "取消免打扰"),
+        ("Disable vibration", "关闭震动"),
+        ("Enable vibration", "开启震动"),
         ("Version: ", "版本："),
         ("View Camera", "查看摄像头"),
         ("Voice", "语音"),
