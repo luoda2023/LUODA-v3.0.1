@@ -827,6 +827,8 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Invite Viewer", "邀请观看"),
         ("invited you to join", "邀请你加入"),
         ("Generate Invite Token", "生成邀请链接"),
+        ("One-shot", "一次性"),
+        ("Generating...", "生成中..."),
         ("Invite Code", "邀请码"),
         ("Invite Link", "邀请链接"),
         ("Copy Invite Link", "复制邀请链接"),

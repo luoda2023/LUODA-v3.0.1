@@ -161,11 +161,11 @@ class _InstallPageBodyState extends State<_InstallPageBody>
                   )
                 ],
               ).marginSymmetric(vertical: 2 * em),
-              Option(startmenu, label: 'Create start menu shortcuts')
+              Option(startmenu, label: translate('Create start menu shortcuts'))
                   .marginOnly(bottom: 7),
-              Option(desktopicon, label: 'Create desktop icon')
+              Option(desktopicon, label: translate('Create desktop icon'))
                   .marginOnly(bottom: 7),
-              Option(printer, label: 'Install {$appName} Printer'),
+              Option(printer, label: '${translate('Install')} $appName ${translate('Printer')}'),
               Container(
                   padding: EdgeInsets.all(12),
                   decoration: BoxDecoration(

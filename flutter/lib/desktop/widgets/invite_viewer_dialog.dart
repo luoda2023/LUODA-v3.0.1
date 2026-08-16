@@ -304,7 +304,7 @@ class _InviteViewerDialogState extends State<InviteViewerDialog> {
           Padding(
             padding: const EdgeInsets.only(left: 4, top: 4),
             child: Text(
-              'one-shot',
+              translate('One-shot'),
               style: theme.textTheme.bodySmall,
             ),
           ),
@@ -312,7 +312,7 @@ class _InviteViewerDialogState extends State<InviteViewerDialog> {
         ElevatedButton(
           onPressed: _generating ? null : _generate,
           child: Text(_generating
-              ? 'Generating...'
+              ? translate('Generating...')
               : translate('Generate Invite Token')),
         ),
       ],

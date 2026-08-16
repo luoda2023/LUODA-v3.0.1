@@ -2625,7 +2625,7 @@ class _VoiceCallMenu extends StatelessWidget {
   Widget buildCallWaiting(BuildContext context) {
     return _IconMenuButton(
       assetName: "assets/call_wait.svg",
-      tooltip: "Waiting",
+      tooltip: translate("Waiting"),
       onPressed: () => bind.sessionCloseVoiceCall(sessionId: ffi.sessionId),
       color: _ToolbarTheme.redColor,
       hoverColor: _ToolbarTheme.hoverRedColor,

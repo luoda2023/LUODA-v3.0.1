@@ -1057,7 +1057,7 @@ class _CmControlPanel extends StatelessWidget {
                 size: 14,
               ),
               textColor: Colors.white,
-              tooltip: 'accept_and_elevate_btn_tooltip'),
+              tooltip: translate('accept_and_elevate_btn_tooltip')),
         ),
         Row(
           mainAxisAlignment: MainAxisAlignment.center,

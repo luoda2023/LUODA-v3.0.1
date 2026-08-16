@@ -400,6 +400,8 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
 ("Host is sharing screen - tap to view", "Host is sharing screen - tap to view"),
         ("Invite Viewer", "Invite Viewer"),
         ("Generate Invite Token", "Generate Invite Token"),
+        ("One-shot", "One-shot"),
+        ("Generating...", "Generating..."),
         ("Invite Code", "Invite Code"),
         ("Invite Link", "Invite Link"),
         ("Copy Invite Link", "Copy Invite Link"),
