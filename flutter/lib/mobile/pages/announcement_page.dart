@@ -7,7 +7,11 @@ import '../../common/system_announcement.dart';
 
 /// 系统通知列表页：拉取服务器发布的通知，显示未读红点与详情。
 class AnnouncementPage extends StatefulWidget {
-  const AnnouncementPage({super.key});
+  const AnnouncementPage({super.key, this.onClose});
+
+  /// 嵌入主内容区时的关闭回调（AppBar 显示返回按钮）；
+  /// 为空时按普通 push 页面处理（无返回按钮，用系统返回键）。
+  final VoidCallback? onClose;
 
   @override
   State<AnnouncementPage> createState() => _AnnouncementPageState();
@@ -36,6 +40,14 @@ class _AnnouncementPageState extends State<AnnouncementPage> {
     return Scaffold(
       appBar: AppBar(
         backgroundColor: dark ? const Color(0xFF1C1E23) : Colors.white,
+        leading: widget.onClose == null
+            ? null
+            : IconButton(
+                tooltip: translate('Back'),
+                onPressed: widget.onClose,
+                icon: const Icon(Icons.arrow_back_ios_new_rounded,
+                    size: 20),
+              ),
         title: Text(translate('System notices')),
         actions: <Widget>[
           // 一键全部已读：有未读时显示。

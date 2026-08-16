@@ -118,6 +118,11 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// once immediately and the timers restarted.
   bool _lifecyclePaused = false;
   final List<PageShape> _pages = [];
+  /// 手机端点聊 tab 内嵌面板（对齐 PC 端 Offstage 保活方案）：
+  /// 打开系统通知/收藏时不 push 全屏页面，而是叠一层面板、
+  /// 下方 PageView（点聊列表/聊天页）保持挂载，关闭后立即恢复原状。
+  /// 取值：null（无面板）/ 'notices'（系统通知）/ 'favorites'（收藏）。
+  final ValueNotifier<String?> _mobilePanel = ValueNotifier<String?>(null);
   int _chatPageTabIndex = -1;
   int _contactsPageTabIndex = -1;
 
@@ -770,6 +775,9 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
         onOpenMeetings: () {
           if (_meetingPageTabIndex >= 0) _goToPage(_meetingPageTabIndex);
         },
+        onOpenNotices: () {
+          if (mounted) _mobilePanel.value = 'notices';
+        },
         searchKey: _mobileMessagesKey,
       ));
     }
@@ -986,9 +994,9 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (!mounted) return;
     switch (action) {
       case 'favorites':
-        await Navigator.of(context).push(
-          MaterialPageRoute<void>(builder: (_) => FavoritesPage()),
-        );
+        // 嵌入面板而非全屏跳转：点聊列表 Offstage 保活，
+        // 关闭后立即回到之前的会话/滚动位置（微信 PC 风格）。
+        if (mounted) _mobilePanel.value = 'favorites';
       case 'scan':
         await Navigator.of(context).push(
           MaterialPageRoute<void>(builder: (_) => ScanPage()),
@@ -1542,6 +1550,7 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _chatKeepAliveTimer?.cancel();
     _pageController?.dispose();
     _pageController = null;
+    _mobilePanel.dispose();
     _directPairingSyncTimer?.cancel();
     final fileSession = _directFileSession;
     _directFileSession = null;
@@ -1562,6 +1571,11 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final dark = Theme.of(context).brightness == Brightness.dark;
     return WillPopScope(
         onWillPop: () async {
+          // 内嵌面板打开时：返回键先关闭面板，再回上一页。
+          if (_mobilePanel.value != null) {
+            _mobilePanel.value = null;
+            return false;
+          }
           if (_selectedIndex != _chatPageTabIndex) {
             _goToPage(_chatPageTabIndex);
           } else {
@@ -1685,27 +1699,60 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
             ],
           ),
           bottomNavigationBar: _buildBottomNav(context),
-          body: count == 0
-              ? const SizedBox.shrink()
-              : PageView.builder(
-                  controller: _pageController,
-                  // ??????? ? ?? ? ?? ? ??
-                  itemCount: 100000001,
-                  onPageChanged: (index) {
-                    final page = index % count;
-                    if (page != _selectedIndex) {
-                      setState(() => _selectedIndex = page);
-                      if (page == _chatPageTabIndex) {
-                        gFFI.chatModel.hideChatIconOverlay();
-                        gFFI.chatModel.hideChatWindowOverlay();
-                        gFFI.chatModel.mobileClearClientUnread(
-                            gFFI.chatModel.currentKey.connId);
-                      }
-                    }
-                  },
-                  itemBuilder: (context, index) =>
-                      _pages.elementAt(index % count),
-                ),
+          // 内嵌面板层（系统通知/收藏）：面板打开时主界面 Offstage 保活，
+          // 关闭后立即回到之前浏览的会话/滚动位置（对齐 PC 端方案）。
+          body: ValueListenableBuilder<String?>(
+            valueListenable: _mobilePanel,
+            builder: (context, panel, _) {
+              return Stack(
+                fit: StackFit.expand,
+                children: <Widget>[
+                  Offstage(
+                    offstage: panel != null,
+                    child: count == 0
+                        ? const SizedBox.shrink()
+                        : PageView.builder(
+                            controller: _pageController,
+                            itemCount: 100000001,
+                            onPageChanged: (index) {
+                              final page = index % count;
+                              if (page != _selectedIndex) {
+                                setState(() => _selectedIndex = page);
+                                if (page == _chatPageTabIndex) {
+                                  gFFI.chatModel.hideChatIconOverlay();
+                                  gFFI.chatModel.hideChatWindowOverlay();
+                                  gFFI.chatModel.mobileClearClientUnread(
+                                      gFFI.chatModel.currentKey.connId);
+                                }
+                              }
+                            },
+                            itemBuilder: (context, index) =>
+                                _pages.elementAt(index % count),
+                          ),
+                  ),
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 260),
+                    transitionBuilder: (child, animation) =>
+                        FadeTransition(
+                      opacity: animation,
+                      child: child,
+                    ),
+                    child: panel == null
+                        ? const SizedBox.shrink(key: ValueKey('no-panel'))
+                        : panel == 'notices'
+                            ? AnnouncementPage(
+                                key: const ValueKey('notice-panel'),
+                                onClose: () => _mobilePanel.value = null,
+                              )
+                            : FavoritesPage(
+                                key: const ValueKey('favorites-panel'),
+                                onClose: () => _mobilePanel.value = null,
+                              ),
+                  ),
+                ],
+              );
+            },
+          ),
         ));
   }
 
@@ -2061,12 +2108,15 @@ class _MobileMessagesPage extends StatefulWidget implements PageShape {
     required this.onOpenConversation,
     required this.onNewConversation,
     this.onOpenMeetings,
+    this.onOpenNotices,
     this.searchKey,
   });
 
   final ValueChanged<MessageKey> onOpenConversation;
   final VoidCallback onNewConversation;
   final VoidCallback? onOpenMeetings;
+  /// 系统通知入口点击回调（打开内嵌通知面板，替代全屏 push）。
+  final VoidCallback? onOpenNotices;
   final GlobalKey<_MobileMessagesPageState>? searchKey;
 
   @override
@@ -2718,9 +2768,8 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
           color: Colors.transparent,
           child: InkWell(
             onTap: () {
-              unawaited(Navigator.of(context).push(MaterialPageRoute<void>(
-                builder: (_) => const AnnouncementPage(),
-              )));
+              // 打开内嵌通知面板：点聊列表 Offstage 保活（对齐 PC 端）。
+              widget.onOpenNotices?.call();
             },
             highlightColor: dark
                 ? const Color(0xFF34373D)
