@@ -131,9 +131,11 @@ class _MeetingMembersDialogState extends State<MeetingMembersDialog> {
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       backgroundColor: surface,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 32),
+      // PC 端与列表观感对齐：加宽 1/2（420 → 640，对齐 P2P 详情弹窗加宽
+      // 先例），成员行横向铺开；留白相应收紧，小窗口下也放得下。
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420, maxHeight: 560),
+        constraints: const BoxConstraints(maxWidth: 640, maxHeight: 640),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
