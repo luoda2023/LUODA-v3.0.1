@@ -3214,7 +3214,8 @@ class ChatModel with ChangeNotifier {
       default:
         final t = record.text.trim();
         if (t.isEmpty) return '';
-        return t.length > 60 ? '${t.substring(0, 60)}…' : t;
+        // 通知横幅预览完整内容（锁屏/下拉可读全文，微信式）。
+        return t;
     }
   }
 

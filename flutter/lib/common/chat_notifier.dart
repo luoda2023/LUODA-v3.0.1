@@ -148,12 +148,17 @@ class ChatNotifier {
           channelDescription: _channelDescription,
           importance: Importance.high,
           priority: Priority.high,
+          // 锁屏显示完整内容（微信式消息横幅）。
+          visibility: NotificationVisibility.public,
+          category: AndroidNotificationCategory.message,
+          showWhen: true,
           enableVibration: vibrate,
           // 震动时长由设置档位控制（短/中/长）。
           vibrationPattern: vibrate ? _vibrationPattern : null,
           // 提示音由 audioplayers 自己播放，避免系统通知音与自定义音叠加
           playSound: false,
           styleInformation: BigTextStyleInformation(
+            // 完整消息内容（长文本不截断，锁屏/横幅可预览全文）。
             body,
             htmlFormatBigText: false,
             contentTitle: senderName,
