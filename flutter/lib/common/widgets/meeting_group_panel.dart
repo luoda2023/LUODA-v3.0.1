@@ -324,14 +324,15 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
     final border = dark ? MyTheme.borderDark : MyTheme.borderLight;
 
     return Scaffold(
-      backgroundColor: dark ? MyTheme.canvasDark : const Color(0xFFF5F6F7),
+      // WeChat 聊天信息页：浅灰背景 + 白色圆角分组卡片，无阴影。
+      backgroundColor: dark ? MyTheme.canvasDark : const Color(0xFFF7F7F7),
       appBar: AppBar(
         centerTitle: true,
         toolbarHeight: 46,
         elevation: 0,
         backgroundColor: dark ? MyTheme.surfaceDark : const Color(0xFFEDEDED),
         title: Text(
-          _group.title,
+          translate('Chat info'),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
@@ -363,26 +364,31 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
                 // 手机窄屏不限宽（与上一级列表同宽），仅 PC 宽窗口限宽保持美观
                 constraints: BoxConstraints(
                   maxWidth: MediaQuery.sizeOf(context).width > 700
-                      ? 620
+                      ? 680
                       : double.infinity,
                 ),
                 child: ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
                   children: [
-                    _buildMeetingCard(context, isHost),
-                    const SizedBox(height: 12),
+                    _buildHeaderCard(context),
+                    const SizedBox(height: 10),
+                    _buildInfoGroup(context, isHost),
                     if (isHost) ...[
+                      const SizedBox(height: 10),
                       _buildPresentationCard(context, surface, border),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 10),
                       _buildInviteCard(context, surface, border),
-                      const SizedBox(height: 12),
                     ],
                     if (_group.hasActiveSession) ...[
+                      const SizedBox(height: 10),
                       _buildActiveSessionBanner(context, theme),
-                      const SizedBox(height: 12),
                     ],
+                    const SizedBox(height: 10),
                     _buildMembersCard(context, surface, border),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 20),
+                    // 微信风格底部红色危险按钮：解散/退出。
+                    _buildDangerButton(context),
+                    const SizedBox(height: 12),
                   ],
                 ),
               ),
@@ -394,7 +400,109 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
     );
   }
 
-  Widget _buildMeetingCard(BuildContext context, bool isHost) {
+  /// 微信风格分组卡片容器：白底圆角 12，无阴影，细描边。
+  Widget _groupCard({
+    required Color surface,
+    required Color border,
+    required Widget child,
+    EdgeInsets padding = const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: border.withOpacity(0.5)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Padding(padding: padding, child: child),
+    );
+  }
+
+  /// 顶部头像卡（微信聊天信息页：大圆角头像 + 名称 + 副标题，居中）。
+  Widget _buildHeaderCard(BuildContext context) {
+    final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
+    final isHost = _group.isHost;
+    final surface = dark ? MyTheme.surfaceDark : Colors.white;
+    final border = dark ? MyTheme.borderDark : MyTheme.borderLight;
+    final presenterLabel = _group.presenterDisplayName.isNotEmpty
+        ? _group.presenterDisplayName
+        : _group.hostDisplayName;
+
+    return _groupCard(
+      surface: surface,
+      border: border,
+      padding: const EdgeInsets.fromLTRB(16, 22, 16, 18),
+      child: Column(
+        children: [
+          Stack(
+            alignment: Alignment.center,
+            children: [
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: <Color>[Color(0xFF0FAF57), Color(0xFF07C160)],
+                  ),
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: const Icon(Icons.videocam_rounded,
+                    color: Colors.white, size: 32),
+              ),
+              if (isHost)
+                Positioned(
+                  right: 0,
+                  top: 0,
+                  child: InkWell(
+                    onTap: _editTitle,
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: MyTheme.primarySoft,
+                        borderRadius: BorderRadius.circular(9),
+                      ),
+                      child: const Icon(Icons.edit_rounded,
+                          color: MyTheme.primary, size: 14),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            _group.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: theme.colorScheme.onSurface,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '${translate('Meeting')} · '
+            '${_members.length + 1} ${translate('Members')} · '
+            '$presenterLabel ${translate('presents')}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 12,
+              color: theme.colorScheme.onSurface.withOpacity(0.45),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 会议信息分组（微信风格：白色分组内多行，行间细分隔线）。
+  Widget _buildInfoGroup(BuildContext context, bool isHost) {
     final theme = Theme.of(context);
     final dark = theme.brightness == Brightness.dark;
     final surface = dark ? MyTheme.surfaceDark : Colors.white;
@@ -402,94 +510,12 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
     final presenterLabel = _group.presenterDisplayName.isNotEmpty
         ? _group.presenterDisplayName
         : _group.hostDisplayName;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: border.withOpacity(0.6)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(dark ? 0.3 : 0.04),
-            blurRadius: 12,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      clipBehavior: Clip.antiAlias,
+    return _groupCard(
+      surface: surface,
+      border: border,
+      padding: EdgeInsets.zero,
       child: Column(
         children: [
-          // 渐变头部：会议头像 + 会议名 + 副标题 + 编辑按钮。
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.fromLTRB(20, 24, 20, 22),
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: <Color>[Color(0xFF0FAF57), Color(0xFF07C160)],
-              ),
-            ),
-            child: Column(
-              children: [
-                Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    Container(
-                      width: 62,
-                      height: 62,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.18),
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                      child: const Icon(Icons.videocam_rounded,
-                          color: Colors.white, size: 32),
-                    ),
-                    if (isHost)
-                      Positioned(
-                        right: 0,
-                        top: 0,
-                        child: InkWell(
-                          onTap: _editTitle,
-                          borderRadius: BorderRadius.circular(10),
-                          child: Container(
-                            padding: const EdgeInsets.all(7),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Icon(Icons.edit_rounded,
-                                color: Colors.white, size: 15),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  _group.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${translate('Meeting')} · '
-                  '${_members.length + 1} ${translate('Members')}',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.white.withOpacity(0.85),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // 信息行列表。
           _infoRow(
             context,
             icon: Icons.person_rounded,
@@ -541,6 +567,89 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
       ),
     );
   }
+
+  /// 底部红色危险按钮（微信风格）：host 解散会议，成员退出会议。
+  Widget _buildDangerButton(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final surface = dark ? MyTheme.surfaceDark : Colors.white;
+    final border = dark ? MyTheme.borderDark : MyTheme.borderLight;
+    final label = _group.isHost
+        ? translate('Delete group')
+        : translate('Leave meeting');
+    return Container(
+      height: 48,
+      decoration: BoxDecoration(
+        color: surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: border.withOpacity(0.5)),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: _group.isHost ? _deleteGroup : _leaveMeeting,
+        child: Center(
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFFFA5151),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _deleteGroup() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(translate('Delete group')),
+        content: Text(translate('Delete this meeting group permanently?')),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(translate('Cancel'))),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(translate('Delete'),
+                style: const TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true) {
+      await MeetingGroupStore.remove(_group.meetingId);
+      if (context.mounted) Navigator.of(context).pop();
+    }
+  }
+
+  Future<void> _leaveMeeting() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(translate('Leave meeting')),
+        content: Text('${translate('Leave')} ${_group.title}?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(translate('Cancel'))),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(translate('Leave'),
+                style: const TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    if (_group.hostPeerId == gFFI.serverModel.id) return;
+    MeetingGroupStore.removeMember(_group.meetingId, gFFI.serverModel.id);
+    if (context.mounted) Navigator.of(context).pop();
+  }
+
 
   Widget _infoRow(
     BuildContext context, {
@@ -607,13 +716,10 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
     final isSelfPresenter = _group.presenterPeerId.isEmpty
         ? _group.isHost
         : _group.presenterPeerId == gFFI.serverModel.id;
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-      decoration: BoxDecoration(
-        color: surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: border.withOpacity(0.6)),
-      ),
+    return _groupCard(
+      surface: surface,
+      border: border,
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -716,13 +822,10 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
   Widget _buildInviteCard(BuildContext context, Color surface, Color border) {
     final theme = Theme.of(context);
     final dark = theme.brightness == Brightness.dark;
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-      decoration: BoxDecoration(
-        color: surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: border.withOpacity(0.6)),
-      ),
+    return _groupCard(
+      surface: surface,
+      border: border,
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -859,18 +962,16 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
     final dark = theme.brightness == Brightness.dark;
     final members = _members;
     final active = _group.hasActiveSession;
-    return Container(
-      decoration: BoxDecoration(
-        color: surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: border.withOpacity(0.6)),
-      ),
-      clipBehavior: Clip.antiAlias,
+    final isHost = _group.isHost;
+    return _groupCard(
+      surface: surface,
+      border: border,
+      padding: EdgeInsets.zero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
             child: Row(
               children: [
                 Text(
@@ -944,33 +1045,49 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
               ],
             ),
           ),
-          Divider(
-              height: 1,
-              thickness: 0.5,
-              color: dark ? const Color(0xFF3A3D43) : const Color(0x80E5E5E5)),
-          _MemberTile(
-            peerId: _group.hostPeerId,
-            displayName: _group.hostDisplayName,
-            isHost: true,
-            isPresenter: _group.presenterPeerId.isEmpty
-                ? true
-                : _group.presenterPeerId == _group.hostPeerId,
-            joinedAt: _group.createdAt,
-            onRemove: null,
-            showDivider: members.isNotEmpty,
+          const SizedBox(height: 6),
+          // 微信成员网格：host + 成员 + (host) 添加，5 列。
+          GridView.count(
+            crossAxisCount: 5,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(8, 0, 8, 10),
+            mainAxisSpacing: 10,
+            crossAxisSpacing: 4,
+            childAspectRatio: 0.82,
+            children: [
+              _MemberGridTile(
+                peerId: _group.hostPeerId,
+                displayName: _group.hostDisplayName,
+                isHost: true,
+                isPresenter: _group.presenterPeerId.isEmpty
+                    ? true
+                    : _group.presenterPeerId == _group.hostPeerId,
+                online: _memberOnline(_group.hostPeerId),
+                onRemove: null,
+              ),
+              for (var i = 0; i < members.length; i++)
+                _MemberGridTile(
+                  peerId: members[i].peerId,
+                  displayName: members[i].displayName,
+                  isHost: false,
+                  isPresenter: _group.presenterPeerId == members[i].peerId,
+                  online: _memberOnline(members[i].peerId),
+                  onRemove:
+                      isHost ? () => _removeMember(members[i]) : null,
+                ),
+              if (isHost)
+                _MemberGridTile.addTile(onTap: _openFriendPicker),
+            ],
           ),
-          for (var i = 0; i < members.length; i++)
-            _MemberTile(
-              peerId: members[i].peerId,
-              displayName: members[i].displayName,
-              isHost: false,
-              isPresenter: _group.presenterPeerId == members[i].peerId,
-              joinedAt: members[i].joinedAt,
-              onRemove: _group.isHost ? () => _removeMember(members[i]) : null,
-              showDivider: i < members.length - 1,
-            ),
         ],
       ),
+    );
+  }
+
+  bool _memberOnline(String peerId) {
+    return gFFI.serverModel.clients.any(
+      (c) => c.peerId == peerId && c.authorized && !c.disconnected,
     );
   }
 
@@ -1147,184 +1264,198 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
   }
 }
 
-class _MemberTile extends StatelessWidget {
+class _MemberGridTile extends StatelessWidget {
   final String peerId;
   final String displayName;
   final bool isHost;
   final bool isPresenter;
-  final DateTime joinedAt;
+  final bool online;
   final VoidCallback? onRemove;
-  final bool showDivider;
 
-  const _MemberTile({
+  const _MemberGridTile({
     required this.peerId,
     required this.displayName,
     required this.isHost,
     this.isPresenter = false,
-    required this.joinedAt,
+    this.online = false,
     this.onRemove,
-    this.showDivider = true,
-  });
+  }) : _addOnTap = null;
+
+  /// 微信风格“+”添加成员格子（仅 host 显示）。
+  const _MemberGridTile.addTile({required VoidCallback onTap})
+      : peerId = '',
+        displayName = '',
+        isHost = false,
+        isPresenter = false,
+        online = false,
+        onRemove = null,
+        _addOnTap = onTap;
+
+  final VoidCallback? _addOnTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final dark = theme.brightness == Brightness.dark;
-    final border = dark ? MyTheme.borderDark : MyTheme.borderLight;
-    final online = gFFI.serverModel.clients.any(
-      (c) => c.peerId == peerId && c.authorized && !c.disconnected,
-    );
     final avatarColor = isHost
         ? MyTheme.primarySoft
         : dark
             ? const Color(0xFF2B2D32)
-            : const Color(0xFFE8E8E8);
+            : const Color(0xFFF0F2F5);
     final avatarTextColor =
         isHost ? MyTheme.primary : dark ? Colors.white70 : Colors.black54;
+
+    if (_addOnTap != null) {
+      // “+”添加成员格子。
+      return InkWell(
+        onTap: _addOnTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: avatarColor,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(Icons.add_rounded,
+                  size: 26, color: dark ? Colors.white54 : Colors.black38),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              translate('Add'),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                color: theme.colorScheme.onSurface.withOpacity(0.5),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          child: Row(
-            children: [
-              Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  CircleAvatar(
-                    radius: 20,
-                    backgroundColor: avatarColor,
-                    child: Text(
-                      displayName.isNotEmpty
-                          ? displayName[0].toUpperCase()
-                          : '?',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: avatarTextColor,
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    right: -1,
-                    bottom: -1,
-                    child: Container(
-                      width: 11,
-                      height: 11,
-                      decoration: BoxDecoration(
-                        color: online
-                            ? const Color(0xFF07C160)
-                            : dark
-                                ? const Color(0xFF4A4F58)
-                                : const Color(0xFFB8BEC7),
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                            color: dark
-                                ? MyTheme.surfaceDark
-                                : Colors.white,
-                            width: 1.6),
-                      ),
-                    ),
-                  ),
-                ],
+        Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: avatarColor,
+                borderRadius: BorderRadius.circular(10),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            displayName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: theme.colorScheme.onSurface,
-                            ),
-                          ),
-                        ),
-                        if (isHost) ...[
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 1),
-                            decoration: BoxDecoration(
-                              color: MyTheme.primarySoft,
-                              borderRadius: BorderRadius.circular(5),
-                            ),
-                            child: Text(
-                              translate('Host'),
-                              style: const TextStyle(
-                                fontSize: 10,
-                                color: MyTheme.primary,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ],
-                        if (isPresenter && !isHost) ...[
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 1),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFFFF3E0),
-                              borderRadius: BorderRadius.circular(5),
-                            ),
-                            child: Text(
-                              translate('Presenter'),
-                              style: const TextStyle(
-                                fontSize: 10,
-                                color: Color(0xFFE65100),
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      '${translate('Joined')} ${_formatDate(joinedAt)}'
-                      '${online ? '  \u2022  ${translate('Online')}' : ''}',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: theme.colorScheme.onSurface.withOpacity(0.45),
-                      ),
-                    ),
-                  ],
+              alignment: Alignment.center,
+              child: Text(
+                displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
+                style: TextStyle(
+                  fontSize: 19,
+                  fontWeight: FontWeight.w600,
+                  color: avatarTextColor,
                 ),
               ),
-              if (onRemove != null)
-                IconButton(
-                  tooltip: translate('Remove'),
-                  icon: const Icon(Icons.remove_circle_outline_rounded,
-                      size: 20),
-                  color: Colors.red.withOpacity(0.6),
-                  onPressed: onRemove,
+            ),
+            Positioned(
+              right: -2,
+              bottom: -2,
+              child: Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                  color: online
+                      ? const Color(0xFF07C160)
+                      : dark
+                          ? const Color(0xFF4A4F58)
+                          : const Color(0xFFB8BEC7),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                      color: dark ? MyTheme.surfaceDark : Colors.white,
+                      width: 1.8),
                 ),
-            ],
+              ),
+            ),
+            if (isHost)
+              Positioned(
+                right: -4,
+                top: -4,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: MyTheme.primary,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    translate('Host'),
+                    style: const TextStyle(
+                      fontSize: 8,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            if (isPresenter && !isHost)
+              Positioned(
+                right: -4,
+                top: -4,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE65100),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    translate('Presenter'),
+                    style: const TextStyle(
+                      fontSize: 8,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text(
+          displayName,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 11,
+            color: theme.colorScheme.onSurface.withOpacity(0.75),
           ),
         ),
-        if (showDivider)
-          Divider(
-            height: 1,
-            thickness: 0.5,
-            indent: 52,
-            endIndent: 0,
-            color: border.withOpacity(0.55),
+        if (onRemove != null)
+          GestureDetector(
+            onTap: onRemove,
+            child: Container(
+              margin: const EdgeInsets.only(top: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+              decoration: BoxDecoration(
+                color: Colors.red.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                translate('Remove'),
+                style: const TextStyle(
+                    fontSize: 9, color: Color(0xFFFA5151)),
+              ),
+            ),
           ),
       ],
     );
   }
-
-  String _formatDate(DateTime dt) {
-    return '${dt.year}/${dt.month.toString().padLeft(2, '0')}/${dt.day.toString().padLeft(2, '0')}';
-  }
 }
+
 
 class _GroupPopupMenu extends StatelessWidget {
   final MeetingGroup group;
