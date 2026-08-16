@@ -309,6 +309,33 @@ class MainActivity : FlutterActivity() {
                         result.success(false)
                     }
                 }
+                "vibrate" -> {
+                    // 震动预览/反馈：args 为 IntArray（on/off 毫秒交替，标准
+                    // vibrationPattern 格式），与消息通知的震动档位一致，
+                    // 让用户在设置里能实际感受到所选震动时长。
+                    try {
+                        val vibrator =
+                            getSystemService(Context.VIBRATOR_SERVICE) as? android.os.Vibrator
+                        if (vibrator != null && vibrator.hasVibrator()) {
+                            val pattern = (call.arguments as? List<*>)?.mapNotNull {
+                                (it as? Number)?.toLong()
+                            }?.toLongArray()
+                            if (pattern != null && pattern.isNotEmpty()) {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                    vibrator.vibrate(
+                                        android.os.VibrationEffect.createWaveform(pattern, -1),
+                                    )
+                                } else {
+                                    @Suppress("DEPRECATION")
+                                    vibrator.vibrate(pattern, -1)
+                                }
+                            }
+                        }
+                        result.success(true)
+                    } catch (_: Exception) {
+                        result.success(false)
+                    }
+                }
                 "check_service" -> {
                     Companion.flutterMethodChannel?.invokeMethod(
                         "on_state_changed",

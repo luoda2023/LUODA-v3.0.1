@@ -1282,18 +1282,24 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
         return;
       }
       // 快速路径：先用系统缓存位置（秒回），避免每次都等 GPS 冷启动。
-      // 无缓存再请求新鲜定位：低精度（网络）快速获取，失败再升级中精度。
-      position = await Geolocator.getLastKnownPosition();
+      // forceAndroidLocationManager=true 绕过 fused provider（部分国产 ROM
+      // 的 fused 常被关闭导致拿不到位置），直接读系统 LocationManager 的
+      // network 缓存位置，室内无 GPS 信号也能拿到上次的网络定位。
+      position = await Geolocator.getLastKnownPosition(
+        forceAndroidLocationManager: true,
+      );
       if (position == null) {
         try {
           position = await Geolocator.getCurrentPosition(
             desiredAccuracy: LocationAccuracy.low,
             timeLimit: const Duration(seconds: 8),
+            forceAndroidLocationManager: true,
           );
         } catch (_) {
           position = await Geolocator.getCurrentPosition(
             desiredAccuracy: LocationAccuracy.medium,
             timeLimit: const Duration(seconds: 8),
+            forceAndroidLocationManager: true,
           );
         }
       }

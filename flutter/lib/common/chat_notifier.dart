@@ -114,13 +114,20 @@ class ChatNotifier {
           bind.mainGetOptionSync(key: kOptionMessageSoundPath).trim();
       await _tonePlayer.stop();
       await _tonePlayer.setVolume(_soundVolume);
-      if (custom.startsWith(kBuiltinTonePrefix)) {
-        final name = custom.substring(kBuiltinTonePrefix.length);
-        await _tonePlayer.play(AssetSource('assets/tones/tone_$name.wav'));
+      // audioplayers 的 AssetSource 会自动加上 assets/ 前缀，
+      // 这里传相对 assets/ 的路径（如 tones/tone_x.wav），
+      // 否则会去找 assets/assets/... 导致播放静默失败。
+      final resolved = resolveToneAsset(custom);
+      if (resolved.startsWith(kBuiltinTonePrefix)) {
+        // 理论不可达（resolveToneAsset 已展开 builtin: 前缀），兜底防呆。
+        final name = resolved.substring(kBuiltinTonePrefix.length);
+        await _tonePlayer.play(AssetSource('tones/tone_$name.wav'));
       } else if (custom.isNotEmpty && File(custom).existsSync()) {
         await _tonePlayer.play(DeviceFileSource(custom));
+      } else if (resolved.isNotEmpty && !resolved.startsWith('builtin:')) {
+        await _tonePlayer.play(AssetSource(resolved));
       } else {
-        await _tonePlayer.play(AssetSource('assets/msg_tone.wav'));
+        await _tonePlayer.play(AssetSource('msg_tone.wav'));
       }
     } catch (e) {
       debugPrint('ChatNotifier play tone failed: $e');

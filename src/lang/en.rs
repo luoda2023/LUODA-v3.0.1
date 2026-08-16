@@ -459,7 +459,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Join live session", "Join live session"),
         ("Meeting management", "Meeting management"),
         ("Add member", "Add member"),
-        ("Peer ID / ID / IP", "Peer ID / ID / IP"),
+        ("Peer ID / ID / IP", "Peer ID/IP"),
         ("Large file needs an active connection first", "Large file needs an active connection first"),
         ("Image queued for offline send", "Image queued for offline send"),
         ("Message info", "Message info"),

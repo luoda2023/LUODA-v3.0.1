@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:luoda_flutter/common/widgets/setting_widgets.dart';
 import 'package:luoda_flutter/desktop/pages/desktop_setting_page.dart';
 import 'package:get/get.dart';
@@ -1990,7 +1990,26 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
     return translate('Custom');
   }
 
+  /// 按档位实际震动一次，用于设置里的震动预览（短/中/长）。
+  /// 与消息通知的震动档位完全一致，让用户选之前能感受到差别。
+  Future<void> _previewVibration(String mode) async {
+    if (!isMobile || !isAndroid) return;
+    try {
+      const channel = MethodChannel('mChannel');
+      final pattern = switch (mode) {
+        'medium' => <int>[0, 250, 80, 180],
+        'long' => <int>[0, 400, 120, 250, 120, 250],
+        _ => <int>[0, 120],
+      };
+      await channel.invokeMethod('vibrate', pattern);
+    } catch (e) {
+      debugPrint('vibration preview failed: $e');
+    }
+  }
+
   Future<void> _showVibrationDurationPicker() async {
+    // 弹窗内临时选中项（未确认前不写入配置），方便连续试听多个档位。
+    var selected = _messageVibrationDuration;
     await gFFI.dialogManager.show<void>(
       (setState, close, context) => CustomAlertDialog(
         title: Text(translate('Vibration duration')),
@@ -2011,21 +2030,46 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                   },
                 ),
                 title: Text(translate(entry.$2)),
-                trailing: _messageVibrationDuration == entry.$1
+                // 点击只试听 + 临时打勾，不关闭弹窗，
+                // 用户可以连续比较短/中/长三种震动，最后点「确定」生效。
+                trailing: selected == entry.$1
                     ? const Icon(Icons.check, color: Color(0xFF07C160))
                     : null,
                 onTap: () async {
-                  await bind.mainSetOption(
-                    key: kOptionMessageVibrationDuration,
-                    value: entry.$1,
-                  );
-                  if (mounted) {
-                    setState(() => _messageVibrationDuration = entry.$1);
-                  }
-                  close();
+                  await _previewVibration(entry.$1);
+                  if (mounted) setState(() => selected = entry.$1);
                 },
               ),
             ],
+            const SizedBox(height: 12),
+            // 确定：应用选中的档位并关闭。
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF07C160),
+                minimumSize: const Size.fromHeight(44),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              onPressed: () async {
+                await bind.mainSetOption(
+                  key: kOptionMessageVibrationDuration,
+                  value: selected,
+                );
+                if (mounted) {
+                  setState(() => _messageVibrationDuration = selected);
+                }
+                close();
+              },
+              child: Text(
+                translate('OK'),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -2058,8 +2102,10 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                         onPressed: () async {
                           try {
                             await tonePlayer.stop();
+                            // audioplayers 的 AssetSource 自动加 assets/ 前缀，
+                            // 这里传相对路径，否则会去找 assets/assets/ 导致无声。
                             await tonePlayer.play(AssetSource(
-                                'assets/tones/tone_${tone['key']}.wav'));
+                                'tones/tone_${tone['key']}.wav'));
                           } catch (_) {}
                         },
                       ),

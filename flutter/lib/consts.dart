@@ -149,14 +149,18 @@ const List<Map<String, String>> kBuiltinTones = <Map<String, String>>[
   <String, String>{'key': 'triple', 'label': 'Triple'},
 ];
 
-/// 根据提示音配置值解析出资源路径：空 → 默认音；builtin:x → 内置音；
-/// 否则原样返回（自定义文件路径）。
+/// 根据提示音配置值解析出 AssetSource 资源路径：空 → 默认音；
+/// builtin:x → 内置音；否则原样返回（自定义文件路径）。
+///
+/// 注意：audioplayers 的 [AssetSource] 会自动拼接 `assets/` 前缀，
+/// 所以这里返回的是**相对 assets/ 的路径**（如 `tones/tone_crisp.wav`），
+/// 不能再带 assets/ 前缀，否则会去找 assets/assets/... 导致播放无声。
 String resolveToneAsset(String value) {
   final v = value.trim();
   if (v.startsWith(kBuiltinTonePrefix)) {
     final name = v.substring(kBuiltinTonePrefix.length);
-    // 内置音文件实际命名为 tone_<key>.wav
-    return 'assets/tones/tone_$name.wav';
+    // 内置音文件实际命名为 tone_<key>.wav，相对 assets/ 目录。
+    return 'tones/tone_$name.wav';
   }
   return v;
 }

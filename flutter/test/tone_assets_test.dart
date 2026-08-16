@@ -15,11 +15,14 @@ void main() {
       for (final tone in kBuiltinTones) {
         final key = tone['key']!;
         // 播放/试听路径解析统一走 resolveToneAsset。
+        // AssetSource 会由 audioplayers 自动拼接 assets/ 前缀，
+        // 所以这里解析出的必须是**相对路径**（tones/tone_x.wav），
+        // 否则会去找 assets/assets/... 导致播放无声。
         final resolved = resolveToneAsset('$kBuiltinTonePrefix$key');
-        expect(resolved, 'assets/tones/tone_$key.wav',
-            reason: '内置音 $key 的解析路径必须带 tone_ 前缀');
-        expect(File(resolved).existsSync(), isTrue,
-            reason: '$resolved 缺失，内置音 $key 将无法播放');
+        expect(resolved, 'tones/tone_$key.wav',
+            reason: '内置音 $key 的解析路径必须带 tone_ 前缀（相对 assets/）');
+        expect(File('assets/$resolved').existsSync(), isTrue,
+            reason: 'assets/$resolved 缺失，内置音 $key 将无法播放');
       }
     });
 
@@ -27,7 +30,7 @@ void main() {
       expect(resolveToneAsset(''), '');
       expect(
         resolveToneAsset('builtin:crisp'),
-        'assets/tones/tone_crisp.wav',
+        'tones/tone_crisp.wav',
       );
       expect(
         resolveToneAsset('C:/my/custom.mp3'),
