@@ -75,6 +75,7 @@ class AmapService {
   static final instance = AmapService._();
 
   static const _storageKey = 'amap-web-service-key';
+  static const _baiduStorageKey = 'baidu-web-service-ak';
   static const _base = 'https://restapi.amap.com';
 
   /// 内置默认高德 Web 服务 key（软件自带，所有用户免配置）。
@@ -99,27 +100,79 @@ class AmapService {
     'YY5lVvoVmMSw7AHA11VQvw57GVdA6fLp',
   ];
 
-  String? _cachedKey;
+  List<String>? _cachedKeys;
+  List<String>? _cachedBaiduKeys;
   DateTime? _lastFetch;
 
-  /// 用户自定义 key（设置页填写），优先于内置 key。
-  String? get _userKey {
+  /// 把用户输入的原始 key 文本拆成列表（支持逗号/分号/换行分隔多个 key，
+  /// 主 key 配额耗尽时自动轮换到备用 key）。
+  static List<String> _splitKeys(String raw) {
+    return raw
+        .split(RegExp(r'[,;，；\n\r]'))
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+  }
+
+  /// 用户自定义高德 key 列表（设置页填写，支持多个，逗号分隔），优先于内置 key。
+  List<String> get _userKeys {
     final now = DateTime.now();
-    if (_cachedKey == null ||
+    if (_cachedKeys == null ||
         _lastFetch == null ||
         now.difference(_lastFetch!).inSeconds > 60) {
       _lastFetch = now;
       try {
-        _cachedKey = bind.mainGetLocalOption(key: _storageKey).trim();
+        _cachedKeys = _splitKeys(bind.mainGetLocalOption(key: _storageKey));
       } catch (_) {
-        _cachedKey = '';
+        _cachedKeys = <String>[];
       }
     }
-    return (_cachedKey == null || _cachedKey!.isEmpty) ? null : _cachedKey;
+    return _cachedKeys!;
   }
 
-  /// 解析顺序：用户自定义 key > 内置高德 key。
-  String? get apiKey => _userKey ?? _firstKey(_builtinAmapKeys);
+  /// 用户自定义百度 AK 列表（设置页填写，支持多个）。
+  List<String> get _userBaiduKeys {
+    final now = DateTime.now();
+    if (_cachedBaiduKeys == null ||
+        _lastFetch == null ||
+        now.difference(_lastFetch!).inSeconds > 60) {
+      _lastFetch = now;
+      try {
+        _cachedBaiduKeys =
+            _splitKeys(bind.mainGetLocalOption(key: _baiduStorageKey));
+      } catch (_) {
+        _cachedBaiduKeys = <String>[];
+      }
+    }
+    return _cachedBaiduKeys!;
+  }
+
+  /// 解析顺序：用户自定义 key（可多个）> 内置高德 key（可多个）。
+  /// 返回去重后的完整 key 列表，供逐 key 轮换。
+  List<String> get apiKeys {
+    final list = <String>[
+      ..._userKeys,
+      ..._builtinAmapKeys,
+    ];
+    final seen = <String>{};
+    final result = <String>[];
+    for (final k in list) {
+      final t = k.trim();
+      if (t.isEmpty || seen.contains(t)) continue;
+      seen.add(t);
+      result.add(t);
+    }
+    return result;
+  }
+
+  /// 第一个可用 key（兼容旧调用，展示用）。
+  String? get apiKey {
+    final keys = apiKeys;
+    return keys.isEmpty ? null : keys.first;
+  }
+
+  /// 用户自定义百度 AK 列表（公开，设置页展示用）。
+  List<String> get baiduUserKeys => _userBaiduKeys;
 
   String? _firstKey(List<String> keys) {
     for (final k in keys) {
@@ -168,10 +221,21 @@ class AmapService {
   }
 
   Future<void> saveApiKey(String value) async {
-    _cachedKey = value.trim();
+    _cachedKeys = _splitKeys(value);
     _lastFetch = DateTime.now();
     try {
       await bind.mainSetLocalOption(key: _storageKey, value: value.trim());
+    } catch (_) {
+      // 本地配置写入失败时静默忽略。
+    }
+  }
+
+  /// 保存用户百度 AK（支持逗号分隔多个，主 key 耗尽自动轮换备用）。
+  Future<void> saveBaiduApiKeys(String value) async {
+    _cachedBaiduKeys = _splitKeys(value);
+    _lastFetch = DateTime.now();
+    try {
+      await bind.mainSetLocalOption(key: _baiduStorageKey, value: value.trim());
     } catch (_) {
       // 本地配置写入失败时静默忽略。
     }
@@ -185,26 +249,47 @@ class AmapService {
       _builtinBaiduKeys.any((k) => k.trim().isNotEmpty) ||
       _builtinTencentKeys.any((k) => k.trim().isNotEmpty);
 
+  /// 高德 key 相关/配额类错误码：当前 key 无效或配额耗尽时轮换到下一个 key。
+  /// 10001 非正确 key，10003 服务未开通，10008 key 过期，10009 key 状态异常，
+  /// 10012 日配额超限，10013 QPS 超限。
+  static bool isAmapQuotaStatus(String status) =>
+      const <String>{
+        '10001', '10003', '10008', '10009', '10012', '10013',
+      }.contains(status);
+
+  /// 带 key 轮换的 GET：主 key 配额耗尽/失效时自动切换备用 key，
+  /// 全部 key 都失败才返回 null，保证地名解析不断档。
   Future<Map<String, dynamic>?> _get(
     String path,
     Map<String, String> query,
   ) async {
-    final key = apiKey;
-    if (key == null || key.isEmpty) return null;
-    final uri = Uri.parse('$_base$path')
-        .replace(queryParameters: <String, String>{...query, 'key': key});
-    try {
-      final resp = await http
-          .get(uri)
-          .timeout(const Duration(seconds: 8));
-      if (resp.statusCode != 200) return null;
-      final decoded = jsonDecode(resp.body);
-      if (decoded is! Map<String, dynamic>) return null;
-      if ((decoded['status'] ?? '0').toString() != '1') return null;
-      return decoded;
-    } catch (_) {
-      return null;
+    final keys = apiKeys;
+    if (keys.isEmpty) return null;
+    for (final key in keys) {
+      final uri = Uri.parse('$_base$path')
+          .replace(queryParameters: <String, String>{...query, 'key': key});
+      try {
+        final resp = await http
+            .get(uri)
+            .timeout(const Duration(seconds: 8));
+        // 401/403：当前 key 无效/被禁，直接换下一个 key。
+        if (resp.statusCode == 401 || resp.statusCode == 403) continue;
+        if (resp.statusCode != 200) return null;
+        final decoded = jsonDecode(resp.body);
+        if (decoded is! Map<String, dynamic>) continue;
+        final status = (decoded['status'] ?? '0').toString();
+        if (status != '1') {
+          // 配额/权限类错误：换下一个 key；其他错误（参数等）直接失败。
+          if (isAmapQuotaStatus(status)) continue;
+          return null;
+        }
+        return decoded;
+      } catch (_) {
+        // 网络异常与 key 无关，不轮换，直接失败（避免无谓重试全部 key）。
+        return null;
+      }
     }
+    return null;
   }
 
   /// 逆地理编码：GCJ-02 坐标 → 中文地址。
@@ -339,16 +424,23 @@ class AmapService {
   }
 
   /// 百度地图逆地理编码（输入 GCJ-02，coordtype=gcj02ll 由百度内部转 BD-09）。
-  /// 多 key 轮询分散每日配额；单 key 被限流/禁用时自动尝试下一个。
+  /// 多 key 自动轮换：用户 AK（设置页可配多个）优先，其次内置 AK；
+  /// 主 key 配额耗尽（status 4/302）时继续尝试下一个备用 key，
+  /// 全部 key 都耗尽才返回 quotaLimited，保证地名解析不断档。
   /// 返回（地名, 完整地址, 是否配额耗尽）。
   Future<(String, String, bool)> _baiduReverse(double lat, double lng) async {
     var quotaLimited = false;
-    for (final key in _builtinBaiduKeys) {
+    final keys = <String>[..._userBaiduKeys, ..._builtinBaiduKeys];
+    for (final key in keys) {
       final k = key.trim();
       if (k.isEmpty) continue;
       final result = await _baiduReverseOnce(k, lat, lng);
       if (result.$1.isNotEmpty || result.$2.isNotEmpty) return result;
-      if (result.$3) quotaLimited = true;
+      if (result.$3) {
+        // 当前 key 配额耗尽：标记并切换下一个备用 key，不中断轮换。
+        quotaLimited = true;
+        continue;
+      }
     }
     return ('', '', quotaLimited);
   }
