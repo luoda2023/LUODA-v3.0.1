@@ -30,6 +30,10 @@ import '../../models/platform_model.dart';
 class PeerTabPage extends StatefulWidget {
   final bool showTabStrip;
 
+  /// 访问历史设备场景：隐藏“收藏” tab（收藏已独立为 PC 导航大项 /
+  /// 手机右上角“+”菜单入口，不再出现在访问历史设备页面里）。
+  final bool hideFavoritesTab;
+
   static final GlobalKey<_PeerTabPageState> _desktopPageKey =
       GlobalKey<_PeerTabPageState>();
 
@@ -48,7 +52,11 @@ class PeerTabPage extends StatefulWidget {
     );
   }
 
-  const PeerTabPage({Key? key, this.showTabStrip = true}) : super(key: key);
+  const PeerTabPage({
+    Key? key,
+    this.showTabStrip = true,
+    this.hideFavoritesTab = false,
+  }) : super(key: key);
   @override
   State<PeerTabPage> createState() => _PeerTabPageState();
 }
@@ -111,16 +119,23 @@ class _PeerTabPageState extends State<PeerTabPage>
     }
     hideAbTagsPanel.value =
         bind.mainGetLocalOption(key: kOptionHideAbTagsPanel) == 'Y';
-  }
-
-  Future<void> handleTabSelection(int tabIndex) async {
+  }  Future<void> handleTabSelection(int tabIndex) async {
     if (tabIndex < entries.length) {
       if (tabIndex != gFFI.peerTabModel.currentTab) {
         gFFI.peerTabModel.setCurrentTabCachedPeers([]);
       }
+
       gFFI.peerTabModel.setCurrentTab(tabIndex);
       entries[tabIndex].load?.call(hint: false);
     }
+  }
+
+  /// 过滤隐藏 tab 后的可见索引（访问历史设备页面隐藏“收藏”）。
+  List<int> get _visibleIndexes {
+    final model = gFFI.peerTabModel;
+    return model.visibleEnabledOrderedIndexs
+        .where((i) => !(widget.hideFavoritesTab && i == 1))
+        .toList(growable: false);
   }
 
   @override
@@ -174,11 +189,15 @@ class _PeerTabPageState extends State<PeerTabPage>
 
   Widget _createSwitchBar(BuildContext context) {
     final model = Provider.of<PeerTabModel>(context);
+    final visible = _visibleIndexes;
+    final selected = visible.contains(model.currentTab)
+        ? model.currentTab
+        : (visible.isEmpty ? 0 : visible.first);
     return PeerTabStrip(
-      selectedIndex: model.currentTab,
-      labels: PeerTabModel.tabNames.map(translate).toList(growable: false),
-      icons: PeerTabModel.icons,
-      visibleIndexes: model.visibleEnabledOrderedIndexs,
+      selectedIndex: selected,
+      labels: [for (final i in visible) translate(PeerTabModel.tabNames[i])],
+      icons: [for (final i in visible) PeerTabModel.icons[i]],
+      visibleIndexes: visible,
       showLabels: isMobile,
       onSelected: (index) async {
         await handleTabSelection(index);
@@ -190,8 +209,9 @@ class _PeerTabPageState extends State<PeerTabPage>
 
   Widget _createPeersView() {
     final model = Provider.of<PeerTabModel>(context);
+    final visible = _visibleIndexes;
     Widget child;
-    if (model.visibleEnabledOrderedIndexs.isEmpty) {
+    if (visible.isEmpty) {
       // 兜底 UI：正常情况下不应进入此分支（有护栏和启动回退），
       // 但万一发生，显示恢复按钮而不是空灰色方框。
       child = visibleContextMenuListener(Expanded(
@@ -215,14 +235,11 @@ class _PeerTabPageState extends State<PeerTabPage>
         ),
       ));
     } else {
-      if (model.visibleEnabledOrderedIndexs.contains(model.currentTab)) {
+      if (visible.contains(model.currentTab)) {
         child = entries[model.currentTab].widget;
       } else {
-        debugPrint("should not happen! currentTab not in visibleIndexs");
-        Future.delayed(Duration.zero, () {
-          model.setCurrentTab(model.visibleEnabledOrderedIndexs[0]);
-        });
-        child = entries[0].widget;
+        // 当前 tab 被隐藏（如收藏）：显示第一个可见 tab，不改全局状态。
+        child = entries[visible.first].widget;
       }
     }
     return Expanded(

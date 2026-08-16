@@ -247,7 +247,7 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
       ),
       body: Column(
         children: <Widget>[
-          // 搜索框（微信布局：标题栏下方，地图上方）。
+          // 搜索框（微信样式：白色圆角底 + 浅灰细边框，放大镜灰图标）。
           Container(
             color: cardBg,
             padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
@@ -255,17 +255,32 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
               controller: _searchController,
               textInputAction: TextInputAction.search,
               onSubmitted: _submitSearch,
+              style: TextStyle(
+                fontSize: 14,
+                color: dark ? Colors.white : const Color(0xFF222222),
+              ),
               decoration: InputDecoration(
                 isDense: true,
                 hintText: translate('Search places'),
-                prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                hintStyle: TextStyle(
+                  fontSize: 14,
+                  color: dark ? Colors.white38 : const Color(0xFFB2B2B2),
+                ),
+                prefixIcon: Icon(
+                  Icons.search_rounded,
+                  size: 20,
+                  color: dark ? Colors.white38 : const Color(0xFFB2B2B2),
+                ),
                 filled: true,
-                fillColor: dark
-                    ? const Color(0xFF1E2024)
-                    : const Color(0xFFF2F3F5),
+                fillColor:
+                    dark ? const Color(0xFF1E2024) : Colors.white,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
-                  borderSide: BorderSide.none,
+                  borderSide: BorderSide(
+                    color: dark
+                        ? const Color(0xFF2E3137)
+                        : const Color(0xFFE5E5E5),
+                  ),
                 ),
                 contentPadding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
@@ -395,10 +410,15 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
                     right: 12,
                     top: 12,
                     child: Container(
-                      padding: const EdgeInsets.fromLTRB(10, 6, 4, 6),
+                      padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
                       decoration: BoxDecoration(
-                        color: cardBg.withOpacity(0.92),
-                        borderRadius: BorderRadius.circular(8),
+                        color: cardBg.withOpacity(0.94),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: dark
+                              ? const Color(0xFF2E3137)
+                              : const Color(0xFFEFEFEF),
+                        ),
                         boxShadow: const <BoxShadow>[
                           BoxShadow(color: Colors.black12, blurRadius: 6),
                         ],
@@ -471,38 +491,56 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
               ],
             ),
           ),
-          // 地点列表：我的位置 + 周边/搜索结果。
+          // 地点列表：我的位置 + 周边/搜索结果（微信样式：浅灰细分隔线）。
           Expanded(
             child: _placesLoading
                 ? const Center(child: CircularProgressIndicator())
-                : ListView(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    children: <Widget>[
-                      _locationTile(
-                        icon: Icons.navigation_rounded,
-                        // 微信样式：第一项显示实际地名（随地图移动实时变化），
-                        // 逆地理编码未返回时才回退到“我的位置”。
-                        title: _currentName.isNotEmpty
-                            ? _currentName
-                            : translate('My Location'),
-                        subtitle: _currentAddress.isNotEmpty
-                            ? _currentAddress
-                            : '${_myLocation.latitude.toStringAsFixed(5)}, '
-                                '${_myLocation.longitude.toStringAsFixed(5)}',
-                        isMyLocation: true,
-                      ),
-                      for (final place in _places)
+                : Builder(
+                    builder: (context) {
+                      final tiles = <Widget>[
                         _locationTile(
-                          icon: Icons.place_rounded,
-                          title: place.name,
-                          subtitle: [
-                            if (place.distanceLabel.isNotEmpty)
-                              place.distanceLabel,
-                            if (place.address.isNotEmpty) place.address,
-                          ].join(' | '),
-                          place: place,
+                          icon: Icons.navigation_rounded,
+                          // 微信样式：第一项显示实际地名（随地图移动实时变化），
+                          // 逆地理编码未返回时才回退到“我的位置”。
+                          title: _currentName.isNotEmpty
+                              ? _currentName
+                              : translate('My Location'),
+                          subtitle: _currentAddress.isNotEmpty
+                              ? _currentAddress
+                              : '${_myLocation.latitude.toStringAsFixed(5)}, '
+                                  '${_myLocation.longitude.toStringAsFixed(5)}',
+                          isMyLocation: true,
                         ),
-                    ],
+                        for (final place in _places)
+                          _locationTile(
+                            icon: Icons.place_rounded,
+                            title: place.name,
+                            subtitle: [
+                              if (place.distanceLabel.isNotEmpty)
+                                place.distanceLabel,
+                              if (place.address.isNotEmpty) place.address,
+                            ].join(' | '),
+                            place: place,
+                          ),
+                      ];
+                      return ListView(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        children: <Widget>[
+                          for (var i = 0; i < tiles.length; i++) ...[
+                            tiles[i],
+                            if (i < tiles.length - 1)
+                              Divider(
+                                height: 1,
+                                thickness: 0.5,
+                                indent: 50,
+                                color: dark
+                                    ? const Color(0xFF2B2D32)
+                                    : const Color(0xFFF0F0F0),
+                              ),
+                          ],
+                        ],
+                      );
+                    },
                   ),
           ),
         ],

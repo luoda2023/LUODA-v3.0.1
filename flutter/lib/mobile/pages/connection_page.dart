@@ -580,7 +580,7 @@ class ConnectionPageState extends State<ConnectionPage>
                   constraints: kMobilePageConstraints,
                   child: const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 10),
-                    child: PeerTabPage(),
+                    child: PeerTabPage(hideFavoritesTab: true),
                   ),
                 ),
               ),

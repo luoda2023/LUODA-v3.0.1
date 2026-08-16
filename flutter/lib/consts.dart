@@ -148,7 +148,8 @@ String resolveToneAsset(String value) {
   final v = value.trim();
   if (v.startsWith(kBuiltinTonePrefix)) {
     final name = v.substring(kBuiltinTonePrefix.length);
-    return 'assets/tones/$name.wav';
+    // 内置音文件实际命名为 tone_<key>.wav
+    return 'assets/tones/tone_$name.wav';
   }
   return v;
 }

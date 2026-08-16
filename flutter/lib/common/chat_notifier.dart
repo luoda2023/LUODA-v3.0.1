@@ -87,7 +87,7 @@ class ChatNotifier {
       await _tonePlayer.stop();
       if (custom.startsWith(kBuiltinTonePrefix)) {
         final name = custom.substring(kBuiltinTonePrefix.length);
-        await _tonePlayer.play(AssetSource('assets/tones/$name.wav'));
+        await _tonePlayer.play(AssetSource('assets/tones/tone_$name.wav'));
       } else if (custom.isNotEmpty && File(custom).existsSync()) {
         await _tonePlayer.play(DeviceFileSource(custom));
       } else {

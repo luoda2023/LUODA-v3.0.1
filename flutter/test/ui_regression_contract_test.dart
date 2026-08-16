@@ -2430,7 +2430,9 @@ void main() {
     expect(quickAction, contains('Semantics('));
     expect(quickAction, contains('BorderRadius.circular(14)'));
     expect(quickAction, contains('BorderRadius.circular(10)'));
-    expect(deviceHistory, contains('child: PeerTabPage()'));
+    // 访问历史设备页面隐藏“收藏” tab（收藏已独立为 PC 导航大项 /
+    // 手机右上角“+”菜单入口）。
+    expect(deviceHistory, contains('child: PeerTabPage(hideFavoritesTab: true)'));
     expect(mobileConnectionSource, contains('_matchesContactQuery('));
     expect(mobileConnectionSource, contains('Semantics('));
 

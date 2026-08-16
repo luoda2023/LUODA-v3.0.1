@@ -436,6 +436,7 @@ class _ConnectionPageState extends State<ConnectionPage>
                       child: PeerTabPage(
                         key: PeerTabPage.desktopKey,
                         showTabStrip: false,
+                        hideFavoritesTab: true,
                       ),
                     ),
                   ],
