@@ -139,6 +139,7 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
   String _companionSyncPeerId = '';
   Timer? _directPairingSyncTimer;
   Timer? _chatKeepAliveTimer;
+  VoidCallback? _serverConfigListener;
   bool get isChatPageCurrentTab => isMobile && _chatDetailOpen;
 
   void selectChatPage() {
@@ -743,6 +744,11 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
     Future<void>.delayed(const Duration(milliseconds: 3000), () {
       unawaited(_maintainChatKeepAlive());
     });
+    // LUODA fix: refresh direct-chat / pairing immediately after the server
+    // configuration is saved (the Rust side restarts the rendezvous mediator
+    // on every platform now). No need to wait for the keep-alive timer.
+    _serverConfigListener = () => unawaited(_maintainChatKeepAlive());
+    serverConfigChangedNotifier.addListener(_serverConfigListener!);
   }
 
   final GlobalKey<_MobileMessagesPageState> _mobileMessagesKey =
@@ -1526,6 +1532,10 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    if (_serverConfigListener != null) {
+      serverConfigChangedNotifier.removeListener(_serverConfigListener!);
+      _serverConfigListener = null;
+    }
     if (gFFI.chatModel.ensureChatConnection == _ensureChatConnection) {
       gFFI.chatModel.ensureChatConnection = null;
     }

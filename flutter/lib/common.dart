@@ -4148,8 +4148,18 @@ Future<bool> setServerConfig(
       gFFI.userModel.isLogin) {
     gFFI.userModel.logOut(apiServer: oldApiServer);
   }
+  // LUODA fix: the Rust side now restarts the rendezvous mediator on every
+  // platform when the server changes. Tell both UIs to refresh their direct
+  // chat / pairing state immediately instead of waiting for the periodic
+  // keep-alive timer, so re-pairing after a server switch feels instant.
+  serverConfigChangedNotifier.value++;
   return true;
 }
+
+/// Fired whenever the server configuration is saved (see [setServerConfig]).
+/// The desktop home page and the mobile home page listen to this to refresh
+/// direct-chat / pairing sessions right away after a server switch.
+final serverConfigChangedNotifier = ValueNotifier<int>(0);
 
 ColorFilter? svgColor(Color? color) {
   if (color == null) {

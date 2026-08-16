@@ -289,6 +289,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   var watchIsCanRecordAudio = false;
   Timer? _updateTimer;
   Timer? _directChatKeepAliveTimer;
+  VoidCallback? _serverConfigListener;
   static const List<Duration> _backgroundChatRetryDelays = <Duration>[
     Duration(seconds: 30),
     Duration(minutes: 1),
@@ -8320,6 +8321,11 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         (_) => unawaited(_refreshDirectSessions()),
       );
     }
+    // LUODA fix: refresh direct-chat / pairing immediately after the server
+    // configuration is saved (the Rust side restarts the rendezvous mediator
+    // on every platform now). No need to wait for the 15s keep-alive timer.
+    _serverConfigListener = () => unawaited(_refreshDirectSessions());
+    serverConfigChangedNotifier.addListener(_serverConfigListener!);
     // LUODA 3.1.1 performance fix: desktop full mode polled at 1s, firing
     // several synchronous IPC reads (fetchID, mainGetError, stop-service,
     // public-ip, lan-ip, direct-access-port) on the UI thread every second.
@@ -8603,6 +8609,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
   @override
   void dispose() {
+    if (_serverConfigListener != null) {
+      serverConfigChangedNotifier.removeListener(_serverConfigListener!);
+      _serverConfigListener = null;
+    }
     pendingViewerInvite.removeListener(_handlePendingViewerInvite);
     _uniLinksSubscription?.cancel();
     Get.delete<RxBool>(tag: 'stop-service');
