@@ -292,6 +292,286 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
     showToast('${translate('Presenter')}: ${chosen.finalName()}');
   }
 
+  String get _startTimeLabel {
+    final start = _group.startTime;
+    if (start == null) return translate('Start now');
+    final local = start.toLocal();
+    final now = DateTime.now();
+    final sameDay = local.year == now.year &&
+        local.month == now.month &&
+        local.day == now.day;
+    String datePart;
+    if (sameDay) {
+      datePart = translate('Today');
+    } else if (local.year == now.year) {
+      datePart =
+          '${local.month}${translate('month')}${local.day}${translate('day')}';
+    } else {
+      datePart = '${local.year}-${local.month.toString().padLeft(2, '0')}-'
+          '${local.day.toString().padLeft(2, '0')}';
+    }
+    return '$datePart '
+        '${local.hour.toString().padLeft(2, '0')}:'
+        '${local.minute.toString().padLeft(2, '0')}';
+  }
+
+  String get _durationLabel {
+    final minutes = _group.durationMinutes;
+    if (minutes <= 0) return translate('No limit');
+    if (minutes % 60 == 0) {
+      return '${minutes ~/ 60}${translate('hour')} '
+          '${translate('Meeting duration')}';
+    }
+    if (minutes > 60) {
+      return '${minutes ~/ 60}${translate('hour')} '
+          '${minutes % 60}${translate('minute')}';
+    }
+    return '$minutes${translate('minute')}';
+  }
+
+  /// host 修改会议开始时间（立即开始 / 定时开始）。
+  Future<void> _editStartTime() async {
+    final theme = Theme.of(context);
+    var startNow = _group.startTime == null;
+    var startTime = _group.startTime ?? DateTime.now();
+    final value = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setState) {
+          final dark = Theme.of(ctx).brightness == Brightness.dark;
+          return AlertDialog(
+            backgroundColor: theme.colorScheme.surface,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: Text(translate('Start time')),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: InkWell(
+                        onTap: () => setState(() => startNow = true),
+                        borderRadius: BorderRadius.circular(10),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: startNow
+                                ? MyTheme.primary.withOpacity(0.1)
+                                : dark
+                                    ? const Color(0xFF23262C)
+                                    : const Color(0xFFF2F3F5),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: startNow
+                                  ? MyTheme.primary
+                                  : theme.colorScheme.outlineVariant,
+                              width: startNow ? 1.4 : 0.8,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.play_circle_outline_rounded,
+                                  size: 17,
+                                  color: startNow
+                                      ? MyTheme.primary
+                                      : theme.colorScheme.onSurfaceVariant),
+                              const SizedBox(width: 6),
+                              Text(
+                                translate('Start now'),
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: startNow
+                                      ? FontWeight.w600
+                                      : FontWeight.w500,
+                                  color: startNow
+                                      ? MyTheme.primary
+                                      : theme.colorScheme.onSurface,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: InkWell(
+                        onTap: () async {
+                          final now = DateTime.now();
+                          final date = await showDatePicker(
+                            context: ctx,
+                            initialDate: startTime,
+                            firstDate: now.subtract(const Duration(days: 1)),
+                            lastDate: now.add(const Duration(days: 365)),
+                          );
+                          if (date == null) return;
+                          final time = await showTimePicker(
+                            context: ctx,
+                            initialTime: TimeOfDay.fromDateTime(startTime),
+                          );
+                          if (time == null) return;
+                          setState(() {
+                            startTime = DateTime(date.year, date.month,
+                                date.day, time.hour, time.minute);
+                            startNow = false;
+                          });
+                        },
+                        borderRadius: BorderRadius.circular(10),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: !startNow
+                                ? MyTheme.primary.withOpacity(0.1)
+                                : dark
+                                    ? const Color(0xFF23262C)
+                                    : const Color(0xFFF2F3F5),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: !startNow
+                                  ? MyTheme.primary
+                                  : theme.colorScheme.outlineVariant,
+                              width: !startNow ? 1.4 : 0.8,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.schedule_rounded,
+                                  size: 17,
+                                  color: !startNow
+                                      ? MyTheme.primary
+                                      : theme.colorScheme.onSurfaceVariant),
+                              const SizedBox(width: 6),
+                              Flexible(
+                                child: Text(
+                                  startNow
+                                      ? translate('Schedule')
+                                      : '${startTime.month}${translate('month')}'
+                                          '${startTime.day}${translate('day')} '
+                                          '${startTime.hour.toString().padLeft(2, '0')}:'
+                                          '${startTime.minute.toString().padLeft(2, '0')}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: !startNow
+                                        ? FontWeight.w600
+                                        : FontWeight.w500,
+                                    color: !startNow
+                                        ? MyTheme.primary
+                                        : theme.colorScheme.onSurface,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: Text(translate('Cancel'))),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: Text(translate('Save')),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    if (value != true) return;
+    _group.startTime = startNow ? null : startTime;
+    await MeetingGroupStore.save();
+    if (mounted) setState(() {});
+    showToast(translate('Meeting time updated'));
+  }
+
+  /// host 修改会议时长（30 / 60 / 120 分钟 / 不限）。
+  Future<void> _editDuration() async {
+    final theme = Theme.of(context);
+    var durationMinutes = _group.durationMinutes;
+    final value = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setState) {
+          final dark = Theme.of(ctx).brightness == Brightness.dark;
+          return AlertDialog(
+            backgroundColor: theme.colorScheme.surface,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: Text(translate('Meeting duration')),
+            content: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final minutes in const [30, 60, 120, 0])
+                  InkWell(
+                    onTap: () => setState(() => durationMinutes = minutes),
+                    borderRadius: BorderRadius.circular(20),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 9),
+                      decoration: BoxDecoration(
+                        color: durationMinutes == minutes
+                            ? MyTheme.primary
+                            : dark
+                                ? const Color(0xFF23262C)
+                                : const Color(0xFFF2F3F5),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: durationMinutes == minutes
+                              ? MyTheme.primary
+                              : theme.colorScheme.outlineVariant,
+                        ),
+                      ),
+                      child: Text(
+                        minutes == 0
+                            ? translate('No limit')
+                            : minutes >= 60
+                                ? '${minutes ~/ 60}${translate('hour')}'
+                                : '$minutes${translate('minute')}',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: durationMinutes == minutes
+                              ? Colors.white
+                              : theme.colorScheme.onSurface,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: Text(translate('Cancel'))),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: Text(translate('Save')),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    if (value != true) return;
+    _group.durationMinutes = durationMinutes;
+    await MeetingGroupStore.save();
+    if (mounted) setState(() {});
+    showToast(translate('Meeting time updated'));
+  }
+
   ChatModel? _activeGroupChatModel() {
     // Find the active chat model for this group's conversation
     if (gFFI.chatModel.currentKey.peerId == _group.conversationId) {
@@ -556,6 +836,46 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
             icon: Icons.people_alt_rounded,
             label: translate('Members'),
             value: '${_members.length + 1}',
+          ),
+          _infoDivider(dark),
+          _infoRow(
+            context,
+            icon: Icons.schedule_rounded,
+            label: translate('Start time'),
+            value: _startTimeLabel,
+            valueColor: _group.startTime != null &&
+                    _group.startTime!.isAfter(DateTime.now())
+                ? theme.colorScheme.primary
+                : null,
+            trailing: isHost
+                ? TextButton(
+                    onPressed: _editStartTime,
+                    style: TextButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      minimumSize: const Size(0, 30),
+                    ),
+                    child: Text(translate('Change')),
+                  )
+                : null,
+          ),
+          _infoDivider(dark),
+          _infoRow(
+            context,
+            icon: Icons.timer_outlined,
+            label: translate('Meeting duration'),
+            value: _durationLabel,
+            trailing: isHost
+                ? TextButton(
+                    onPressed: _editDuration,
+                    style: TextButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      minimumSize: const Size(0, 30),
+                    ),
+                    child: Text(translate('Change')),
+                  )
+                : null,
           ),
           if (_group.inviteShortCode.isNotEmpty) ...[
             _infoDivider(dark),
