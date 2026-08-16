@@ -30,13 +30,6 @@ class _AnnouncementPageState extends State<AnnouncementPage> {
   }
 
   @override
-  void dispose() {
-    // 离开页面视为已读。
-    unawaited(SystemAnnouncementStore.instance.markAllRead());
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final store = SystemAnnouncementStore.instance;
@@ -93,7 +86,6 @@ class _AnnouncementPageState extends State<AnnouncementPage> {
               ),
             );
           }
-          final lastRead = store.lastReadId;
           return ListView.separated(
             padding: const EdgeInsets.all(12),
             itemCount: store.items.length,
@@ -102,7 +94,7 @@ class _AnnouncementPageState extends State<AnnouncementPage> {
               final a = store.items[index];
               return _AnnouncementCard(
                 announcement: a,
-                unread: a.id > lastRead,
+                unread: !store.isRead(a),
                 dark: dark,
               );
             },
@@ -140,8 +132,9 @@ class _AnnouncementCardState extends State<_AnnouncementCard> {
       borderRadius: BorderRadius.circular(12),
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
-        // 点击进入独立详情页查看完整内容。
+        // 点击进入独立详情页查看完整内容，并立即标记该条已读。
         onTap: () {
+          unawaited(SystemAnnouncementStore.instance.markRead(a.id));
           Navigator.of(context).push(
             MaterialPageRoute<void>(
               builder: (_) => AnnouncementDetailPage(announcement: a),

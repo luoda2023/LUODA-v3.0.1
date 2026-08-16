@@ -53,17 +53,23 @@ class SystemAnnouncementStore {
   static final SystemAnnouncementStore instance = SystemAnnouncementStore._();
 
   static const String _readKey = 'sys-announce-last-read-id';
+  static const String _readSetKey = 'sys-announce-read-ids';
 
   final ValueNotifier<int> revision = ValueNotifier<int>(0);
   List<SystemAnnouncement> _items = const <SystemAnnouncement>[];
   int _lastReadId = 0;
+  final Set<int> _readIds = <int>{};
   bool _loaded = false;
 
   List<SystemAnnouncement> get items => _items;
 
+  /// 单条已读状态（含批量已读：id <= lastReadId）。
+  bool isRead(SystemAnnouncement a) =>
+      a.id <= _lastReadId || _readIds.contains(a.id);
+
   int get unreadCount {
     if (_items.isEmpty) return 0;
-    return _items.where((a) => a.id > _lastReadId).length;
+    return _items.where((a) => !isRead(a)).length;
   }
 
   int get lastReadId => _lastReadId;
@@ -76,6 +82,32 @@ class SystemAnnouncementStore {
           int.tryParse(bind.mainGetLocalOption(key: _readKey).trim()) ?? 0;
     } catch (_) {
       _lastReadId = 0;
+    }
+    try {
+      final raw = bind.mainGetLocalOption(key: _readSetKey).trim();
+      if (raw.isNotEmpty) {
+        final decoded = jsonDecode(raw);
+        if (decoded is List) {
+          for (final v in decoded) {
+            final id = v is int ? v : int.tryParse('$v');
+            if (id != null) _readIds.add(id);
+          }
+        }
+      }
+    } catch (_) {
+      // 已读集合损坏时忽略，仅影响单条已读状态。
+    }
+  }
+
+  Future<void> _saveReadState() async {
+    try {
+      await bind.mainSetLocalOption(key: _readKey, value: '$_lastReadId');
+      await bind.mainSetLocalOption(
+        key: _readSetKey,
+        value: jsonEncode(_readIds.toList()..sort()),
+      );
+    } catch (_) {
+      // 写入失败只影响下次已读状态。
     }
   }
 
@@ -118,15 +150,20 @@ class SystemAnnouncementStore {
     }
   }
 
+  /// 标记单条已读（点击进入详情时调用，持久化保存）。
+  Future<void> markRead(int id) async {
+    if (_readIds.contains(id)) return;
+    _readIds.add(id);
+    await _saveReadState();
+    revision.value++;
+  }
+
   /// 标记全部已读。
   Future<void> markAllRead() async {
     if (_items.isEmpty) return;
     _lastReadId = _items.map((a) => a.id).reduce(math.max);
-    try {
-      await bind.mainSetLocalOption(key: _readKey, value: '$_lastReadId');
-    } catch (_) {
-      // 写入失败只影响下次已读状态。
-    }
+    _readIds.clear();
+    await _saveReadState();
     revision.value++;
   }
 }

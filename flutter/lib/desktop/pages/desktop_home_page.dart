@@ -722,10 +722,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                             ? _SystemNoticePanel(
                                                 key: const ValueKey(
                                                     'notice-panel'),
-                                                lastReadId:
-                                                    SystemAnnouncementStore
-                                                        .instance
-                                                        .lastReadId,
                                                 onClose: _closeNoticesPanel,
                                               )
                                             : showFav
@@ -9125,11 +9121,9 @@ void setPasswordDialog({VoidCallback? notEmptyCallback}) async {
 class _SystemNoticePanel extends StatefulWidget {
   const _SystemNoticePanel({
     super.key,
-    required this.lastReadId,
     required this.onClose,
   });
 
-  final int lastReadId;
   final VoidCallback onClose;
 
   @override
@@ -9271,7 +9265,7 @@ class _SystemNoticePanelState extends State<_SystemNoticePanel> {
     Color muted,
   ) {
     final isSelected = _selected?.id == a.id;
-    final unread = a.id > widget.lastReadId;
+    final unread = !store.isRead(a);
     final bg = isSelected
         ? (dark
             ? const Color(0xFF2E5B3F)
@@ -9280,7 +9274,11 @@ class _SystemNoticePanelState extends State<_SystemNoticePanel> {
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       child: InkWell(
-        onTap: () => setState(() => _selected = a),
+        onTap: () {
+          setState(() => _selected = a);
+          // 点开即单条已读（持久化保存）。
+          unawaited(store.markRead(a.id));
+        },
         child: Container(
           color: bg,
           padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
