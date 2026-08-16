@@ -603,6 +603,11 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
               borderRadius: BorderRadius.circular(10),
               borderSide: BorderSide.none,
             ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(
+                  color: MyTheme.primary, width: 1.2),
+            ),
           ),
         ),
         actions: [
@@ -1458,6 +1463,11 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
                     borderSide: BorderSide.none,
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(
+                        color: MyTheme.primary, width: 1.2),
                   ),
                 ),
               ),

@@ -1699,43 +1699,62 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
             ],
           ),
           bottomNavigationBar: _buildBottomNav(context),
-          // 内嵌面板层（系统通知/收藏）：面板打开时主界面 Offstage 保活，
-          // 关闭后立即回到之前浏览的会话/滚动位置（对齐 PC 端方案）。
+          // 内嵌面板层（系统通知/收藏）：主界面始终挂载（保活会话/滚动状态），
+          // 面板打开时主界面轻微缩放 + 左移（视觉“退后”），面板从右侧滑入，
+          // 关闭时自然弹回——对齐微信 PC 的层级过渡感。
           body: ValueListenableBuilder<String?>(
             valueListenable: _mobilePanel,
             builder: (context, panel, _) {
+              final panelOpen = panel != null;
               return Stack(
                 fit: StackFit.expand,
                 children: <Widget>[
-                  Offstage(
-                    offstage: panel != null,
-                    child: count == 0
-                        ? const SizedBox.shrink()
-                        : PageView.builder(
-                            controller: _pageController,
-                            itemCount: 100000001,
-                            onPageChanged: (index) {
-                              final page = index % count;
-                              if (page != _selectedIndex) {
-                                setState(() => _selectedIndex = page);
-                                if (page == _chatPageTabIndex) {
-                                  gFFI.chatModel.hideChatIconOverlay();
-                                  gFFI.chatModel.hideChatWindowOverlay();
-                                  gFFI.chatModel.mobileClearClientUnread(
-                                      gFFI.chatModel.currentKey.connId);
+                  AnimatedScale(
+                    scale: panelOpen ? 0.97 : 1.0,
+                    duration: const Duration(milliseconds: 260),
+                    curve: Curves.easeOutCubic,
+                    child: AnimatedSlide(
+                      offset: panelOpen
+                          ? const Offset(-0.025, 0)
+                          : Offset.zero,
+                      duration: const Duration(milliseconds: 260),
+                      curve: Curves.easeOutCubic,
+                      child: count == 0
+                          ? const SizedBox.shrink()
+                          : PageView.builder(
+                              controller: _pageController,
+                              itemCount: 100000001,
+                              onPageChanged: (index) {
+                                final page = index % count;
+                                if (page != _selectedIndex) {
+                                  setState(() => _selectedIndex = page);
+                                  if (page == _chatPageTabIndex) {
+                                    gFFI.chatModel.hideChatIconOverlay();
+                                    gFFI.chatModel.hideChatWindowOverlay();
+                                    gFFI.chatModel.mobileClearClientUnread(
+                                        gFFI.chatModel.currentKey.connId);
+                                  }
                                 }
-                              }
-                            },
-                            itemBuilder: (context, index) =>
-                                _pages.elementAt(index % count),
-                          ),
+                              },
+                              itemBuilder: (context, index) =>
+                                  _pages.elementAt(index % count),
+                            ),
+                    ),
                   ),
                   AnimatedSwitcher(
                     duration: const Duration(milliseconds: 260),
+                    switchInCurve: Curves.easeOutCubic,
+                    switchOutCurve: Curves.easeInCubic,
                     transitionBuilder: (child, animation) =>
-                        FadeTransition(
-                      opacity: animation,
-                      child: child,
+                        SlideTransition(
+                      position: Tween<Offset>(
+                        begin: const Offset(0.08, 0),
+                        end: Offset.zero,
+                      ).animate(animation),
+                      child: FadeTransition(
+                        opacity: animation,
+                        child: child,
+                      ),
                     ),
                     child: panel == null
                         ? const SizedBox.shrink(key: ValueKey('no-panel'))
