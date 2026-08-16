@@ -314,6 +314,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       DesktopChatComposerController();
 
   bool _openingViewerInvite = false;
+
+  /// 系统通知分栏面板是否打开（嵌入右侧内容区，不遮挡左侧列表）。
+  bool _noticesOpen = false;
+
   final Map<String, FFI> _directChatSessions = <String, FFI>{};
   final Map<String, DateTime> _directChatAttemptedAt = <String, DateTime>{};
   final Set<String> _openingDirectChatPeers = <String>{};
@@ -664,7 +668,38 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                               width: contactsWidth,
                               child: _buildContactsPane(context),
                             ),
-                            Expanded(child: workspace!),
+                            Expanded(
+                              child: AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 260),
+                                switchInCurve: Curves.easeOutCubic,
+                                switchOutCurve: Curves.easeInCubic,
+                                transitionBuilder: (child, animation) {
+                                  return SlideTransition(
+                                    position: Tween<Offset>(
+                                      begin: const Offset(0.06, 0),
+                                      end: Offset.zero,
+                                    ).animate(animation),
+                                    child: FadeTransition(
+                                      opacity: animation,
+                                      child: child,
+                                    ),
+                                  );
+                                },
+                                child: _noticesOpen
+                                    ? _SystemNoticePanel(
+                                        key:
+                                            const ValueKey('notice-panel'),
+                                        lastReadId: SystemAnnouncementStore
+                                            .instance
+                                            .lastReadId,
+                                        onClose: _closeNoticesPanel,
+                                      )
+                                    : KeyedSubtree(
+                                        key: const ValueKey('workspace'),
+                                        child: workspace!,
+                                      ),
+                              ),
+                            ),
                           ],
                         );
                       },
@@ -1149,7 +1184,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             borderRadius: BorderRadius.circular(10),
             child: InkWell(
               borderRadius: BorderRadius.circular(10),
-              onTap: () => _showAnnouncementsPanel(context),
+              onTap: () => _openNoticesPanel(),
               child: Padding(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
@@ -1328,27 +1363,21 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     );
   }
 
-  /// 打开系统通知面板：不弹窗，而是把右侧窗口分成两列——
-  /// 第 1 列通知列表、第 2 列详情。面板宽度跟随主窗口（约 72%），
-  /// 拖动分隔条可调整左列宽度；拖大主窗口时详情列随之变宽。
-  Future<void> _showAnnouncementsPanel(BuildContext context) async {
+  /// 打开系统通知面板：不弹窗、不加遮罩，直接在右侧内容区切换显示——
+  /// 左侧列表保持不动，右侧滑入分栏面板（第 1 列通知列表、第 2 列详情）。
+  Future<void> _openNoticesPanel() async {
     final store = SystemAnnouncementStore.instance;
     store.load();
     await store.refresh();
     if (!mounted) return;
-    await showGeneralDialog<void>(
-      context: context,
-      barrierDismissible: true,
-      barrierLabel: '',
-      barrierColor: Colors.black45,
-      transitionDuration: const Duration(milliseconds: 220),
-      pageBuilder: (dialogContext, _, __) {
-        return _SystemNoticePanel(
-          lastReadId: store.lastReadId,
-        );
-      },
-    );
-    await store.markAllRead();
+    setState(() => _noticesOpen = true);
+  }
+
+  /// 关闭系统通知面板并标记全部已读。
+  Future<void> _closeNoticesPanel() async {
+    if (!mounted) return;
+    setState(() => _noticesOpen = false);
+    await SystemAnnouncementStore.instance.markAllRead();
   }
 
   /// 构建分类筛选相关控件：按分类过滤会话列表。
@@ -8647,12 +8676,17 @@ void setPasswordDialog({VoidCallback? notEmptyCallback}) async {
   });
 }
 /// 系统通知分栏面板：左侧通知列表 + 右侧详情。
-/// 面板宽度跟随主窗口（约 72%），拖动左右分隔条可调整列表列宽；
-/// 拖大主窗口时详情列自动变宽。
+/// 嵌入右侧内容区（不遮挡左侧列表），占满内容区宽度；
+/// 拖动左右分隔条可调整列表列宽，拖大主窗口时详情列自动变宽。
 class _SystemNoticePanel extends StatefulWidget {
-  const _SystemNoticePanel({required this.lastReadId});
+  const _SystemNoticePanel({
+    super.key,
+    required this.lastReadId,
+    required this.onClose,
+  });
 
   final int lastReadId;
+  final VoidCallback onClose;
 
   @override
   State<_SystemNoticePanel> createState() => _SystemNoticePanelState();
@@ -8689,46 +8723,40 @@ class _SystemNoticePanelState extends State<_SystemNoticePanel> {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final muted = dark ? MyTheme.mutedDark : MyTheme.mutedLight;
     final surface = dark ? MyTheme.surfaceDark : Colors.white;
-    return Align(
-      alignment: Alignment.centerRight,
-      child: FractionallySizedBox(
-        widthFactor: 0.72,
-        heightFactor: 1.0,
-        child: Material(
-          color: surface,
-          elevation: 8,
-          child: Column(
-            children: <Widget>[
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 14, 12, 10),
-                child: Row(
-                  children: <Widget>[
-                    const Icon(Icons.campaign_rounded,
-                        size: 20, color: kWeChatPrimaryColor),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        translate('System notices'),
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
+    return ColoredBox(
+      color: surface,
+      child: Column(
+        children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 14, 12, 10),
+            child: Row(
+              children: <Widget>[
+                const Icon(Icons.campaign_rounded,
+                    size: 20, color: kWeChatPrimaryColor),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    translate('System notices'),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
                     ),
-                    IconButton(
-                      tooltip: translate('Refresh'),
-                      onPressed: () => store.refresh(),
-                      icon: const Icon(Icons.refresh_rounded, size: 20),
-                    ),
-                    IconButton(
-                      tooltip: translate('Close'),
-                      onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(Icons.close_rounded, size: 20),
-                    ),
-                  ],
+                  ),
                 ),
-              ),
-              const Divider(height: 1),
+                IconButton(
+                  tooltip: translate('Refresh'),
+                  onPressed: () => store.refresh(),
+                  icon: const Icon(Icons.refresh_rounded, size: 20),
+                ),
+                IconButton(
+                  tooltip: translate('Close'),
+                  onPressed: widget.onClose,
+                  icon: const Icon(Icons.close_rounded, size: 20),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
               Expanded(
                 child: ValueListenableBuilder<int>(
                   valueListenable: store.revision,
@@ -8788,9 +8816,7 @@ class _SystemNoticePanelState extends State<_SystemNoticePanel> {
               ),
             ],
           ),
-        ),
-      ),
-    );
+        );
   }
 
   Widget _buildListItem(
