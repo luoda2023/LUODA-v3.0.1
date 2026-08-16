@@ -682,57 +682,81 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                   _favoritesOpen,
                                   _meetingsOpen,
                                 ]),
-                                builder: (context, _) => AnimatedSwitcher(
-                                  duration:
-                                      const Duration(milliseconds: 260),
-                                  switchInCurve: Curves.easeOutCubic,
-                                  switchOutCurve: Curves.easeInCubic,
-                                  transitionBuilder: (child, animation) {
-                                    return SlideTransition(
-                                      position: Tween<Offset>(
-                                        begin: const Offset(0.06, 0),
-                                        end: Offset.zero,
-                                      ).animate(animation),
-                                      child: FadeTransition(
-                                        opacity: animation,
-                                        child: child,
+                                builder: (context, _) {
+                                  final showNotices = _noticesOpen.value;
+                                  final showFav = _favoritesOpen.value;
+                                  final showMeetings = _meetingsOpen.value;
+                                  final showPanel =
+                                      showNotices || showFav || showMeetings;
+                                  return Stack(
+                                    fit: StackFit.expand,
+                                    children: <Widget>[
+                                      // 聊天工作区常驻（Offstage 保活）：
+                                      // 打开面板时隐藏但保留聊天状态，
+                                      // 关闭后立即回到之前浏览的会话。
+                                      Offstage(
+                                        offstage: showPanel,
+                                        child: workspace!,
                                       ),
-                                    );
-                                  },
-                                  child: _noticesOpen.value
-                                      ? _SystemNoticePanel(
-                                          key: const ValueKey(
-                                              'notice-panel'),
-                                          lastReadId:
-                                              SystemAnnouncementStore
-                                                  .instance
-                                                  .lastReadId,
-                                          onClose: _closeNoticesPanel,
-                                        )
-                                      : _favoritesOpen.value
-                                          ? FavoritesPage(
-                                              key: const ValueKey(
-                                                  'favorites-panel'),
-                                              detailPane: true,
-                                              onClose: _closeFavoritesPane,
-                                            )
-                                      : _meetingsOpen.value
-                                          ? _MeetingCenterPanel(
-                                              key: const ValueKey(
-                                                  'meeting-center-panel'),
-                                              onCreate: () =>
-                                                  _showCreateMeetingDialog(
-                                                      context),
-                                              onOpen: (group) =>
-                                                  _showMeetingGroupSettings(
-                                                      context, group),
-                                            )
-                                          : KeyedSubtree(
-                                              key: const ValueKey(
-                                                  'workspace'),
-                                              child: workspace!,
+                                      // 面板层：切换带动画。
+                                      AnimatedSwitcher(
+                                        duration: const Duration(
+                                            milliseconds: 260),
+                                        switchInCurve: Curves.easeOutCubic,
+                                        switchOutCurve: Curves.easeInCubic,
+                                        transitionBuilder:
+                                            (child, animation) {
+                                          return SlideTransition(
+                                            position: Tween<Offset>(
+                                              begin:
+                                                  const Offset(0.06, 0),
+                                              end: Offset.zero,
+                                            ).animate(animation),
+                                            child: FadeTransition(
+                                              opacity: animation,
+                                              child: child,
                                             ),
-                                ),
+                                          );
+                                        },
+                                        child: showNotices
+                                            ? _SystemNoticePanel(
+                                                key: const ValueKey(
+                                                    'notice-panel'),
+                                                lastReadId:
+                                                    SystemAnnouncementStore
+                                                        .instance
+                                                        .lastReadId,
+                                                onClose: _closeNoticesPanel,
+                                              )
+                                            : showFav
+                                                ? FavoritesPage(
+                                                    key: const ValueKey(
+                                                        'favorites-panel'),
+                                                    detailPane: true,
+                                                    onClose:
+                                                        _closeFavoritesPane,
+                                                  )
+                                                : showMeetings
+                                                    ? _MeetingCenterPanel(
+                                                        key: const ValueKey(
+                                                            'meeting-center-panel'),
+                                                        onCreate: () =>
+                                                            _showCreateMeetingDialog(
+                                                                context),
+                                                        onOpen: (group) =>
+                                                            _showMeetingGroupSettings(
+                                                                context,
+                                                                group),
+                                                      )
+                                                    : const SizedBox
+                                                        .shrink(
+                                                          key: ValueKey(
+                                                              'no-panel'),
+                                                        ),
+                                      ),
+                                    ],
+                                  );
+                                },
                               ),
                             ),
                           ],
