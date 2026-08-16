@@ -9036,8 +9036,10 @@ class _SystemNoticePanelState extends State<_SystemNoticePanel> {
     bool dark,
     Color muted,
   ) {
+    // 详情区背景与面板统一（白色 / 深色面），内容从上往下排列。
+    final surface = dark ? MyTheme.surfaceDark : Colors.white;
     return Container(
-      color: dark ? const Color(0xFF1E2024) : const Color(0xFFF5F6F7),
+      color: surface,
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
         child: Column(
