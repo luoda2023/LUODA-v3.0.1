@@ -107,6 +107,44 @@ set(LUODA_LIB "../../target/${LUODA_LIB_BUILD_TYPE}/luoda.dll")
 install(FILES "${LUODA_LIB}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
 COMPONENT Runtime RENAME luoda.dll)
 
+# === shot_overlay.exe (screenshot region tool) ===
+# Compiled from assets/scripts/shot_overlay.cs with the .NET Framework csc.exe
+# into a WinForms GUI app (no console window, no PowerShell startup delay,
+# UTF-8 source so the Chinese hint can never be mojibake). Compilation runs
+# at CONFIGURE time via execute_process: invoking csc as an MSBuild custom
+# build step fails because MSBuild poisons the LIB environment variable and
+# rewrites relative paths, so a plain configure-time compile is far more
+# reliable. If csc.exe is unavailable the build continues; the Dart side then
+# falls back to the PowerShell overlay script.
+set(SHOT_OVERLAY_CS "${CMAKE_CURRENT_SOURCE_DIR}/../assets/scripts/shot_overlay.cs")
+set(SHOT_OVERLAY_EXE "${CMAKE_CURRENT_BINARY_DIR}/shot_overlay.exe")
+find_program(DOTNET_CSC csc.exe
+  PATHS "C:/Windows/Microsoft.NET/Framework64/v4.0.30319"
+  NO_DEFAULT_PATH)
+if(DOTNET_CSC)
+  # csc resolves -r: references via the LIB environment variable, which the
+  # Flutter/VS build environment poisons with paths that do not exist. Pass
+  # full framework paths explicitly so the compile is hermetic.
+  set(DOTNET_FX "C:/Windows/Microsoft.NET/Framework64/v4.0.30319")
+  execute_process(
+    COMMAND "${DOTNET_CSC}" -nologo -target:winexe -codepage:65001 -optimize+
+            "-r:${DOTNET_FX}/System.Windows.Forms.dll"
+            "-r:${DOTNET_FX}/System.Drawing.dll"
+            "-out:${SHOT_OVERLAY_EXE}" "${SHOT_OVERLAY_CS}"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+    RESULT_VARIABLE SHOT_OVERLAY_RC
+    OUTPUT_VARIABLE SHOT_OVERLAY_OUT
+    ERROR_VARIABLE SHOT_OVERLAY_ERR)
+  if(SHOT_OVERLAY_RC)
+    message(WARNING "shot_overlay.exe compile failed (rc=${SHOT_OVERLAY_RC}): ${SHOT_OVERLAY_ERR}; screenshot will fall back to PowerShell (runtime build will be attempted)")
+  else()
+    install(FILES "${SHOT_OVERLAY_EXE}"
+      DESTINATION "${INSTALL_BUNDLE_LIB_DIR}" COMPONENT Runtime)
+  endif()
+else()
+  message(WARNING "csc.exe not found; screenshot will fall back to PowerShell")
+endif()
+
 # Fully re-copy the assets directory on each build to avoid having stale files
 # from a previous install.
 set(FLUTTER_ASSET_DIR_NAME "flutter_assets")

@@ -105,13 +105,38 @@ Future<String?> captureRegionToFile() async {
         '${imageDir.path}${Platform.pathSeparator}shot_$stamp.png';
 
     if (Platform.isWindows) {
+      // 1) 优先使用编译好的 shot_overlay.exe（WinForms GUI 程序）：
+      //    启动 <100ms（无 PowerShell 延迟）、无控制台窗口（不闪烁）、
+      //    UTF-8 编译（中文提示不乱码）。找不到时先用 csc 现场编译一次
+      //    并缓存到应用数据目录（首次 1-2 秒，之后复用）。
+      final exe = await _ensureShotOverlayExe();
+      if (exe != null) {
+        try {
+          final result = await Process.run(exe, ['-Out', target])
+              .timeout(const Duration(seconds: 180));
+          if (result.exitCode == 0 && await File(target).exists()) {
+            return target;
+          }
+          // exitCode != 0 = 用户按 Esc 取消或脚本失败。
+          return null;
+        } catch (_) {
+          // 运行失败时回退到 PowerShell 脚本。
+        }
+      }
+
+      // 2) 回退：PowerShell overlay 脚本。写文件时加 UTF-8 BOM（否则
+      //    PowerShell 5.1 按 ANSI 解析导致中文提示乱码），并以隐藏窗口
+      //    方式启动（避免黑色控制台窗口闪现）。
       final scriptContent =
           await rootBundle.loadString('assets/scripts/shot_overlay.ps1');
       final script = File(
         '${Directory.systemTemp.path}${Platform.pathSeparator}'
         'luoda_shot_ov_$stamp.ps1',
       );
-      await script.writeAsString(scriptContent);
+      final withBom = scriptContent.startsWith('\uFEFF')
+          ? scriptContent
+          : '\uFEFF$scriptContent';
+      await script.writeAsString(withBom);
       try {
         // 用户框选期间等待其操作；长时间无操作自动放弃，避免永久挂起。
         final result = await Process.run(
@@ -119,6 +144,8 @@ Future<String?> captureRegionToFile() async {
           [
             '-NoProfile',
             '-NonInteractive',
+            '-WindowStyle',
+            'Hidden',
             '-ExecutionPolicy',
             'Bypass',
             '-File',
@@ -144,4 +171,66 @@ Future<String?> captureRegionToFile() async {
   } catch (_) {
     return null;
   }
+}
+
+/// 定位构建期编译的 shot_overlay.exe（与 luoda.exe 同目录，或开发构建目录）。
+Future<String?> _findShotOverlayExe() async {
+  try {
+    final exeDir = File(Platform.resolvedExecutable).parent.path;
+    final candidate =
+        '$exeDir${Platform.pathSeparator}shot_overlay.exe';
+    if (File(candidate).existsSync()) return candidate;
+  } catch (_) {}
+  try {
+    final cwd = Directory.current.path;
+    final candidate = '$cwd${Platform.pathSeparator}build'
+        '${Platform.pathSeparator}windows${Platform.pathSeparator}x64'
+        '${Platform.pathSeparator}runner${Platform.pathSeparator}Release'
+        '${Platform.pathSeparator}shot_overlay.exe';
+    if (File(candidate).existsSync()) return candidate;
+  } catch (_) {}
+  return null;
+}
+
+/// 确保 shot_overlay.exe 可用：优先用构建期编译产物，找不到时用 .NET
+/// Framework 自带的 csc.exe 现场编译一次（源码来自 assets，UTF-8 编译），
+/// 缓存到应用数据目录，之后复用。全部失败返回 null（回退 PowerShell）。
+Future<String?> _ensureShotOverlayExe() async {
+  final existing = await _findShotOverlayExe();
+  if (existing != null) return existing;
+  try {
+    final supportDir = await getApplicationSupportDirectory();
+    final exePath = '${supportDir.path}${Platform.pathSeparator}shot_overlay.exe';
+    if (File(exePath).existsSync()) return exePath;
+    final cs =
+        await rootBundle.loadString('assets/scripts/shot_overlay.cs');
+    final csFile = File(
+      '${Directory.systemTemp.path}${Platform.pathSeparator}'
+      'luoda_shot_overlay_build.cs',
+    );
+    await csFile.writeAsString(cs);
+    try {
+      final result = await Process.run(
+        r'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe',
+        [
+          '-nologo',
+          '-target:winexe',
+          '-codepage:65001',
+          '-optimize+',
+          r'-r:C:/Windows/Microsoft.NET/Framework64/v4.0.30319/System.Windows.Forms.dll',
+          r'-r:C:/Windows/Microsoft.NET/Framework64/v4.0.30319/System.Drawing.dll',
+          '-out:$exePath',
+          csFile.path,
+        ],
+      ).timeout(const Duration(seconds: 60));
+      if (result.exitCode == 0 && File(exePath).existsSync()) {
+        return exePath;
+      }
+    } finally {
+      try {
+        await csFile.delete();
+      } catch (_) {}
+    }
+  } catch (_) {}
+  return null;
 }
