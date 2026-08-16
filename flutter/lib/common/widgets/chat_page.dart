@@ -2567,6 +2567,25 @@ class ChatPage extends StatelessWidget implements PageShape {
               return '${(fileSize / 1024 / 1024).toStringAsFixed(1)} MB';
             }
 
+            /// 会议群聊顶部横幅：未到开会时间显示倒计时，进行中显示状态，
+            /// 超时（开始时间+时长）显示已结束。
+            Widget _buildMeetingCountdownBar(
+              BuildContext context, {
+              required MessageKey currentKey,
+              required bool isDesktopHome,
+            }) {
+              if (!currentKey.peerId.startsWith('meeting:')) {
+                return const SizedBox.shrink();
+              }
+              final meetingId = currentKey.peerId.substring('meeting:'.length);
+              final group = MeetingGroupStore.find(meetingId);
+              if (group == null) return const SizedBox.shrink();
+              return _MeetingCountdownBanner(
+                group: group,
+                isDesktopHome: isDesktopHome,
+              );
+            }
+
             Widget _buildInviteCard(
                 BuildContext context, String link, Color foreground) {
               // 会议群邀请: luoda://meeting/{meetingId}
@@ -3740,6 +3759,12 @@ class ChatPage extends StatelessWidget implements PageShape {
                       ),
                     );
                   }
+                  // 会议群聊顶部：开会倒计时/进行中/已结束横幅。
+                  final Widget meetingCountdownBar = _buildMeetingCountdownBar(
+                    context,
+                    currentKey: currentKey,
+                    isDesktopHome: isDesktopHome,
+                  );
                   // "Load older messages" banner — shown at the top when
                   // the conversation has more history beyond the initial load.
                   Widget loadOlderBar = const SizedBox.shrink();
@@ -3782,6 +3807,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                     return Column(
                       children: <Widget>[
                         loadOlderBar,
+                        meetingCountdownBar,
                         Expanded(
                           child: GestureDetector(
                             behavior: HitTestBehavior.opaque,
@@ -3815,6 +3841,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                   return Column(
                     children: <Widget>[
                       loadOlderBar,
+                      meetingCountdownBar,
                       Expanded(
                           child: _buildMessageArea(
                         context: context,
@@ -5931,6 +5958,123 @@ class _AiModelSelectorState extends State<_AiModelSelector> {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// 会议群聊顶部横幅：开会倒计时 / 进行中 / 已结束。
+/// 每秒刷新一次倒计时；无 startTime（立即开始）时显示会议信息条。
+class _MeetingCountdownBanner extends StatefulWidget {
+  const _MeetingCountdownBanner({
+    required this.group,
+    required this.isDesktopHome,
+  });
+
+  final MeetingGroup group;
+  final bool isDesktopHome;
+
+  @override
+  State<_MeetingCountdownBanner> createState() => _MeetingCountdownBannerState();
+}
+
+class _MeetingCountdownBannerState extends State<_MeetingCountdownBanner> {
+  Timer? _timer;
+  DateTime? _startTime;
+  int _durationMinutes = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _startTime = widget.group.startTime;
+    _durationMinutes = widget.group.durationMinutes;
+    // 有定时开会时间时每秒刷新倒计时。
+    if (_startTime != null) {
+      _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() {});
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  String _pad(int n) => n.toString().padLeft(2, '0');
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
+    final start = _startTime;
+    final now = DateTime.now();
+
+    // 未设置开会时间：显示提示条（立即开会）。
+    if (start == null) {
+      return const SizedBox.shrink();
+    }
+    final localStart = start.toLocal();
+    final diff = localStart.difference(now);
+    final isRunning = diff <= Duration.zero;
+    // 会议时长 > 0 时判断是否已结束。
+    final ended = isRunning &&
+        _durationMinutes > 0 &&
+        now.difference(localStart).inMinutes >= _durationMinutes;
+
+    final Color bg;
+    final IconData icon;
+    final String text;
+    if (ended) {
+      bg = dark ? const Color(0xFF2B2D32) : const Color(0xFFF0F2F5);
+      icon = Icons.check_circle_outline_rounded;
+      text = translate('Meeting ended');
+    } else if (isRunning) {
+      bg = const Color(0xFF07C160).withOpacity(0.12);
+      icon = Icons.record_voice_over_rounded;
+      text = translate('Meeting in progress');
+    } else {
+      bg = const Color(0xFFFFF4E0);
+      icon = Icons.timer_rounded;
+      final days = diff.inDays;
+      final hours = diff.inHours % 24;
+      final minutes = diff.inMinutes % 60;
+      final seconds = diff.inSeconds % 60;
+      final countdown = days > 0
+          ? '$days${translate('days')} ${_pad(hours)}:${_pad(minutes)}:${_pad(seconds)}'
+          : '${_pad(hours)}:${_pad(minutes)}:${_pad(seconds)}';
+      text = '${translate('Meeting starts in')} $countdown';
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      color: bg,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: <Widget>[
+          Icon(icon,
+              size: 15,
+              color: ended
+                  ? (dark ? Colors.white54 : Colors.black45)
+                  : const Color(0xFFE65100)),
+          const SizedBox(width: 7),
+          Flexible(
+            child: Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: widget.isDesktopHome ? 12.5 : 13,
+                fontWeight: FontWeight.w600,
+                color: ended
+                    ? (dark ? Colors.white54 : Colors.black45)
+                    : const Color(0xFFE65100),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
