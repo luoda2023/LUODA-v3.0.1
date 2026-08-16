@@ -1670,15 +1670,187 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   }
 
   /// 显示创建会议对话框
+  /// 创建会议（统一入口）：创建并加入成员，返回会议；失败返回 null。
+  MeetingGroup? _doCreateMeeting(
+    String title, {
+    Peer? presenter,
+    List<Peer> members = const [],
+    DateTime? startTime,
+    int durationMinutes = 60,
+  }) {
+    final group = MeetingGroupStore.create(
+      title: title,
+      hostPeerId: gFFI.serverModel.id,
+      hostDisplayName: gFFI.serverModel.serverId.text,
+      presenterPeerId: presenter?.id ?? gFFI.serverModel.id,
+      presenterDisplayName:
+          presenter?.finalName() ?? gFFI.serverModel.serverId.text,
+      startTime: startTime,
+      durationMinutes: durationMinutes,
+    );
+    // 创建时直接添加成员（发起人自动是新建会议的人，不重复添加自己）。
+    for (final peer in members) {
+      final id = peer.id.trim();
+      if (id.isEmpty ||
+          id == gFFI.serverModel.id ||
+          (group.members ?? []).any((m) => m.peerId == id)) {
+        continue;
+      }
+      final displayName = peer.alias.isNotEmpty
+          ? peer.alias
+          : peer.username.isNotEmpty
+              ? peer.username
+              : peer.finalName();
+      MeetingGroupStore.addMember(group.meetingId, id, displayName);
+    }
+    return group;
+  }
+
+  /// 创建成功后：给新成员发私聊邀请通知。
+  Future<void> _notifyNewMeetingMembers(MeetingGroup group,
+      List<Peer> members) async {
+    final link = 'luoda://meeting/${group.meetingId}';
+    for (final peer in members) {
+      final id = peer.id.trim();
+      if (id.isEmpty || id == gFFI.serverModel.id) continue;
+      try {
+        final chatModel = gFFI.chatModel;
+        final originalKey = chatModel.currentKey;
+        chatModel.changeCurrentKey(MessageKey(id, ChatModel.clientModeID));
+        final body =
+            '${translate('Meeting invite')}：${gFFI.serverModel.serverId.text} '
+            '${translate('invited you to join')}《${group.title}》\n$link';
+        chatModel.sendText(body);
+        chatModel.changeCurrentKey(originalKey);
+      } catch (e) {
+        debugPrint('meeting invite notify failed: $e');
+      }
+    }
+  }
+
   void _showCreateMeetingDialog(BuildContext context) {
-    /// 创建会议页面输入框
     final controller = TextEditingController();
-    // 演示人：默认发起人自己，可改为其他联系人（单选）。
+    // 演示人：默认发起人自己，可改为其他好友（单选）。
     Peer? presenter;
+    // 创建时直接添加的成员（好友多选）。
+    final members = <Peer>[];
+    bool startNow = true;
+    DateTime? startTime;
+    int durationMinutes = 60;
+
     gFFI.dialogManager.show((setState, close, ctx) {
+      final theme = Theme.of(ctx);
+      final dark = theme.brightness == Brightness.dark;
+      final muted = theme.colorScheme.onSurface.withOpacity(0.55);
       final presenterLabel = presenter != null
           ? presenter!.finalName()
           : gFFI.serverModel.serverId.text;
+      final membersLabel = members.isEmpty
+          ? translate('None')
+          : members.map((m) => m.finalName()).join(', ');
+      // 演示人候选 = 发起人自己 + 已选成员（保证演示人是会议参与者）。
+      final presenterCandidates = <Peer>[
+        ...members,
+      ];
+
+      Widget fieldTile({
+        required IconData icon,
+        required String label,
+        required String value,
+        required VoidCallback onTap,
+        Color? iconColor,
+      }) {
+        return InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: dark
+                  ? const Color(0xFF23262C)
+                  : theme.colorScheme.surfaceContainerHighest
+                      .withOpacity(0.5),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: theme.colorScheme.outlineVariant.withOpacity(0.6),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(icon,
+                    size: 18,
+                    color: iconColor ?? theme.colorScheme.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      color: muted,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.right,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: theme.colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+                Icon(Icons.chevron_right_rounded,
+                    size: 18, color: theme.colorScheme.onSurfaceVariant),
+              ],
+            ),
+          ),
+        );
+      }
+
+      Widget actionButton(String text, VoidCallback onPressed) {
+        return FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor: kWeChatPrimaryColor,
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          ),
+          onPressed: onPressed,
+          child: Text(text,
+              style: const TextStyle(fontSize: 13, color: Colors.white)),
+        );
+      }
+
+      void createMeeting() {
+        final title = controller.text.trim();
+        if (title.isEmpty) {
+          showToast(translate('Please enter a meeting name'));
+          return;
+        }
+        final group = _doCreateMeeting(
+          title,
+          presenter: presenter,
+          members: members,
+          startTime: startNow ? null : startTime,
+          durationMinutes: durationMinutes,
+        );
+        close();
+        if (group == null || group.meetingId.isEmpty) return;
+        showToast(translate('Meeting created'));
+        final link = 'luoda://meeting/${group.meetingId}';
+        _copyToClipboard(link);
+        showToast(translate('Invite link copied'));
+        if (members.isNotEmpty) {
+          unawaited(_notifyNewMeetingMembers(group, members));
+        }
+      }
+
       return CustomAlertDialog(
         title: Text(translate('Create Meeting')),
         content: Column(
@@ -1687,118 +1859,273 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             TextField(
               controller: controller,
               autofocus: true,
+              maxLength: 32,
               decoration: InputDecoration(
                 hintText: translate('Meeting Title'),
                 border: const OutlineInputBorder(),
+                counterText: '',
               ),
             ),
             const SizedBox(height: 12),
-            InkWell(
+            // 添加成员（好友多选）。
+            fieldTile(
+              icon: Icons.people_alt_rounded,
+              label: translate('Members'),
+              value: membersLabel,
               onTap: () async {
                 final picked = await showFriendPickerDialog(
                   context,
                   peers: gFFI.recentPeersModel.peers,
+                  title: translate('Select from friends'),
+                );
+                if (picked == null || picked.isEmpty) return;
+                setState(() {
+                  members
+                    ..clear()
+                    ..addAll(picked.where(
+                        (p) => p.id.trim().isNotEmpty &&
+                            p.id.trim() != gFFI.serverModel.id));
+                  // 演示人被移除出成员列表时，回退为发起人自己。
+                  if (presenter != null &&
+                      !members.any(
+                          (m) => m.id.trim() == presenter!.id.trim())) {
+                    presenter = null;
+                  }
+                });
+              },
+            ),
+            const SizedBox(height: 10),
+            // 选择演示人：默认发起人自己，可从成员里单选。
+            fieldTile(
+              icon: Icons.present_to_all_rounded,
+              label: translate('Presenter'),
+              value: presenterLabel,
+              onTap: () async {
+                final hostSelf = Peer(
+                  id: gFFI.serverModel.id,
+                  hash: '',
+                  password: '',
+                  username: gFFI.serverModel.serverId.text,
+                  hostname: gFFI.serverModel.serverId.text,
+                  platform: '',
+                  alias: '',
+                  tags: const [],
+                  forceAlwaysRelay: false,
+                  rdpPort: '',
+                  rdpUsername: '',
+                  loginName: '',
+                  device_group_name: '',
+                  note: '',
+                );
+                final picked = await showFriendPickerDialog(
+                  context,
+                  peers: [hostSelf, ...presenterCandidates],
                   title: translate('Choose presenter'),
                   maxSelections: 1,
                 );
                 if (picked != null && picked.isNotEmpty) {
-                  setState(() => presenter = picked.first);
+                  final chosen = picked.first;
+                  setState(() {
+                    presenter = chosen.id == gFFI.serverModel.id
+                        ? null
+                        : chosen;
+                  });
                 }
               },
-              borderRadius: BorderRadius.circular(10),
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                decoration: BoxDecoration(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .surfaceContainerHighest
-                      .withOpacity(0.5),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .outlineVariant
-                        .withOpacity(0.6),
+            ),
+            const SizedBox(height: 10),
+            // 开始时间：立即 / 定时。
+            Row(
+              children: [
+                Expanded(
+                  child: InkWell(
+                    onTap: () => setState(() => startNow = true),
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: startNow
+                            ? kWeChatPrimaryColor.withOpacity(0.1)
+                            : theme.colorScheme.surfaceContainerHighest
+                                .withOpacity(0.5),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: startNow
+                              ? kWeChatPrimaryColor
+                              : theme.colorScheme.outlineVariant,
+                          width: startNow ? 1.4 : 0.8,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.play_circle_outline_rounded,
+                              size: 17,
+                              color: startNow
+                                  ? kWeChatPrimaryColor
+                                  : theme.colorScheme.onSurfaceVariant),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              translate('Start now'),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight:
+                                    startNow ? FontWeight.w600 : FontWeight.w500,
+                                color: startNow
+                                    ? kWeChatPrimaryColor
+                                    : theme.colorScheme.onSurface,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
-                child: Row(
-                  children: [
-                    Icon(Icons.present_to_all_rounded,
-                        size: 18,
-                        color: Theme.of(context).colorScheme.primary),
-                    const SizedBox(width: 8),
-                    Expanded(
+                const SizedBox(width: 10),
+                Expanded(
+                  child: InkWell(
+                    onTap: () async {
+                      final now = DateTime.now();
+                      final date = await showDatePicker(
+                        context: context,
+                        initialDate: startTime ?? now,
+                        firstDate: now.subtract(const Duration(days: 1)),
+                        lastDate: now.add(const Duration(days: 365)),
+                      );
+                      if (date == null) return;
+                      final time = await showTimePicker(
+                        context: context,
+                        initialTime:
+                            TimeOfDay.fromDateTime(startTime ?? now),
+                      );
+                      if (time == null) return;
+                      setState(() {
+                        startTime = DateTime(date.year, date.month, date.day,
+                            time.hour, time.minute);
+                        startNow = false;
+                      });
+                    },
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: !startNow
+                            ? kWeChatPrimaryColor.withOpacity(0.1)
+                            : theme.colorScheme.surfaceContainerHighest
+                                .withOpacity(0.5),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: !startNow
+                              ? kWeChatPrimaryColor
+                              : theme.colorScheme.outlineVariant,
+                          width: !startNow ? 1.4 : 0.8,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.schedule_rounded,
+                              size: 17,
+                              color: !startNow
+                                  ? kWeChatPrimaryColor
+                                  : theme.colorScheme.onSurfaceVariant),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              startTime == null
+                                  ? translate('Schedule')
+                                  : '${startTime!.month}月'
+                                      '${startTime!.day}日 '
+                                      '${startTime!.hour.toString().padLeft(2, '0')}:'
+                                      '${startTime!.minute.toString().padLeft(2, '0')}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight:
+                                    !startNow ? FontWeight.w600 : FontWeight.w500,
+                                color: !startNow
+                                    ? kWeChatPrimaryColor
+                                    : theme.colorScheme.onSurface,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            // 会议时长。
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                translate('Meeting duration'),
+                style: TextStyle(fontSize: 12.5, color: muted),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final minutes in const [30, 60, 120, 0])
+                  InkWell(
+                    onTap: () => setState(() => durationMinutes = minutes),
+                    borderRadius: BorderRadius.circular(20),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 7),
+                      decoration: BoxDecoration(
+                        color: durationMinutes == minutes
+                            ? kWeChatPrimaryColor
+                            : theme.colorScheme.surfaceContainerHighest
+                                .withOpacity(0.5),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: durationMinutes == minutes
+                              ? kWeChatPrimaryColor
+                              : theme.colorScheme.outlineVariant,
+                        ),
+                      ),
                       child: Text(
-                        '${translate('Presenter')}: $presenterLabel',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                        minutes == 0
+                            ? translate('No limit')
+                            : minutes >= 60
+                                ? '${minutes ~/ 60}${translate('hour')}'
+                                : '$minutes${translate('minute')}',
                         style: TextStyle(
-                          fontSize: 13,
-                          color: Theme.of(context).colorScheme.onSurface,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                          color: durationMinutes == minutes
+                              ? Colors.white
+                              : theme.colorScheme.onSurface,
                         ),
                       ),
                     ),
-                    Icon(Icons.unfold_more_rounded,
-                        size: 16,
-                        color: Theme.of(context)
-                            .colorScheme
-                            .onSurfaceVariant),
-                  ],
-                ),
-              ),
+                  ),
+              ],
             ),
             const SizedBox(height: 10),
             Text(
               translate('Members can watch your session and chat in group'),
-              style: TextStyle(
-                fontSize: 12,
-                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-              ),
+              style: TextStyle(fontSize: 12, color: muted),
             ),
           ],
         ),
         actions: <Widget>[
           dialogButton('Cancel', onPressed: close),
-          dialogButton(
-            'Create',
-            onPressed: () {
-              final title = controller.text.trim();
-              if (title.isEmpty) return;
-              final group = MeetingGroupStore.create(
-                title: title,
-                hostPeerId: gFFI.serverModel.id,
-                hostDisplayName: gFFI.serverModel.serverId.text,
-                presenterPeerId:
-                    presenter?.id ?? gFFI.serverModel.id,
-                presenterDisplayName:
-                    presenter?.finalName() ?? gFFI.serverModel.serverId.text,
-              );
-              close();
-              // 发送邀请链接到聊天，方便邀请其他人
-              if (group.meetingId.isNotEmpty) {
-                showToast(translate('Meeting created'));
-                // 自动生成邀请链接并复制
-                final link = 'luoda://meeting/${group.meetingId}';
-                _copyToClipboard(link);
-                showToast(translate('Invite link copied'));
-              }
-            },
-          ),
+          actionButton('Create', createMeeting),
         ],
-        onSubmit: () {
-          final title = controller.text.trim();
-          if (title.isEmpty) return;
-          MeetingGroupStore.create(
-            title: title,
-            hostPeerId: gFFI.serverModel.id,
-            hostDisplayName: gFFI.serverModel.serverId.text,
-            presenterPeerId: presenter?.id ?? gFFI.serverModel.id,
-            presenterDisplayName:
-                presenter?.finalName() ?? gFFI.serverModel.serverId.text,
-          );
-          close();
-        },
+        onSubmit: createMeeting,
         onCancel: close,
       );
     });

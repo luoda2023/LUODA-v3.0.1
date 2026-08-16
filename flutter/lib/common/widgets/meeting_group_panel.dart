@@ -153,58 +153,97 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
     unawaited(joinMeetingSession(context, _group));
   }
 
-  /// 开始演示（仅发起人 host 可用）：打开到演示人电脑的远程会话，
-  /// 并在会话内生成观看令牌广播给成员。发起人和演示人可以是同一人，
-  /// 也可以是不同的人——只有他们能操控鼠标，其他成员只读观看。
+  /// 开始演示（仅发起人 host 可用）。
+  ///
+  /// 演示人 = 自己：本机作为共享端，开启远程协助（被观看）并广播
+  /// 邀请链接给成员，成员点击"进入观看"。
+  /// 演示人 = 别人：向演示人发送"开始演示"请求消息，对方接受后
+  /// 分享屏幕，成员再进入观看。
   Future<void> _startPresentation() async {
     if (!_group.isHost) return;
     final presenterId = _group.presenterPeerId.isNotEmpty
         ? _group.presenterPeerId
         : _group.hostPeerId;
-    if (presenterId == gFFI.serverModel.id) {
+    if (presenterId == gFFI.serverModel.id ||
+        await DirectPairingStore.isSelfTarget(presenterId)) {
+      // 演示人 = 自己：本机开始共享屏幕（远程协助被控端）。
+      _group.activeSessionEndpoint = gFFI.serverModel.id;
+      await MeetingGroupStore.save();
+      if (mounted) setState(() {});
       showToast(translate('You are the presenter - share your screen'));
+      // 广播"演示已开始"到会议群聊，成员可点击进入观看。
+      final chatModel = _activeGroupChatModel();
+      if (chatModel != null &&
+          chatModel.currentKey.peerId == _group.conversationId) {
+        chatModel.sendText(
+            '${translate('System')}: ${translate('Presentation started - tap to watch')}');
+      }
       return;
     }
-    if (await DirectPairingStore.isSelfTarget(presenterId)) {
-      showToast(translate('You are the presenter - share your screen'));
-      return;
-    }
-    // 打开到演示人电脑的远程会话（host 获得操控权）。
-    final endpoint = DirectPairingStore.resolveConnectionTarget(presenterId) ??
-        presenterId;
-    connect(context, endpoint,
-        isFileTransfer: false, isViewCamera: false, isTerminal: false);
-    showToast('${translate('Presenter')}: ${_group.presenterDisplayName}');
+    // 演示人 = 别人：向演示人发送"开始演示"请求消息。
+    final chatModel = gFFI.chatModel;
+    final originalKey = chatModel.currentKey;
+    chatModel.changeCurrentKey(MessageKey(presenterId, ChatModel.clientModeID));
+    final body =
+        '${translate('Meeting invite')}：${_group.hostDisplayName} '
+        '${translate('invited you to present in')}《${_group.title}》'
+        '\n${_inviteLink ?? ''}';
+    chatModel.sendText(body);
+    chatModel.changeCurrentKey(originalKey);
+    showToast('${translate('Presenter')}: ${_group.presenterDisplayName} '
+        '${translate('request sent')}');
   }
 
-  /// 修改演示人（仅 host 可操作）：从联系人或群成员中单选。
+  /// 修改演示人（仅 host 可操作）：从会议成员（含发起人自己）中单选。
   Future<void> _changePresenter() async {
     if (!_group.isHost) return;
-    final hostPeer = gFFI.recentPeersModel.peers
-        .firstWhereOrNull((p) => p.id.trim() == _group.hostPeerId);
+    // 演示人必须来自会议参与者：发起人自己 + 已添加的成员。
     final candidates = <Peer>[
-      // 发起人自己始终可选（若无记录则用占位 Peer）
-      if (hostPeer != null)
-        hostPeer
-      else
-        Peer(
-          id: _group.hostPeerId,
-          hash: '',
-          password: '',
-          username: _group.hostDisplayName,
-          hostname: _group.hostDisplayName,
-          platform: '',
-          alias: '',
-          tags: const [],
-          forceAlwaysRelay: false,
-          rdpPort: '',
-          rdpUsername: '',
-          loginName: '',
-          device_group_name: '',
-          note: '',
-        ),
-      ...gFFI.recentPeersModel.peers.where(
-          (p) => p.id.trim().isNotEmpty && p.id.trim() != _group.hostPeerId),
+      // 发起人自己（若无配对记录则用占位 Peer）。
+      () {
+        final hostPeer = gFFI.recentPeersModel.peers
+            .firstWhereOrNull((p) => p.id.trim() == _group.hostPeerId);
+        return hostPeer ??
+            Peer(
+              id: _group.hostPeerId,
+              hash: '',
+              password: '',
+              username: _group.hostDisplayName,
+              hostname: _group.hostDisplayName,
+              platform: '',
+              alias: '',
+              tags: const [],
+              forceAlwaysRelay: false,
+              rdpPort: '',
+              rdpUsername: '',
+              loginName: '',
+              device_group_name: '',
+              note: '',
+            );
+      }(),
+      // 会议成员：优先取配对记录（昵称更友好），无记录时用成员名构造占位。
+      for (final m in _members)
+        () {
+          final peer = gFFI.recentPeersModel.peers
+              .firstWhereOrNull((p) => p.id.trim() == m.peerId);
+          return peer ??
+              Peer(
+                id: m.peerId,
+                hash: '',
+                password: '',
+                username: m.displayName,
+                hostname: m.displayName,
+                platform: '',
+                alias: '',
+                tags: const [],
+                forceAlwaysRelay: false,
+                rdpPort: '',
+                rdpUsername: '',
+                loginName: '',
+                device_group_name: '',
+                note: '',
+              );
+        }(),
     ];
     final picked = await showFriendPickerDialog(
       context,

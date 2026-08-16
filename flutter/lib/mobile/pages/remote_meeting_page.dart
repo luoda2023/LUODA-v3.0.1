@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../common.dart';
 import '../../models/meeting_group_model.dart';
+import '../../models/peer_model.dart';
+import '../../common/widgets/friend_picker_dialog.dart';
 import '../../common/widgets/meeting_group_panel.dart' as panel;
 import 'home_page.dart';
 import 'server_page.dart';
@@ -57,6 +59,10 @@ class _RemoteMeetingPageState extends State<RemoteMeetingPage> {
       title: draft.title,
       hostPeerId: gFFI.serverModel.id,
       hostDisplayName: gFFI.serverModel.serverId.text,
+      presenterPeerId:
+          draft.presenterPeerId ?? gFFI.serverModel.id,
+      presenterDisplayName:
+          draft.presenterDisplayName ?? gFFI.serverModel.serverId.text,
       startTime: draft.startTime,
       durationMinutes: draft.durationMinutes,
     );
@@ -727,11 +733,15 @@ class _MeetingDraft {
     required this.title,
     required this.startTime,
     required this.durationMinutes,
+    this.presenterPeerId,
+    this.presenterDisplayName,
   });
 
   final String title;
   final DateTime? startTime; // null = 立即开始
   final int durationMinutes; // 0 = 不限时长
+  final String? presenterPeerId;
+  final String? presenterDisplayName;
 }
 
 /// 新建会议底部表单：会议名称 + 开始时间（立即/定时）+ 会议时长。
@@ -747,6 +757,8 @@ class _CreateMeetingSheetState extends State<_CreateMeetingSheet> {
   bool _startNow = true;
   DateTime? _startTime;
   int _durationMinutes = 60;
+  // 演示人：默认发起人自己，可从好友里单选（与 PC 端一致）。
+  Peer? _presenter;
 
   static const List<int> _durationChoices = <int>[30, 60, 120, 0];
 
@@ -798,6 +810,8 @@ class _CreateMeetingSheetState extends State<_CreateMeetingSheet> {
         title: title,
         startTime: _startNow ? null : _startTime,
         durationMinutes: _durationMinutes,
+        presenterPeerId: _presenter?.id,
+        presenterDisplayName: _presenter?.finalName(),
       ),
     );
   }
@@ -860,6 +874,79 @@ class _CreateMeetingSheetState extends State<_CreateMeetingSheet> {
                   borderRadius: BorderRadius.circular(12),
                   borderSide:
                       const BorderSide(color: MyTheme.primary, width: 1.4),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            // 演示人（默认发起人自己，可从好友里单选）
+            _fieldLabel(theme, translate('Presenter')),
+            const SizedBox(height: 6),
+            InkWell(
+              onTap: () async {
+                final hostSelf = Peer(
+                  id: gFFI.serverModel.id,
+                  hash: '',
+                  password: '',
+                  username: gFFI.serverModel.serverId.text,
+                  hostname: gFFI.serverModel.serverId.text,
+                  platform: '',
+                  alias: '',
+                  tags: const [],
+                  forceAlwaysRelay: false,
+                  rdpPort: '',
+                  rdpUsername: '',
+                  loginName: '',
+                  device_group_name: '',
+                  note: '',
+                );
+                final picked = await showFriendPickerDialog(
+                  context,
+                  peers: [hostSelf, ...gFFI.recentPeersModel.peers],
+                  title: translate('Choose presenter'),
+                  maxSelections: 1,
+                );
+                if (picked == null || picked.isEmpty || !mounted) return;
+                final chosen = picked.first;
+                setState(() {
+                  _presenter =
+                      chosen.id == gFFI.serverModel.id ? null : chosen;
+                });
+              },
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: cardBg,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: theme.dividerColor),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.present_to_all_rounded,
+                        size: 18, color: MyTheme.primary),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _presenter == null
+                            ? '${translate('Presenter')}: '
+                                '${gFFI.serverModel.serverId.text}'
+                                ' (${translate('You')})'
+                            : '${translate('Presenter')}: '
+                                '${_presenter!.finalName()}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w600,
+                          color: theme.colorScheme.onSurface,
+                        ),
+                      ),
+                    ),
+                    Icon(Icons.chevron_right_rounded,
+                        size: 18, color: theme.colorScheme.onSurfaceVariant),
+                  ],
                 ),
               ),
             ),
