@@ -321,9 +321,14 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
           Expanded(
             child: Center(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 620),
+                // 手机窄屏不限宽（与上一级列表同宽），仅 PC 宽窗口限宽保持美观
+                constraints: BoxConstraints(
+                  maxWidth: MediaQuery.sizeOf(context).width > 700
+                      ? 620
+                      : double.infinity,
+                ),
                 child: ListView(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
                   children: [
                     _buildMeetingCard(context, isHost),
                     const SizedBox(height: 12),
