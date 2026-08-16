@@ -776,7 +776,15 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
           if (_meetingPageTabIndex >= 0) _goToPage(_meetingPageTabIndex);
         },
         onOpenNotices: () {
-          if (mounted) _mobilePanel.value = 'notices';
+          // 系统通知用全屏 push 新窗口打开（AppBar 标题在顶部，与联系人
+          // 页一致），不再叠在点聊列表上；点聊页留在导航栈下层，返回后
+          // 会话/滚动状态自动保留。
+          if (!mounted) return;
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => const AnnouncementPage(),
+            ),
+          );
         },
         searchKey: _mobileMessagesKey,
       ));
