@@ -1466,9 +1466,12 @@ pub fn main_set_option(key: String, value: String) {
             hbb_common::tls::reset_tls_cache();
         }
         set_option(key, value.clone());
-        #[cfg(target_os = "android")]
+        // LUODA fix: restart the rendezvous mediator on ALL platforms when the
+        // server changes. Previously only Android restarted it here, so switching
+        // the server on desktop (Windows/Linux/macOS) left the mediator registered
+        // to the OLD server and pairing/online status never refreshed.
+        #[cfg(not(target_os = "ios"))]
         crate::rendezvous_mediator::RendezvousMediator::restart();
-        #[cfg(any(target_os = "android", target_os = "ios", feature = "cli"))]
         crate::common::test_rendezvous_server();
     } else {
         set_option(key, value.clone());
