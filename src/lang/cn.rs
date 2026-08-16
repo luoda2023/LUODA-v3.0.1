@@ -1340,6 +1340,8 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("No active session", "当前没有活动会话"),
         ("No active session yet", "暂无进行中的会话"),
         ("No contacts to forward to", "没有可转发的联系人"),
+        ("Contact Card", "个人名片"),
+        ("Send Contact Card", "发送名片"),
         ("No media in this conversation", "此会话中没有媒体文件"),
         ("No messages yet", "暂无消息"),
         ("Notifications enabled", "已开启通知"),

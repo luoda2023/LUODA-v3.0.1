@@ -17,6 +17,44 @@ enum DirectChatDirection { incoming, outgoing }
 
 enum DirectChatKind { text, file, voice, forward }
 
+/// 个人名片消息：把一个联系人（好友/陌生人）以名片形式发给对话对方。
+/// 与位置消息一样编码在消息 text 里：`[contact]peerId|name|platform`，
+/// 不改变底层协议，老版本显示为纯文本，新版本渲染为名片卡片。
+class DirectChatContact {
+  const DirectChatContact({
+    required this.peerId,
+    this.name = '',
+    this.platform = '',
+  });
+
+  final String peerId;
+  final String name;
+  final String platform;
+
+  String encode() {
+    final n = name.trim();
+    final p = platform.trim();
+    return '[contact]$peerId${n.isEmpty ? '' : '|$n'}'
+        '${p.isEmpty ? '' : '|$p'}';
+  }
+
+  static DirectChatContact? tryParse(String text) {
+    final t = text.trim();
+    if (!t.startsWith('[contact]')) return null;
+    final body = t.substring('[contact]'.length);
+    final parts = body.split('|');
+    if (parts.isEmpty || parts.first.trim().isEmpty) return null;
+    final peerId = parts.first.trim();
+    final name = parts.length > 1 ? parts[1].trim() : '';
+    final platform = parts.length > 2 ? parts[2].trim() : '';
+    return DirectChatContact(
+      peerId: peerId,
+      name: name,
+      platform: platform,
+    );
+  }
+}
+
 enum DirectChatDisposition { active, recalled, destroyed }
 
 /// Registered by the Bluetooth bridge so wire envelopes are routed over an

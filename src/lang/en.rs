@@ -459,6 +459,8 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Send as one chat history card", "Send as one chat history card"),
         ("Forward to", "Forward to"),
         ("No contacts to forward to", "No contacts to forward to"),
+        ("Contact Card", "Contact card"),
+        ("Send Contact Card", "Send contact card"),
         ("Forwarded", "Forwarded"),
         ("Chat history", "Chat history"),
         ("Choose favorite category", "Choose favorite category"),

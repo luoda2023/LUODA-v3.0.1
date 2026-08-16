@@ -1598,7 +1598,10 @@ Widget msgboxContent(String type, String title, String text) {
           children: [
             Text(
               translate(title),
-              style: TextStyle(fontSize: 21),
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
             ).marginOnly(bottom: 10),
             createDialogContent(translateText(text)),
           ],
@@ -1617,7 +1620,10 @@ void msgBoxCommon(
 }) {
   dialogManager.show(
     (setState, close, context) => CustomAlertDialog(
-      title: Text(translate(title), style: TextStyle(fontSize: 21)),
+      title: Text(
+        translate(title),
+        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+      ),
       content: content,
       actions: buttons,
       onCancel: hasCancel ? close : null,

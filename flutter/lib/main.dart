@@ -47,6 +47,10 @@ late List<String> kBootArgs;
 Future<void> main(List<String> args) async {
   earlyAssert();
   WidgetsFlutterBinding.ensureInitialized();
+  // 限制图片解码缓存：聊天软件高频收发图片，Flutter 默认 1000 张会持续
+  // 吃内存。200 张 + 80MB 足够滚动回看，又能避免长时间运行内存膨胀。
+  PaintingBinding.instance.imageCache.maximumSize = 200;
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 80 << 20;
   await RuntimeLogger.instance.init();
   RuntimeLogger.instance.installErrorHooks();
   RuntimeLogger.instance.info('BOOT', 'Launch arguments: $args');

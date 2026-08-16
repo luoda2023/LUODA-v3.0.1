@@ -5,6 +5,7 @@ import 'package:dash_chat_2/dash_chat_2.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:luoda_flutter/common.dart';
+import 'package:luoda_flutter/common/contact_card_picker.dart';
 import 'package:flutter_map/flutter_map.dart' as flutter_map;
 import 'package:latlong2/latlong.dart' as latlong2;
 import 'package:luoda_flutter/common/direct_chat.dart';
@@ -12,6 +13,8 @@ import 'package:luoda_flutter/common/direct_pairing.dart';
 import 'package:luoda_flutter/common/favorite_picker.dart';
 import 'package:luoda_flutter/common/favorites_model.dart';
 import 'package:luoda_flutter/common/favorites_send.dart';
+import 'package:luoda_flutter/common/widgets/direct_connection_details.dart';
+import 'package:luoda_flutter/common/widgets/friend_picker_dialog.dart';
 import 'package:luoda_flutter/common/widgets/location_detail_page.dart';
 import 'package:luoda_flutter/models/chat_model.dart';
 import 'package:luoda_flutter/models/platform_model.dart';
@@ -2139,6 +2142,138 @@ class ChatPage extends StatelessWidget implements PageShape {
     );
   }
 
+  /// 微信风格个人名片卡片：头像 + 姓名 + ID，点击打开联系人详情。
+  Widget _buildContactCard(
+    BuildContext context,
+    DirectChatContact contact,
+    Color foreground,
+  ) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final name =
+        contact.name.isNotEmpty ? contact.name : contact.peerId;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        unawaited(showDirectConnectionDetails(
+          context,
+          conversationId: contact.peerId,
+        ));
+      },
+      child: Container(
+        width: 232,
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: dark ? const Color(0xFF3A3D43) : const Color(0xFFE8E8E8),
+            width: 0.6,
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+              child: Row(
+                children: <Widget>[
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF07C160).withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Center(
+                      child: Text(
+                        name.isNotEmpty ? name[0].toUpperCase() : '#',
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF07C160),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        Text(
+                          name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: dark
+                                ? const Color(0xFFEDEDED)
+                                : const Color(0xFF222222),
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          contact.peerId,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: dark
+                                ? const Color(0xFF9A9DA3)
+                                : const Color(0xFF8A8A8A),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Divider(
+              height: 1,
+              thickness: 0.5,
+              indent: 12,
+              endIndent: 12,
+              color: dark ? const Color(0xFF3A3D43) : const Color(0xFFF0F0F0),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 6, 12, 7),
+              child: Row(
+                children: <Widget>[
+                  Icon(
+                    Icons.contact_page_outlined,
+                    size: 11,
+                    color: foreground.withOpacity(0.35),
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    '点聊',
+                    style: TextStyle(
+                      color: foreground.withOpacity(0.4),
+                      fontSize: 10,
+                    ),
+                  ),
+                  if (contact.platform.isNotEmpty) ...[
+                    const SizedBox(width: 6),
+                    Text(
+                      contact.platform,
+                      style: TextStyle(
+                        color: foreground.withOpacity(0.4),
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// 弹出地图选择：高德 / 百度 / 腾讯 / 系统地图，用浏览器或 App 打开。
   Future<void> _openLocationMaps(
     BuildContext context,
@@ -2834,6 +2969,9 @@ class ChatPage extends StatelessWidget implements PageShape {
                   else if (message.text.trim().startsWith('luoda://join/') ||
                       message.text.trim().startsWith('luoda://meeting/'))
                     _buildInviteCard(context, message.text.trim(), foreground)
+                  else if (DirectChatContact.tryParse(message.text)
+                      case final DirectChatContact contact)
+                    _buildContactCard(context, contact, foreground)
                   else if (DirectChatLocation.tryParse(message.text)
                       case final DirectChatLocation loc)
                     _buildLocationCard(context, loc, foreground)
@@ -2982,6 +3120,9 @@ class ChatPage extends StatelessWidget implements PageShape {
               // （微信风格：位置卡片没有气泡背景）。
               final isLocationMessage = message.text.isNotEmpty &&
                   DirectChatLocation.tryParse(message.text) != null;
+              // 名片消息同样不套气泡。
+              final isContactMessage = message.text.isNotEmpty &&
+                  DirectChatContact.tryParse(message.text) != null;
               final attachmentBubbleColor =
                   dark ? const Color(0xFF2B2D32) : const Color(0xFFF1F1F1);
               final bubbleColor = isFileAttachment
@@ -3003,7 +3144,9 @@ class ChatPage extends StatelessWidget implements PageShape {
                 isOwnMessage: isOwnMessage,
                 includeMetadata: false,
               );
-              final bubble = isImageAttachment || isLocationMessage
+              final bubble = isImageAttachment ||
+                      isLocationMessage ||
+                      isContactMessage
                   ? ConstrainedBox(
                       constraints: BoxConstraints(maxWidth: maxBubbleWidth),
                       child: content,
@@ -4317,6 +4460,11 @@ class _MobileChatComposerState extends State<_MobileChatComposer> {
         translate('Favorites'),
         _pickFavoriteToSend,
       ),
+      (
+        Icons.badge_outlined,
+        translate('Send Contact Card'),
+        _pickContactToSend,
+      ),
     ];
     // 微信风格：2 行网格（每行 4 个），窄屏/小屏也不会超出右侧边框。
     return Container(
@@ -4337,6 +4485,11 @@ class _MobileChatComposerState extends State<_MobileChatComposer> {
 
   Future<void> _pickFavoriteToSend() async {
     await pickFavoriteToSend(context, widget.chatModel, dark: widget.dark);
+  }
+
+  /// 从联系人列表选择一位好友/陌生人，把 TA 的个人名片发到当前会话。
+  Future<void> _pickContactToSend() async {
+    await pickContactToSend(context, widget.chatModel);
   }
 
   Widget _moreItem(IconData icon, String label, VoidCallback onTap) {
@@ -5183,6 +5336,14 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
                         () => unawaited(
                           pickFavoriteToSend(context, chatModel, dark: dark),
                         ),
+                      ),
+                    ),
+                    _ComposerToolButton(
+                      icon: Icons.badge_outlined,
+                      tooltip: translate('Send Contact Card'),
+                      enabled: enabled,
+                      onPressed: () => _runToolAction(
+                        () => unawaited(pickContactToSend(context, chatModel)),
                       ),
                     ),
                     _ComposerToolButton(
