@@ -45,6 +45,31 @@ class _AnnouncementPageState extends State<AnnouncementPage> {
         backgroundColor: dark ? const Color(0xFF1C1E23) : Colors.white,
         title: Text(translate('System notices')),
         actions: <Widget>[
+          // 一键全部已读：有未读时显示。
+          ValueListenableBuilder<int>(
+            valueListenable: store.revision,
+            builder: (context, _, __) {
+              if (store.unreadCount == 0) {
+                return const SizedBox.shrink();
+              }
+              return TextButton(
+                onPressed: () async {
+                  await store.markAllRead();
+                  if (mounted) {
+                    showToast(translate('Mark all read'));
+                  }
+                },
+                child: Text(
+                  translate('Mark all read'),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: Color(0xFF07C160),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              );
+            },
+          ),
           IconButton(
             tooltip: translate('Refresh'),
             onPressed: _refresh,

@@ -104,8 +104,11 @@ class SystemAnnouncementStore {
           items.add(SystemAnnouncement.fromJson(raw));
         }
       }
+      // 重要/置顶通知排最前（重要优先于置顶，其余按 id 降序）。
       items.sort((a, b) {
-        if (a.pinned != b.pinned) return a.pinned ? -1 : 1;
+        final aTop = a.important || a.pinned;
+        final bTop = b.important || b.pinned;
+        if (aTop != bTop) return aTop ? -1 : 1;
         return b.id.compareTo(a.id);
       });
       _items = items;
