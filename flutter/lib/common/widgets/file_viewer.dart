@@ -208,6 +208,9 @@ class _FileViewerPageState extends State<_FileViewerPage> {
 
   Future<void> _enterFullscreenPreview() async {
     try {
+      // window_manager 在 Windows 上进入全屏时会自动保存当前窗口 frame
+      // （g_frame_before_fullscreen），退出全屏时自动恢复原位置和大小，
+      // 因此无需手动记录/恢复，避免“先恢复再移动”造成闪跳。
       _savedPos = await windowManager.getPosition();
       _savedSize = await windowManager.getSize();
       _wasMaximized = await windowManager.isMaximized();
@@ -220,20 +223,41 @@ class _FileViewerPageState extends State<_FileViewerPage> {
     }
   }
 
+  /// 恢复窗口：退出全屏让 window_manager 自动还原 frame（Windows），
+  /// 其它平台作为兜底再手动设置一次。调用后立即 pop，避免退场动画期间
+  /// 窗口状态突变造成闪跳。
   Future<void> _restoreWindow() async {
-    final pos = _savedPos;
-    final size = _savedSize;
+    if (!_enteredFullScreen) return;
+    _enteredFullScreen = false;
     try {
-      if (await windowManager.isFullScreen()) {
+      final wasFullScreen = await windowManager.isFullScreen();
+      if (wasFullScreen) {
         await windowManager.setFullScreen(false);
+        // 等待原生窗口重绘完成，避免与退场动画竞争。
+        await Future<void>.delayed(const Duration(milliseconds: 120));
       }
+      // 兜底：仅当窗口没有自动回到原状态时才手动恢复（非 Windows）。
       if (!_wasMaximized) {
+        final pos = _savedPos;
+        final size = _savedSize;
         if (pos != null && size != null) {
-          await windowManager.setSize(size);
-          await windowManager.setPosition(pos);
+          final cur = await windowManager.getPosition();
+          final curSize = await windowManager.getSize();
+          if ((cur - pos).distance > 40 ||
+              (curSize.width - size.width).abs() > 40 ||
+              (curSize.height - size.height).abs() > 40) {
+            await windowManager.setSize(size);
+            await windowManager.setPosition(pos);
+          }
         }
       }
     } catch (_) {}
+  }
+
+  /// 关闭预览：先恢复窗口再 pop，退场动画在已恢复的窗口上播放，无闪跳。
+  Future<void> _closePreview() async {
+    await _restoreWindow();
+    if (mounted) Navigator.of(context).pop();
   }
 
   @override
@@ -286,7 +310,14 @@ class _FileViewerPageState extends State<_FileViewerPage> {
     final kind = filePreviewKindForName(_fileName);
     final path = _path;
     if (path != null && kind == FilePreviewKind.image) {
-      return Scaffold(
+      // PopScope 拦截 Esc / 返回手势等系统退出，统一先恢复窗口再 pop，
+      // 避免窗口状态突变造成闪跳。
+      return PopScope(
+        canPop: !_enteredFullScreen,
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop) unawaited(_closePreview());
+        },
+        child: Scaffold(
         backgroundColor: Colors.black,
         body: Stack(
           fit: StackFit.expand,
@@ -354,7 +385,7 @@ class _FileViewerPageState extends State<_FileViewerPage> {
                       tooltip: translate('Close'),
                       icon: const Icon(Icons.close_rounded),
                       color: Colors.white,
-                      onPressed: () => Navigator.of(context).pop(),
+                      onPressed: () => unawaited(_closePreview()),
                     ),
                   ],
                 ),
@@ -392,6 +423,7 @@ class _FileViewerPageState extends State<_FileViewerPage> {
               ),
           ],
         ),
+      ),
       );
     }
     final canOpen = path != null;
@@ -423,7 +455,7 @@ class _FileViewerPageState extends State<_FileViewerPage> {
           IconButton(
             tooltip: translate('Close'),
             icon: const Icon(Icons.close_rounded),
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () => unawaited(_closePreview()),
           ),
         ],
       ),
