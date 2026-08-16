@@ -2,6 +2,10 @@ lazy_static::lazy_static! {
 pub static ref T: std::collections::HashMap<&'static str, &'static str> =
     [
         ("Status", "状态"),
+        ("Meetings", "会议"),
+        ("People", "人"),
+        ("Tap create to start one", "点击右上角新建会议"),
+        ("Create a meeting to chat, share files and watch demos together", "创建会议后,可邀请好友加入,多人一起聊天、传文件、观看演示/远程协助"),
         ("Your Desktop", "你的ID和密码"),
         ("desk_tip", "你的桌面可以通过下面的 ID 和密码访问。"),
         ("Password", "密码"),

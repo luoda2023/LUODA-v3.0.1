@@ -322,6 +322,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   /// 收藏夹分栏面板是否打开（同样嵌入右侧内容区，左侧列表保持原样）。
   final ValueNotifier<bool> _favoritesOpen = ValueNotifier<bool>(false);
 
+  /// 会议中心面板是否打开（独立于消息列表，嵌入右侧内容区）。
+  final ValueNotifier<bool> _meetingsOpen = ValueNotifier<bool>(false);
+
   final Map<String, FFI> _directChatSessions = <String, FFI>{};
   final Map<String, DateTime> _directChatAttemptedAt = <String, DateTime>{};
   final Set<String> _openingDirectChatPeers = <String>{};
@@ -677,6 +680,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                 animation: Listenable.merge(<Listenable>[
                                   _noticesOpen,
                                   _favoritesOpen,
+                                  _meetingsOpen,
                                 ]),
                                 builder: (context, _) => AnimatedSwitcher(
                                   duration:
@@ -711,6 +715,17 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                                   'favorites-panel'),
                                               detailPane: true,
                                               onClose: _closeFavoritesPane,
+                                            )
+                                      : _meetingsOpen.value
+                                          ? _MeetingCenterPanel(
+                                              key: const ValueKey(
+                                                  'meeting-center-panel'),
+                                              onCreate: () =>
+                                                  _showCreateMeetingDialog(
+                                                      context),
+                                              onOpen: (group) =>
+                                                  _showMeetingGroupSettings(
+                                                      context, group),
                                             )
                                           : KeyedSubtree(
                                               key: const ValueKey(
@@ -782,6 +797,12 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         selectedIcon: Icons.star_rounded,
       ),
       DesktopRailDestination(
+        id: 'meetings',
+        label: 'Meetings',
+        icon: Icons.groups_outlined,
+        selectedIcon: Icons.groups_rounded,
+      ),
+      DesktopRailDestination(
         id: 'discovered',
         label: 'LAN discovery',
         icon: Icons.radar_rounded,
@@ -827,13 +848,22 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     if (section == 'favorites') {
       if (!mounted) return;
       _noticesOpen.value = false;
+      _meetingsOpen.value = false;
       _favoritesOpen.value = true;
+      return;
+    }
+    if (section == 'meetings') {
+      if (!mounted) return;
+      _noticesOpen.value = false;
+      _favoritesOpen.value = false;
+      _meetingsOpen.value = true;
       return;
     }
     const sections = <String>{
       'chat',
       'recent',
       'favorites',
+      'meetings',
       'discovered',
       'contacts',
       'vip',
@@ -847,6 +877,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     if (mounted) {
       _noticesOpen.value = false;
       _favoritesOpen.value = false;
+      _meetingsOpen.value = false;
     }
     await _loadContactSection(section);
   }
@@ -1194,7 +1225,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           ),
           if (_selectedRailId == 'contacts') _buildCategoryFilterBar(context),
           if (_selectedRailId == 'chat') _buildSystemNoticeEntryStrip(context),
-          if (_selectedRailId == 'chat') _buildMeetingEntryStrip(context),
           Expanded(child: _buildContactSection(context)),
         ],
       ),
@@ -9019,6 +9049,221 @@ class _SystemNoticePanelState extends State<_SystemNoticePanel> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+/// 会议中心面板：独立的"会议"大项（消息、收藏之下）。
+/// 左侧导航点击"会议"后嵌入右侧内容区：新建会议 + 会议列表，
+/// 点击会议进入详情管理页（邀请成员 / 进入开会 / 观看演示等）。
+class _MeetingCenterPanel extends StatefulWidget {
+  const _MeetingCenterPanel({
+    super.key,
+    required this.onCreate,
+    required this.onOpen,
+  });
+
+  final VoidCallback onCreate;
+  final ValueChanged<MeetingGroup> onOpen;
+
+  @override
+  State<_MeetingCenterPanel> createState() => _MeetingCenterPanelState();
+}
+
+class _MeetingCenterPanelState extends State<_MeetingCenterPanel> {
+  String _formatTime(DateTime t) {
+    final local = t.toLocal();
+    final now = DateTime.now();
+    final day = DateTime(now.year, now.month, now.day);
+    final d = DateTime(local.year, local.month, local.day);
+    final hh = local.hour.toString().padLeft(2, '0');
+    final mm = local.minute.toString().padLeft(2, '0');
+    final diff = day.difference(d).inDays;
+    if (diff == 0) return '$hh:$mm';
+    if (diff == 1) return '${translate('Yesterday')} $hh:$mm';
+    return '${local.year}-${local.month.toString().padLeft(2, '0')}-'
+        '${local.day.toString().padLeft(2, '0')}';
+  }
+
+  String _meetingSubtitle(MeetingGroup m) {
+    final memberCount = (m.members?.length ?? 0) + 1; // + 主持人
+    final duration = (m.durationMinutes ?? 60) > 0
+        ? ' · ${m.durationMinutes} ${translate('min')}'
+        : '';
+    return '$memberCount ${translate('People')}$duration';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final surface = dark ? MyTheme.surfaceDark : Colors.white;
+    final muted = dark ? MyTheme.mutedDark : MyTheme.mutedLight;
+    return ColoredBox(
+      color: surface,
+      child: Column(
+        children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 14, 16, 12),
+            child: Row(
+              children: <Widget>[
+                const Icon(Icons.groups_rounded,
+                    size: 22, color: kWeChatPrimaryColor),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    translate('Meeting Center'),
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                FilledButton.icon(
+                  onPressed: widget.onCreate,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: kWeChatPrimaryColor,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 9),
+                    textStyle: const TextStyle(fontSize: 13),
+                  ),
+                  icon: const Icon(Icons.add_rounded, size: 18),
+                  label: Text(translate('Create Meeting')),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+            child: Row(
+              children: <Widget>[
+                Icon(Icons.info_outline_rounded, size: 14, color: muted),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    translate(
+                        'Create a meeting to chat, share files and watch demos together'),
+                    style: TextStyle(fontSize: 12.5, color: muted),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+          Expanded(
+            child: Obx(() {
+              final meetings = MeetingGroupStore.all
+                ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+              if (meetings.isEmpty) {
+                return Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Container(
+                        width: 76,
+                        height: 76,
+                        decoration: BoxDecoration(
+                          color: kWeChatPrimaryColor.withOpacity(0.08),
+                          shape: BoxShape.circle,
+                        ),
+                        alignment: Alignment.center,
+                        child: const Icon(Icons.groups_rounded,
+                            size: 36, color: kWeChatPrimaryColor),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        translate('No meetings yet'),
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: dark ? Colors.white70 : Colors.black54,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        translate('Tap create to start one'),
+                        style: TextStyle(fontSize: 12.5, color: muted),
+                      ),
+                    ],
+                  ),
+                );
+              }
+              return ListView.separated(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+                itemCount: meetings.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 8),
+                itemBuilder: (context, index) {
+                  final m = meetings[index];
+                  return MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () => widget.onOpen(m),
+                      child: Container(
+                        padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+                        decoration: BoxDecoration(
+                          color: dark
+                              ? const Color(0xFF23262C)
+                              : const Color(0xFFF5F6F7),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: dark
+                                ? const Color(0xFF2C2F36)
+                                : const Color(0xFFEBEDEF),
+                          ),
+                        ),
+                        child: Row(
+                          children: <Widget>[
+                            Container(
+                              width: 42,
+                              height: 42,
+                              decoration: BoxDecoration(
+                                color: kWeChatPrimaryColor.withOpacity(0.12),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              alignment: Alignment.center,
+                              child: const Icon(Icons.groups_rounded,
+                                  size: 22, color: kWeChatPrimaryColor),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: <Widget>[
+                                  Text(
+                                    m.title,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 14.5,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    '${m.hostDisplayName} · '
+                                    '${_meetingSubtitle(m)} · '
+                                    '${_formatTime(m.createdAt)}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style:
+                                        TextStyle(fontSize: 12, color: muted),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const Icon(Icons.chevron_right_rounded,
+                                size: 20, color: Color(0xFFB9BDC4)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              );
+            }),
+          ),
+        ],
       ),
     );
   }
