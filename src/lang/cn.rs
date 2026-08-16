@@ -1467,7 +1467,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("min", "分钟"),
         ("File Transfer Assistant", "文件传输助手"),
         ("Email", "邮箱"),
-        ("Wayland", "Wayland"),
+        ("Wayland", "Wayland 显示协议"),
         ("Switch Windows session", "切换 Windows 会话"),
         ("VIP", "VIP 会员"),
         ("Bluetooth chat", "蓝牙聊天"),

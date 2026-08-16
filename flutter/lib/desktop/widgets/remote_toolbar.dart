@@ -552,7 +552,7 @@ class _PinMenu extends StatelessWidget {
       () => _IconMenuButton(
         assetName: state.pin ? "assets/pinned.svg" : "assets/unpinned.svg",
         tooltip: translate(state.pin ? 'Unpin Toolbar' : 'Pin Toolbar'),
-        label: 'Toolbar',
+        label: translate('Toolbar'),
         onPressed: state.switchPin,
         color:
             state.pin ? _ToolbarTheme.blueColor : _ToolbarTheme.inactiveColor,
@@ -572,8 +572,8 @@ class _FileTransferMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     return _IconMenuButton(
       assetName: 'assets/file_transfer.svg',
-      tooltip: 'File Transfer',
-      label: 'File',
+      tooltip: translate('File Transfer'),
+      label: translate('File'),
       onPressed: () => connect(context, id, isFileTransfer: true),
       color: _ToolbarTheme.blueColor,
       hoverColor: _ToolbarTheme.hoverBlueColor,
@@ -589,7 +589,7 @@ class _TerminalMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     return _IconMenuButton(
       icon: const Icon(Icons.terminal_rounded),
-      tooltip: 'Terminal',
+      tooltip: translate('Terminal'),
       onPressed: () => connect(context, id, isTerminal: true),
       color: _ToolbarTheme.blueColor,
       hoverColor: _ToolbarTheme.hoverBlueColor,
@@ -624,7 +624,7 @@ class _ClipboardMenuState extends State<_ClipboardMenu> {
     return _IconMenuButton(
       icon: const Icon(Icons.content_paste_rounded),
       tooltip: disabled ? 'Enable clipboard' : 'Disable clipboard',
-      label: 'Clipboard',
+      label: translate('Clipboard'),
       onPressed: ffiModel.viewOnly
           ? null
           : () {
@@ -665,7 +665,7 @@ class _ScreenshotMenuState extends State<_ScreenshotMenu> {
     return _IconMenuButton(
       icon: const Icon(Icons.photo_camera_outlined),
       tooltip: busy ? 'Taking screenshot' : 'Take screenshot',
-      label: 'Screenshot',
+      label: translate('Screenshot'),
       onPressed: busy
           ? null
           : () {
@@ -710,8 +710,8 @@ class _MobileActionMenu extends StatelessWidget {
     if (!ffi.ffiModel.isPeerAndroid) return Offstage();
     return Obx(() => _IconMenuButton(
           assetName: 'assets/actions_mobile.svg',
-          tooltip: 'Mobile Actions',
-          label: 'Actions',
+          tooltip: translate('Mobile Actions'),
+          label: translate('Actions'),
           onPressed: () => ffi.dialogManager.setMobileActionsOverlayVisible(
               !ffi.dialogManager.mobileActionsOverlayVisible.value),
           color: ffi.dialogManager.mobileActionsOverlayVisible.isTrue
@@ -736,8 +736,8 @@ class _WindowsSessionMenu extends StatelessWidget {
   @override
   Widget build(BuildContext context) => _IconMenuButton(
         icon: const Icon(Icons.desktop_windows_outlined),
-        tooltip: 'Switch Windows session',
-        label: 'Desktop',
+        tooltip: translate('Switch Windows session'),
+        label: translate('Desktop'),
         onPressed: () =>
             ffi.ffiModel.showWindowsSessionsSelector(ffi.sessionId, id),
         color: _ToolbarTheme.blueColor,
@@ -778,8 +778,8 @@ class _MonitorMenu extends StatelessWidget {
     final monitorsIcon =
         globalMonitorsWidget(width, Colors.white, Colors.black38);
     return _IconSubmenuButton(
-        tooltip: 'Select Monitor',
-        label: 'Monitor',
+        tooltip: translate('Select Monitor'),
+        label: translate('Monitor'),
         icon: monitorsIcon,
         ffi: ffi,
         width: width.value,
@@ -1059,8 +1059,8 @@ class _QuickDisplaySwitchButton extends StatelessWidget {
       }
       // Keep a single entry point so the feature stays discoverable.
       return _IconMenuButton(
-        tooltip: 'Switch desktop viewport',
-        label: 'Switch Desktop',
+        tooltip: translate('Switch desktop viewport'),
+        label: translate('Switch Desktop'),
         icon: const Icon(Icons.swap_horiz),
         onPressed: () => showToast(translate('No other desktop available')),
         color: _ToolbarTheme.blueColor,
@@ -1150,8 +1150,8 @@ class _ControlMenu extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _IconSubmenuButton(
-        tooltip: 'Control Actions',
-        label: 'Control',
+        tooltip: translate('Control Actions'),
+        label: translate('Control'),
         svg: "assets/actions.svg",
         color: _ToolbarTheme.blueColor,
         hoverColor: _ToolbarTheme.hoverBlueColor,
@@ -1428,8 +1428,8 @@ class _DisplayMenuState extends State<_DisplayMenu> {
     }
 
     return _IconSubmenuButton(
-      tooltip: 'Display Settings',
-      label: 'Display',
+      tooltip: translate('Display Settings'),
+      label: translate('Display'),
       svg: "assets/display.svg",
       ffi: widget.ffi,
       color: _ToolbarTheme.blueColor,
@@ -2178,8 +2178,8 @@ class _KeyboardMenu extends StatelessWidget {
     }
 
     return _IconSubmenuButton(
-        tooltip: 'Keyboard Settings',
-        label: 'Keyboard',
+        tooltip: translate('Keyboard Settings'),
+        label: translate('Keyboard'),
         svg: "assets/keyboard_mouse.svg",
         ffi: ffi,
         color: _ToolbarTheme.blueColor,
@@ -2453,8 +2453,8 @@ class _ChatMenuState extends State<_ChatMenu> {
       return buildTextChatButton();
     } else {
       return _IconSubmenuButton(
-          tooltip: 'Chat',
-          label: 'Chat',
+          tooltip: translate('Chat'),
+          label: translate('Chat'),
           key: chatButtonKey,
           svg: 'assets/chat.svg',
           ffi: widget.ffi,
@@ -2471,8 +2471,8 @@ class _ChatMenuState extends State<_ChatMenu> {
   buildTextChatButton() {
     return _IconMenuButton(
       assetName: 'assets/message_24dp_5F6368.svg',
-      tooltip: 'Text chat',
-      label: 'Chat',
+      tooltip: translate('Text chat'),
+      label: translate('Chat'),
       key: chatButtonKey,
       onPressed: _textChatOnPressed,
       color: _ToolbarTheme.blueColor,
@@ -2607,8 +2607,8 @@ class _VoiceCallMenu extends StatelessWidget {
             return buildCallWaiting(context);
           case VoiceCallStatus.connected:
             return _IconSubmenuButton(
-              tooltip: 'Voice call',
-              label: 'Voice call',
+              tooltip: translate('Voice call'),
+              label: translate('Voice call'),
               svg: 'assets/voice_call.svg',
               color: _ToolbarTheme.blueColor,
               hoverColor: _ToolbarTheme.hoverBlueColor,
@@ -2648,7 +2648,7 @@ class _RecordMenu extends StatelessWidget {
       tooltip: recordingModel.start
           ? 'Stop session recording'
           : 'Start session recording',
-      label: 'Recording',
+      label: translate('Recording'),
       onPressed: () => recordingModel.toggle(),
       color: recordingModel.start
           ? _ToolbarTheme.redColor
@@ -2670,7 +2670,7 @@ class _CloseMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     return _IconMenuButton(
       assetName: 'assets/close.svg',
-      tooltip: 'Close',
+      tooltip: translate('Close'),
       onPressed: () async {
         if (await showConnEndAuditDialogCloseCanceled(ffi: ffi)) {
           return;

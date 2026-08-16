@@ -153,9 +153,9 @@ class DesktopPrimaryRail extends StatelessWidget {
               ),
               if (onPairPhone != null)
                 _RailButton(
-                  destination: const DesktopRailDestination(
+                  destination: DesktopRailDestination(
                     id: 'pair-phone',
-                    label: 'Pair phone',
+                    label: translate('Pair phone'),
                     icon: Icons.phone_android_rounded,
                   ),
                   selected: false,
@@ -166,9 +166,9 @@ class DesktopPrimaryRail extends StatelessWidget {
                   badgeColor: const Color(0xFF07C160),
                 ),
               _RailButton(
-                destination: const DesktopRailDestination(
+                destination: DesktopRailDestination(
                   id: 'settings',
-                  label: 'Settings',
+                  label: translate('Settings'),
                   icon: Icons.settings_outlined,
                   selectedIcon: Icons.settings_rounded,
                 ),
@@ -178,9 +178,9 @@ class DesktopPrimaryRail extends StatelessWidget {
               ),
               if (onMore != null)
                 _RailButton(
-                  destination: const DesktopRailDestination(
+                  destination: DesktopRailDestination(
                     id: 'more',
-                    label: 'More',
+                    label: translate('More'),
                     icon: Icons.menu_rounded,
                   ),
                   selected: false,

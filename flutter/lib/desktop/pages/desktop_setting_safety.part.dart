@@ -41,7 +41,7 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
                 ),
                 if (!isChangeIdDisabled())
                   _Card(
-                    title: 'ID',
+                    title: translate('ID'),
                     description: 'device_id_card_tip',
                     showIcon: true,
                     children: [changeId()],
@@ -210,7 +210,7 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
       }
 
       return _Card(
-        title: 'Permissions',
+        title: translate('Permissions'),
         description: 'permissions_card_tip',
         showIcon: true,
         title_suffix: [
@@ -470,7 +470,7 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
 
           final isApproveModeFixed = isOptionFixed(kOptionApproveMode);
           return _Card(
-            title: 'Password',
+            title: translate('Password'),
             description: 'password_card_tip',
             showIcon: true,
             title_suffix: [
@@ -514,7 +514,7 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
 
   Widget more(BuildContext context) {
     bool enabled = !locked;
-    return _Card(title: 'Security', children: [
+    return _Card(title: translate('Security'), children: [
       shareRdp(context, enabled),
       _OptionCheckBox(context, 'Deny LAN discovery', 'enable-lan-discovery',
           reverse: true, enabled: enabled),

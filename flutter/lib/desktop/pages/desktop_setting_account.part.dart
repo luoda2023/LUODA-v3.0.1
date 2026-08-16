@@ -15,7 +15,7 @@ class _AccountState extends State<_Account> {
       controller: scrollController,
       children: [
         _Card(
-          title: 'Account',
+          title: translate('Account'),
           children: kLocalProfileOnly
               ? [
                   ListTile(

@@ -239,7 +239,7 @@ class _GeneralState extends State<_General> {
     }
 
     return _Card(
-      title: 'Theme',
+      title: translate('Theme'),
       description: 'theme_card_tip',
       children: [
         LayoutBuilder(
@@ -321,7 +321,7 @@ class _GeneralState extends State<_General> {
         );
 
     return _Card(
-      title: 'Sidebar background',
+      title: translate('Sidebar background'),
       description: 'sidebar_background_tip',
       children: <Widget>[
         LayoutBuilder(
@@ -528,7 +528,7 @@ class _GeneralState extends State<_General> {
       }
 
       return _Card(
-        title: 'Service',
+        title: translate('Service'),
         description: 'service_card_tip',
         title_suffix: [
           ElevatedButton.icon(
@@ -673,7 +673,7 @@ class _GeneralState extends State<_General> {
         },
       ));
     }
-    return _Card(title: 'Other', children: children);
+    return _Card(title: translate('Other'), children: children);
   }
 
   Widget wallpaper() {
@@ -720,7 +720,7 @@ class _GeneralState extends State<_General> {
     final vram = bind.mainHasVram();
     return Offstage(
       offstage: !(hwcodec || vram),
-      child: _Card(title: 'Hardware Codec', children: [
+      child: _Card(title: translate('Hardware Codec'), children: [
         _OptionCheckBox(
           context,
           'Enable hardware codec',
@@ -754,7 +754,7 @@ class _GeneralState extends State<_General> {
         ),
       );
       return _Card(
-        title: 'Audio Input Device',
+        title: translate('Audio Input Device'),
         title_suffix: [child],
         children: const [],
       );
@@ -785,7 +785,7 @@ class _GeneralState extends State<_General> {
       bool root_dir_exists = map['root_dir_exists']!;
       bool user_dir_exists = map['user_dir_exists']!;
       return _Card(
-          title: 'Recording',
+          title: translate('Recording'),
           description: 'recording_card_tip',
           children: [
             if (!bind.isOutgoingOnly())
@@ -883,7 +883,7 @@ class _GeneralState extends State<_General> {
         }
         final isOptFixed = isOptionFixed(kCommConfKeyLang);
         return _Card(
-          title: 'Language',
+          title: translate('Language'),
           description: 'language_card_tip',
           title_suffix: [
             SizedBox(
@@ -919,7 +919,7 @@ class _GeneralState extends State<_General> {
         bind.mainGetOptionSync(key: kOptionMessageSoundPath).trim();
     final soundName = _toneDisplayName(soundPath);
     return _Card(
-      title: 'Message notifications',
+      title: translate('Message notifications'),
       description: 'Play a tone or vibrate when a new message arrives',
       children: [
         _OptionCheckBox(
@@ -964,9 +964,9 @@ class _GeneralState extends State<_General> {
                   if (mounted) setState(() {});
                 },
                 itemBuilder: (context) => <PopupMenuEntry<String>>[
-                  const PopupMenuItem<String>(
+                  PopupMenuItem<String>(
                     value: '__default__',
-                    child: Text('Default tone'),
+                    child: Text(translate('Default tone')),
                   ),
                   for (final tone in kBuiltinTones)
                     PopupMenuItem<String>(
@@ -974,9 +974,9 @@ class _GeneralState extends State<_General> {
                       child: Text(translate('Tone ${tone['label']}')),
                     ),
                   const PopupMenuDivider(),
-                  const PopupMenuItem<String>(
+                  PopupMenuItem<String>(
                     value: '__file__',
-                    child: Text('Choose audio file'),
+                    child: Text(translate('Choose audio file')),
                   ),
                 ],
                 child: Container(
@@ -1085,17 +1085,17 @@ class _GeneralState extends State<_General> {
                   if (mounted) setState(() {});
                 },
                 itemBuilder: (context) => <PopupMenuEntry<String>>[
-                  const PopupMenuItem<String>(
+                  PopupMenuItem<String>(
                     value: 'short',
-                    child: Text('Short vibration'),
+                    child: Text(translate('Short vibration')),
                   ),
-                  const PopupMenuItem<String>(
+                  PopupMenuItem<String>(
                     value: 'medium',
-                    child: Text('Medium vibration'),
+                    child: Text(translate('Medium vibration')),
                   ),
-                  const PopupMenuItem<String>(
+                  PopupMenuItem<String>(
                     value: 'long',
-                    child: Text('Long vibration'),
+                    child: Text(translate('Long vibration')),
                   ),
                 ],
                 child: Container(

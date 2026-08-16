@@ -88,11 +88,11 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
     }
 
     return _Card(
-      title: 'Direct messaging',
+      title: translate('Direct messaging'),
       children: <Widget>[
         option(
           icon: Icons.mark_chat_unread_outlined,
-          title: 'Allow always-on direct messages',
+          title: translate('Allow always-on direct messages'),
           subtitle:
               'Keep the local direct port ready so approved contacts can deliver messages while no remote session is active.',
           value: alwaysOn,
@@ -102,7 +102,7 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
         const Divider(height: 1, indent: 16, endIndent: 16),
         option(
           icon: Icons.verified_user_outlined,
-          title: 'Only friends can contact me anytime',
+          title: translate('Only friends can contact me anytime'),
           subtitle: trustedOnly
               ? 'Unknown peers must be approved before they can establish a persistent chat connection.'
               : 'Strangers can also chat with me directly',
@@ -122,7 +122,7 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
         if (_showAdvancedNetworkSettings)
           option(
             icon: Icons.sync_rounded,
-            title: 'Reconnect trusted contacts automatically',
+            title: translate('Reconnect trusted contacts automatically'),
             subtitle:
                 'Reconnect to the saved IP address when the network becomes available again.',
             value: autoReconnect,
@@ -156,7 +156,7 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
 
   Widget _advancedNetworkToggle(BuildContext context) {
     return _Card(
-      title: 'Advanced settings',
+      title: translate('Advanced settings'),
       children: <Widget>[
         ListTile(
           leading: const Icon(Icons.tune_rounded, color: _accentColor),
@@ -368,7 +368,7 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
 
     final divider = const Divider(height: 1, indent: 16, endIndent: 16);
     return _Card(
-      title: 'Network',
+      title: translate('Network'),
       children: [
         Container(
           child: Column(
@@ -376,7 +376,7 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
             children: [
               listTile(
                 icon: Icons.shield_outlined,
-                title: 'Serverless direct mode',
+                title: translate('Serverless direct mode'),
                 subtitle:
                     'When enabled, device ID connections are disabled; IP, QR, and LAN connections stay direct. When disabled, device IDs try direct first and use encrypted TCP relay only if needed.',
                 trailing: Switch(
@@ -399,14 +399,14 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
               if (!serverlessDirectOnly && !hideServer)
                 listTile(
                   icon: Icons.dns_outlined,
-                  title: 'ID/Relay Server',
+                  title: translate('ID/Relay Server'),
                   onTap: () => showServerSettings(gFFI.dialogManager, setState),
                 ),
               if (!serverlessDirectOnly && !hideProxy && !hideServer) divider,
               if (!serverlessDirectOnly && !hideProxy)
                 listTile(
                   icon: Icons.network_ping_outlined,
-                  title: 'Socks5/Http(s) Proxy',
+                  title: translate('Socks5/Http(s) Proxy'),
                   onTap: changeSocks5Proxy,
                 ),
               if (!serverlessDirectOnly &&
@@ -439,7 +439,7 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
                           if (!outgoingOnly)
                             listTile(
                               icon: Icons.lan_outlined,
-                              title: 'Disable UDP',
+                              title: translate('Disable UDP'),
                               showTooltip: true,
                               tooltipMessage:
                                   '${translate('disable-udp-tip')}\n\n${translate('server-oss-not-support-tip')}',

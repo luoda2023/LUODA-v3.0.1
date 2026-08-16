@@ -29,16 +29,16 @@ class _DisplayState extends State<_Display> {
     }
 
     final groupValue = bind.mainGetUserDefaultOption(key: kOptionViewStyle);
-    return _Card(title: 'Default View Style', children: [
+    return _Card(title: translate('Default View Style'), children: [
       _Radio(context,
           value: kRemoteViewStyleOriginal,
           groupValue: groupValue,
-          label: 'Scale original',
+          label: translate('Scale original'),
           onChanged: isOptFixed ? null : onChanged),
       _Radio(context,
           value: kRemoteViewStyleAdaptive,
           groupValue: groupValue,
-          label: 'Scale adaptive',
+          label: translate('Scale adaptive'),
           onChanged: isOptFixed ? null : onChanged),
     ]);
   }
@@ -59,22 +59,22 @@ class _DisplayState extends State<_Display> {
       setState(() {});
     }
 
-    return _Card(title: 'Default Scroll Style', children: [
+    return _Card(title: translate('Default Scroll Style'), children: [
       _Radio(context,
           value: kRemoteScrollStyleAuto,
           groupValue: groupValue,
-          label: 'ScrollAuto',
+          label: translate('ScrollAuto'),
           onChanged: isOptFixed ? null : onChanged),
       _Radio(context,
           value: kRemoteScrollStyleBar,
           groupValue: groupValue,
-          label: 'Scrollbar',
+          label: translate('Scrollbar'),
           onChanged: isOptFixed ? null : onChanged),
       if (!isWeb) ...[
         _Radio(context,
             value: kRemoteScrollStyleEdge,
             groupValue: groupValue,
-            label: 'ScrollEdge',
+            label: translate('ScrollEdge'),
             onChanged: isOptFixed ? null : onChanged),
         Offstage(
             offstage: groupValue != kRemoteScrollStyleEdge,
@@ -99,26 +99,26 @@ class _DisplayState extends State<_Display> {
 
     final isOptFixed = isOptionFixed(kOptionImageQuality);
     final groupValue = bind.mainGetUserDefaultOption(key: kOptionImageQuality);
-    return _Card(title: 'Default Image Quality', children: [
+    return _Card(title: translate('Default Image Quality'), children: [
       _Radio(context,
           value: kRemoteImageQualityBest,
           groupValue: groupValue,
-          label: 'Good image quality',
+          label: translate('Good image quality'),
           onChanged: isOptFixed ? null : onChanged),
       _Radio(context,
           value: kRemoteImageQualityBalanced,
           groupValue: groupValue,
-          label: 'Balanced',
+          label: translate('Balanced'),
           onChanged: isOptFixed ? null : onChanged),
       _Radio(context,
           value: kRemoteImageQualityLow,
           groupValue: groupValue,
-          label: 'Optimize reaction time',
+          label: translate('Optimize reaction time'),
           onChanged: isOptFixed ? null : onChanged),
       _Radio(context,
           value: kRemoteImageQualityCustom,
           groupValue: groupValue,
-          label: 'Custom',
+          label: translate('Custom'),
           onChanged: isOptFixed ? null : onChanged),
       Offstage(
         offstage: groupValue != kRemoteImageQualityCustom,
@@ -139,7 +139,7 @@ class _DisplayState extends State<_Display> {
       // But it may also be ok to take effect in the next connection.
     }
 
-    return _Card(title: 'Default trackpad speed', children: [
+    return _Card(title: translate('Default trackpad speed'), children: [
       TrackpadSpeedWidget(
         value: curSpeed,
         onDebouncer: onDebouncer,
@@ -179,11 +179,11 @@ class _DisplayState extends State<_Display> {
     } catch (e) {
       debugPrint("failed to parse supported hwdecodings, err=$e");
     }
-    return _Card(title: 'Default Codec', children: [
+    return _Card(title: translate('Default Codec'), children: [
       _Radio(context,
           value: 'auto',
           groupValue: groupValue,
-          label: 'Auto',
+          label: translate('Auto'),
           onChanged: isOptFixed ? null : onChanged),
       _Radio(context,
           value: 'vp8',
@@ -228,7 +228,7 @@ class _DisplayState extends State<_Display> {
       groupValue = bind.mainDefaultPrivacyModeImpl();
     }
     return _Card(
-      title: 'Privacy mode',
+      title: translate('Privacy mode'),
       children: privacyModeImpls.map((impl) {
         final d = impl as List<dynamic>;
         return _Radio(context,
@@ -270,6 +270,6 @@ class _DisplayState extends State<_Display> {
   Widget other(BuildContext context) {
     final children =
         otherDefaultSettings().map((e) => otherRow(e.$1, e.$2)).toList();
-    return _Card(title: 'Other Default Options', children: children);
+    return _Card(title: translate('Other Default Options'), children: children);
   }
 }

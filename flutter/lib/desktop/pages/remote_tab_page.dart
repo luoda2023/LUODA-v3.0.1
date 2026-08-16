@@ -822,12 +822,12 @@ class _RemoteWindowTitleBarState extends State<_RemoteWindowTitleBar> {
                 ),
               ),
             _RemoteTitleAction(
-              tooltip: 'Back to chat',
+              tooltip: translate('Back to chat'),
               icon: Icons.chat_bubble_outline_rounded,
               onTap: () => _returnToConversation(peerId),
             ),
             _RemoteTitleAction(
-              tooltip: 'New Connection',
+              tooltip: translate('New Connection'),
               icon: Icons.add_rounded,
               onTap: () => luodaWinManager.call(
                 WindowType.Main,
@@ -836,7 +836,7 @@ class _RemoteWindowTitleBarState extends State<_RemoteWindowTitleBar> {
               ),
             ),
             _RemoteTitleAction(
-              tooltip: 'More',
+              tooltip: translate('More'),
               icon: Icons.more_horiz_rounded,
               onTapDown: (details) => showRightMenu(
                 (cancel) => widget.menuBuilder(peerId, cancel),
@@ -845,7 +845,7 @@ class _RemoteWindowTitleBarState extends State<_RemoteWindowTitleBar> {
             ),
             if (!isMacOS && !kUseCompatibleUiMode) ...[
               _RemoteTitleAction(
-                tooltip: 'Minimize',
+                tooltip: translate('Minimize'),
                 icon: Icons.remove_rounded,
                 onTap: () =>
                     WindowController.fromWindowId(widget.windowId).minimize(),
@@ -859,7 +859,7 @@ class _RemoteWindowTitleBarState extends State<_RemoteWindowTitleBar> {
                     onTap: () => toggleMaximize(false),
                   )),
               _RemoteTitleAction(
-                tooltip: 'Close',
+                tooltip: translate('Close'),
                 icon: Icons.close_rounded,
                 isClose: true,
                 onTap: widget.onCloseWindow,

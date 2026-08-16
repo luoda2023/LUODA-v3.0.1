@@ -811,44 +811,44 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   }
 
   Widget _buildPrimaryRail(BuildContext context) {
-    const destinations = <DesktopRailDestination>[
+    final destinations = <DesktopRailDestination>[
       DesktopRailDestination(
         id: 'chat',
-        label: 'Messages',
+        label: translate('Messages'),
         icon: Icons.chat_bubble_outline_rounded,
         selectedIcon: Icons.chat_bubble_rounded,
       ),
       DesktopRailDestination(
         id: 'recent',
-        label: 'Recent sessions',
+        label: translate('Recent sessions'),
         icon: Icons.history_rounded,
       ),
       DesktopRailDestination(
         id: 'favorites',
-        label: 'Favorites',
+        label: translate('Favorites'),
         icon: Icons.star_outline_rounded,
         selectedIcon: Icons.star_rounded,
       ),
       DesktopRailDestination(
         id: 'meetings',
-        label: 'Meetings',
+        label: translate('Meetings'),
         icon: Icons.groups_outlined,
         selectedIcon: Icons.groups_rounded,
       ),
       DesktopRailDestination(
         id: 'discovered',
-        label: 'LAN discovery',
+        label: translate('LAN discovery'),
         icon: Icons.radar_rounded,
       ),
       DesktopRailDestination(
         id: 'contacts',
-        label: 'Contacts',
+        label: translate('Contacts'),
         icon: Icons.contacts_outlined,
         selectedIcon: Icons.contacts_rounded,
       ),
       DesktopRailDestination(
         id: 'vip',
-        label: 'VIP',
+        label: translate('VIP'),
         icon: Icons.workspace_premium_outlined,
         selectedIcon: Icons.workspace_premium_rounded,
       ),

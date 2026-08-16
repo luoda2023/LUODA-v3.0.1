@@ -373,7 +373,7 @@ class _WaylandCardState extends State<WaylandCard> {
         ];
         return Offstage(
           offstage: children.isEmpty,
-          child: _Card(title: 'Wayland', children: children),
+          child: _Card(title: translate('Wayland'), children: children),
         );
       },
     );

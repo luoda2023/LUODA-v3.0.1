@@ -593,35 +593,35 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
   }
 
   Widget _buildPrimaryRail(BuildContext context) {
-    const destinations = <DesktopRailDestination>[
+    final destinations = <DesktopRailDestination>[
       DesktopRailDestination(
         id: 'chat',
-        label: 'Chat',
+        label: translate('Chat'),
         icon: Icons.chat_bubble_outline_rounded,
       ),
       DesktopRailDestination(
         id: 'recent',
-        label: 'Recent sessions',
+        label: translate('Recent sessions'),
         icon: Icons.history_rounded,
       ),
       DesktopRailDestination(
         id: 'favorites',
-        label: 'Favorites',
+        label: translate('Favorites'),
         icon: Icons.star_outline_rounded,
       ),
       DesktopRailDestination(
         id: 'discovered',
-        label: 'Discovered',
+        label: translate('Discovered'),
         icon: Icons.radar_rounded,
       ),
       DesktopRailDestination(
         id: 'contacts',
-        label: 'Address book',
+        label: translate('Address book'),
         icon: Icons.contacts_outlined,
       ),
       DesktopRailDestination(
         id: 'vip',
-        label: 'VIP features',
+        label: translate('VIP features'),
         icon: Icons.workspace_premium_outlined,
       ),
     ];

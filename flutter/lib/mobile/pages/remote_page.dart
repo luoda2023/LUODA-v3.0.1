@@ -553,7 +553,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     }
     actions.add(actionButton(
       icon: const Icon(Icons.more_horiz_rounded),
-      tooltip: 'More',
+      tooltip: translate('More'),
       onPressed: () {
         setState(() => _showEdit = false);
         showActions(widget.id);

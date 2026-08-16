@@ -96,7 +96,7 @@ class __PrinterState extends State<_Printer> {
         if (installed && isPrinterInstalled) tipReady()
       ]);
     }
-    return _Card(title: 'Outgoing Print Jobs', children: children);
+    return _Card(title: translate('Outgoing Print Jobs'), children: children);
   }
 
   Widget incoming(BuildContext context) {
@@ -107,21 +107,21 @@ class __PrinterState extends State<_Printer> {
     }
 
     PrinterOptions printerOptions = PrinterOptions.load();
-    return _Card(title: 'Incoming Print Jobs', children: [
+    return _Card(title: translate('Incoming Print Jobs'), children: [
       _Radio(context,
           value: kValuePrinterIncomingJobDismiss,
           groupValue: printerOptions.action,
-          label: 'Dismiss',
+          label: translate('Dismiss'),
           onChanged: onRadioChanged),
       _Radio(context,
           value: kValuePrinterIncomingJobDefault,
           groupValue: printerOptions.action,
-          label: 'use-the-default-printer-tip',
+          label: translate('use-the-default-printer-tip'),
           onChanged: onRadioChanged),
       _Radio(context,
           value: kValuePrinterIncomingJobSelected,
           groupValue: printerOptions.action,
-          label: 'use-the-selected-printer-tip',
+          label: translate('use-the-selected-printer-tip'),
           onChanged: onRadioChanged),
       if (printerOptions.printerNames.isNotEmpty)
         ComboBox(
