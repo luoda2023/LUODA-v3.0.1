@@ -251,6 +251,58 @@ class _ScanPageState extends State<ScanPage> {
     if (_handlingScan) return;
     _handlingScan = true;
     try {
+      // 当面加好友：luoda://friend?id=...&name=...
+      final friend = DirectPairingStore.parseFriendPayload(data);
+      if (friend != null) {
+        await controller?.pauseCamera();
+        final display = friend.name.isNotEmpty
+            ? friend.name
+            : formatID(friend.peerId);
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: Text(translate('Add friend')),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  display,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${translate('ID')}: ${formatID(friend.peerId)}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: MyTheme.mutedLight,
+                  ),
+                ),
+              ],
+            ),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: Text(translate('Cancel')),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: Text(translate('Add')),
+              ),
+            ],
+          ),
+        );
+        if (confirmed == true) {
+          connect(context, friend.peerId);
+          if (mounted) Navigator.pop(context, friend.peerId);
+        } else {
+          await controller?.resumeCamera();
+        }
+        return;
+      }
       final pairing = DirectPairingStore.parsePayload(data);
       if (pairing != null) {
         await controller?.pauseCamera();

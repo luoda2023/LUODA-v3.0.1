@@ -27,6 +27,7 @@ import '../../common/widgets/favorites_page.dart';
 import '../../common/widgets/location_picker_page.dart';
 import '../../common/widgets/meeting_group_panel.dart';
 import '../../common/widgets/meeting_members_dialog.dart';
+import 'my_qrcode_page.dart';
 import '../../common/widgets/online_status_text.dart';
 import '../../models/chat_model.dart';
 import '../../models/file_model.dart';
@@ -936,6 +937,10 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
         await Navigator.of(context).push(
           MaterialPageRoute<void>(builder: (_) => ScanPage()),
         );
+      case 'myqr':
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const MyQrCodePage()),
+        );
       case 'add':
         await _showAddFriendDialog();
       case 'bt':
@@ -1552,6 +1557,15 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       Icons.qr_code_scanner_rounded,
                       translate('Scan & bind'),
                       translate('Pair with PC / phone'),
+                    ),
+                  ),
+                  PopupMenuItem<String>(
+                    value: 'myqr',
+                    height: 46,
+                    child: _moreMenuItem(
+                      Icons.qr_code_2_rounded,
+                      translate('My QR code'),
+                      translate('Show my add-friend QR'),
                     ),
                   ),
                   PopupMenuItem<String>(

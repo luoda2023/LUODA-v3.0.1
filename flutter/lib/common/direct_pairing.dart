@@ -1423,6 +1423,49 @@ class DirectPairingStore {
     ).toString();
   }
 
+  /// 当面加好友的二维码：只携带 ID、显示名、账号，不含指纹/端点，
+  /// 因为手机在移动网络下可能没有可直连的端点。扫码方只需拿到对方 ID
+  /// 即可发起会话、加入最近联系人。
+  static Future<String> buildFriendPayload() async {
+    final peerId = (await bind.mainGetMyId()).trim();
+    var displayName = '';
+    try {
+      final profile = Map<String, dynamic>.from(
+        jsonDecode(bind.mainGetLocalOption(key: 'user_info')) as Map,
+      );
+      displayName =
+          (profile['display_name'] ?? profile['name'] ?? '').toString().trim();
+    } catch (_) {}
+    return Uri(
+      scheme: 'luoda',
+      host: 'friend',
+      queryParameters: <String, String>{
+        'v': '1',
+        'id': peerId,
+        if (displayName.isNotEmpty) 'name': displayName,
+        'acct': selfAccountId(peerId),
+      },
+    ).toString();
+  }
+
+  /// 解析「当面加好友」二维码，只需拿到非空 ID 即视为有效。
+  static ({String peerId, String name, String accountId})?
+      parseFriendPayload(String value) {
+    final uri = Uri.tryParse(value.trim());
+    if (uri == null ||
+        uri.scheme.toLowerCase() != 'luoda' ||
+        uri.host.toLowerCase() != 'friend') {
+      return null;
+    }
+    final id = (uri.queryParameters['id'] ?? '').trim();
+    if (id.isEmpty) return null;
+    return (
+      peerId: id,
+      name: (uri.queryParameters['name'] ?? '').trim(),
+      accountId: (uri.queryParameters['acct'] ?? '').trim(),
+    );
+  }
+
   static DirectPairing? parsePayload(String value) {
     final uri = Uri.tryParse(value.trim());
     if (uri == null ||
