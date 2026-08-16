@@ -73,6 +73,24 @@ class _GeneralState extends State<_General> {
   RxBool serviceBtnEnabled = true.obs;
   bool _showOtherSettings = false;
 
+  /// 消息提示音音量（0-100）与震动时长档位（short/medium/long）。
+  int _messageSoundVolume = 80;
+  String _messageVibrationDuration = 'short';
+
+  @override
+  void initState() {
+    super.initState();
+    _messageSoundVolume = int.tryParse(bind
+            .mainGetOptionSync(key: kOptionMessageSoundVolume)
+            .trim()) ??
+        80;
+    final dur = bind
+        .mainGetOptionSync(key: kOptionMessageVibrationDuration)
+        .trim();
+    _messageVibrationDuration =
+        (dur == 'medium' || dur == 'long') ? dur : 'short';
+  }
+
   @override
   Widget build(BuildContext context) {
     final scrollController = ScrollController();
@@ -997,6 +1015,122 @@ class _GeneralState extends State<_General> {
                   },
                   child: Text(translate('Reset')),
                 ),
+            ],
+          ),
+        ),
+        // 提示音音量滑块（与手机端共用 message-sound-volume 键）。
+        Padding(
+          padding: const EdgeInsets.only(left: _kCheckBoxLeftMargin),
+          child: Row(
+            children: [
+              const Icon(Icons.volume_up_outlined, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                translate('Sound volume'),
+                style: const TextStyle(height: 1.25),
+              ),
+              Expanded(
+                child: Slider(
+                  value: _messageSoundVolume.toDouble(),
+                  min: 0,
+                  max: 100,
+                  activeColor: const Color(0xFF07C160),
+                  onChanged: (v) => setState(() {
+                    _messageSoundVolume = v.round();
+                    bind.mainSetOption(
+                      key: kOptionMessageSoundVolume,
+                      value: v.round().toString(),
+                    );
+                  }),
+                ),
+              ),
+              SizedBox(
+                width: 34,
+                child: Text(
+                  '$_messageSoundVolume%',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF8A8D94),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        // 震动时长选择（与手机端共用 message-vibration-duration 键）。
+        Padding(
+          padding: const EdgeInsets.only(left: _kCheckBoxLeftMargin),
+          child: Row(
+            children: [
+              const Icon(Icons.vibration_rounded, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  translate(
+                    switch (_messageVibrationDuration) {
+                      'medium' => 'Medium vibration',
+                      'long' => 'Long vibration',
+                      _ => 'Short vibration',
+                    },
+                  ),
+                  style: const TextStyle(height: 1.25),
+                ),
+              ),
+              PopupMenuButton<String>(
+                tooltip: translate('Vibration duration'),
+                initialValue: _messageVibrationDuration,
+                onSelected: (value) async {
+                  await bind.mainSetOption(
+                      key: kOptionMessageVibrationDuration, value: value);
+                  if (mounted) setState(() {});
+                },
+                itemBuilder: (context) => <PopupMenuEntry<String>>[
+                  const PopupMenuItem<String>(
+                    value: 'short',
+                    child: Text('Short vibration'),
+                  ),
+                  const PopupMenuItem<String>(
+                    value: 'medium',
+                    child: Text('Medium vibration'),
+                  ),
+                  const PopupMenuItem<String>(
+                    value: 'long',
+                    child: Text('Long vibration'),
+                  ),
+                ],
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                        color: Theme.of(context).colorScheme.primary,
+                        width: 1),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Text(
+                        translate(
+                          switch (_messageVibrationDuration) {
+                            'medium' => 'Medium vibration',
+                            'long' => 'Long vibration',
+                            _ => 'Short vibration',
+                          },
+                        ),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.primary,
+                          fontSize: 13,
+                        ),
+                      ),
+                      Icon(
+                        Icons.arrow_drop_down_rounded,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ],
           ),
         ),

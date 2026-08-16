@@ -118,6 +118,8 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
   var _messageSoundEnabled = true;
   var _messageVibrationEnabled = true;
   var _messageSoundName = "";
+  var _messageSoundVolume = 80;
+  var _messageVibrationDuration = 'short';
 
   _SettingsState() {
     _enableAbr = option2bool(
@@ -176,6 +178,17 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
     final soundPath =
         bind.mainGetOptionSync(key: kOptionMessageSoundPath).trim();
     _messageSoundName = _toneDisplayName(soundPath);
+    _messageSoundVolume = int.tryParse(bind
+            .mainGetOptionSync(key: kOptionMessageSoundVolume)
+            .trim()) ??
+        80;
+    _messageVibrationDuration = bind
+        .mainGetOptionSync(key: kOptionMessageVibrationDuration)
+        .trim();
+    if (_messageVibrationDuration != 'medium' &&
+        _messageVibrationDuration != 'long') {
+      _messageVibrationDuration = 'short';
+    }
   }
 
   @override
@@ -999,6 +1012,62 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
               onPressed:
                   _messageSoundEnabled ? (_) => _showSoundPicker() : null,
             ),
+            SettingsTile(
+              leading: const Icon(Icons.volume_up_outlined),
+              title: Text(translate('Sound volume')),
+              enabled: _messageSoundEnabled,
+              trailing: SizedBox(
+                width: 150,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Icon(
+                      _messageSoundVolume == 0
+                          ? Icons.volume_off_outlined
+                          : Icons.volume_down_outlined,
+                      size: 18,
+                      color: _messageSoundEnabled
+                          ? (_messageSoundVolume == 0
+                              ? const Color(0xFF9AA0A6)
+                              : const Color(0xFF07C160))
+                          : const Color(0xFF9AA0A6),
+                    ),
+                    Expanded(
+                      child: Slider(
+                        value: _messageSoundVolume.toDouble(),
+                        min: 0,
+                        max: 100,
+                        activeColor: const Color(0xFF07C160),
+                        onChanged: _messageSoundEnabled
+                            ? (v) {
+                                setState(() {
+                                  _messageSoundVolume = v.round();
+                                });
+                              }
+                            : null,
+                        onChangeEnd: (v) async {
+                          await bind.mainSetOption(
+                            key: kOptionMessageSoundVolume,
+                            value: v.round().toString(),
+                          );
+                        },
+                      ),
+                    ),
+                    SizedBox(
+                      width: 30,
+                      child: Text(
+                        '$_messageSoundVolume%',
+                        textAlign: TextAlign.right,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF8A8D94),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
             SettingsTile.switchTile(
               leading: const Icon(Icons.vibration_outlined),
               title: Text(translate('Message vibration')),
@@ -1010,6 +1079,22 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                 await mainSetBoolOption(kOptionMessageVibration, value);
                 if (mounted) setState(() => _messageVibrationEnabled = value);
               },
+            ),
+            SettingsTile.navigation(
+              leading: const Icon(Icons.vibration_rounded),
+              title: Text(translate('Vibration duration')),
+              description: Text(
+                switch (_messageVibrationDuration) {
+                  'medium' => translate('Medium vibration'),
+                  'long' => translate('Long vibration'),
+                  _ => translate('Short vibration'),
+                },
+              ),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              enabled: _messageVibrationEnabled,
+              onPressed: _messageVibrationEnabled
+                  ? (_) => _showVibrationDurationPicker()
+                  : null,
             ),
           ],
         ),
@@ -1905,6 +1990,48 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
     return translate('Custom');
   }
 
+  Future<void> _showVibrationDurationPicker() async {
+    await gFFI.dialogManager.show<void>(
+      (setState, close, context) => CustomAlertDialog(
+        title: Text(translate('Vibration duration')),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final entry in <(String, String)>[
+              ('short', 'Short vibration'),
+              ('medium', 'Medium vibration'),
+              ('long', 'Long vibration'),
+            ]) ...<Widget>[
+              ListTile(
+                leading: Icon(
+                  switch (entry.$1) {
+                    'medium' => Icons.vibration_rounded,
+                    'long' => Icons.vibration_rounded,
+                    _ => Icons.vibration_rounded,
+                  },
+                ),
+                title: Text(translate(entry.$2)),
+                trailing: _messageVibrationDuration == entry.$1
+                    ? const Icon(Icons.check, color: Color(0xFF07C160))
+                    : null,
+                onTap: () async {
+                  await bind.mainSetOption(
+                    key: kOptionMessageVibrationDuration,
+                    value: entry.$1,
+                  );
+                  if (mounted) {
+                    setState(() => _messageVibrationDuration = entry.$1);
+                  }
+                  close();
+                },
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _showSoundPicker() async {
     final current =
         bind.mainGetOptionSync(key: kOptionMessageSoundPath).trim();
@@ -1932,7 +2059,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                           try {
                             await tonePlayer.stop();
                             await tonePlayer.play(AssetSource(
-                                'assets/tones/${tone['key']}.wav'));
+                                'assets/tones/tone_${tone['key']}.wav'));
                           } catch (_) {}
                         },
                       ),

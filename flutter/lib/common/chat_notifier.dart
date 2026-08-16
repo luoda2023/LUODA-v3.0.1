@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
@@ -79,12 +80,40 @@ class ChatNotifier {
     }
   }
 
+  /// 提示音音量（0.0-1.0，默认 0.8）。
+  double get _soundVolume {
+    try {
+      final raw =
+          bind.mainGetOptionSync(key: kOptionMessageSoundVolume).trim();
+      if (raw.isEmpty) return 0.8;
+      final v = int.tryParse(raw);
+      if (v == null) return 0.8;
+      return (v.clamp(0, 100)) / 100.0;
+    } catch (e) {
+      return 0.8;
+    }
+  }
+
+  /// 震动时长档位 → Android vibrationPattern（on/off 毫秒交替）。
+  Int64List get _vibrationPattern {
+    final raw = bind
+        .mainGetOptionSync(key: kOptionMessageVibrationDuration)
+        .trim();
+    return switch (raw) {
+      'medium' => Int64List.fromList(<int>[0, 250, 80, 180]),
+      'long' => Int64List.fromList(<int>[0, 400, 120, 250, 120, 250]),
+      // 默认：短振一下。
+      _ => Int64List.fromList(<int>[0, 120]),
+    };
+  }
+
   /// 播放提示音：内置多选音（builtin:x）→ 用户自定义文件 → 默认"叮咚"音。
   Future<void> _playTone() async {
     try {
       final custom =
           bind.mainGetOptionSync(key: kOptionMessageSoundPath).trim();
       await _tonePlayer.stop();
+      await _tonePlayer.setVolume(_soundVolume);
       if (custom.startsWith(kBuiltinTonePrefix)) {
         final name = custom.substring(kBuiltinTonePrefix.length);
         await _tonePlayer.play(AssetSource('assets/tones/tone_$name.wav'));
@@ -120,6 +149,8 @@ class ChatNotifier {
           importance: Importance.high,
           priority: Priority.high,
           enableVibration: vibrate,
+          // 震动时长由设置档位控制（短/中/长）。
+          vibrationPattern: vibrate ? _vibrationPattern : null,
           // 提示音由 audioplayers 自己播放，避免系统通知音与自定义音叠加
           playSound: false,
           styleInformation: BigTextStyleInformation(

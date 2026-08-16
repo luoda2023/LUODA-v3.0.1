@@ -130,6 +130,13 @@ const String kOptionMessageSound = "message-sound";
 const String kOptionMessageVibration = "message-vibration";
 const String kOptionMessageSoundPath = "message-sound-path";
 
+/// 消息提示音音量（0-100 整数，默认 80）。
+const String kOptionMessageSoundVolume = "message-sound-volume";
+
+/// 消息震动时长档位：short / medium / long（默认 short）。
+const String kOptionMessageVibrationDuration =
+    "message-vibration-duration";
+
 /// 内置消息提示音（原创合成音，无版权风险）。
 /// 存储值：`builtin:<key>` 存到 [kOptionMessageSoundPath]，播放时解析为
 /// assets/tones/<key>.wav；空串表示默认音（assets/msg_tone.wav）。
