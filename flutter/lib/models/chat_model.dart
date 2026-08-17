@@ -331,6 +331,7 @@ class ChatModel with ChangeNotifier {
     DirectChatRepository.instance.revision.removeListener(_onStoreRevision);
     _storeRevisionTimer?.cancel();
     _externalChatPollTimer?.cancel();
+    _relayCutbackTimer?.cancel();
     for (final timer in _selfDestructTimers.values) {
       timer.cancel();
     }
@@ -359,6 +360,10 @@ class ChatModel with ChangeNotifier {
   // 送达看门狗：发出后一段时间未收到回执则强制重建连接并重发。
   final Map<String, Timer> _deliveryWatchdogs = <String, Timer>{};
   final Map<String, int> _deliveryWatchdogRetries = <String, int>{};
+  /// 中继→直连自动回切定时器（P2P 优先：能直连绝不长期占用中继）。
+  Timer? _relayCutbackTimer;
+  /// 已发起回切尝试的 peer 冷却（避免每次 tick 都重拨）。
+  final Map<String, DateTime> _relayCutbackCooldown = <String, DateTime>{};
   final Set<String> _flushingPeers = <String>{};
 
   /// 拨号中防重入：短时间内对同一会话只允许一次建连操作，
@@ -494,6 +499,58 @@ class ChatModel with ChangeNotifier {
       },
     );
     _startExternalChatPolling();
+    _startRelayCutbackWatcher();
+  }
+
+  /// 中继→直连自动回切（P2P 优先原则）：定期扫描活跃会话，若发现某会话
+  /// 当前走中继（connection_ready 上报 direct=false）而本地存有该好友的
+  /// 直连端点，则强制重拨一次——重走「直连端点→打洞→中继兑底」的完整
+  /// 链路，让连接在 NAT 条件允许时自动升级为点到点直连，减少中继占用。
+  /// 仅在存在直连端点且非拨号中/无待发送消息时触发，避免无谓重连。
+  void _startRelayCutbackWatcher() {
+    if (!isMobile && !(isDesktop && desktopType == DesktopType.main)) return;
+    _relayCutbackTimer?.cancel();
+    _relayCutbackTimer = Timer.periodic(const Duration(seconds: 45), (_) {
+      unawaited(_relayCutbackScan());
+    });
+  }
+
+  Future<void> _relayCutbackScan() async {
+    final ensure = ensureChatConnection;
+    if (ensure == null) return;
+    // 移动端单连接：只关心最近活跃会话；桌面端可遍历最近活跃的一批。
+    final active = <String>[];
+    final last = lastActiveChatPeerId;
+    if (last != null && last.isNotEmpty) active.add(last);
+    if (active.isEmpty) return;
+    final now = DateTime.now();
+    for (final peerId in active) {
+      if (ChatModel.isDialing(peerId)) continue;
+      // 中继状态判断：connection_ready 事件把 direct 写入 ConnectionTypeState。
+      bool onRelay = false;
+      try {
+        onRelay = ConnectionTypeState.find(peerId).direct.value ==
+            ConnectionType.strIndirect;
+      } catch (_) {
+        // 状态未注册（从未连接成功），跳过。
+      }
+      if (!onRelay) continue;
+      // 有直连端点才值得回切；纯 ID 会话（无端点）重拨只会再走中继。
+      final endpoint = DirectPairingStore.resolveConnectionTarget(peerId);
+      if (endpoint == null || endpoint.isEmpty) continue;
+      // 冷却 2 分钟，避免反复重拨。
+      final lastTry = _relayCutbackCooldown[peerId];
+      if (lastTry != null &&
+          now.difference(lastTry).inSeconds < 120) {
+        continue;
+      }
+      // 有待发送消息时先让看门狗处理，不打断正在重试的投递。
+      final pending = await firstPendingPeerId();
+      if (pending == peerId) continue;
+      _relayCutbackCooldown[peerId] = now;
+      debugPrint('[P2P] relay->direct cutback for $peerId');
+      unawaited(ensure(peerId, force: true));
+    }
   }
 
   /// Host-side incoming messages are written by the connection-manager
