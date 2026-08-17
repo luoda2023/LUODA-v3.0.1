@@ -84,6 +84,18 @@ fn acquire_single_instance_lock(app_dir: &str) {
                     let _ = CloseHandle(handle);
                     std::process::exit(0);
                 }
+                // 同版本、同目录、仍在运行的实例（含 headless/无窗口场景，如
+                // CI relaunch 检查、用户手动再次双击启动器）应当被保持，
+                // 而不是被当作僵尸接管杀掉。只有旧版本/不同目录/已退出的
+                // 实例才走下面的接管逻辑。
+                if owner_pid != std::process::id() && same_build_running(owner_pid) {
+                    log::warn!(
+                        "Another instance (pid {}) is the same build running; exiting without takeover",
+                        owner_pid
+                    );
+                    let _ = CloseHandle(handle);
+                    std::process::exit(0);
+                }
             }
             // Another instance (usually a stale process from an older build)
             // holds the lock. Take over instead of silently exiting, otherwise
@@ -396,6 +408,83 @@ fn is_stale_instance(
     } else {
     }
     false
+}
+
+/// 判断 [pid] 是否是「当前构建的同一实例」——同一 exe 路径、进程仍在运行、
+/// 且启动时间不早于 exe 写入时间（即不是旧版本残留）。
+///
+/// 用于第二实例启动时区分两类无窗口的锁持有者：
+/// - 同版本正常驻留（headless CI relaunch、用户再次双击启动器）→ 保持它并退出
+/// - 旧版本残留 / 不同安装目录 / 卡死僵尸 → 交给 takeover 接管
+#[cfg(target_os = "windows")]
+fn same_build_running(pid: u32) -> bool {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{
+        GetProcessTimes, OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT,
+        PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+
+    let Ok(handle) = (unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }) else {
+        return false;
+    };
+    let mut buf = [0u16; 32768];
+    let mut size = buf.len() as u32;
+    let path_ok = unsafe {
+        QueryFullProcessImageNameW(
+            handle,
+            PROCESS_NAME_FORMAT(0),
+            windows::core::PWSTR(buf.as_mut_ptr()),
+            &mut size,
+        )
+    }
+    .is_ok();
+    let exe_path = if path_ok {
+        String::from_utf16_lossy(&buf[..size as usize]).to_lowercase()
+    } else {
+        String::new()
+    };
+    let Ok(my_exe) = std::env::current_exe() else {
+        let _ = unsafe { CloseHandle(handle) };
+        return false;
+    };
+    let my_exe_lower = my_exe.to_string_lossy().to_lowercase();
+    if exe_path.is_empty() || exe_path != my_exe_lower {
+        let _ = unsafe { CloseHandle(handle) };
+        return false;
+    }
+    // 同路径：再看进程创建时间。旧版本残留是「exe 被新版本覆盖后，旧进程
+    // 仍从旧文件启动」的场景，其创建时间早于当前 exe 的写入时间；同版本
+    // 驻留的创建时间不早于 exe 写入时间（甚至晚于——由本进程自己启动后
+    // 再写入 pid 记录）。
+    let mut creation: windows::Win32::Foundation::FILETIME = Default::default();
+    let mut exit: windows::Win32::Foundation::FILETIME = Default::default();
+    let mut kernel: windows::Win32::Foundation::FILETIME = Default::default();
+    let mut user: windows::Win32::Foundation::FILETIME = Default::default();
+    let times_ok = unsafe {
+        GetProcessTimes(handle, &mut creation, &mut exit, &mut kernel, &mut user)
+    }
+    .is_ok();
+    unsafe {
+        let _ = CloseHandle(handle);
+    }
+    if times_ok {
+        if let Ok(metadata) = std::fs::metadata(&my_exe) {
+            if let Ok(mtime) = metadata.modified() {
+                if let Ok(dur) = mtime.duration_since(std::time::UNIX_EPOCH) {
+                    let created = (u64::from(creation.dwHighDateTime) << 32)
+                        | u64::from(creation.dwLowDateTime);
+                    let mtime_ft = 116_444_736_000_000_000
+                        + dur.as_secs() * 10_000_000
+                        + u64::from(dur.subsec_nanos()) / 100;
+                    if created < mtime_ft {
+                        // 进程启动早于 exe 被写入 → 旧版本残留，交给接管。
+                        return false;
+                    }
+                }
+            }
+        }
+    }
+    true
 }
 
 #[cfg(all(

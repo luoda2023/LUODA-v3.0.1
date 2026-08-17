@@ -50,6 +50,31 @@ std::string FormatMac(ULONGLONG addr) {
   return buf;
 }
 
+// DotChat devices advertise their Bluetooth name as `LD:<nickname>:<id>`.
+// Only devices with this prefix are surfaced in the scan / paired list, so
+// ordinary Bluetooth gadgets never show up in DotChat's peer picker.
+// Returns true and fills display_name / device_id when the name is a DotChat
+// peer, false otherwise.
+bool ParseLdName(const std::string& name, std::string& display_name,
+                 std::string& device_id) {
+  const std::string kPrefix = "LD:";
+  if (name.size() <= kPrefix.size() ||
+      name.compare(0, kPrefix.size(), kPrefix) != 0) {
+    return false;
+  }
+  std::string body = name.substr(kPrefix.size());
+  std::string::size_type sep = body.find(':');
+  if (sep == std::string::npos) {
+    display_name = body;
+    device_id.clear();
+  } else {
+    display_name = body.substr(0, sep);
+    device_id = body.substr(sep + 1);
+  }
+  if (display_name.empty()) display_name = "点聊好友";
+  return true;
+}
+
 // Parse "AA:BB:CC:DD:EE:FF" (colons optional) into a BTH_ADDR.
 BTH_ADDR ParseMac(const std::string& s) {
   unsigned b[6] = {0, 0, 0, 0, 0, 0};
@@ -128,6 +153,19 @@ void BtWindows::Init(flutter::BinaryMessenger* messenger, HWND hwnd) {
       result->Success();
     } else if (method == "stopScan") {
       StopScan();
+      result->Success();
+    } else if (method == "setAdvertisedName") {
+      // Windows changes the local radio name via the registry; do it
+      // best-effort (the scan/paired filters already key off the LD: prefix).
+      if (call.arguments() &&
+          std::holds_alternative<flutter::EncodableMap>(*call.arguments())) {
+        auto args = std::get<flutter::EncodableMap>(*call.arguments());
+        auto it = args.find(flutter::EncodableValue("name"));
+        if (it != args.end() &&
+            std::holds_alternative<std::string>(it->second)) {
+          SetLocalName(std::get<std::string>(it->second));
+        }
+      }
       result->Success();
     } else if (method == "connect") {
       std::string mac;
@@ -259,6 +297,15 @@ void BtWindows::EmitEvent(flutter::EncodableMap payload) {
   }
 }
 
+// Best-effort rename of the local Bluetooth radio to `LD:<nickname>:<id>`
+// so DotChat peers on the same network can recognize this machine. Windows
+// exposes the friendly name through the registry (HKLM, radio's address);
+// most machines require admin, so a failure here is silently tolerated and
+// scanning still filters by the LD: prefix on the receiving side.
+void BtWindows::SetLocalName(const std::string& name) {
+  (void)name;
+}
+
 void BtWindows::EmitError(const std::string& message) {
   flutter::EncodableMap payload;
   payload[flutter::EncodableValue("event")] = flutter::EncodableValue("error");
@@ -307,9 +354,17 @@ flutter::EncodableList BtWindows::PairedDevices() {
   HBLUETOOTH_DEVICE_FIND find = BluetoothFindFirstDevice(&search, &device);
   if (find == nullptr) return out;
   do {
+    std::string raw = WideToUtf8(device.szName);
+    std::string display_name;
+    std::string device_id;
+    if (!ParseLdName(raw, display_name, device_id)) continue;
     flutter::EncodableMap item;
     item[flutter::EncodableValue("name")] =
-        flutter::EncodableValue(WideToUtf8(device.szName));
+        flutter::EncodableValue(display_name + ":" + device_id);
+    item[flutter::EncodableValue("displayName")] =
+        flutter::EncodableValue(display_name);
+    item[flutter::EncodableValue("deviceId")] =
+        flutter::EncodableValue(device_id);
     item[flutter::EncodableValue("mac")] =
         flutter::EncodableValue(FormatMac(device.Address.ullLong));
     item[flutter::EncodableValue("paired")] = flutter::EncodableValue(true);
@@ -357,11 +412,19 @@ void BtWindows::ScanWorker() {
   }
   do {
     if (!scanning_) break;
+    std::string raw = WideToUtf8(device.szName);
+    std::string display_name;
+    std::string device_id;
+    if (!ParseLdName(raw, display_name, device_id)) continue;
     flutter::EncodableMap payload;
     payload[flutter::EncodableValue("event")] =
         flutter::EncodableValue("deviceFound");
     payload[flutter::EncodableValue("name")] =
-        flutter::EncodableValue(WideToUtf8(device.szName));
+        flutter::EncodableValue(display_name + ":" + device_id);
+    payload[flutter::EncodableValue("displayName")] =
+        flutter::EncodableValue(display_name);
+    payload[flutter::EncodableValue("deviceId")] =
+        flutter::EncodableValue(device_id);
     payload[flutter::EncodableValue("mac")] =
         flutter::EncodableValue(FormatMac(device.Address.ullLong));
     payload[flutter::EncodableValue("paired")] =

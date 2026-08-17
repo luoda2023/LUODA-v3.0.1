@@ -719,8 +719,13 @@ class _BluetoothChatPageState extends State<BluetoothChatPage> {
     final connecting = _connectingMac == device.mac;
     final connected = _bt.isConnected(device.mac);
     final selected = _active?.mac == device.mac;
-    final deviceName =
-        device.name.isEmpty ? translate('Unknown device') : device.name;
+    // 优先显示点聊昵称，附上设备 ID（灰字小号），与联系人列表风格一致。
+    final nick = device.displayName.isNotEmpty
+        ? device.displayName
+        : (device.name.isEmpty ? translate('Unknown device') : device.name);
+    final deviceName = device.deviceId.isNotEmpty
+        ? '$nick  (${device.deviceId})'
+        : nick;
     final onTap = connecting
         ? null
         : connected

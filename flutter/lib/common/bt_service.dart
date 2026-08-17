@@ -9,15 +9,31 @@ import 'direct_chat.dart';
 import 'relay_bridge.dart';
 
 /// A Bluetooth peer discovered by scanning or from the paired list.
+///
+/// Only DotChat devices are surfaced: the native side filters out any
+/// Bluetooth device whose advertised name does not start with the `LD:`
+/// prefix, and parses the DotChat nickname + device ID out of the name
+/// (`LD:<昵称>:<ID>`). [name] keeps the combined `昵称:ID` form so existing
+/// conversation/history keys stay stable, while [displayName] / [deviceId]
+/// give the parsed parts for rendering.
 class BtDevice {
   const BtDevice({
     required this.name,
     required this.mac,
+    this.displayName = '',
+    this.deviceId = '',
     this.paired = false,
   });
 
+  /// Combined `昵称:ID` (native side already parsed it).
   final String name;
   final String mac;
+
+  /// DotChat nickname parsed from the advertised name.
+  final String displayName;
+
+  /// DotChat device ID parsed from the advertised name.
+  final String deviceId;
   final bool paired;
 
   String get peerId => 'bt:${mac.toUpperCase().replaceAll(':', '')}';
@@ -25,6 +41,8 @@ class BtDevice {
   BtDevice copyWith({bool? paired}) => BtDevice(
         name: name,
         mac: mac,
+        displayName: displayName,
+        deviceId: deviceId,
         paired: paired ?? this.paired,
       );
 
@@ -187,6 +205,8 @@ class BluetoothService {
             BtDevice(
               name: (item['name'] ?? '').toString(),
               mac: (item['mac'] ?? '').toString(),
+              displayName: (item['displayName'] ?? '').toString(),
+              deviceId: (item['deviceId'] ?? '').toString(),
               paired: true,
             ),
       ];
@@ -239,6 +259,23 @@ class BluetoothService {
     } catch (_) {}
   }
 
+  /// Broadcast this device as a DotChat peer by renaming the local
+  /// Bluetooth adapter to `LD:<昵称>:<ID>`. Only DotChat devices use this
+  /// prefix, so scanning clients can filter out ordinary Bluetooth gadgets.
+  Future<void> setAdvertisedName(String displayName, String deviceId) async {
+    if (!isBtPlatform) return;
+    final name = displayName.trim().replaceAll(':', ' ');
+    final id = deviceId.trim().replaceAll(':', ' ');
+    if (name.isEmpty) return;
+    try {
+      await _channel.invokeMethod<void>('setAdvertisedName', <String, dynamic>{
+        'name': 'LD:$name:$id',
+      });
+    } catch (error) {
+      debugPrint('setAdvertisedName failed: $error');
+    }
+  }
+
   Future<void> _onEvent(dynamic raw) async {
     final map = raw is Map ? Map<String, dynamic>.from(raw) : null;
     if (map == null) return;
@@ -247,6 +284,8 @@ class BluetoothService {
         _deviceFound.add(BtDevice(
           name: (map['name'] ?? '').toString(),
           mac: (map['mac'] ?? '').toString(),
+          displayName: (map['displayName'] ?? '').toString(),
+          deviceId: (map['deviceId'] ?? '').toString(),
           paired: map['paired'] == true,
         ));
         break;

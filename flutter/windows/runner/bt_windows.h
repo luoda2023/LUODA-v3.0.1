@@ -54,6 +54,7 @@ class BtWindows {
   flutter::EncodableList PairedDevices();
   void StartScan();
   void StopScan();
+  void SetLocalName(const std::string& name);
   void Connect(const std::string& mac, const std::string& name);
   void Disconnect(const std::string& mac);
   void SendEnvelope(const std::string& mac, const std::string& envelope);

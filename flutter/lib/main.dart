@@ -155,6 +155,21 @@ void _wireRelayBridge() {
   );
 }
 
+/// 把本机蓝牙名广播为 `LD:<昵称>:<ID>`，让安装了点聊的设备之间才能
+/// 互相被发现（扫描端只显示带 LD: 前缀的点聊设备）。
+void _advertiseBluetoothIdentity() {
+  Future<void>.delayed(const Duration(seconds: 2), () async {
+    try {
+      final id = (await bind.mainGetMyId()).trim();
+      final nick = gFFI.userModel.displayNameOrUserName.trim();
+      if (nick.isEmpty || id.isEmpty) return;
+      await BluetoothService.instance.setAdvertisedName(nick, id);
+    } catch (error) {
+      debugPrint('advertise bluetooth identity failed: $error');
+    }
+  });
+}
+
 Future<void> initEnv(String appType) async {
   // global shared preference
   await platformFFI.init(appType);
@@ -188,6 +203,7 @@ void runMainApp(bool startService) async {
   }
   await Future.wait([gFFI.abModel.loadCache(), gFFI.groupModel.loadCache()]);
   gFFI.userModel.refreshCurrentUser();
+  _advertiseBluetoothIdentity();
   runApp(App());
 
   bool? alwaysOnTop;
@@ -247,6 +263,7 @@ void runMobileApp() async {
   gFFI.userModel.refreshCurrentUser();
   // 手机端消息横幅通知（微信式）
   unawaited(ChatNotifier.instance.init());
+  _advertiseBluetoothIdentity();
   runApp(App());
   await initUniLinks();
   if (isAndroid) {

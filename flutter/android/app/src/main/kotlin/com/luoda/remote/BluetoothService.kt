@@ -50,6 +50,26 @@ object BluetoothService {
     // App-specific SPP UUID: both ends run LDesk, so no collision with
     // third-party serial apps.
     private val APP_UUID: UUID = UUID.fromString("e18b0f2c-1f2a-4f8e-9c5a-6b7f1a2b3c4d")
+    // 点聊设备在蓝牙广播中的名字前缀。只有安装了点聊的设备才会把本地
+    // 蓝牙名设成 LD:<昵称>:<ID> 的格式，扫描端据此过滤——普通蓝牙设备
+    // （耳机、音箱等）不会出现在点聊的蓝牙扫描列表里。
+    private const val LD_PREFIX = "LD:"
+
+    /** 解析点聊蓝牙设备名，返回 Pair(昵称, ID)；非点聊名字返回 null。 */
+    private fun parseLdName(name: String?): Pair<String, String>? {
+        val n = name?.trim() ?: return null
+        if (!n.startsWith(LD_PREFIX)) return null
+        val body = n.removePrefix(LD_PREFIX).trim()
+        if (body.isEmpty()) return null
+        val sep = body.indexOf(':')
+        return if (sep > 0) {
+            val nick = body.substring(0, sep).trim()
+            val id = body.substring(sep + 1).trim()
+            Pair(if (nick.isEmpty()) "点聊好友" else nick, id)
+        } else {
+            Pair(body, "")
+        }
+    }
 
     private var activity: MainActivity? = null
     private var adapter: BluetoothAdapter? = null
@@ -108,6 +128,11 @@ object BluetoothService {
             "pairedDevices" -> result.success(pairedDevices())
             "startScan" -> {
                 startScan()
+                result.success(null)
+            }
+            "setAdvertisedName" -> {
+                val name = call.argument<String>("name").orEmpty()
+                setAdvertisedName(name)
                 result.success(null)
             }
             "stopScan" -> {
@@ -173,15 +198,44 @@ object BluetoothService {
         val a = getAdapter() ?: return emptyList()
         if (!a.isEnabled) return emptyList()
         return try {
-            a.bondedDevices.map { device ->
+            a.bondedDevices.mapNotNull { device ->
+                val name = try {
+                    device.name ?: ""
+                } catch (e: SecurityException) {
+                    ""
+                }
+                // 只显示安装了点聊的设备（名字带 LD: 前缀）。
+                val parsed = parseLdName(name) ?: return@mapNotNull null
                 mapOf(
-                    "name" to (device.name ?: ""),
+                    "name" to (parsed.first + ":" + parsed.second),
+                    "displayName" to parsed.first,
+                    "deviceId" to parsed.second,
                     "mac" to device.address
                 )
             }
         } catch (e: SecurityException) {
             postToDart("error", mapOf("message" to "读取已配对设备失败，请检查蓝牙连接权限"))
             emptyList()
+        }
+    }
+
+    /** 把本机蓝牙名广播为 LD:<昵称>:<ID>，让对方只能搜到点聊设备。 */
+    private fun setAdvertisedName(name: String) {
+        val a = getAdapter() ?: return
+        if (!a.isEnabled) return
+        if (!hasBtConnectPermission()) return
+        val clean = name.trim()
+        if (clean.isEmpty()) return
+        try {
+            val current = try {
+                a.name ?: ""
+            } catch (e: SecurityException) {
+                ""
+            }
+            if (current.startsWith(LD_PREFIX) && current == clean) return
+            a.setName(clean)
+        } catch (e: Exception) {
+            Log.w(TAG, "setName failed: ${e.message}")
         }
     }
 
@@ -206,6 +260,8 @@ object BluetoothService {
                                 } catch (e: SecurityException) {
                                     ""
                                 }
+                                // 只显示安装了点聊的设备：名字必须以 LD: 开头。
+                                val parsed = parseLdName(name) ?: return
                                 val bonded = try {
                                     device.bondState == BluetoothDevice.BOND_BONDED
                                 } catch (e: SecurityException) {
@@ -214,7 +270,9 @@ object BluetoothService {
                                 postToDart(
                                     "deviceFound",
                                     mapOf(
-                                        "name" to name,
+                                        "name" to (parsed.first + ":" + parsed.second),
+                                        "displayName" to parsed.first,
+                                        "deviceId" to parsed.second,
                                         "mac" to device.address,
                                         "paired" to bonded
                                     )
