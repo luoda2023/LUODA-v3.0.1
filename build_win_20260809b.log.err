@@ -1,0 +1,7 @@
+cargo : warning: output filename collision.
+所在位置 行:4 字符: 1
++ cargo build --release --features flutter 2>&1 | Out-String | Write-Ho ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (warning: output filename collision.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 

@@ -1,0 +1,10 @@
+﻿$ErrorActionPreference = "Stop"
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+$L = 41; $T = 66; $W = 1359; $H = 824
+$bmp = New-Object System.Drawing.Bitmap($W, $H)
+$g = [System.Drawing.Graphics]::FromImage($bmp)
+$g.CopyFromScreen($L, $T, 0, 0, (New-Object System.Drawing.Size($W, $H)))
+$bmp.Save("J:\codex-work\LUODA-v3.0.1\agent_memory\vps_now.png", [System.Drawing.Imaging.ImageFormat]::Png)
+$g.Dispose(); $bmp.Dispose()
+Write-Host "captured"

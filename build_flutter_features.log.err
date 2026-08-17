@@ -1,0 +1,238 @@
+warning: output filename collision at J:\codex-work\LUODA-v3.0.1\target\release\deps\luoda.pdb
+  |
+  = note: the bin target `luoda` in package `luoda v3.1.1 (J:\codex-work\LUODA-v3.0.1)` has the same output filename as the lib target `luoda` in package `luoda v3.1.1 (J:\codex-work\LUODA-v3.0.1)`
+  = note: this may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>
+  = help: consider changing their names to be unique or compiling them separately
+warning: output filename collision at J:\codex-work\LUODA-v3.0.1\target\release\luoda.pdb
+  |
+  = note: the bin target `luoda` in package `luoda v3.1.1 (J:\codex-work\LUODA-v3.0.1)` has the same output filename as the lib target `luoda` in package `luoda v3.1.1 (J:\codex-work\LUODA-v3.0.1)`
+  = note: this may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>
+  = help: consider changing their names to be unique or compiling them separately
+warning: direct cast of function item into an integer
+  --> libs\hbb_common\src\platform\mod.rs:80:62
+   |
+80 |         libc::signal(libc::SIGSEGV, breakdown_signal_handler as _);
+   |                                                              ^^^^
+   |
+   = note: `#[warn(function_casts_as_integer)]` on by default
+help: first cast to a pointer `as *const ()`
+   |
+80 |         libc::signal(libc::SIGSEGV, breakdown_signal_handler as *const () as _);
+   |                                                              ++++++++++++
+
+warning: `hbb_common` (lib) generated 1 warning (run `cargo fix --lib -p hbb_common` to apply 1 suggestion)
+warning: `hbb_common` (lib) generated 1 warning (1 duplicate)
+   Compiling luoda v3.1.1 (J:\codex-work\LUODA-v3.0.1)
+warning: unused import: `HashSet`
+  --> src\server\viewer_registry.rs:20:28
+   |
+20 |     collections::{HashMap, HashSet},
+   |                            ^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `hbb_common::config::Config`
+  --> src\server\viewer_registry.rs:25:5
+   |
+25 | use hbb_common::config::Config;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `ChatChannel`
+  --> src\server\viewer_fanout.rs:23:36
+   |
+23 |     message_proto::{ChatBroadcast, ChatChannel, Message, ViewerListUpdate},
+   |                                    ^^^^^^^^^^^
+
+warning: unused import: `viewer_direct_channel`
+ --> src\server\connection.rs:7:5
+  |
+7 |     viewer_direct_channel, viewer_registry,
+  |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `InviteToken`
+  --> src\server\connection.rs:10:33
+   |
+10 |     ChatBroadcast, ChatChannel, InviteToken, JoinAsViewer, KickViewer, PromoteViewer,
+   |                                 ^^^^^^^^^^^
+
+warning: unused import: `REG_INTERVAL`
+  --> src\rendezvous_mediator.rs:17:9
+   |
+17 |         REG_INTERVAL, RENDEZVOUS_PORT,
+   |         ^^^^^^^^^^^^
+
+warning: unused import: `is_installed`
+  --> src\common.rs:42:32
+   |
+42 |     ui_interface::{get_option, is_installed, set_option},
+   |                                ^^^^^^^^^^^^
+
+warning: unused import: `self`
+  --> src\ipc.rs:28:16
+   |
+28 |         keys::{self, OPTION_ALLOW_WEBSOCKET},
+   |                ^^^^
+
+warning: unused import: `option2bool`
+  --> src\ui_cm_interface.rs:29:23
+   |
+29 |     config::{keys::*, option2bool},
+   |                       ^^^^^^^^^^^
+
+warning: use of deprecated function `hbb_common::base64::encode`: Use Engine::encode
+   --> src\hbbs_http\sync.rs:187:52
+    |
+187 |                         hash = hbb_common::base64::encode(&res[..]);
+    |                                                    ^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: variable does not need to be mutable
+   --> src\server\terminal_helper.rs:817:9
+    |
+817 |     let mut input_pipe = open_pipe(input_pipe_name, true)?;
+    |         ----^^^^^^^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> src\server\terminal_helper.rs:818:9
+    |
+818 |     let mut output_pipe = open_pipe(output_pipe_name, false)?;
+    |         ----^^^^^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: unused variable: `c`
+   --> src\server\video_service.rs:391:44
+    |
+391 | fn recover_windows_server_headless_capture(c: &CapturerInfo, reason: &str) -> bool {
+    |                                            ^ help: if this is intentional, prefix it with an underscore: `_c`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `local_addr`
+   --> src\server.rs:203:5
+    |
+203 |     local_addr: SocketAddr,
+    |     ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_local_addr`
+
+warning: value assigned to `mapped_at` is never read
+    --> src\rendezvous_mediator.rs:1061:25
+     |
+1061 |                         mapped_at = None;
+     |                         ^^^^^^^^^^^^^^^^ this value is reassigned later and never used
+...
+1064 |                         mapped_at = Some(Instant::now());
+     |                         -------------------------------- `mapped_at` is overwritten here before the previous value is read
+     |
+     = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+  --> src\tray.rs:64:9
+   |
+64 |     let mut event_loop = {
+   |         ----^^^^^^^^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: unused variable: `file_entries`
+   --> src\ui_cm_interface.rs:987:17
+    |
+987 |             let file_entries: Vec<FileEntry> = files
+    |                 ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_file_entries`
+
+warning: variable does not need to be mutable
+   --> src\ui_session_interface.rs:859:13
+    |
+859 |         let mut broadcast = ChatBroadcast {
+    |             ----^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: function `set_safe_load_dll` is never used
+    --> src\platform\windows.rs:2075:4
+     |
+2075 | fn set_safe_load_dll() -> bool {
+     |    ^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `set_default_dll_directories` is never used
+    --> src\platform\windows.rs:2092:11
+     |
+2092 | unsafe fn set_default_dll_directories() -> bool {
+     |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `MOUSE_MOVE_PROTECTION_TIMEOUT` is never used
+   --> src\server\input_service.rs:487:7
+    |
+487 | const MOUSE_MOVE_PROTECTION_TIMEOUT: Duration = Duration::from_millis(1_000);
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `MOUSE_ACTIVE_DISTANCE` is never used
+   --> src\server\input_service.rs:489:7
+    |
+489 | const MOUSE_ACTIVE_DISTANCE: i32 = 5;
+    |       ^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `viewer_session_key` is never used
+    --> src\server\connection.rs:5952:8
+     |
+5951 | impl Connection {
+     | --------------- method in this implementation
+5952 |     fn viewer_session_key(&self) -> Option<SessionKey> {
+     |        ^^^^^^^^^^^^^^^^^^
+
+warning: function `direct_chat_policy_for_peer` is never used
+ --> src\server\direct_chat_policy.rs:3:15
+  |
+3 | pub(crate) fn direct_chat_policy_for_peer(
+  |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: field `display_name` is never read
+   --> src\server\video_service.rs:368:9
+    |
+364 | pub(super) struct CapturerInfo {
+    |                   ------------ field in this struct
+...
+368 |     pub display_name: String,
+    |         ^^^^^^^^^^^^
+
+warning: function `is_public_ipv4` is never used
+  --> src\direct_access.rs:76:15
+   |
+76 | pub(crate) fn is_public_ipv4(address: Ipv4Addr) -> bool {
+   |               ^^^^^^^^^^^^^^
+
+warning: function `load_icon_from_asset` is never used
+   --> src\tray.rs:355:4
+    |
+355 | fn load_icon_from_asset() -> Option<image::DynamicImage> {
+    |    ^^^^^^^^^^^^^^^^^^^^
+
+warning: type alias `Children` is never used
+  --> src\ui_interface.rs:35:10
+   |
+35 | pub type Children = Arc<Mutex<(bool, HashMap<(String, String), Child>)>>;
+   |          ^^^^^^^^
+
+warning: `luoda` (lib) generated 28 warnings (run `cargo fix --lib -p luoda` to apply 16 suggestions)
+warning: unused imports: `config` and `log`
+ --> src\service.rs:1:18
+  |
+1 | use hbb_common::{config, log};
+  |                  ^^^^^^  ^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `luoda::*`
+ --> src\service.rs:2:5
+  |
+2 | use luoda::*;
+  |     ^^^^^^^^
+
+warning: `luoda` (bin "service") generated 2 warnings (run `cargo fix --bin "service" -p luoda` to apply 2 suggestions)
+    Finished `release` profile [optimized] target(s) in 4m 17s

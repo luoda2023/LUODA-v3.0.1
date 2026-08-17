@@ -1,0 +1,2066 @@
+   Compiling bindgen v0.71.1
+   Compiling bindgen v0.59.2
+   Compiling libsodium-sys v0.2.7
+warning: constant `PASSWORD_CACHE_FILE` is never used
+ --> libs\hbb_common\src\password_security.rs:6:7
+  |
+6 | const PASSWORD_CACHE_FILE: &str = ".temporary_password_cache";
+  |       ^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(dead_code)]` on by default
+
+warning: `hbb_common` (lib) generated 1 warning
+   Compiling sodiumoxide v0.2.7
+   Compiling machine-uid v0.3.0 (https://github.com/luoda2023/machine-uid#381ff579)
+   Compiling scrap v0.5.0 (J:\codex-work\LUODA-v3.0.1\libs\scrap)
+   Compiling kcp-sys v0.1.0 (https://github.com/luoda2023/kcp-sys#32a6c09f)
+   Compiling hbb_common v0.1.0 (J:\codex-work\LUODA-v3.0.1\libs\hbb_common)
+warning: unused variable: `java_vm`
+   --> libs\scrap\src\android\ffi.rs:237:13
+    |
+237 |         let java_vm = jvm.get_java_vm_pointer() as *mut c_void;
+    |             ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_java_vm`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `env`
+   --> libs\scrap\src\android\ffi.rs:537:15
+    |
+537 |     if let Ok(env) = vm.get_env() {
+    |               ^^^ help: if this is intentional, prefix it with an underscore: `_env`
+
+warning: unused variable: `java_vm`
+   --> libs\scrap\src\android\ffi.rs:556:17
+    |
+556 |             let java_vm = jvm.get_java_vm_pointer() as *mut c_void;
+    |                 ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_java_vm`
+
+warning: unused variable: `ret`
+   --> libs\scrap\src\common\codec.rs:812:17
+    |
+812 |         let mut ret = false;
+    |                 ^^^ help: if this is intentional, prefix it with an underscore: `_ret`
+
+warning: variable does not need to be mutable
+   --> libs\scrap\src\common\codec.rs:812:13
+    |
+812 |         let mut ret = false;
+    |             ----^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` on by default
+
+warning: unused variable: `dst_stride`
+  --> libs\scrap\src\common\mediacodec.rs:53:13
+   |
+53 |         let dst_stride = rgb.w * 4;
+   |             ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_dst_stride`
+
+warning: field `name` is never read
+  --> libs\scrap\src\common\mediacodec.rs:26:5
+   |
+24 | pub struct MediaCodecDecoder {
+   |            ----------------- field in this struct
+25 |     decoder: MediaCodec,
+26 |     name: String,
+   |     ^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+   Compiling luoda v3.1.1 (J:\codex-work\LUODA-v3.0.1)
+warning: `scrap` (lib) generated 7 warnings (run `cargo fix --lib -p scrap` to apply 1 suggestion)
+warning: unused import: `HashSet`
+  --> src\server\viewer_registry.rs:20:28
+   |
+20 |     collections::{HashMap, HashSet},
+   |                            ^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `hbb_common::config::Config`
+  --> src\server\viewer_registry.rs:25:5
+   |
+25 | use hbb_common::config::Config;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `ChatChannel`
+  --> src\server\viewer_fanout.rs:23:36
+   |
+23 |     message_proto::{ChatBroadcast, ChatChannel, Message, ViewerListUpdate},
+   |                                    ^^^^^^^^^^^
+
+warning: unused import: `Channels`
+  --> src\server\audio_service.rs:21:48
+   |
+21 | use crate::android_opus_stub::{Application::*, Channels, Channels::*, Encoder};
+   |                                                ^^^^^^^^
+
+warning: unused imports: `keys` and `option2bool`
+  --> src\server\clipboard_service.rs:19:26
+   |
+19 | use hbb_common::config::{keys, option2bool};
+   |                          ^^^^  ^^^^^^^^^^^
+
+warning: unused imports: `RecvTimeoutError`, `channel`, and `io`
+  --> src\server\clipboard_service.rs:23:5
+   |
+23 |     io,
+   |     ^^
+24 |     sync::mpsc::{channel, RecvTimeoutError},
+   |                  ^^^^^^^  ^^^^^^^^^^^^^^^^
+
+warning: unused import: `viewer_direct_channel`
+ --> src\server\connection.rs:7:5
+  |
+7 |     viewer_direct_channel, viewer_registry,
+  |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `InviteToken`
+  --> src\server\connection.rs:10:33
+   |
+10 |     ChatBroadcast, ChatChannel, InviteToken, JoinAsViewer, KickViewer, PromoteViewer,
+   |                                 ^^^^^^^^^^^
+
+warning: unused import: `RecvTimeoutError`
+  --> src\client.rs:27:22
+   |
+27 |         mpsc::{self, RecvTimeoutError},
+   |                      ^^^^^^^^^^^^^^^^
+
+warning: unused import: `message_proto::*`
+ --> src\client\screenshot.rs:3:18
+  |
+3 | use hbb_common::{message_proto::*, ResultType};
+  |                  ^^^^^^^^^^^^^^^^
+
+warning: unused import: `REG_INTERVAL`
+  --> src\rendezvous_mediator.rs:17:9
+   |
+17 |         REG_INTERVAL, RENDEZVOUS_PORT,
+   |         ^^^^^^^^^^^^
+
+warning: unused import: `is_installed`
+  --> src\common.rs:42:32
+   |
+42 |     ui_interface::{get_option, is_installed, set_option},
+   |                                ^^^^^^^^^^^^
+
+warning: unused import: `self`
+  --> src\ipc.rs:28:16
+   |
+28 |         keys::{self, OPTION_ALLOW_WEBSOCKET},
+   |                ^^^^
+
+warning: unused imports: `Duration` and `path::PathBuf`
+  --> src\flutter_ffi.rs:26:5
+   |
+26 |     path::PathBuf,
+   |     ^^^^^^^^^^^^^
+...
+31 |     time::{Duration, SystemTime},
+   |            ^^^^^^^^
+
+warning: unused imports: `Error as JniError`, `JObject`, and `Result as JniResult`
+    --> src\flutter_ffi.rs:3349:18
+     |
+3349 |         errors::{Error as JniError, Result as JniResult},
+     |                  ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^
+3350 |         objects::{JClass, JObject, JString},
+     |                           ^^^^^^^
+
+warning: unused imports: `ResultType`, `bail`, and `log`
+ --> src\clipboard.rs:3:18
+  |
+3 | use hbb_common::{bail, log, message_proto::*, ResultType};
+  |                  ^^^^  ^^^                    ^^^^^^^^^^
+
+warning: unused imports: `Arc`, `Mutex`, and `time::Duration`
+ --> src\clipboard.rs:5:12
+  |
+5 |     sync::{Arc, Mutex},
+  |            ^^^  ^^^^^
+6 |     time::Duration,
+  |     ^^^^^^^^^^^^^^
+
+warning: unused import: `decompress`
+   --> src\clipboard.rs:540:47
+    |
+540 |         compress::{compress as compress_func, decompress},
+    |                                               ^^^^^^^^^^
+
+warning: use of deprecated function `hbb_common::base64::encode`: Use Engine::encode
+   --> src\hbbs_http\sync.rs:187:52
+    |
+187 |                         hash = hbb_common::base64::encode(&res[..]);
+    |                                                    ^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: unused variable: `local_addr`
+   --> src\server.rs:203:5
+    |
+203 |     local_addr: SocketAddr,
+    |     ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_local_addr`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `control_permissions`
+   --> src\server\connection.rs:504:9
+    |
+504 |         control_permissions: Option<ControlPermissions>,
+    |         ^^^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_control_permissions`
+
+warning: unused variable: `pos`
+    --> src\server\connection.rs:1034:61
+     |
+1034 |                         Some(message::Union::CursorPosition(pos)) => {
+     |                                                             ^^^ help: if this is intentional, prefix it with an underscore: `_pos`
+
+warning: unused variable: `terminal`
+    --> src\server\connection.rs:1787:17
+     |
+1787 |         let mut terminal = cfg!(not(any(target_os = "android", target_os = "ios")));
+     |                 ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_terminal`
+
+warning: unused variable: `action`
+    --> src\server\connection.rs:3870:53
+     |
+3870 |                 Some(message::Union::TerminalAction(action)) => {
+     |                                                     ^^^^^^ help: if this is intentional, prefix it with an underscore: `_action`
+
+warning: value assigned to `old_latency` is never read
+   --> src\rendezvous_mediator.rs:387:33
+    |
+387 | ...                   old_latency = 0;
+    |                       ^^^^^^^^^^^
+    |
+    = help: maybe it is overwritten before being read?
+    = note: `#[warn(unused_assignments)]` on by default
+
+warning: value assigned to `socket` is never read
+   --> src\rendezvous_mediator.rs:396:41
+    |
+396 | ...                   socket = s;
+    |                       ^^^^^^
+    |
+    = help: maybe it is overwritten before being read?
+
+warning: value assigned to `addr` is never read
+   --> src\rendezvous_mediator.rs:398:41
+    |
+398 | ...                   addr = new_addr;
+    |                       ^^^^
+    |
+    = help: maybe it is overwritten before being read?
+
+warning: value assigned to `last_dns_check` is never read
+   --> src\rendezvous_mediator.rs:400:37
+    |
+400 | ...                   last_dns_check = Instant::now();
+    |                       ^^^^^^^^^^^^^^
+    |
+    = help: maybe it is overwritten before being read?
+
+warning: unused variable: `file_entries`
+   --> src\ui_cm_interface.rs:987:17
+    |
+987 |             let file_entries: Vec<FileEntry> = files
+    |                 ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_file_entries`
+
+warning: unused variable: `data`
+  --> src\android_opus_stub.rs:75:34
+   |
+75 |         pub fn decode(&mut self, data: &[u8], output: &mut [i16], _decode_fec: bool) -> Result<usize> {
+   |                                  ^^^^ help: if this is intentional, prefix it with an underscore: `_data`
+
+warning: unused variable: `input`
+   --> src\android_opus_stub.rs:102:34
+    |
+102 |         pub fn encode(&mut self, input: &[i16], output: &mut [u8]) -> Result<usize> {
+    |                                  ^^^^^ help: if this is intentional, prefix it with an underscore: `_input`
+
+warning: value assigned to `buf` is never read
+  --> src\server\audio_service.rs:91:17
+   |
+91 |         let mut buf = vec![];
+   |                 ^^^
+   |
+   = help: maybe it is overwritten before being read?
+
+warning: unused variable: `info`
+    --> src\client.rs:1937:35
+     |
+1937 |             move |data: &mut [T], info: &cpal::OutputCallbackInfo| {
+     |                                   ^^^^ help: if this is intentional, prefix it with an underscore: `_info`
+
+warning: variable does not need to be mutable
+    --> src\client.rs:1944:21
+     |
+1944 |                 let mut having = lock.occupied_len();
+     |                     ----^^^^^^
+     |                     |
+     |                     help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` on by default
+
+warning: unused variable: `session_id`
+    --> src\flutter_ffi.rs:1489:30
+     |
+1489 | pub fn main_set_input_source(session_id: SessionID, value: String) {
+     |                              ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_session_id`
+
+warning: unused variable: `value`
+    --> src\flutter_ffi.rs:1489:53
+     |
+1489 | pub fn main_set_input_source(session_id: SessionID, value: String) {
+     |                                                     ^^^^^ help: if this is intentional, prefix it with an underscore: `_value`
+
+warning: unused variable: `env`
+    --> src\flutter_ffi.rs:3449:9
+     |
+3449 |         env: JNIEnv,
+     |         ^^^ help: if this is intentional, prefix it with an underscore: `_env`
+
+warning: unused variable: `pin`
+    --> src\ui_interface.rs:1642:23
+     |
+1642 | pub fn set_unlock_pin(pin: String) -> String {
+     |                       ^^^ help: if this is intentional, prefix it with an underscore: `_pin`
+
+warning: variable does not need to be mutable
+   --> src\ui_session_interface.rs:861:13
+    |
+861 |         let mut broadcast = ChatBroadcast {
+    |             ----^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src\privacy_mode.rs:140:13
+    |
+140 |         let mut map: HashMap<&'static str, PrivacyModeCreator> = HashMap::new();
+    |             ----^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variants `Voip` and `Audio` are never constructed
+  --> src\android_opus_stub.rs:16:9
+   |
+15 |     pub enum Application {
+   |              ----------- variants in this enum
+16 |         Voip,
+   |         ^^^^
+17 |         Audio,
+   |         ^^^^^
+   |
+   = note: `Application` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` on by default
+
+warning: fields `channels` and `sample_rate` are never read
+  --> src\android_opus_stub.rs:22:9
+   |
+21 |     pub struct Decoder {
+   |                ------- fields in this struct
+22 |         channels: Channels,
+   |         ^^^^^^^^
+23 |         sample_rate: u32,
+   |         ^^^^^^^^^^^
+
+warning: fields `channels`, `sample_rate`, and `application` are never read
+  --> src\android_opus_stub.rs:27:9
+   |
+26 |     pub struct Encoder {
+   |                ------- fields in this struct
+27 |         channels: Channels,
+   |         ^^^^^^^^
+28 |         sample_rate: u32,
+   |         ^^^^^^^^^^^
+29 |         application: Application,
+   |         ^^^^^^^^^^^
+
+warning: multiple variants are never constructed
+  --> src\android_opus_stub.rs:34:9
+   |
+33 |     pub enum Error {
+   |              ----- variants in this enum
+34 |         InvalidArgument,
+   |         ^^^^^^^^^^^^^^^
+35 |         InvalidState,
+   |         ^^^^^^^^^^^^
+36 |         InternalError,
+   |         ^^^^^^^^^^^^^
+37 |         Unimplemented,
+38 |         InvalidPacket,
+   |         ^^^^^^^^^^^^^
+39 |         AllocFail,
+   |         ^^^^^^^^^
+40 |         BadArg,
+   |         ^^^^^^
+41 |         BufferTooSmall,
+   |         ^^^^^^^^^^^^^^
+42 |         InvalidSampleRate,
+   |         ^^^^^^^^^^^^^^^^^
+43 |         InvalidChannels,
+   |         ^^^^^^^^^^^^^^^
+   |
+   = note: `Error` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: method `decode` is never used
+  --> src\android_opus_stub.rs:75:16
+   |
+67 |     impl Decoder {
+   |     ------------ method in this implementation
+...
+75 |         pub fn decode(&mut self, data: &[u8], output: &mut [i16], _decode_fec: bool) -> Result<usize> {
+   |                ^^^^^^
+
+warning: methods `encode`, `encode_float`, `set_bitrate`, `set_complexity`, and `set_signal` are never used
+   --> src\android_opus_stub.rs:102:16
+    |
+93  |     impl Encoder {
+    |     ------------ methods in this implementation
+...
+102 |         pub fn encode(&mut self, input: &[i16], output: &mut [u8]) -> Result<usize> {
+    |                ^^^^^^
+...
+113 |         pub fn encode_float(&mut self, _input: &[f32], _output: &mut [u8]) -> Result<usize> {
+    |                ^^^^^^^^^^^^
+...
+127 |         pub fn set_bitrate(&mut self, _bitrate: i32) -> Result<()> {
+    |                ^^^^^^^^^^^
+...
+131 |         pub fn set_complexity(&mut self, _complexity: i32) -> Result<()> {
+    |                ^^^^^^^^^^^^^^
+...
+135 |         pub fn set_signal(&mut self, _signal: i32) -> Result<()> {
+    |                ^^^^^^^^^^
+
+warning: function `start_grab_loop` is never used
+   --> src\keyboard.rs:423:4
+    |
+423 | fn start_grab_loop() {
+    |    ^^^^^^^^^^^^^^^
+
+warning: function `try_fill_unicode` is never used
+    --> src\keyboard.rs:1126:4
+     |
+1126 | fn try_fill_unicode(_peer: &str, event: &Event, key_event: &KeyEvent, events: &mut Vec<KeyEvent>) {
+     |    ^^^^^^^^^^^^^^^^
+
+warning: function `start_grab_loop` is never used
+  --> src\keyboard.rs:89:12
+   |
+89 |     pub fn start_grab_loop() {
+   |            ^^^^^^^^^^^^^^^
+
+warning: field `0` is never read
+  --> src\platform\mod.rs:95:21
+   |
+95 | pub struct WakeLock(Option<android_wakelock::WakeLock>);
+   |            -------- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |            |
+   |            field in this struct
+   |
+   = help: consider removing this field
+
+warning: function `get_audio_input` is never used
+  --> src\server\audio_service.rs:65:4
+   |
+65 | fn get_audio_input() -> String {
+   |    ^^^^^^^^^^^^^^^
+
+warning: struct `InputMouse` is never constructed
+   --> src\server\connection.rs:217:8
+    |
+217 | struct InputMouse {
+    |        ^^^^^^^^^^
+
+warning: field `follow_remote_cursor` is never read
+   --> src\server\connection.rs:376:5
+    |
+293 | pub struct Connection {
+    |            ---------- field in this struct
+...
+376 |     follow_remote_cursor: bool,
+    |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: method `requires_remote_confirmation` is never used
+   --> src\server\connection.rs:461:8
+    |
+452 | impl PasswordValidation {
+    | ----------------------- method in this implementation
+...
+461 |     fn requires_remote_confirmation(self) -> bool {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `viewer_session_key` is never used
+    --> src\server\connection.rs:5974:8
+     |
+5973 | impl Connection {
+     | --------------- method in this implementation
+5974 |     fn viewer_session_key(&self) -> Option<SessionKey> {
+     |        ^^^^^^^^^^^^^^^^^^
+
+warning: function `direct_chat_policy_for_peer` is never used
+  --> src\server\direct_chat_policy.rs:11:15
+   |
+11 | pub(crate) fn direct_chat_policy_for_peer(
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `get_sync_displays` is never used
+   --> src\server\display_service.rs:323:15
+    |
+323 | pub(super) fn get_sync_displays() -> Vec<DisplayInfo> {
+    |               ^^^^^^^^^^^^^^^^^
+
+warning: field `display_name` is never read
+   --> src\server\video_service.rs:368:9
+    |
+364 | pub(super) struct CapturerInfo {
+    |                   ------------ field in this struct
+...
+368 |     pub display_name: String,
+    |         ^^^^^^^^^^^^
+
+warning: associated constant `CLIENT_CLIPBOARD_NAME` is never used
+   --> src\client.rs:476:11
+    |
+475 | impl Client {
+    | ----------- associated constant in this implementation
+476 |     const CLIENT_CLIPBOARD_NAME: &'static str = "client-clipboard";
+    |           ^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `is_public_ipv4` is never used
+  --> src\direct_access.rs:76:15
+   |
+76 | pub(crate) fn is_public_ipv4(address: Ipv4Addr) -> bool {
+   |               ^^^^^^^^^^^^^^
+
+warning: constant `MAX_REG_TIMEOUT` is never used
+   --> src\rendezvous_mediator.rs:310:15
+    |
+310 |         const MAX_REG_TIMEOUT: i64 = 30_000;
+    |               ^^^^^^^^^^^^^^^
+
+warning: variant `PixelBuffer` is never constructed
+   --> src\flutter.rs:214:5
+    |
+213 | enum RenderType {
+    |      ---------- variant in this enum
+214 |     PixelBuffer,
+    |     ^^^^^^^^^^^
+    |
+    = note: `RenderType` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: constant `LUODA_CLIPBOARD_OWNER_FORMAT` is never used
+  --> src\clipboard.rs:15:7
+   |
+15 | const LUODA_CLIPBOARD_OWNER_FORMAT: &'static str = "dyn.com.luoda.owner";
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `CLIPBOARD_FORMAT_EXCEL_XML_SPREADSHEET` is never used
+  --> src\clipboard.rs:18:7
+   |
+18 | const CLIPBOARD_FORMAT_EXCEL_XML_SPREADSHEET: &'static str = "XML Spreadsheet";
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: variants `Host` and `Client` are never constructed
+   --> src\clipboard.rs:504:5
+    |
+503 | pub enum ClipboardSide {
+    |          ------------- variants in this enum
+504 |     Host,
+    |     ^^^^
+505 |     Client,
+    |     ^^^^^^
+    |
+    = note: `ClipboardSide` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: methods `get_owner_data` and `is_owner` are never used
+   --> src\clipboard.rs:511:8
+    |
+508 | impl ClipboardSide {
+    | ------------------ methods in this implementation
+...
+511 |     fn get_owner_data(&self) -> Vec<u8> {
+    |        ^^^^^^^^^^^^^^
+...
+518 |     fn is_owner(&self, data: &[u8]) -> bool {
+    |        ^^^^^^^^
+
+warning: function `plain_to_proto` is never used
+   --> src\clipboard.rs:544:8
+    |
+544 |     fn plain_to_proto(s: String, format: ClipboardFormat) -> Clipboard {
+    |        ^^^^^^^^^^^^^^
+
+warning: function `special_to_proto` is never used
+   --> src\clipboard.rs:604:8
+    |
+604 |     fn special_to_proto(d: Vec<u8>, s: String) -> Clipboard {
+    |        ^^^^^^^^^^^^^^^^
+
+warning: function `get_custom_server_from_config_string` is never used
+  --> src\custom_server.rs:21:4
+   |
+21 | fn get_custom_server_from_config_string(s: &str) -> ResultType<CustomServer> {
+   |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `get_custom_server_from_string` is never used
+  --> src\custom_server.rs:39:8
+   |
+39 | pub fn get_custom_server_from_string(s: &str) -> ResultType<CustomServer> {
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: methods `change_theme`, `change_language`, `show_elevation`, and `file_transfer_log` are never used
+   --> src\ui_cm_interface.rs:192:8
+    |
+185 | pub trait InvokeUiCM: Send + Clone + 'static + Sized {
+    |           ---------- methods in this trait
+...
+192 |     fn change_theme(&self, dark: String);
+    |        ^^^^^^^^^^^^
+193 |
+194 |     fn change_language(&self);
+    |        ^^^^^^^^^^^^^^^
+195 |
+196 |     fn show_elevation(&self, show: bool);
+    |        ^^^^^^^^^^^^^^
+...
+200 |     fn file_transfer_log(&self, action: &str, log: &str);
+    |        ^^^^^^^^^^^^^^^^^
+
+warning: function `handle_read_jobs_tick` is never used
+    --> src\ui_cm_interface.rs:1385:10
+     |
+1385 | async fn handle_read_jobs_tick(
+     |          ^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `init_read_job_for_cm` is never used
+    --> src\ui_cm_interface.rs:1484:10
+     |
+1484 | async fn init_read_job_for_cm(
+     |          ^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `SessionPermissionConfig` is never constructed
+   --> src\ui_session_interface.rs:122:12
+    |
+122 | pub struct SessionPermissionConfig {
+    |            ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `SessionPermissionConfig` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: field `finished` is never read
+  --> src\hbbs_http\downloader.rs:45:5
+   |
+38 | struct Downloader {
+   |        ---------- field in this struct
+...
+45 |     finished: bool,
+   |     ^^^^^^^^
+
+warning: function `download_file` is never used
+  --> src\hbbs_http\downloader.rs:50:8
+   |
+50 | pub fn download_file(
+   |        ^^^^^^^^^^^^^
+
+warning: function `do_download` is never used
+   --> src\hbbs_http\downloader.rs:163:10
+    |
+163 | async fn do_download(
+    |          ^^^^^^^^^^^
+
+warning: function `create_http_client_async_with_url` is never used
+   --> src\hbbs_http\http_client.rs:232:14
+    |
+232 | pub async fn create_http_client_async_with_url(url: &str) -> AsyncClient {
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `create_http_client_async_with_url_` is never used
+   --> src\hbbs_http\http_client.rs:251:10
+    |
+251 | async fn create_http_client_async_with_url_(
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `luoda` (lib) generated 79 warnings (run `cargo fix --lib -p luoda` to apply 21 suggestions)
+    Finished `release` profile [optimized] target(s) in 2m 00s
+   Compiling bindgen v0.59.2
+   Compiling bindgen v0.71.1
+   Compiling libsodium-sys v0.2.7
+warning: constant `PASSWORD_CACHE_FILE` is never used
+ --> libs\hbb_common\src\password_security.rs:6:7
+  |
+6 | const PASSWORD_CACHE_FILE: &str = ".temporary_password_cache";
+  |       ^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(dead_code)]` on by default
+
+warning: `hbb_common` (lib) generated 1 warning
+   Compiling sodiumoxide v0.2.7
+   Compiling machine-uid v0.3.0 (https://github.com/luoda2023/machine-uid#381ff579)
+   Compiling kcp-sys v0.1.0 (https://github.com/luoda2023/kcp-sys#32a6c09f)
+   Compiling scrap v0.5.0 (J:\codex-work\LUODA-v3.0.1\libs\scrap)
+   Compiling hbb_common v0.1.0 (J:\codex-work\LUODA-v3.0.1\libs\hbb_common)
+warning: unused variable: `java_vm`
+   --> libs\scrap\src\android\ffi.rs:237:13
+    |
+237 |         let java_vm = jvm.get_java_vm_pointer() as *mut c_void;
+    |             ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_java_vm`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `env`
+   --> libs\scrap\src\android\ffi.rs:537:15
+    |
+537 |     if let Ok(env) = vm.get_env() {
+    |               ^^^ help: if this is intentional, prefix it with an underscore: `_env`
+
+warning: unused variable: `java_vm`
+   --> libs\scrap\src\android\ffi.rs:556:17
+    |
+556 |             let java_vm = jvm.get_java_vm_pointer() as *mut c_void;
+    |                 ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_java_vm`
+
+warning: unused variable: `ret`
+   --> libs\scrap\src\common\codec.rs:812:17
+    |
+812 |         let mut ret = false;
+    |                 ^^^ help: if this is intentional, prefix it with an underscore: `_ret`
+
+warning: variable does not need to be mutable
+   --> libs\scrap\src\common\codec.rs:812:13
+    |
+812 |         let mut ret = false;
+    |             ----^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` on by default
+
+warning: unused variable: `dst_stride`
+  --> libs\scrap\src\common\mediacodec.rs:53:13
+   |
+53 |         let dst_stride = rgb.w * 4;
+   |             ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_dst_stride`
+
+warning: field `name` is never read
+  --> libs\scrap\src\common\mediacodec.rs:26:5
+   |
+24 | pub struct MediaCodecDecoder {
+   |            ----------------- field in this struct
+25 |     decoder: MediaCodec,
+26 |     name: String,
+   |     ^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+   Compiling luoda v3.1.1 (J:\codex-work\LUODA-v3.0.1)
+warning: `scrap` (lib) generated 7 warnings (run `cargo fix --lib -p scrap` to apply 1 suggestion)
+warning: unused import: `HashSet`
+  --> src\server\viewer_registry.rs:20:28
+   |
+20 |     collections::{HashMap, HashSet},
+   |                            ^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `hbb_common::config::Config`
+  --> src\server\viewer_registry.rs:25:5
+   |
+25 | use hbb_common::config::Config;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `ChatChannel`
+  --> src\server\viewer_fanout.rs:23:36
+   |
+23 |     message_proto::{ChatBroadcast, ChatChannel, Message, ViewerListUpdate},
+   |                                    ^^^^^^^^^^^
+
+warning: unused import: `Channels`
+  --> src\server\audio_service.rs:21:48
+   |
+21 | use crate::android_opus_stub::{Application::*, Channels, Channels::*, Encoder};
+   |                                                ^^^^^^^^
+
+warning: unused imports: `keys` and `option2bool`
+  --> src\server\clipboard_service.rs:19:26
+   |
+19 | use hbb_common::config::{keys, option2bool};
+   |                          ^^^^  ^^^^^^^^^^^
+
+warning: unused imports: `RecvTimeoutError`, `channel`, and `io`
+  --> src\server\clipboard_service.rs:23:5
+   |
+23 |     io,
+   |     ^^
+24 |     sync::mpsc::{channel, RecvTimeoutError},
+   |                  ^^^^^^^  ^^^^^^^^^^^^^^^^
+
+warning: unused import: `viewer_direct_channel`
+ --> src\server\connection.rs:7:5
+  |
+7 |     viewer_direct_channel, viewer_registry,
+  |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `InviteToken`
+  --> src\server\connection.rs:10:33
+   |
+10 |     ChatBroadcast, ChatChannel, InviteToken, JoinAsViewer, KickViewer, PromoteViewer,
+   |                                 ^^^^^^^^^^^
+
+warning: unused import: `RecvTimeoutError`
+  --> src\client.rs:27:22
+   |
+27 |         mpsc::{self, RecvTimeoutError},
+   |                      ^^^^^^^^^^^^^^^^
+
+warning: unused import: `message_proto::*`
+ --> src\client\screenshot.rs:3:18
+  |
+3 | use hbb_common::{message_proto::*, ResultType};
+  |                  ^^^^^^^^^^^^^^^^
+
+warning: unused import: `REG_INTERVAL`
+  --> src\rendezvous_mediator.rs:17:9
+   |
+17 |         REG_INTERVAL, RENDEZVOUS_PORT,
+   |         ^^^^^^^^^^^^
+
+warning: unused import: `is_installed`
+  --> src\common.rs:42:32
+   |
+42 |     ui_interface::{get_option, is_installed, set_option},
+   |                                ^^^^^^^^^^^^
+
+warning: unused import: `self`
+  --> src\ipc.rs:28:16
+   |
+28 |         keys::{self, OPTION_ALLOW_WEBSOCKET},
+   |                ^^^^
+
+warning: unused imports: `Duration` and `path::PathBuf`
+  --> src\flutter_ffi.rs:26:5
+   |
+26 |     path::PathBuf,
+   |     ^^^^^^^^^^^^^
+...
+31 |     time::{Duration, SystemTime},
+   |            ^^^^^^^^
+
+warning: unused imports: `Error as JniError`, `JObject`, and `Result as JniResult`
+    --> src\flutter_ffi.rs:3349:18
+     |
+3349 |         errors::{Error as JniError, Result as JniResult},
+     |                  ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^
+3350 |         objects::{JClass, JObject, JString},
+     |                           ^^^^^^^
+
+warning: unused imports: `ResultType`, `bail`, and `log`
+ --> src\clipboard.rs:3:18
+  |
+3 | use hbb_common::{bail, log, message_proto::*, ResultType};
+  |                  ^^^^  ^^^                    ^^^^^^^^^^
+
+warning: unused imports: `Arc`, `Mutex`, and `time::Duration`
+ --> src\clipboard.rs:5:12
+  |
+5 |     sync::{Arc, Mutex},
+  |            ^^^  ^^^^^
+6 |     time::Duration,
+  |     ^^^^^^^^^^^^^^
+
+warning: unused import: `decompress`
+   --> src\clipboard.rs:540:47
+    |
+540 |         compress::{compress as compress_func, decompress},
+    |                                               ^^^^^^^^^^
+
+warning: use of deprecated function `hbb_common::base64::encode`: Use Engine::encode
+   --> src\hbbs_http\sync.rs:187:52
+    |
+187 |                         hash = hbb_common::base64::encode(&res[..]);
+    |                                                    ^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: unused variable: `local_addr`
+   --> src\server.rs:203:5
+    |
+203 |     local_addr: SocketAddr,
+    |     ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_local_addr`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `control_permissions`
+   --> src\server\connection.rs:504:9
+    |
+504 |         control_permissions: Option<ControlPermissions>,
+    |         ^^^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_control_permissions`
+
+warning: unused variable: `pos`
+    --> src\server\connection.rs:1034:61
+     |
+1034 |                         Some(message::Union::CursorPosition(pos)) => {
+     |                                                             ^^^ help: if this is intentional, prefix it with an underscore: `_pos`
+
+warning: unused variable: `terminal`
+    --> src\server\connection.rs:1787:17
+     |
+1787 |         let mut terminal = cfg!(not(any(target_os = "android", target_os = "ios")));
+     |                 ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_terminal`
+
+warning: unused variable: `action`
+    --> src\server\connection.rs:3870:53
+     |
+3870 |                 Some(message::Union::TerminalAction(action)) => {
+     |                                                     ^^^^^^ help: if this is intentional, prefix it with an underscore: `_action`
+
+warning: value assigned to `old_latency` is never read
+   --> src\rendezvous_mediator.rs:387:33
+    |
+387 | ...                   old_latency = 0;
+    |                       ^^^^^^^^^^^
+    |
+    = help: maybe it is overwritten before being read?
+    = note: `#[warn(unused_assignments)]` on by default
+
+warning: value assigned to `socket` is never read
+   --> src\rendezvous_mediator.rs:396:41
+    |
+396 | ...                   socket = s;
+    |                       ^^^^^^
+    |
+    = help: maybe it is overwritten before being read?
+
+warning: value assigned to `addr` is never read
+   --> src\rendezvous_mediator.rs:398:41
+    |
+398 | ...                   addr = new_addr;
+    |                       ^^^^
+    |
+    = help: maybe it is overwritten before being read?
+
+warning: value assigned to `last_dns_check` is never read
+   --> src\rendezvous_mediator.rs:400:37
+    |
+400 | ...                   last_dns_check = Instant::now();
+    |                       ^^^^^^^^^^^^^^
+    |
+    = help: maybe it is overwritten before being read?
+
+warning: unused variable: `file_entries`
+   --> src\ui_cm_interface.rs:987:17
+    |
+987 |             let file_entries: Vec<FileEntry> = files
+    |                 ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_file_entries`
+
+warning: unused variable: `data`
+  --> src\android_opus_stub.rs:75:34
+   |
+75 |         pub fn decode(&mut self, data: &[u8], output: &mut [i16], _decode_fec: bool) -> Result<usize> {
+   |                                  ^^^^ help: if this is intentional, prefix it with an underscore: `_data`
+
+warning: unused variable: `input`
+   --> src\android_opus_stub.rs:102:34
+    |
+102 |         pub fn encode(&mut self, input: &[i16], output: &mut [u8]) -> Result<usize> {
+    |                                  ^^^^^ help: if this is intentional, prefix it with an underscore: `_input`
+
+warning: value assigned to `buf` is never read
+  --> src\server\audio_service.rs:91:17
+   |
+91 |         let mut buf = vec![];
+   |                 ^^^
+   |
+   = help: maybe it is overwritten before being read?
+
+warning: unused variable: `info`
+    --> src\client.rs:1937:35
+     |
+1937 |             move |data: &mut [T], info: &cpal::OutputCallbackInfo| {
+     |                                   ^^^^ help: if this is intentional, prefix it with an underscore: `_info`
+
+warning: variable does not need to be mutable
+    --> src\client.rs:1944:21
+     |
+1944 |                 let mut having = lock.occupied_len();
+     |                     ----^^^^^^
+     |                     |
+     |                     help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` on by default
+
+warning: unused variable: `session_id`
+    --> src\flutter_ffi.rs:1489:30
+     |
+1489 | pub fn main_set_input_source(session_id: SessionID, value: String) {
+     |                              ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_session_id`
+
+warning: unused variable: `value`
+    --> src\flutter_ffi.rs:1489:53
+     |
+1489 | pub fn main_set_input_source(session_id: SessionID, value: String) {
+     |                                                     ^^^^^ help: if this is intentional, prefix it with an underscore: `_value`
+
+warning: unused variable: `env`
+    --> src\flutter_ffi.rs:3449:9
+     |
+3449 |         env: JNIEnv,
+     |         ^^^ help: if this is intentional, prefix it with an underscore: `_env`
+
+warning: unused variable: `pin`
+    --> src\ui_interface.rs:1642:23
+     |
+1642 | pub fn set_unlock_pin(pin: String) -> String {
+     |                       ^^^ help: if this is intentional, prefix it with an underscore: `_pin`
+
+warning: variable does not need to be mutable
+   --> src\ui_session_interface.rs:861:13
+    |
+861 |         let mut broadcast = ChatBroadcast {
+    |             ----^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src\privacy_mode.rs:140:13
+    |
+140 |         let mut map: HashMap<&'static str, PrivacyModeCreator> = HashMap::new();
+    |             ----^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variants `Voip` and `Audio` are never constructed
+  --> src\android_opus_stub.rs:16:9
+   |
+15 |     pub enum Application {
+   |              ----------- variants in this enum
+16 |         Voip,
+   |         ^^^^
+17 |         Audio,
+   |         ^^^^^
+   |
+   = note: `Application` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` on by default
+
+warning: fields `channels` and `sample_rate` are never read
+  --> src\android_opus_stub.rs:22:9
+   |
+21 |     pub struct Decoder {
+   |                ------- fields in this struct
+22 |         channels: Channels,
+   |         ^^^^^^^^
+23 |         sample_rate: u32,
+   |         ^^^^^^^^^^^
+
+warning: fields `channels`, `sample_rate`, and `application` are never read
+  --> src\android_opus_stub.rs:27:9
+   |
+26 |     pub struct Encoder {
+   |                ------- fields in this struct
+27 |         channels: Channels,
+   |         ^^^^^^^^
+28 |         sample_rate: u32,
+   |         ^^^^^^^^^^^
+29 |         application: Application,
+   |         ^^^^^^^^^^^
+
+warning: multiple variants are never constructed
+  --> src\android_opus_stub.rs:34:9
+   |
+33 |     pub enum Error {
+   |              ----- variants in this enum
+34 |         InvalidArgument,
+   |         ^^^^^^^^^^^^^^^
+35 |         InvalidState,
+   |         ^^^^^^^^^^^^
+36 |         InternalError,
+   |         ^^^^^^^^^^^^^
+37 |         Unimplemented,
+38 |         InvalidPacket,
+   |         ^^^^^^^^^^^^^
+39 |         AllocFail,
+   |         ^^^^^^^^^
+40 |         BadArg,
+   |         ^^^^^^
+41 |         BufferTooSmall,
+   |         ^^^^^^^^^^^^^^
+42 |         InvalidSampleRate,
+   |         ^^^^^^^^^^^^^^^^^
+43 |         InvalidChannels,
+   |         ^^^^^^^^^^^^^^^
+   |
+   = note: `Error` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: method `decode` is never used
+  --> src\android_opus_stub.rs:75:16
+   |
+67 |     impl Decoder {
+   |     ------------ method in this implementation
+...
+75 |         pub fn decode(&mut self, data: &[u8], output: &mut [i16], _decode_fec: bool) -> Result<usize> {
+   |                ^^^^^^
+
+warning: methods `encode`, `encode_float`, `set_bitrate`, `set_complexity`, and `set_signal` are never used
+   --> src\android_opus_stub.rs:102:16
+    |
+93  |     impl Encoder {
+    |     ------------ methods in this implementation
+...
+102 |         pub fn encode(&mut self, input: &[i16], output: &mut [u8]) -> Result<usize> {
+    |                ^^^^^^
+...
+113 |         pub fn encode_float(&mut self, _input: &[f32], _output: &mut [u8]) -> Result<usize> {
+    |                ^^^^^^^^^^^^
+...
+127 |         pub fn set_bitrate(&mut self, _bitrate: i32) -> Result<()> {
+    |                ^^^^^^^^^^^
+...
+131 |         pub fn set_complexity(&mut self, _complexity: i32) -> Result<()> {
+    |                ^^^^^^^^^^^^^^
+...
+135 |         pub fn set_signal(&mut self, _signal: i32) -> Result<()> {
+    |                ^^^^^^^^^^
+
+warning: function `start_grab_loop` is never used
+   --> src\keyboard.rs:423:4
+    |
+423 | fn start_grab_loop() {
+    |    ^^^^^^^^^^^^^^^
+
+warning: function `try_fill_unicode` is never used
+    --> src\keyboard.rs:1126:4
+     |
+1126 | fn try_fill_unicode(_peer: &str, event: &Event, key_event: &KeyEvent, events: &mut Vec<KeyEvent>) {
+     |    ^^^^^^^^^^^^^^^^
+
+warning: function `start_grab_loop` is never used
+  --> src\keyboard.rs:89:12
+   |
+89 |     pub fn start_grab_loop() {
+   |            ^^^^^^^^^^^^^^^
+
+warning: field `0` is never read
+  --> src\platform\mod.rs:95:21
+   |
+95 | pub struct WakeLock(Option<android_wakelock::WakeLock>);
+   |            -------- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |            |
+   |            field in this struct
+   |
+   = help: consider removing this field
+
+warning: function `get_audio_input` is never used
+  --> src\server\audio_service.rs:65:4
+   |
+65 | fn get_audio_input() -> String {
+   |    ^^^^^^^^^^^^^^^
+
+warning: struct `InputMouse` is never constructed
+   --> src\server\connection.rs:217:8
+    |
+217 | struct InputMouse {
+    |        ^^^^^^^^^^
+
+warning: field `follow_remote_cursor` is never read
+   --> src\server\connection.rs:376:5
+    |
+293 | pub struct Connection {
+    |            ---------- field in this struct
+...
+376 |     follow_remote_cursor: bool,
+    |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: method `requires_remote_confirmation` is never used
+   --> src\server\connection.rs:461:8
+    |
+452 | impl PasswordValidation {
+    | ----------------------- method in this implementation
+...
+461 |     fn requires_remote_confirmation(self) -> bool {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `viewer_session_key` is never used
+    --> src\server\connection.rs:5974:8
+     |
+5973 | impl Connection {
+     | --------------- method in this implementation
+5974 |     fn viewer_session_key(&self) -> Option<SessionKey> {
+     |        ^^^^^^^^^^^^^^^^^^
+
+warning: function `direct_chat_policy_for_peer` is never used
+  --> src\server\direct_chat_policy.rs:11:15
+   |
+11 | pub(crate) fn direct_chat_policy_for_peer(
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `get_sync_displays` is never used
+   --> src\server\display_service.rs:323:15
+    |
+323 | pub(super) fn get_sync_displays() -> Vec<DisplayInfo> {
+    |               ^^^^^^^^^^^^^^^^^
+
+warning: field `display_name` is never read
+   --> src\server\video_service.rs:368:9
+    |
+364 | pub(super) struct CapturerInfo {
+    |                   ------------ field in this struct
+...
+368 |     pub display_name: String,
+    |         ^^^^^^^^^^^^
+
+warning: associated constant `CLIENT_CLIPBOARD_NAME` is never used
+   --> src\client.rs:476:11
+    |
+475 | impl Client {
+    | ----------- associated constant in this implementation
+476 |     const CLIENT_CLIPBOARD_NAME: &'static str = "client-clipboard";
+    |           ^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `is_public_ipv4` is never used
+  --> src\direct_access.rs:76:15
+   |
+76 | pub(crate) fn is_public_ipv4(address: Ipv4Addr) -> bool {
+   |               ^^^^^^^^^^^^^^
+
+warning: constant `MAX_REG_TIMEOUT` is never used
+   --> src\rendezvous_mediator.rs:310:15
+    |
+310 |         const MAX_REG_TIMEOUT: i64 = 30_000;
+    |               ^^^^^^^^^^^^^^^
+
+warning: variant `PixelBuffer` is never constructed
+   --> src\flutter.rs:214:5
+    |
+213 | enum RenderType {
+    |      ---------- variant in this enum
+214 |     PixelBuffer,
+    |     ^^^^^^^^^^^
+    |
+    = note: `RenderType` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: constant `LUODA_CLIPBOARD_OWNER_FORMAT` is never used
+  --> src\clipboard.rs:15:7
+   |
+15 | const LUODA_CLIPBOARD_OWNER_FORMAT: &'static str = "dyn.com.luoda.owner";
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `CLIPBOARD_FORMAT_EXCEL_XML_SPREADSHEET` is never used
+  --> src\clipboard.rs:18:7
+   |
+18 | const CLIPBOARD_FORMAT_EXCEL_XML_SPREADSHEET: &'static str = "XML Spreadsheet";
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: variants `Host` and `Client` are never constructed
+   --> src\clipboard.rs:504:5
+    |
+503 | pub enum ClipboardSide {
+    |          ------------- variants in this enum
+504 |     Host,
+    |     ^^^^
+505 |     Client,
+    |     ^^^^^^
+    |
+    = note: `ClipboardSide` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: methods `get_owner_data` and `is_owner` are never used
+   --> src\clipboard.rs:511:8
+    |
+508 | impl ClipboardSide {
+    | ------------------ methods in this implementation
+...
+511 |     fn get_owner_data(&self) -> Vec<u8> {
+    |        ^^^^^^^^^^^^^^
+...
+518 |     fn is_owner(&self, data: &[u8]) -> bool {
+    |        ^^^^^^^^
+
+warning: function `plain_to_proto` is never used
+   --> src\clipboard.rs:544:8
+    |
+544 |     fn plain_to_proto(s: String, format: ClipboardFormat) -> Clipboard {
+    |        ^^^^^^^^^^^^^^
+
+warning: function `special_to_proto` is never used
+   --> src\clipboard.rs:604:8
+    |
+604 |     fn special_to_proto(d: Vec<u8>, s: String) -> Clipboard {
+    |        ^^^^^^^^^^^^^^^^
+
+warning: function `get_custom_server_from_config_string` is never used
+  --> src\custom_server.rs:21:4
+   |
+21 | fn get_custom_server_from_config_string(s: &str) -> ResultType<CustomServer> {
+   |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `get_custom_server_from_string` is never used
+  --> src\custom_server.rs:39:8
+   |
+39 | pub fn get_custom_server_from_string(s: &str) -> ResultType<CustomServer> {
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: methods `change_theme`, `change_language`, `show_elevation`, and `file_transfer_log` are never used
+   --> src\ui_cm_interface.rs:192:8
+    |
+185 | pub trait InvokeUiCM: Send + Clone + 'static + Sized {
+    |           ---------- methods in this trait
+...
+192 |     fn change_theme(&self, dark: String);
+    |        ^^^^^^^^^^^^
+193 |
+194 |     fn change_language(&self);
+    |        ^^^^^^^^^^^^^^^
+195 |
+196 |     fn show_elevation(&self, show: bool);
+    |        ^^^^^^^^^^^^^^
+...
+200 |     fn file_transfer_log(&self, action: &str, log: &str);
+    |        ^^^^^^^^^^^^^^^^^
+
+warning: function `handle_read_jobs_tick` is never used
+    --> src\ui_cm_interface.rs:1385:10
+     |
+1385 | async fn handle_read_jobs_tick(
+     |          ^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `init_read_job_for_cm` is never used
+    --> src\ui_cm_interface.rs:1484:10
+     |
+1484 | async fn init_read_job_for_cm(
+     |          ^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `SessionPermissionConfig` is never constructed
+   --> src\ui_session_interface.rs:122:12
+    |
+122 | pub struct SessionPermissionConfig {
+    |            ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `SessionPermissionConfig` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: field `finished` is never read
+  --> src\hbbs_http\downloader.rs:45:5
+   |
+38 | struct Downloader {
+   |        ---------- field in this struct
+...
+45 |     finished: bool,
+   |     ^^^^^^^^
+
+warning: function `download_file` is never used
+  --> src\hbbs_http\downloader.rs:50:8
+   |
+50 | pub fn download_file(
+   |        ^^^^^^^^^^^^^
+
+warning: function `do_download` is never used
+   --> src\hbbs_http\downloader.rs:163:10
+    |
+163 | async fn do_download(
+    |          ^^^^^^^^^^^
+
+warning: function `create_http_client_async_with_url` is never used
+   --> src\hbbs_http\http_client.rs:232:14
+    |
+232 | pub async fn create_http_client_async_with_url(url: &str) -> AsyncClient {
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `create_http_client_async_with_url_` is never used
+   --> src\hbbs_http\http_client.rs:251:10
+    |
+251 | async fn create_http_client_async_with_url_(
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `luoda` (lib) generated 79 warnings (run `cargo fix --lib -p luoda` to apply 21 suggestions)
+    Finished `release` profile [optimized] target(s) in 1m 54s
+   Compiling bindgen v0.71.1
+   Compiling bindgen v0.59.2
+   Compiling libsodium-sys v0.2.7
+warning: constant `PASSWORD_CACHE_FILE` is never used
+ --> libs\hbb_common\src\password_security.rs:6:7
+  |
+6 | const PASSWORD_CACHE_FILE: &str = ".temporary_password_cache";
+  |       ^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(dead_code)]` on by default
+
+warning: `hbb_common` (lib) generated 1 warning
+   Compiling sodiumoxide v0.2.7
+   Compiling machine-uid v0.3.0 (https://github.com/luoda2023/machine-uid#381ff579)
+   Compiling kcp-sys v0.1.0 (https://github.com/luoda2023/kcp-sys#32a6c09f)
+   Compiling scrap v0.5.0 (J:\codex-work\LUODA-v3.0.1\libs\scrap)
+   Compiling hbb_common v0.1.0 (J:\codex-work\LUODA-v3.0.1\libs\hbb_common)
+warning: unused variable: `java_vm`
+   --> libs\scrap\src\android\ffi.rs:237:13
+    |
+237 |         let java_vm = jvm.get_java_vm_pointer() as *mut c_void;
+    |             ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_java_vm`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `env`
+   --> libs\scrap\src\android\ffi.rs:537:15
+    |
+537 |     if let Ok(env) = vm.get_env() {
+    |               ^^^ help: if this is intentional, prefix it with an underscore: `_env`
+
+warning: unused variable: `java_vm`
+   --> libs\scrap\src\android\ffi.rs:556:17
+    |
+556 |             let java_vm = jvm.get_java_vm_pointer() as *mut c_void;
+    |                 ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_java_vm`
+
+warning: unused variable: `ret`
+   --> libs\scrap\src\common\codec.rs:812:17
+    |
+812 |         let mut ret = false;
+    |                 ^^^ help: if this is intentional, prefix it with an underscore: `_ret`
+
+warning: variable does not need to be mutable
+   --> libs\scrap\src\common\codec.rs:812:13
+    |
+812 |         let mut ret = false;
+    |             ----^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` on by default
+
+warning: unused variable: `dst_stride`
+  --> libs\scrap\src\common\mediacodec.rs:53:13
+   |
+53 |         let dst_stride = rgb.w * 4;
+   |             ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_dst_stride`
+
+warning: field `name` is never read
+  --> libs\scrap\src\common\mediacodec.rs:26:5
+   |
+24 | pub struct MediaCodecDecoder {
+   |            ----------------- field in this struct
+25 |     decoder: MediaCodec,
+26 |     name: String,
+   |     ^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+   Compiling luoda v3.1.1 (J:\codex-work\LUODA-v3.0.1)
+warning: `scrap` (lib) generated 7 warnings (run `cargo fix --lib -p scrap` to apply 1 suggestion)
+warning: unused import: `HashSet`
+  --> src\server\viewer_registry.rs:20:28
+   |
+20 |     collections::{HashMap, HashSet},
+   |                            ^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `hbb_common::config::Config`
+  --> src\server\viewer_registry.rs:25:5
+   |
+25 | use hbb_common::config::Config;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `ChatChannel`
+  --> src\server\viewer_fanout.rs:23:36
+   |
+23 |     message_proto::{ChatBroadcast, ChatChannel, Message, ViewerListUpdate},
+   |                                    ^^^^^^^^^^^
+
+warning: unused import: `Channels`
+  --> src\server\audio_service.rs:21:48
+   |
+21 | use crate::android_opus_stub::{Application::*, Channels, Channels::*, Encoder};
+   |                                                ^^^^^^^^
+
+warning: unused imports: `keys` and `option2bool`
+  --> src\server\clipboard_service.rs:19:26
+   |
+19 | use hbb_common::config::{keys, option2bool};
+   |                          ^^^^  ^^^^^^^^^^^
+
+warning: unused imports: `RecvTimeoutError`, `channel`, and `io`
+  --> src\server\clipboard_service.rs:23:5
+   |
+23 |     io,
+   |     ^^
+24 |     sync::mpsc::{channel, RecvTimeoutError},
+   |                  ^^^^^^^  ^^^^^^^^^^^^^^^^
+
+warning: unused import: `viewer_direct_channel`
+ --> src\server\connection.rs:7:5
+  |
+7 |     viewer_direct_channel, viewer_registry,
+  |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `InviteToken`
+  --> src\server\connection.rs:10:33
+   |
+10 |     ChatBroadcast, ChatChannel, InviteToken, JoinAsViewer, KickViewer, PromoteViewer,
+   |                                 ^^^^^^^^^^^
+
+warning: unused import: `RecvTimeoutError`
+  --> src\client.rs:27:22
+   |
+27 |         mpsc::{self, RecvTimeoutError},
+   |                      ^^^^^^^^^^^^^^^^
+
+warning: unused import: `message_proto::*`
+ --> src\client\screenshot.rs:3:18
+  |
+3 | use hbb_common::{message_proto::*, ResultType};
+  |                  ^^^^^^^^^^^^^^^^
+
+warning: unused import: `REG_INTERVAL`
+  --> src\rendezvous_mediator.rs:17:9
+   |
+17 |         REG_INTERVAL, RENDEZVOUS_PORT,
+   |         ^^^^^^^^^^^^
+
+warning: unused import: `is_installed`
+  --> src\common.rs:42:32
+   |
+42 |     ui_interface::{get_option, is_installed, set_option},
+   |                                ^^^^^^^^^^^^
+
+warning: unused import: `self`
+  --> src\ipc.rs:28:16
+   |
+28 |         keys::{self, OPTION_ALLOW_WEBSOCKET},
+   |                ^^^^
+
+warning: unused imports: `Duration` and `path::PathBuf`
+  --> src\flutter_ffi.rs:26:5
+   |
+26 |     path::PathBuf,
+   |     ^^^^^^^^^^^^^
+...
+31 |     time::{Duration, SystemTime},
+   |            ^^^^^^^^
+
+warning: unused imports: `Error as JniError`, `JObject`, and `Result as JniResult`
+    --> src\flutter_ffi.rs:3349:18
+     |
+3349 |         errors::{Error as JniError, Result as JniResult},
+     |                  ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^
+3350 |         objects::{JClass, JObject, JString},
+     |                           ^^^^^^^
+
+warning: unused imports: `ResultType`, `bail`, and `log`
+ --> src\clipboard.rs:3:18
+  |
+3 | use hbb_common::{bail, log, message_proto::*, ResultType};
+  |                  ^^^^  ^^^                    ^^^^^^^^^^
+
+warning: unused imports: `Arc`, `Mutex`, and `time::Duration`
+ --> src\clipboard.rs:5:12
+  |
+5 |     sync::{Arc, Mutex},
+  |            ^^^  ^^^^^
+6 |     time::Duration,
+  |     ^^^^^^^^^^^^^^
+
+warning: unused import: `decompress`
+   --> src\clipboard.rs:540:47
+    |
+540 |         compress::{compress as compress_func, decompress},
+    |                                               ^^^^^^^^^^
+
+warning: use of deprecated function `hbb_common::base64::encode`: Use Engine::encode
+   --> src\hbbs_http\sync.rs:187:52
+    |
+187 |                         hash = hbb_common::base64::encode(&res[..]);
+    |                                                    ^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: unused variable: `local_addr`
+   --> src\server.rs:203:5
+    |
+203 |     local_addr: SocketAddr,
+    |     ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_local_addr`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `control_permissions`
+   --> src\server\connection.rs:504:9
+    |
+504 |         control_permissions: Option<ControlPermissions>,
+    |         ^^^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_control_permissions`
+
+warning: unused variable: `pos`
+    --> src\server\connection.rs:1034:61
+     |
+1034 |                         Some(message::Union::CursorPosition(pos)) => {
+     |                                                             ^^^ help: if this is intentional, prefix it with an underscore: `_pos`
+
+warning: unused variable: `terminal`
+    --> src\server\connection.rs:1787:17
+     |
+1787 |         let mut terminal = cfg!(not(any(target_os = "android", target_os = "ios")));
+     |                 ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_terminal`
+
+warning: unused variable: `action`
+    --> src\server\connection.rs:3870:53
+     |
+3870 |                 Some(message::Union::TerminalAction(action)) => {
+     |                                                     ^^^^^^ help: if this is intentional, prefix it with an underscore: `_action`
+
+warning: value assigned to `old_latency` is never read
+   --> src\rendezvous_mediator.rs:387:33
+    |
+387 | ...                   old_latency = 0;
+    |                       ^^^^^^^^^^^
+    |
+    = help: maybe it is overwritten before being read?
+    = note: `#[warn(unused_assignments)]` on by default
+
+warning: value assigned to `socket` is never read
+   --> src\rendezvous_mediator.rs:396:41
+    |
+396 | ...                   socket = s;
+    |                       ^^^^^^
+    |
+    = help: maybe it is overwritten before being read?
+
+warning: value assigned to `addr` is never read
+   --> src\rendezvous_mediator.rs:398:41
+    |
+398 | ...                   addr = new_addr;
+    |                       ^^^^
+    |
+    = help: maybe it is overwritten before being read?
+
+warning: value assigned to `last_dns_check` is never read
+   --> src\rendezvous_mediator.rs:400:37
+    |
+400 | ...                   last_dns_check = Instant::now();
+    |                       ^^^^^^^^^^^^^^
+    |
+    = help: maybe it is overwritten before being read?
+
+warning: unused variable: `file_entries`
+   --> src\ui_cm_interface.rs:987:17
+    |
+987 |             let file_entries: Vec<FileEntry> = files
+    |                 ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_file_entries`
+
+warning: unused variable: `data`
+  --> src\android_opus_stub.rs:75:34
+   |
+75 |         pub fn decode(&mut self, data: &[u8], output: &mut [i16], _decode_fec: bool) -> Result<usize> {
+   |                                  ^^^^ help: if this is intentional, prefix it with an underscore: `_data`
+
+warning: unused variable: `input`
+   --> src\android_opus_stub.rs:102:34
+    |
+102 |         pub fn encode(&mut self, input: &[i16], output: &mut [u8]) -> Result<usize> {
+    |                                  ^^^^^ help: if this is intentional, prefix it with an underscore: `_input`
+
+warning: value assigned to `buf` is never read
+  --> src\server\audio_service.rs:91:17
+   |
+91 |         let mut buf = vec![];
+   |                 ^^^
+   |
+   = help: maybe it is overwritten before being read?
+
+warning: unused variable: `info`
+    --> src\client.rs:1937:35
+     |
+1937 |             move |data: &mut [T], info: &cpal::OutputCallbackInfo| {
+     |                                   ^^^^ help: if this is intentional, prefix it with an underscore: `_info`
+
+warning: variable does not need to be mutable
+    --> src\client.rs:1944:21
+     |
+1944 |                 let mut having = lock.occupied_len();
+     |                     ----^^^^^^
+     |                     |
+     |                     help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` on by default
+
+warning: unused variable: `session_id`
+    --> src\flutter_ffi.rs:1489:30
+     |
+1489 | pub fn main_set_input_source(session_id: SessionID, value: String) {
+     |                              ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_session_id`
+
+warning: unused variable: `value`
+    --> src\flutter_ffi.rs:1489:53
+     |
+1489 | pub fn main_set_input_source(session_id: SessionID, value: String) {
+     |                                                     ^^^^^ help: if this is intentional, prefix it with an underscore: `_value`
+
+warning: unused variable: `env`
+    --> src\flutter_ffi.rs:3449:9
+     |
+3449 |         env: JNIEnv,
+     |         ^^^ help: if this is intentional, prefix it with an underscore: `_env`
+
+warning: unused variable: `pin`
+    --> src\ui_interface.rs:1642:23
+     |
+1642 | pub fn set_unlock_pin(pin: String) -> String {
+     |                       ^^^ help: if this is intentional, prefix it with an underscore: `_pin`
+
+warning: variable does not need to be mutable
+   --> src\ui_session_interface.rs:861:13
+    |
+861 |         let mut broadcast = ChatBroadcast {
+    |             ----^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src\privacy_mode.rs:140:13
+    |
+140 |         let mut map: HashMap<&'static str, PrivacyModeCreator> = HashMap::new();
+    |             ----^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variants `Voip` and `Audio` are never constructed
+  --> src\android_opus_stub.rs:16:9
+   |
+15 |     pub enum Application {
+   |              ----------- variants in this enum
+16 |         Voip,
+   |         ^^^^
+17 |         Audio,
+   |         ^^^^^
+   |
+   = note: `Application` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` on by default
+
+warning: fields `channels` and `sample_rate` are never read
+  --> src\android_opus_stub.rs:22:9
+   |
+21 |     pub struct Decoder {
+   |                ------- fields in this struct
+22 |         channels: Channels,
+   |         ^^^^^^^^
+23 |         sample_rate: u32,
+   |         ^^^^^^^^^^^
+
+warning: fields `channels`, `sample_rate`, and `application` are never read
+  --> src\android_opus_stub.rs:27:9
+   |
+26 |     pub struct Encoder {
+   |                ------- fields in this struct
+27 |         channels: Channels,
+   |         ^^^^^^^^
+28 |         sample_rate: u32,
+   |         ^^^^^^^^^^^
+29 |         application: Application,
+   |         ^^^^^^^^^^^
+
+warning: multiple variants are never constructed
+  --> src\android_opus_stub.rs:34:9
+   |
+33 |     pub enum Error {
+   |              ----- variants in this enum
+34 |         InvalidArgument,
+   |         ^^^^^^^^^^^^^^^
+35 |         InvalidState,
+   |         ^^^^^^^^^^^^
+36 |         InternalError,
+   |         ^^^^^^^^^^^^^
+37 |         Unimplemented,
+38 |         InvalidPacket,
+   |         ^^^^^^^^^^^^^
+39 |         AllocFail,
+   |         ^^^^^^^^^
+40 |         BadArg,
+   |         ^^^^^^
+41 |         BufferTooSmall,
+   |         ^^^^^^^^^^^^^^
+42 |         InvalidSampleRate,
+   |         ^^^^^^^^^^^^^^^^^
+43 |         InvalidChannels,
+   |         ^^^^^^^^^^^^^^^
+   |
+   = note: `Error` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: method `decode` is never used
+  --> src\android_opus_stub.rs:75:16
+   |
+67 |     impl Decoder {
+   |     ------------ method in this implementation
+...
+75 |         pub fn decode(&mut self, data: &[u8], output: &mut [i16], _decode_fec: bool) -> Result<usize> {
+   |                ^^^^^^
+
+warning: methods `encode`, `encode_float`, `set_bitrate`, `set_complexity`, and `set_signal` are never used
+   --> src\android_opus_stub.rs:102:16
+    |
+93  |     impl Encoder {
+    |     ------------ methods in this implementation
+...
+102 |         pub fn encode(&mut self, input: &[i16], output: &mut [u8]) -> Result<usize> {
+    |                ^^^^^^
+...
+113 |         pub fn encode_float(&mut self, _input: &[f32], _output: &mut [u8]) -> Result<usize> {
+    |                ^^^^^^^^^^^^
+...
+127 |         pub fn set_bitrate(&mut self, _bitrate: i32) -> Result<()> {
+    |                ^^^^^^^^^^^
+...
+131 |         pub fn set_complexity(&mut self, _complexity: i32) -> Result<()> {
+    |                ^^^^^^^^^^^^^^
+...
+135 |         pub fn set_signal(&mut self, _signal: i32) -> Result<()> {
+    |                ^^^^^^^^^^
+
+warning: function `start_grab_loop` is never used
+   --> src\keyboard.rs:423:4
+    |
+423 | fn start_grab_loop() {
+    |    ^^^^^^^^^^^^^^^
+
+warning: function `try_fill_unicode` is never used
+    --> src\keyboard.rs:1126:4
+     |
+1126 | fn try_fill_unicode(_peer: &str, event: &Event, key_event: &KeyEvent, events: &mut Vec<KeyEvent>) {
+     |    ^^^^^^^^^^^^^^^^
+
+warning: function `start_grab_loop` is never used
+  --> src\keyboard.rs:89:12
+   |
+89 |     pub fn start_grab_loop() {
+   |            ^^^^^^^^^^^^^^^
+
+warning: field `0` is never read
+  --> src\platform\mod.rs:95:21
+   |
+95 | pub struct WakeLock(Option<android_wakelock::WakeLock>);
+   |            -------- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |            |
+   |            field in this struct
+   |
+   = help: consider removing this field
+
+warning: function `get_audio_input` is never used
+  --> src\server\audio_service.rs:65:4
+   |
+65 | fn get_audio_input() -> String {
+   |    ^^^^^^^^^^^^^^^
+
+warning: struct `InputMouse` is never constructed
+   --> src\server\connection.rs:217:8
+    |
+217 | struct InputMouse {
+    |        ^^^^^^^^^^
+
+warning: field `follow_remote_cursor` is never read
+   --> src\server\connection.rs:376:5
+    |
+293 | pub struct Connection {
+    |            ---------- field in this struct
+...
+376 |     follow_remote_cursor: bool,
+    |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: method `requires_remote_confirmation` is never used
+   --> src\server\connection.rs:461:8
+    |
+452 | impl PasswordValidation {
+    | ----------------------- method in this implementation
+...
+461 |     fn requires_remote_confirmation(self) -> bool {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `viewer_session_key` is never used
+    --> src\server\connection.rs:5974:8
+     |
+5973 | impl Connection {
+     | --------------- method in this implementation
+5974 |     fn viewer_session_key(&self) -> Option<SessionKey> {
+     |        ^^^^^^^^^^^^^^^^^^
+
+warning: function `direct_chat_policy_for_peer` is never used
+  --> src\server\direct_chat_policy.rs:11:15
+   |
+11 | pub(crate) fn direct_chat_policy_for_peer(
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `get_sync_displays` is never used
+   --> src\server\display_service.rs:323:15
+    |
+323 | pub(super) fn get_sync_displays() -> Vec<DisplayInfo> {
+    |               ^^^^^^^^^^^^^^^^^
+
+warning: field `display_name` is never read
+   --> src\server\video_service.rs:368:9
+    |
+364 | pub(super) struct CapturerInfo {
+    |                   ------------ field in this struct
+...
+368 |     pub display_name: String,
+    |         ^^^^^^^^^^^^
+
+warning: associated constant `CLIENT_CLIPBOARD_NAME` is never used
+   --> src\client.rs:476:11
+    |
+475 | impl Client {
+    | ----------- associated constant in this implementation
+476 |     const CLIENT_CLIPBOARD_NAME: &'static str = "client-clipboard";
+    |           ^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `is_public_ipv4` is never used
+  --> src\direct_access.rs:76:15
+   |
+76 | pub(crate) fn is_public_ipv4(address: Ipv4Addr) -> bool {
+   |               ^^^^^^^^^^^^^^
+
+warning: constant `MAX_REG_TIMEOUT` is never used
+   --> src\rendezvous_mediator.rs:310:15
+    |
+310 |         const MAX_REG_TIMEOUT: i64 = 30_000;
+    |               ^^^^^^^^^^^^^^^
+
+warning: variant `PixelBuffer` is never constructed
+   --> src\flutter.rs:214:5
+    |
+213 | enum RenderType {
+    |      ---------- variant in this enum
+214 |     PixelBuffer,
+    |     ^^^^^^^^^^^
+    |
+    = note: `RenderType` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: constant `LUODA_CLIPBOARD_OWNER_FORMAT` is never used
+  --> src\clipboard.rs:15:7
+   |
+15 | const LUODA_CLIPBOARD_OWNER_FORMAT: &'static str = "dyn.com.luoda.owner";
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `CLIPBOARD_FORMAT_EXCEL_XML_SPREADSHEET` is never used
+  --> src\clipboard.rs:18:7
+   |
+18 | const CLIPBOARD_FORMAT_EXCEL_XML_SPREADSHEET: &'static str = "XML Spreadsheet";
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: variants `Host` and `Client` are never constructed
+   --> src\clipboard.rs:504:5
+    |
+503 | pub enum ClipboardSide {
+    |          ------------- variants in this enum
+504 |     Host,
+    |     ^^^^
+505 |     Client,
+    |     ^^^^^^
+    |
+    = note: `ClipboardSide` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: methods `get_owner_data` and `is_owner` are never used
+   --> src\clipboard.rs:511:8
+    |
+508 | impl ClipboardSide {
+    | ------------------ methods in this implementation
+...
+511 |     fn get_owner_data(&self) -> Vec<u8> {
+    |        ^^^^^^^^^^^^^^
+...
+518 |     fn is_owner(&self, data: &[u8]) -> bool {
+    |        ^^^^^^^^
+
+warning: function `plain_to_proto` is never used
+   --> src\clipboard.rs:544:8
+    |
+544 |     fn plain_to_proto(s: String, format: ClipboardFormat) -> Clipboard {
+    |        ^^^^^^^^^^^^^^
+
+warning: function `special_to_proto` is never used
+   --> src\clipboard.rs:604:8
+    |
+604 |     fn special_to_proto(d: Vec<u8>, s: String) -> Clipboard {
+    |        ^^^^^^^^^^^^^^^^
+
+warning: function `get_custom_server_from_config_string` is never used
+  --> src\custom_server.rs:21:4
+   |
+21 | fn get_custom_server_from_config_string(s: &str) -> ResultType<CustomServer> {
+   |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `get_custom_server_from_string` is never used
+  --> src\custom_server.rs:39:8
+   |
+39 | pub fn get_custom_server_from_string(s: &str) -> ResultType<CustomServer> {
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: methods `change_theme`, `change_language`, `show_elevation`, and `file_transfer_log` are never used
+   --> src\ui_cm_interface.rs:192:8
+    |
+185 | pub trait InvokeUiCM: Send + Clone + 'static + Sized {
+    |           ---------- methods in this trait
+...
+192 |     fn change_theme(&self, dark: String);
+    |        ^^^^^^^^^^^^
+193 |
+194 |     fn change_language(&self);
+    |        ^^^^^^^^^^^^^^^
+195 |
+196 |     fn show_elevation(&self, show: bool);
+    |        ^^^^^^^^^^^^^^
+...
+200 |     fn file_transfer_log(&self, action: &str, log: &str);
+    |        ^^^^^^^^^^^^^^^^^
+
+warning: function `handle_read_jobs_tick` is never used
+    --> src\ui_cm_interface.rs:1385:10
+     |
+1385 | async fn handle_read_jobs_tick(
+     |          ^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `init_read_job_for_cm` is never used
+    --> src\ui_cm_interface.rs:1484:10
+     |
+1484 | async fn init_read_job_for_cm(
+     |          ^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `SessionPermissionConfig` is never constructed
+   --> src\ui_session_interface.rs:122:12
+    |
+122 | pub struct SessionPermissionConfig {
+    |            ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `SessionPermissionConfig` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: field `finished` is never read
+  --> src\hbbs_http\downloader.rs:45:5
+   |
+38 | struct Downloader {
+   |        ---------- field in this struct
+...
+45 |     finished: bool,
+   |     ^^^^^^^^
+
+warning: function `download_file` is never used
+  --> src\hbbs_http\downloader.rs:50:8
+   |
+50 | pub fn download_file(
+   |        ^^^^^^^^^^^^^
+
+warning: function `do_download` is never used
+   --> src\hbbs_http\downloader.rs:163:10
+    |
+163 | async fn do_download(
+    |          ^^^^^^^^^^^
+
+warning: function `create_http_client_async_with_url` is never used
+   --> src\hbbs_http\http_client.rs:232:14
+    |
+232 | pub async fn create_http_client_async_with_url(url: &str) -> AsyncClient {
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `create_http_client_async_with_url_` is never used
+   --> src\hbbs_http\http_client.rs:251:10
+    |
+251 | async fn create_http_client_async_with_url_(
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `luoda` (lib) generated 79 warnings (run `cargo fix --lib -p luoda` to apply 21 suggestions)
+    Finished `release` profile [optimized] target(s) in 1m 54s
+Warning: unable to detect project KGP version. Skipping version checking. 
+This may be because you have applied KGP after the Flutter Gradle Plugin.

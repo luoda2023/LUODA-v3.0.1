@@ -1,0 +1,145 @@
+﻿use std::{
+    net::SocketAddr,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, RwLock,
+    },
+    time::{Duration, Instant},
+};
+
+use uuid::Uuid;
+
+use hbb_common::{
+    allow_err,
+    anyhow::{self, bail},
+    config::{
+        self, keys::*, option2bool, use_ws, Config, CONNECT_TIMEOUT, DEFAULT_DIRECT_PORT,
+        REG_INTERVAL, RENDEZVOUS_PORT,
+    },
+    futures::future::join_all,
+    log,
+    protobuf::Message as _,
+    rand::Rng,
+    rendezvous_proto::*,
+    sleep,
+    socket_client::{self, connect_tcp, is_ipv4, new_direct_udp_for, new_udp_for},
+    tokio::{self, select, sync::Mutex, time::interval},
+    udp::FramedSocket,
+    AddrMangle, IntoTargetAddr, ResultType, Stream, TargetAddr,
+};
+
+// Shorter registration interval for reconnection recovery (5s vs 15s).
+const REG_INTERVAL_RECOVERY: i64 = 5_000;
+
+use crate::{
+    check_port,
+    server::{check_zombie, new as new_server, ServerPtr},
+};
+
+type Message = RendezvousMessage;
+
+/// Safe elapsed that never panics even if the monotonic clock jumps backwards
+/// (e.g. on VMs or after sleep/hibernate), where `Instant::elapsed()` would
+/// abort the whole process under `panic = "abort"`.
+fn elapsed_safe(t: Instant) -> Duration {
+    Instant::now().checked_duration_since(t).unwrap_or(Duration::ZERO)
+}
+
+lazy_static::lazy_static! {
+    static ref SOLVING_PK_MISMATCH: Mutex<String> = Default::default();
+    static ref LAST_MSG: Mutex<(SocketAddr, Instant)> = Mutex::new((SocketAddr::new([0; 4].into(), 0), Instant::now()));
+    static ref LAST_RELAY_MSG: Mutex<(SocketAddr, Instant)> = Mutex::new((SocketAddr::new([0; 4].into(), 0), Instant::now()));
+}
+static SHOULD_EXIT: AtomicBool = AtomicBool::new(false);
+static MANUAL_RESTARTED: AtomicBool = AtomicBool::new(false);
+static SENT_REGISTER_PK: AtomicBool = AtomicBool::new(false);
+
+fn normalize_transport_options() {
+    #[cfg(target_os = "windows")]
+    if crate::platform::windows::is_win_server() {
+        Config::set_option(OPTION_ALLOW_WEBSOCKET.to_owned(), "N".to_owned());
+        // Ensure direct IP access listener is always enabled on Windows Server
+        // so that remote peers can connect via IP:port without a rendezvous server.
+        if Config::get_option(OPTION_DIRECT_SERVER).is_empty() {
+            Config::set_option(OPTION_DIRECT_SERVER.to_owned(), "Y".to_owned());
+            log::info!("Windows Server: auto-enabled direct-server for IP access");
+        }
+        return;
+    }
+    // Enable the direct IP listener by default on ALL platforms so that
+    // LAN peers can establish chat and file-transfer connections without
+    // needing the rendezvous server to punch holes. Users who don't want
+    // this can set direct-server to "N" explicitly in the UI settings.
+    if Config::get_option(OPTION_DIRECT_SERVER).is_empty() {
+        Config::set_option(OPTION_DIRECT_SERVER.to_owned(), "Y".to_owned());
+        log::info!("Auto-enabled direct-server listener for LAN peer access");
+    }
+    if use_ws() && crate::is_udp_disabled() {
+        Config::set_option(OPTION_ALLOW_WEBSOCKET.to_owned(), "N".to_owned());
+        log::warn!("Disable UDP and WebSocket were both enabled; keeping raw TCP registration");
+    }
+}
+
+#[derive(Clone)]
+pub struct RendezvousMediator {
+    addr: TargetAddr<'static>,
+    host: String,
+    host_prefix: String,
+    keep_alive: i32,
+}
+
+impl RendezvousMediator {
+    pub fn restart() {
+        SHOULD_EXIT.store(true, Ordering::SeqCst);
+        MANUAL_RESTARTED.store(true, Ordering::SeqCst);
+        log::info!("server restart");
+    }
+
+    pub async fn start_all() {
+        log::info!("DIAG start_all: begin");
+        normalize_transport_options();
+        #[cfg(target_os = "windows")]
+        if std::env::var_os(crate::common::PORTABLE_APPNAME_RUNTIME_ENV_KEY).is_some() {
+            // Portable mode: only attempt headless virtual display when no
+            // physical displays are present (i.e. running on a headless VPS).
+            // On a normal desktop with a monitor, skip this to avoid screen flash.
+            let has_physical_display = scrap::Display::all()
+                .map(|d| !d.is_empty())
+                .unwrap_or(false);
+            if !has_physical_display {
+                for attempt in 1..=3 {
+                    match crate::server::display_service::prepare_windows_server_headless_display()
+                    {
+                        Ok(()) => {
+                            log::info!("portable VPS virtual display ready (attempt {attempt})");
+                            break;
+                        }
+                        Err(error) => {
+                            log::error!(
+                                "failed to prepare the portable VPS virtual display (attempt {attempt}/3): {error}"
+                            );
+                            if attempt < 3 {
+                                std::thread::sleep(std::time::Duration::from_secs(2));
+                            }
+                        }
+                    }
+                }
+            } else {
+                log::info!("portable mode: physical display detected, skipping virtual display creation");
+            }
+        }
+        if !crate::is_serverless_direct_only() {
+            crate::test_nat_type();
+        }
+        if config::is_outgoing_only() {
+            loop {
+                sleep(1.).await;
+            }
+        }
+        // LUODA builds also report presence to the API server (device registry),
+        // so peers that consult the server-side peer list see this device online.
+                    // 尝试 UPnP 自动端口映射，使外网能直接通过 公网IP:端口 访问本机。
+                    // 路由器需要支持并开启 UPnP（大部分家用路由器默认启用）。
+                    // 移动端（android/ios）没有 upnp 模块，跳过。
+                    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+
