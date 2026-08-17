@@ -394,15 +394,25 @@ jobs:
             # never creates a main window within the deadline, downgrade the
             # window assertion. The core checks (process survives, no duplicate
             # instance, no file overwrite) still run everywhere.
+            # The main instance proactively spawns a --cm child (inbound
+            # connection service) plus multi_window preview/remote children, all
+            # sharing the same luoda.exe path. Match only the main UI instance
+            # by filtering on the command line.
+            function Get-LuodaMain {
+              Get-CimInstance Win32_Process -Filter "Name = 'luoda.exe'" -ErrorAction SilentlyContinue |
+                Where-Object { -not ($_.CommandLine -and $_.CommandLine -match '(--cm|multi_window|--tray)') } |
+                ForEach-Object {
+                  $p = Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue
+                  if ($p -and $p.Path -and [IO.Path]::GetFullPath($p.Path) -ieq $runtimePath) { $p }
+                }
+            }
             $firstLauncher = Start-Process -FilePath $portable -PassThru
             $firstLauncher.WaitForExit(30000) | Out-Null
             $deadline = [DateTime]::UtcNow.AddSeconds(30)
             $sawMainWindow = $false
             do {
               Start-Sleep -Milliseconds 500
-              $runtime = Get-Process -Name luoda -ErrorAction SilentlyContinue |
-                Where-Object { $_.Path -and [IO.Path]::GetFullPath($_.Path) -ieq $runtimePath } |
-                Select-Object -First 1
+              $runtime = Get-LuodaMain | Select-Object -First 1
               if ($null -ne $runtime) {
                 $runtime.Refresh()
                 if ($runtime.MainWindowHandle -ne 0) {
@@ -437,10 +447,7 @@ jobs:
             if ($runtime.HasExited -or -not $runtime.Responding) {
               throw 'Portable LDesk stopped responding after relaunch'
             }
-            $matching = @(
-              Get-Process -Name luoda -ErrorAction SilentlyContinue |
-                Where-Object { $_.Path -and [IO.Path]::GetFullPath($_.Path) -ieq $runtimePath }
-            )
+            $matching = @(Get-LuodaMain)
             if (@($matching).Count -ne 1 -or $matching[0].Id -ne $firstPid) {
               throw 'Portable relaunch created a duplicate LDesk process'
             }
