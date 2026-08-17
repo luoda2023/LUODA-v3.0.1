@@ -464,6 +464,10 @@ class ChatModel with ChangeNotifier {
     unawaited(DotChatBackup.tryRestore());
     unawaited(DirectChatRepository.instance.deviceId.then((deviceId) {
       me.id = deviceId;
+      // Let the pairing store know our own account so it can refuse to
+      // resolve other devices into the self conversation (person-devices
+      // pollution guard).
+      DirectPairingStore.myId = deviceId;
       notifyListeners();
     }));
     _scheduleRecentConversationRestore();
@@ -2779,6 +2783,11 @@ class ChatModel with ChangeNotifier {
     required String senderName,
     required String srcPlatform,
   }) async {
+    // Never record other people's devices under OUR OWN account: a stale
+    // {me: [device]} mapping makes canonicalConversationIdValue resolve the
+    // device to the local profile, so the chat shows our own name as the
+    // partner and incoming messages vanish into the self conversation.
+    if (accountConversation == me.id) return;
     if (originDeviceId.isNotEmpty && originDeviceId != accountConversation) {
       await DirectPairingStore.rememberPersonDevice(
         accountConversation,

@@ -507,6 +507,24 @@ class DirectPairingStore {
   }
 
   static final ValueNotifier<int> revision = ValueNotifier<int>(0);
+
+  /// This device's own id (the "me" account). The person-devices map must
+  /// never resolve another device to our own account: a stale mapping like
+  /// {me: [otherDevice]} made every android/phone conversation show the local
+  /// profile as the chat partner and rerouted incoming messages into the
+  /// self conversation. Set once the local identity is known; null before
+  /// that (no filtering, matching legacy behavior).
+  static String? myId;
+
+  /// True when [accountId] is this device's own account. Devices recorded
+  /// under the local account are always a mistake (they are other people),
+  /// so both the writer and the resolver must guard against it.
+  static bool isSelfAccount(String accountId) {
+    final mine = myId;
+    if (mine == null || mine.isEmpty) return false;
+    return accountId.trim().replaceAll(' ', '') == mine.trim();
+  }
+
   static Map<String, DirectPairing>? _cache;
 
   static Map<String, DirectPairing> load() {
@@ -589,6 +607,11 @@ class DirectPairingStore {
     // that account so every device conversation of one person merges into a
     // single chat row and the message source stays readable.
     for (final entry in loadPersonDevices().entries) {
+      // Never resolve a device to our own account: {me: [device]} is stale
+      // polluted data (a phone/emulator wrongly recorded under the local
+      // account) and resolving it makes the chat show the local profile as
+      // the partner while messages land in the self conversation.
+      if (isSelfAccount(entry.key)) continue;
       if (entry.value.contains(input)) return entry.key;
     }
     return value.trim();
