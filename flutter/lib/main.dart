@@ -157,17 +157,30 @@ void _wireRelayBridge() {
 
 /// 把本机蓝牙名广播为 `LD:<昵称>:<ID>`，让安装了点聊的设备之间才能
 /// 互相被发现（扫描端只显示带 LD: 前缀的点聊设备）。
+///
+/// 启动早期本机 ID / 昵称可能还没就绪（服务器还没返回），所以带重试：
+/// 每 3 秒尝试一次，直到成功或到达上限。
 void _advertiseBluetoothIdentity() {
-  Future<void>.delayed(const Duration(seconds: 2), () async {
+  const int maxAttempts = 10;
+  Future<void> attempt(int round) async {
+    if (round > maxAttempts) return;
     try {
       final id = (await bind.mainGetMyId()).trim();
-      final nick = gFFI.userModel.displayNameOrUserName.trim();
-      if (nick.isEmpty || id.isEmpty) return;
-      await BluetoothService.instance.setAdvertisedName(nick, id);
+      var nick = gFFI.userModel.displayNameOrUserName.trim();
+      // 昵称还没就绪时用 ID 兜底，保证蓝牙广播名始终是 LD:<昵称>:<ID>。
+      if (nick.isEmpty) nick = id;
+      if (id.isNotEmpty) {
+        await BluetoothService.instance.setAdvertisedName(nick, id);
+        return;
+      }
     } catch (error) {
       debugPrint('advertise bluetooth identity failed: $error');
     }
-  });
+    // 身份或调用失败：稍后重试（启动早期 ID/昵称可能还没就绪）。
+    Future<void>.delayed(const Duration(seconds: 3), () => attempt(round + 1));
+  }
+
+  Future<void>.delayed(const Duration(seconds: 2), () => attempt(0));
 }
 
 Future<void> initEnv(String appType) async {

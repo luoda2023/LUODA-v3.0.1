@@ -90,7 +90,11 @@ object BluetoothService {
         this.activity = activity
 
         val channel = MethodChannel(engine.dartExecutor.binaryMessenger, CHANNEL)
-        channel.setMethodCallHandler { call, result -> handle(call, result) }
+        channel.setMethodCallHandler { call, result ->
+            Log.i(TAG, "method call: ${call.method}")
+            handle(call, result)
+        }
+        Log.i(TAG, "BluetoothService attached")
 
         EventChannel(engine.dartExecutor.binaryMessenger, EVENTS)
             .setStreamHandler(object : EventChannel.StreamHandler {
@@ -221,11 +225,23 @@ object BluetoothService {
 
     /** 把本机蓝牙名广播为 LD:<昵称>:<ID>，让对方只能搜到点聊设备。 */
     private fun setAdvertisedName(name: String) {
-        val a = getAdapter() ?: return
-        if (!a.isEnabled) return
-        if (!hasBtConnectPermission()) return
+        val a = getAdapter() ?: run {
+            Log.w(TAG, "setAdvertisedName: no adapter")
+            return
+        }
+        if (!a.isEnabled) {
+            Log.w(TAG, "setAdvertisedName: bluetooth disabled")
+            return
+        }
+        if (!hasBtConnectPermission()) {
+            Log.w(TAG, "setAdvertisedName: no BLUETOOTH_CONNECT")
+            return
+        }
         val clean = name.trim()
-        if (clean.isEmpty()) return
+        if (clean.isEmpty()) {
+            Log.w(TAG, "setAdvertisedName: empty name")
+            return
+        }
         try {
             val current = try {
                 a.name ?: ""
@@ -233,6 +249,7 @@ object BluetoothService {
                 ""
             }
             if (current.startsWith(LD_PREFIX) && current == clean) return
+            Log.i(TAG, "setAdvertisedName: '$current' -> '$clean'")
             a.setName(clean)
         } catch (e: Exception) {
             Log.w(TAG, "setName failed: ${e.message}")
