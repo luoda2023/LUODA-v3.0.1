@@ -831,21 +831,18 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
         children: [
           _infoRow(
             context,
-            icon: Icons.person_rounded,
             label: translate('Host'),
             value: _group.hostDisplayName,
           ),
           _infoDivider(dark),
           _infoRow(
             context,
-            icon: Icons.people_alt_rounded,
             label: translate('Members'),
             value: '${_members.length + 1}',
           ),
           _infoDivider(dark),
           _infoRow(
             context,
-            icon: Icons.schedule_rounded,
             label: translate('Start time'),
             value: _startTimeLabel,
             valueColor: _group.startTime != null &&
@@ -867,7 +864,6 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
           _infoDivider(dark),
           _infoRow(
             context,
-            icon: Icons.timer_outlined,
             label: translate('Meeting duration'),
             value: _durationLabel,
             trailing: isHost
@@ -886,7 +882,6 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
             _infoDivider(dark),
             _infoRow(
               context,
-              icon: Icons.tag_rounded,
               label: translate('Invite code'),
               value: _group.inviteShortCode,
               trailing: IconButton(
@@ -900,7 +895,6 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
           _infoDivider(dark),
           _infoRow(
             context,
-            icon: Icons.present_to_all_rounded,
             label: translate('Presenter'),
             value: presenterLabel,
             valueColor: const Color(0xFFE65100),
@@ -1004,9 +998,10 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
   }
 
 
+  /// 微信聊天信息页信息行：无图标，左侧灰色标签，右侧深色值，
+  /// 行高统一 ~50px，分隔线从左边缘缩进 16px。
   Widget _infoRow(
     BuildContext context, {
-    required IconData icon,
     required String label,
     required String value,
     Color? valueColor,
@@ -1014,17 +1009,14 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
   }) {
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
       child: Row(
         children: [
-          Icon(icon,
-              size: 18, color: theme.colorScheme.onSurface.withOpacity(0.42)),
-          const SizedBox(width: 12),
           Text(
             label,
             style: TextStyle(
-              fontSize: 13,
-              color: theme.colorScheme.onSurface.withOpacity(0.55),
+              fontSize: 14,
+              color: theme.colorScheme.onSurface.withOpacity(0.5),
             ),
           ),
           const Spacer(),
@@ -1033,9 +1025,10 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
               value,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.right,
               style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
                 color: valueColor ?? theme.colorScheme.onSurface,
               ),
             ),
@@ -1053,7 +1046,7 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
     return Divider(
       height: 1,
       thickness: 0.5,
-      indent: 44,
+      indent: 16,
       color: dark ? const Color(0xFF3A3D43) : const Color(0x80E5E5E5),
     );
   }
@@ -1137,6 +1130,10 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
             children: [
               Expanded(
                 child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: MyTheme.primary,
+                    side: BorderSide(color: MyTheme.primary.withOpacity(0.4)),
+                  ),
                   onPressed: _changePresenter,
                   icon: const Icon(Icons.swap_horiz_rounded, size: 17),
                   label: Text(translate('Change presenter')),
@@ -1146,7 +1143,7 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
               Expanded(
                 child: FilledButton.icon(
                   style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFFE65100),
+                    backgroundColor: MyTheme.primary,
                   ),
                   onPressed: _startPresentation,
                   icon: const Icon(Icons.screen_share_rounded, size: 17),
@@ -1495,7 +1492,7 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
               padding: const EdgeInsets.fromLTRB(8, 0, 8, 10),
               mainAxisSpacing: 10,
               crossAxisSpacing: 4,
-              childAspectRatio: 0.82,
+              childAspectRatio: 0.72,
               children: [
                 // host 始终置顶（搜索时也保留，除非搜索词完全不含 host）。
                 if (_memberHostMatches)
@@ -1768,14 +1765,14 @@ class _MemberGridTile extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              width: 48,
-              height: 48,
+              width: 44,
+              height: 44,
               decoration: BoxDecoration(
                 color: avatarColor,
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(Icons.add_rounded,
-                  size: 26, color: dark ? Colors.white54 : Colors.black38),
+                  size: 24, color: dark ? Colors.white54 : Colors.black38),
             ),
             const SizedBox(height: 6),
             Text(
@@ -1799,8 +1796,8 @@ class _MemberGridTile extends StatelessWidget {
           clipBehavior: Clip.none,
           children: [
             Container(
-              width: 48,
-              height: 48,
+              width: 44,
+              height: 44,
               decoration: BoxDecoration(
                 color: avatarColor,
                 borderRadius: BorderRadius.circular(10),
@@ -1809,7 +1806,7 @@ class _MemberGridTile extends StatelessWidget {
               child: Text(
                 displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
                 style: TextStyle(
-                  fontSize: 19,
+                  fontSize: 18,
                   fontWeight: FontWeight.w600,
                   color: avatarTextColor,
                 ),
