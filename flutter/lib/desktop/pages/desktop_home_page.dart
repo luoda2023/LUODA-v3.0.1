@@ -56,6 +56,7 @@ import '../../common/direct_chat.dart';
 import '../../common/join_meeting_session.dart';
 import '../../common/direct_chat_policy.dart';
 import '../../common/system_announcement.dart';
+import '../../common/widgets/html_content_view.dart';
 import '../../common/direct_pairing.dart';
 import '../../common/direct_viewer_invite.dart';
 import '../../common/wechat_ui_tokens.dart';
@@ -130,6 +131,18 @@ String _peerDeviceName(Peer peer) {
   return (d.isNotEmpty && d != 'android') ? d : '';
 }
 
+/// Compute the display name for a peer that matches the conversation list.
+/// For mobile peers, prefers hostname (e.g. "OPPO-PFUM10") over displayName
+/// (e.g. "Android"), matching the merged-row logic in _buildMergedChatRow.
+String _resolveContactDisplayName(Peer? peer) {
+  if (peer == null) return '';
+  if (_isMobilePeerPlatform(peer.platform)) {
+    final deviceName = _peerDeviceName(peer);
+    if (deviceName.isNotEmpty) return deviceName;
+  }
+  return peer.finalName();
+}
+
 /// Contact "person group": merges all devices of one person (PC, phone, and
 /// reinstalled ids that share the same physical device) into a single row.
 /// ????? ID ??????????/??????????ID ??????????
@@ -149,6 +162,8 @@ String _resolveConversationDisplayName(
   String chatName = '',
   String idFallback = '',
 }) {
+  // LUODA FIX: 排除本地用户名，防止显示自己的名字
+  final localName = (gFFI.chatModel.me.firstName ?? '').trim();
   final candidates = <String>[
     contactName.trim(),
     DirectPairingStore.findForConversation(peerId)?.displayName.trim() ?? '',
@@ -156,6 +171,9 @@ String _resolveConversationDisplayName(
   ];
   for (final candidate in candidates) {
     if (candidate.isEmpty) continue;
+    // 排除本地用户名和默认产品名
+    if (localName.isNotEmpty && candidate == localName) continue;
+    if (candidate.toLowerCase() == 'luoda') continue;
     final compact = candidate.replaceAll(RegExp(r'[\s:\-_.]'), '');
     final isIdLike =
         compact == peerId.trim().replaceAll(RegExp(r'[\s:\-_.]'), '') ||
@@ -883,6 +901,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       _noticesOpen.value = false;
       _meetingsOpen.value = false;
       _favoritesOpen.value = true;
+      // 同步高亮左侧 rail 的“收藏夹”项，避免选中样式缺失。
+      if (_selectedRail.value != section) {
+        _selectedRail.value = section;
+      }
       return;
     }
     if (section == 'meetings') {
@@ -890,6 +912,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       _noticesOpen.value = false;
       _favoritesOpen.value = false;
       _meetingsOpen.value = true;
+      // 同步高亮左侧 rail 的“会议”项，避免选中样式缺失。
+      if (_selectedRail.value != section) {
+        _selectedRail.value = section;
+      }
       return;
     }
     const sections = <String>{
@@ -1050,8 +1076,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       'chat' => translate('Messages'),
       'recent' => translate('Recent sessions'),
       'favorites' => translate('Favorites'),
+      'meetings' => translate('Meetings'),
       'discovered' => translate('LAN discovery'),
       'contacts' => translate('Contacts'),
+      'vip' => translate('VIP'),
       _ => translate('Contacts'),
     };
     return ColoredBox(
@@ -1767,15 +1795,23 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     }
   }
 
-  void _showCreateMeetingDialog(BuildContext context) {
-    final controller = TextEditingController();
+  void _showCreateMeetingDialog(
+    BuildContext context, {
+    String initialTitle = '',
+    List<Peer>? initialMembers,
+    Peer? initialPresenter,
+    bool initialStartNow = true,
+    DateTime? initialStartTime,
+    int initialDurationMinutes = 60,
+  }) {
+    final controller = TextEditingController(text: initialTitle);
     // 演示人：默认发起人自己，可改为其他好友（单选）。
-    Peer? presenter;
+    Peer? presenter = initialPresenter;
     // 创建时直接添加的成员（好友多选）。
-    final members = <Peer>[];
-    bool startNow = true;
-    DateTime? startTime;
-    int durationMinutes = 60;
+    final members = <Peer>[...?initialMembers];
+    bool startNow = initialStartNow;
+    DateTime? startTime = initialStartTime;
+    int durationMinutes = initialDurationMinutes;
 
     gFFI.dialogManager.show((setState, close, ctx) {
       final theme = Theme.of(ctx);
@@ -1912,25 +1948,36 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               label: translate('Members'),
               value: membersLabel,
               onTap: () async {
+                // 先关闭创建会议弹窗，避免遮挡好友选择器。
+                close();
                 final picked = await showFriendPickerDialog(
                   context,
                   peers: gFFI.recentPeersModel.peers,
                   title: translate('Select from friends'),
                 );
-                if (picked == null || picked.isEmpty) return;
-                setState(() {
-                  members
-                    ..clear()
-                    ..addAll(picked.where(
-                        (p) => p.id.trim().isNotEmpty &&
-                            p.id.trim() != gFFI.serverModel.id));
-                  // 演示人被移除出成员列表时，回退为发起人自己。
-                  if (presenter != null &&
-                      !members.any(
-                          (m) => m.id.trim() == presenter!.id.trim())) {
-                    presenter = null;
-                  }
-                });
+                // 合并新选成员（去掉发起人自己）。
+                final newMembers = picked != null && picked.isNotEmpty
+                    ? picked
+                        .where((p) =>
+                            p.id.trim().isNotEmpty &&
+                            p.id.trim() != gFFI.serverModel.id)
+                        .toList()
+                    : members;
+                // 演示人被移除出成员列表时，回退为发起人自己。
+                final newPresenter =
+                    (presenter != null && !newMembers.any((m) => m.id.trim() == presenter!.id.trim()))
+                        ? null
+                        : presenter;
+                // 重新打开创建会议弹窗并恢复状态。
+                _showCreateMeetingDialog(
+                  context,
+                  initialTitle: controller.text,
+                  initialMembers: newMembers,
+                  initialPresenter: newPresenter,
+                  initialStartNow: startNow,
+                  initialStartTime: startTime,
+                  initialDurationMinutes: durationMinutes,
+                );
               },
             ),
             const SizedBox(height: 10),
@@ -1956,20 +2003,29 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                   device_group_name: '',
                   note: '',
                 );
+                // 先关闭创建会议弹窗，避免遮挡好友选择器。
+                close();
                 final picked = await showFriendPickerDialog(
                   context,
                   peers: [hostSelf, ...presenterCandidates],
                   title: translate('Choose presenter'),
                   maxSelections: 1,
                 );
-                if (picked != null && picked.isNotEmpty) {
-                  final chosen = picked.first;
-                  setState(() {
-                    presenter = chosen.id == gFFI.serverModel.id
+                final newPresenter = (picked != null && picked.isNotEmpty)
+                    ? (picked.first.id == gFFI.serverModel.id
                         ? null
-                        : chosen;
-                  });
-                }
+                        : picked.first)
+                    : presenter;
+                // 重新打开创建会议弹窗并恢复状态。
+                _showCreateMeetingDialog(
+                  context,
+                  initialTitle: controller.text,
+                  initialMembers: members,
+                  initialPresenter: newPresenter,
+                  initialStartNow: startNow,
+                  initialStartTime: startTime,
+                  initialDurationMinutes: durationMinutes,
+                );
               },
             ),
             const SizedBox(height: 10),
@@ -2469,10 +2525,26 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                   : selectedPeerId;
               RuntimeLogger.instance.info('WSCOPE',
                   'sel=${rawSelectedPeerId} model=${modelPeerId} canon=${modelConversationId} match=${userMatchesSelection} peer=${peerId} activeD=${_activeDirectChatPeerId}');
-              final selectedName = _selectedContact == null
-                  ? ''
-                  : _contactName(_selectedContact!);
+              // 使用统一的名称解析逻辑，确保与联系人列表一致。
+              // 注意：必须实时调用 _findContact 获取最新联系人，
+              // 不能使用缓存的 _selectedContact（可能已过时）。
+              final titlePairing = DirectPairingStore.findForConversation(rawSelectedPeerId);
               final modelDisplayName = (user?.firstName ?? '').trim();
+              // 实时解析 contact，确保头部名称与列表行完全一致。
+              final freshContact = rawSelectedPeerId.isNotEmpty
+                  ? _findContact(rawSelectedPeerId)
+                  : _selectedContact;
+              final resolvedContactName = freshContact != null
+                  ? _resolveContactDisplayName(freshContact)
+                  : modelDisplayName;
+              final selectedName = rawSelectedPeerId.isEmpty
+                  ? ''
+                  : _resolveConversationDisplayName(
+                      rawSelectedPeerId,
+                      contactName: resolvedContactName,
+                      chatName: titlePairing?.displayName ?? '',
+                      idFallback: rawSelectedPeerId,
+                    );
               final hasConversation =
                   user != null && userMatchesSelection && peerId.isNotEmpty;
               final canStartDirectSession =
@@ -2490,7 +2562,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                           ? selectedName
                           : hasConversation && modelDisplayName.isNotEmpty
                               ? modelDisplayName
-                              : translate('Direct chat'),
+                              : rawSelectedPeerId.isNotEmpty
+                                      ? rawSelectedPeerId
+                                      : translate('Direct chat'),
                       peerId: peerId,
                       hasConversation: hasConversation,
                       canStartDirectSession: canStartDirectSession,
@@ -2655,22 +2729,39 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           crossAxisAlignment: CrossAxisAlignment.start,
-                          children: <Widget>[
-                            Row(
-                              children: <Widget>[
-                                Flexible(
-                                  child: Text(
-                                    title,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style:
-                                        theme.textTheme.titleMedium?.copyWith(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w500,
-                                      letterSpacing: 0,
+                          children: <Widget>[                              Row(
+                                children: <Widget>[
+                                  if (peerId.isNotEmpty) ...<Widget>[
+                                    Container(
+                                      width: 10,
+                                      height: 10,
+                                      decoration: BoxDecoration(
+                                        color: status.$2,
+                                        shape: BoxShape.circle,
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: status.$2.withOpacity(0.4),
+                                            blurRadius: 4,
+                                            spreadRadius: 1,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                  ],
+                                  Flexible(
+                                    child: Text(
+                                      title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style:
+                                          theme.textTheme.titleMedium?.copyWith(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w500,
+                                        letterSpacing: 0,
+                                      ),
                                     ),
                                   ),
-                                ),
                                 if (isMeetingChat && meetingGroup != null) ...<Widget>[
                                   const SizedBox(width: 8),
                                   Container(
@@ -2687,24 +2778,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                         color: MyTheme.primary,
                                         fontWeight: FontWeight.w700,
                                       ),
-                                    ),
-                                  ),
-                                ] else if (peerId.isNotEmpty) ...<Widget>[
-                                  const SizedBox(width: 10),
-                                  Container(
-                                    width: 5,
-                                    height: 5,
-                                    decoration: BoxDecoration(
-                                      color: status.$2,
-                                      shape: BoxShape.circle,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 5),
-                                  Text(
-                                    translate(status.$1),
-                                    style: theme.textTheme.labelSmall?.copyWith(
-                                      color: status.$2,
-                                      fontSize: 11,
                                     ),
                                   ),
                                 ],
@@ -3640,6 +3713,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   }
 
   void _openConversation(MapEntry<MessageKey, MessageBody> entry) {
+    // 点击会话时关闭收藏夹/系统通知/会议面板，确保聊天工作区可见。
+    final hadPanel = _noticesOpen.value || _favoritesOpen.value || _meetingsOpen.value;
+    _noticesOpen.value = false;
+    _favoritesOpen.value = false;
+    _meetingsOpen.value = false;
+    if (hadPanel) _restoreChatInputFocus();
+
     final peerId = entry.key.peerId.trim();
     RuntimeLogger.instance.info('OPENCONV',
         'peerId=${peerId} name=${entry.value.chatUser.firstName} msgs=${entry.value.chatMessages.length}');
@@ -3668,9 +3748,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final incoming =
         active == null ? _incomingDirectChatClientFor(peerId) : null;
     final model = active?.chatModel ?? gFFI.chatModel;
-    final contact = gFFI.recentPeersModel.peers.firstWhereOrNull(
-      (peer) => peer.id == peerId,
-    );
+    // Use the same contact resolution as the conversation list rows so the
+    // header title always matches the list name (recentPeers alone misses
+    // LAN/address-book peers and fell back to stale chatUser.firstName).
+    final contact = _findContact(peerId);
     setState(() {
       _selectedContact = contact;
       _selectedConversationPeerId = peerId;
@@ -3679,9 +3760,23 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     model.changeCurrentKey(
       MessageKey(peerId, incoming?.id ?? ChatModel.clientModeID),
     );
+    // When _findContact misses, fall back to the chat model's existing display
+    // name (set by a previous updatePeerIdentity or from the merged-chat-row
+    // name), which already matches the list row. This prevents the header
+    // from showing "Android" (DirectPairingStore.displayName) when the list
+    // correctly shows the device hostname (e.g. "OPPO-PFUM10").
+    final chatDisplayName = entry.value.chatUser.firstName ?? '';
+    final resolvedContactName = contact != null
+        ? _resolveContactDisplayName(contact)
+        : chatDisplayName;
     model.updatePeerIdentity(
       peerId,
-      displayName: entry.value.chatUser.firstName ?? peerId,
+      displayName: _resolveConversationDisplayName(
+        peerId,
+        contactName: resolvedContactName,
+        chatName: chatDisplayName,
+        idFallback: peerId,
+      ),
       avatar: entry.value.chatUser.profileImage ?? '',
     );
     if (active == null && incoming == null) {
@@ -3757,8 +3852,15 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         }
         final chatGroupList = chatGroups.values.toList();
         final rows = <Object>[];
-        // PC 端不显示“文件传输助手”（那是手机扫码/绑定入口的替代品，
-        // PC 端已有扫码绑定弹窗，不应混入会话列表）。
+        // 文件传输助手：绑定手机后出现在消息列表顶部（类似微信：绑定后
+        // PC/手机两端才启用该内置会话）。未绑定时不显示。
+        final boundPhoneNow = DirectPairingStore.boundPhone();
+        final boundToPhone =
+            (boundPhoneNow['peerId'] ?? '').trim().isNotEmpty;
+        if (boundToPhone) gFFI.chatModel.ensureFileHelperEntry();
+        final fileHelperRow = boundToPhone
+            ? gFFI.chatModel.messages[gFFI.chatModel.fileHelperKey]
+            : null;
         // 会议与普通会话先合并为统一列表，再按 会议/好友/陌生 三大类分组：
         // 每个分组带灰色小标题，组内按最近活动时间排序。
         // 去重：会议一旦有聊天记录（meeting:xxx 会话已进 chatGroups），
@@ -3821,6 +3923,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           final isFriend =
               pid != null && _directChatAccess.isFriend(pid);
           (isFriend ? friendRows : strangerRows).add(item);
+        }
+        // 文件传输助手置顶显示（绑定手机后），微信风格。
+        if (fileHelperRow != null) {
+          rows.add(MapEntry<MessageKey, MessageBody>(
+            gFFI.chatModel.fileHelperKey,
+            fileHelperRow,
+          ));
         }
         if (meetingRows.isNotEmpty) {
           rows.add(_PeopleGroupHeader(
@@ -3979,7 +4088,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 ? translate('File Transfer Assistant')
                 : _resolveConversationDisplayName(
                     peerId,
-                    contactName: contact?.finalName() ?? '',
+                    contactName: _resolveContactDisplayName(contact),
                     chatName: name,
                     idFallback: peerId,
                   );
@@ -4218,9 +4327,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         ? const Color(0xFF34373D)
         : kWeChatConversationHoverColor;
     final contact = _findContact(pairing.peerId);
-    final name = contact != null
-        ? contact.finalName()
-        : (pairing.displayName.isEmpty ? pairing.peerId : pairing.displayName);
+    // 使用统一的名称解析逻辑
+    final name = _resolveConversationDisplayName(
+      pairing.peerId,
+      contactName: _resolveContactDisplayName(contact),
+      chatName: pairing.displayName,
+      idFallback: pairing.peerId,
+    );
     final selected = _selectedConversationPeerId == pairing.peerId;
     final delivery = _directDeliveryStatus(pairing.peerId);
     return GestureDetector(
@@ -4569,16 +4682,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final primaryPeerId = group.primaryPeerId;
     final contact = _findContact(primaryPeerId);
     final conversationContact = contact ?? peer;
-    final name = contact != null
-        ? (_isMobilePeerPlatform(contact.platform) &&
-                _peerDeviceName(contact).isNotEmpty
-            ? _peerDeviceName(contact)
-            : contact.finalName())
-        : (pairing != null
-            ? (pairing.displayName.isEmpty
-                ? primaryPeerId
-                : pairing.displayName)
-            : (peer != null ? _contactName(peer) : primaryPeerId));
+    // 使用统一的名称解析逻辑，确保与消息列表和聊天标题一致
+    final name = _resolveConversationDisplayName(
+      primaryPeerId,
+      contactName: _resolveContactDisplayName(contact),
+      chatName: pairing?.displayName ?? '',
+      idFallback: primaryPeerId,
+    );
     final selected = _selectedConversationPeerId == primaryPeerId;
     final delivery = _directDeliveryStatus(primaryPeerId, contact: peer);
     final deviceSummary = group.deviceSummary;
@@ -4746,10 +4856,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final user = primary.value.chatUser;
     final contact = _findContact(peerId);
     final name = contact != null
-        ? (_isMobilePeerPlatform(contact.platform) &&
-                _peerDeviceName(contact).isNotEmpty
-            ? _peerDeviceName(contact)
-            : contact.finalName())
+        ? _resolveContactDisplayName(contact)
         : ((user.firstName ?? '').trim().isEmpty
             ? peerId
             : (user.firstName ?? '').trim());
@@ -5055,7 +5162,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     return ('Connecting', const Color(0xFF07C160));
   }
 
-  String _contactName(Peer peer) => peer.finalName();
+  String _contactName(Peer peer) => _resolveContactDisplayName(peer);
 
   String _contactPlatformFor(String peerId) {
     if (peerId.trim().isEmpty) return '';
@@ -5397,6 +5504,28 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           if (devices.contains(peer.id)) return peer;
         }
       }
+    }
+    // Fallback: check DirectPairingStore for this specific peerId
+    final pairing = DirectPairingStore.findForConversation(peerId);
+    if (pairing != null) {
+      // Create a minimal Peer from pairing data
+      return Peer(
+        id: pairing.peerId,
+        hash: '',
+        password: '',
+        username: pairing.displayName,
+        hostname: pairing.deviceName,
+        platform: pairing.platform,
+        displayName: pairing.displayName,
+        alias: '',
+        tags: [],
+        forceAlwaysRelay: false,
+        rdpPort: '',
+        rdpUsername: '',
+        loginName: '',
+        device_group_name: '',
+        note: '',
+      );
     }
     return null;
   }
@@ -6011,7 +6140,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         savedPos = await windowManager.getPosition();
         await windowManager.setPosition(const Offset(-32000, -32000));
         windowMoved = true;
-        await Future<void>.delayed(const Duration(milliseconds: 360));
+        // 等窗口真正移出屏幕再开始框选遮罩：太长会让人感觉
+        // “点了截图没反应”，太短窗口可能还没完全移出（截图里
+        // 会出现半截窗口）。180ms 兼顾两者。
+        await Future<void>.delayed(const Duration(milliseconds: 180));
       } catch (_) {
         windowMoved = false;
       }
@@ -6419,79 +6551,115 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       );
       return;
     }
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: true,
-      barrierColor: Colors.black.withOpacity(0.24),
-      builder: (dialogContext) => AlertDialog(
-        title: Text(translate('Pair phone directly')),
-        content: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 320),
-          child: SizedBox(
-            width: double.infinity,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  translate(
-                    'Scan with DotChat on the phone. Pairing data stays on both devices.',
+    // 监听绑定状态：手机扫码绑定成功后自动关闭二维码弹窗，
+    // 左侧列表同步出现“文件传输助手”，左下角手机图标气泡同步消失。
+    var dialogOpen = true;
+    BuildContext? qrDialogContext;
+    final bindingListener = () {
+      if (!dialogOpen) return;
+      final boundNow = DirectPairingStore.boundPhone();
+      if (boundNow['peerId']?.trim().isNotEmpty == true &&
+          boundNow['peerId'] != boundPhone['peerId']) {
+        dialogOpen = false;
+        final ctx = qrDialogContext;
+        if (ctx != null && ctx.mounted) Navigator.of(ctx).pop();
+      }
+    };
+    DirectPairingStore.revision.addListener(bindingListener);
+    try {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: true,
+        barrierColor: Colors.black.withOpacity(0.24),
+        builder: (dialogContext) {
+          qrDialogContext = dialogContext;
+          return AlertDialog(
+          title: Text(translate('Pair phone directly')),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 320),
+            child: SizedBox(
+              width: double.infinity,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    translate(
+                      'Scan with DotChat on the phone. Pairing data stays on both devices.',
+                    ),
+                    textAlign: TextAlign.center,
+                    style: Theme.of(dialogContext).textTheme.bodyMedium,
                   ),
-                  textAlign: TextAlign.center,
-                  style: Theme.of(dialogContext).textTheme.bodyMedium,
-                ),
-                const SizedBox(height: 12),
-                ColoredBox(
-                  color: Colors.white,
-                  child: Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: QrImageView(
-                      data: payload,
-                      version: QrVersions.auto,
-                      size: 184,
-                      gapless: true,
+                  const SizedBox(height: 12),
+                  ColoredBox(
+                    color: Colors.white,
+                    child: Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: QrImageView(
+                        data: payload,
+                        version: QrVersions.auto,
+                        size: 184,
+                        gapless: true,
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 14),
-                Text(
-                  pairing.endpoints.join('\n'),
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 13,
+                  const SizedBox(height: 14),
+                  Text(
+                    pairing.endpoints.join('\n'),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 13,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  translate(
-                      'Direct endpoint only. Same LAN or forwarded port required.'),
-                  style: Theme.of(dialogContext).textTheme.bodySmall?.copyWith(
-                        color: MyTheme.mutedLight,
-                        fontWeight: FontWeight.w600,
-                      ),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  translate('Direct listener ready'),
-                  style: Theme.of(dialogContext).textTheme.bodySmall?.copyWith(
-                        color: MyTheme.accent,
-                        fontWeight: FontWeight.w600,
-                      ),
-                ),
-              ],
+                  const SizedBox(height: 5),
+                  Text(
+                    translate(
+                        'Direct endpoint only. Same LAN or forwarded port required.'),
+                    style: Theme.of(dialogContext).textTheme.bodySmall?.copyWith(
+                          color: MyTheme.mutedLight,
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    translate('Direct listener ready'),
+                    style: Theme.of(dialogContext).textTheme.bodySmall?.copyWith(
+                          color: MyTheme.accent,
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    translate(
+                        'Waiting for phone scan... The dialog closes automatically after pairing.'),
+                    textAlign: TextAlign.center,
+                    style: Theme.of(dialogContext).textTheme.bodySmall?.copyWith(
+                          color: MyTheme.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: Text(translate('Close')),
-          ),
-        ],
-      ),
-    );
+          actions: [
+            TextButton(
+              onPressed: () {
+                dialogOpen = false;
+                Navigator.pop(dialogContext);
+              },
+              child: Text(translate('Close')),
+            ),
+          ],
+          );
+        },
+      );
+    } finally {
+      dialogOpen = false;
+      DirectPairingStore.revision.removeListener(bindingListener);
+    }
   }
 
   Future<void> _showBoundPhoneDialog(
@@ -9185,12 +9353,30 @@ class _SystemNoticePanel extends StatefulWidget {
 class _SystemNoticePanelState extends State<_SystemNoticePanel> {
   SystemAnnouncement? _selected;
   double _listWidth = 280;
+  final ScrollController _detailScrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
     final items = SystemAnnouncementStore.instance.items;
     if (items.isNotEmpty) _selected = items.first;
+    // 确保首次打开时详情页从顶部开始
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollToTop();
+    });
+  }
+
+  @override
+  void dispose() {
+    _detailScrollController.dispose();
+    super.dispose();
+  }
+
+  /// 滚动到详情页顶部
+  void _scrollToTop() {
+    if (_detailScrollController.hasClients) {
+      _detailScrollController.jumpTo(0);
+    }
   }
 
   String _formatTime(DateTime t) {
@@ -9327,9 +9513,15 @@ class _SystemNoticePanelState extends State<_SystemNoticePanel> {
       cursor: SystemMouseCursors.click,
       child: InkWell(
         onTap: () {
-          setState(() => _selected = a);
-          // 点开即单条已读（持久化保存）。
-          unawaited(store.markRead(a.id));
+          setState(() {
+            _selected = a;
+            // 点开即单条已读（持久化保存）。
+            unawaited(store.markRead(a.id));
+          });
+          // 切换通知后滚动到详情页顶部
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _scrollToTop();
+          });
         },
         child: Container(
           color: bg,
@@ -9391,7 +9583,7 @@ class _SystemNoticePanelState extends State<_SystemNoticePanel> {
             ),
             const SizedBox(height: 5),
             Text(
-              a.content,
+              stripHtmlText(a.content),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
@@ -9417,7 +9609,9 @@ class _SystemNoticePanelState extends State<_SystemNoticePanel> {
     final surface = dark ? MyTheme.surfaceDark : Colors.white;
     return Container(
       color: surface,
+      alignment: Alignment.topLeft,
       child: SingleChildScrollView(
+        controller: _detailScrollController,
         padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -9472,9 +9666,9 @@ class _SystemNoticePanelState extends State<_SystemNoticePanel> {
             const SizedBox(height: 22),
             const Divider(height: 1),
             const SizedBox(height: 18),
-            Text(
+            HtmlContentView(
               a.content,
-              style: TextStyle(
+              textStyle: TextStyle(
                 fontSize: 14.5,
                 height: 1.8,
                 color: dark ? const Color(0xFFC8CCD3) : const Color(0xFF3B3F45),

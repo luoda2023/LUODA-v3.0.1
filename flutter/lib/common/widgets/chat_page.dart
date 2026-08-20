@@ -38,6 +38,15 @@ import 'rich_text_builder.dart';
 import 'voice_message_controls.dart';
 import '../../models/ai_config_model.dart';
 import 'ai_config_page.dart';
+import '../tts_service.dart';
+
+/// 会议群聊中，本地用户是否为演示人（演示人入口显示“进入演示”）。
+bool meetingPresenterForChatModel(ChatModel chatModel) {
+  final peerId = chatModel.currentKey.peerId;
+  if (!peerId.startsWith('meeting:')) return false;
+  final meetingId = peerId.substring('meeting:'.length);
+  return MeetingGroupStore.find(meetingId)?.isPresenter ?? false;
+}
 
 const _reactionEmojis = [
   '👍',
@@ -53,6 +62,13 @@ const _reactionEmojis = [
   '🤔',
   '👀',
 ];
+
+/// 历史消息记录里的所有灰色提示文字（来源标签、日期分隔、发送状态、
+/// AI 回复标签等）统一使用同一种灰色 + 50% 透明度，避免深浅不一、
+/// 过于显眼。
+Color _chatMetaGrey(bool dark) =>
+    (dark ? const Color(0xFF9AA0A8) : const Color(0xFF8A8F98))
+        .withOpacity(0.5);
 
 enum ChatPageType {
   mobileMain,
@@ -250,6 +266,7 @@ class ChatPage extends StatelessWidget implements PageShape {
   /// 当前会话是否为会议群聊（meeting:xxx）。会议群聊时，输入面板里的
   /// “远程桌面”入口改为“进入观看”（只读观看演示，不能操控）；观看权限
   /// 由服务端 viewer 模型保证（viewer 天然只读）。
+  /// 若本地用户是演示人，则显示“进入演示”（保留完整操控权）。
   final bool isMeetingChat;
 
   /// PC 端输入栏控制器：截图完成或外部粘贴图片后，通过它把图片放入输入框。
@@ -364,6 +381,13 @@ class ChatPage extends StatelessWidget implements PageShape {
 
     actions.add(const _ChatMenuAction(
         'copy', Icons.copy_rounded, 'Copy', group: 0));
+    // 语音朗读：对文字消息可朗读。
+    if ((message.text?.isNotEmpty == true ||
+            (properties?['ldesk_kind'] == 'text')) &&
+        TtsService.instance.isEnabled) {
+      actions.add(const _ChatMenuAction(
+          'speak', Icons.record_voice_over_outlined, 'Read aloud', group: 0));
+    }
     // Share to WeChat / other apps via the system share sheet (mobile only).
     if (isMobile) {
       actions.add(const _ChatMenuAction(
@@ -733,6 +757,41 @@ class ChatPage extends StatelessWidget implements PageShape {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
           SnackBar(content: Text(translate('Copied to clipboard'))),
         );
+      }
+      return;
+    }
+    if (action == 'speak') {
+      final text = message.text ?? '';
+      if (text.trim().isEmpty) return;
+      final tts = TtsService.instance;
+      // 正在朗读或正在初始化则停止，否则开始朗读。
+      if (tts.isSpeaking) {
+        await tts.stop();
+        if (context.mounted) {
+          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+            SnackBar(content: Text(translate('Reading stopped'))),
+          );
+        }
+      } else if (tts.isReadingQueue) {
+        // 连续朗读进行中：先停止队列，再朗读当前选中的消息。
+        await tts.stop();
+        if (context.mounted) {
+          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+            SnackBar(
+              content: Text(translate('Reading aloud…')),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+        await tts.speak(text);
+      } else {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(
+            content: Text(translate('Reading aloud…')),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+        await tts.speak(text);
       }
       return;
     }
@@ -2249,7 +2308,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                   ),
                   const SizedBox(width: 4),
                   Text(
-                    '点聊',
+                    'dotchat',
                     style: TextStyle(
                       color: foreground.withOpacity(0.4),
                       fontSize: 10,
@@ -2528,16 +2587,14 @@ class ChatPage extends StatelessWidget implements PageShape {
                 default:
                   return const SizedBox.shrink();
               }
+              final grey = _chatMetaGrey(dark);
               return Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(icon,
-                      size: 13, color: (color ?? Colors.grey).withOpacity(0.5)),
+                  Icon(icon, size: 13, color: color ?? grey),
                   const SizedBox(width: 3),
                   Text(label,
-                      style: TextStyle(
-                          fontSize: 10,
-                          color: (color ?? Colors.grey).withOpacity(0.5))),
+                      style: TextStyle(fontSize: 10, color: color ?? grey)),
                 ],
               );
             }
@@ -2973,7 +3030,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                                 ),
                                 const SizedBox(width: 4),
                                 Text(
-                                  '点聊',
+                                  'dotchat',
                                   style: TextStyle(
                                     color: foreground.withOpacity(0.42),
                                     fontSize: 10,
@@ -3262,10 +3319,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                             style: TextStyle(
                               fontSize: 10,
                               height: 1.2,
-                              color: (dark
-                                      ? const Color(0xFF9AA0A8)
-                                      : const Color(0xFF8A8F98))
-                                  .withOpacity(0.85),
+                              color: _chatMetaGrey(dark),
                             ),
                           ),
                         ),
@@ -3278,9 +3332,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                             style: TextStyle(
                               fontSize: 11,
                               height: 1.2,
-                              color: dark
-                                  ? const Color(0xFF999CA2)
-                                  : const Color(0xFF999999),
+                              color: _chatMetaGrey(dark),
                             ),
                           ),
                         ),
@@ -3293,9 +3345,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                             style: TextStyle(
                               fontSize: 11,
                               height: 1.2,
-                              color: dark
-                                  ? const Color(0xFF999CA2)
-                                  : const Color(0xFF999999),
+                              color: _chatMetaGrey(dark),
                             ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
@@ -3454,7 +3504,9 @@ class ChatPage extends StatelessWidget implements PageShape {
                                       : Icons.desktop_windows_outlined,
                                   chatModel.currentKey.peerId
                                           .startsWith('meeting:')
-                                      ? 'Enter to Watch'
+                                      ? (meetingPresenterForChatModel(chatModel)
+                                          ? 'Enter to Present'
+                                          : 'Enter to Watch')
                                       : 'Remote Desktop',
                                   onRemoteAssist,
                                 ),
@@ -3558,10 +3610,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                             label,
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              color: (dark
-                                      ? const Color(0xFF999CA2)
-                                      : const Color(0xFF999999))
-                                  .withOpacity(0.2),
+                              color: _chatMetaGrey(dark),
                               fontSize: 10,
                               height: 1.2,
                             ),
@@ -4478,7 +4527,9 @@ class _MobileChatComposerState extends State<_MobileChatComposer> {
               ? Icons.visibility_rounded
               : Icons.desktop_windows_outlined,
           widget.chatModel.currentKey.peerId.startsWith('meeting:')
-              ? translate('Enter to Watch')
+              ? (meetingPresenterForChatModel(widget.chatModel)
+                  ? translate('Enter to Present')
+                  : translate('Enter to Watch'))
               : translate('Remote Desktop'),
           () => _runTool(widget.onRemoteAssist!),
         ),
@@ -5284,6 +5335,7 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
                             width: 32, height: 32),
                         padding: EdgeInsets.zero,
                         splashRadius: 17,
+                        splashColor: Colors.transparent,
                         icon: Icon(
                           _inputExpanded
                               ? Icons.fullscreen_exit_rounded
@@ -5350,7 +5402,9 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
                             : Icons.desktop_windows_outlined,
                         tooltip: chatModel.currentKey.peerId
                                 .startsWith('meeting:')
-                            ? translate('Enter to Watch')
+                            ? (meetingPresenterForChatModel(chatModel)
+                                ? translate('Enter to Present')
+                                : translate('Enter to Watch'))
                             : translate('Remote Desktop'),
                         enabled: enabled,
                         onPressed: () => _runToolAction(onRemoteAssist!),
@@ -5930,6 +5984,7 @@ class _AiModelSelectorState extends State<_AiModelSelector> {
               ),
               padding: EdgeInsets.zero,
               splashRadius: 10,
+              splashColor: Colors.transparent,
               tooltip: translate('AI Settings'),
               onPressed: () {
                 Navigator.of(context).push(

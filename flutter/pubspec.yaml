@@ -16,7 +16,7 @@ publish_to: "none" # Remove this line if you wish to publish to pub.dev
 # Read more about iOS versioning at
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # 1.1.9-1 works for android, but for ios it becomes 1.1.91, need to set it to 1.1.9-a.1 for iOS, will get 1.1.9.1, but iOS store not allow 4 numbers
-version: 3.1.1+1
+version: 111.11.1+1
 
 environment:
   sdk: '^3.1.0'
@@ -37,6 +37,8 @@ dependencies:
   package_info_plus: ^4.2.0
   url_launcher: ^6.3.1
   url_launcher_ios: ^6.3.2
+  webview_flutter: ^4.10.0
+  webview_windows: ^0.4.0
   toggle_switch: ^2.1.0
   dash_chat_2:
     git:
@@ -44,6 +46,7 @@ dependencies:
   draggable_float_widget: ^0.1.0
   settings_ui: ^2.0.2
   flutter_breadcrumb: ^1.0.1
+  flutter_widget_from_html_core: 0.15.2
   http: ^1.1.0
   qr_code_scanner: ^1.0.0
   zxing2: ^0.2.0
@@ -126,6 +129,7 @@ dependencies:
   xml: ^6.5.0
   pdfrx: ^1.0.101
   face_recognition_flutter: ^2.0.0
+  sherpa_onnx: ^1.13.5
 
 dev_dependencies:
   icons_launcher: ^2.0.4
@@ -169,6 +173,8 @@ flutter:
     - assets/
     - assets/scripts/
     - assets/tones/
+    # TTS 模型资产（含模型版本构建时，模型文件需放入 assets/tts_models/vits-zh-ll/）
+    - assets/tts_models/
 
   fonts:
     - family: LDeskNotoSansCJKSC

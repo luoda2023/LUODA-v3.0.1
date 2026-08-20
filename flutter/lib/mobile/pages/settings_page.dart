@@ -19,6 +19,7 @@ import '../../common.dart';
 import '../../common/direct_chat_policy.dart';
 import '../../common/face_login.dart';
 import '../../common/geo_service.dart';
+import '../../common/tts_service.dart';
 import '../../common/widgets/dialog.dart';
 import '../../common/widgets/login.dart';
 import '../../consts.dart';
@@ -93,6 +94,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
   var _autoRecordOutgoingSession = false;
   var _allowAutoDisconnect = false;
   var _localIP = "";
+  var _publicIP = "";
   var _directAccessPort = "";
   var _fingerprint = "";
   var _buildDate = "";
@@ -120,6 +122,16 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
   var _messageSoundName = "";
   var _messageSoundVolume = 80;
   var _messageVibrationDuration = 'short';
+  var _autoStartScreenShare = false;
+  var _ttsEnabled = false;
+  var _ttsContinuousRead = false;
+  var _ttsVoiceId = 0;
+  var _ttsSpeed = 1.0;
+  var _ttsModelReady = false;
+  var _ttsDownloading = false;
+  var _ttsProgress = 0.0;
+  var _ttsIdleTimeout = 5; // 默认 5 分钟
+  VoidCallback? _ttsListener;
 
   _SettingsState() {
     _enableAbr = option2bool(
@@ -142,6 +154,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
     _autoRecordOutgoingSession = option2bool(kOptionAllowAutoRecordOutgoing,
         bind.mainGetLocalOption(key: kOptionAllowAutoRecordOutgoing));
     _localIP = bind.mainGetOptionSync(key: 'local-ip-addr');
+    _publicIP = bind.mainGetOptionSync(key: 'public-ip');
     _directAccessPort = bind.mainGetOptionSync(key: kOptionDirectAccessPort);
     _allowAutoDisconnect = option2bool(kOptionAllowAutoDisconnect,
         bind.mainGetOptionSync(key: kOptionAllowAutoDisconnect));
@@ -173,6 +186,16 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
         bind.mainGetOptionSync(key: kOptionServerlessDirectOnly) == 'Y';
     _messageSoundEnabled = option2bool(
         kOptionMessageSound, bind.mainGetOptionSync(key: kOptionMessageSound));
+    _ttsEnabled = bind.mainGetLocalOption(key: TtsService.kEnabled) == 'Y';
+    _ttsContinuousRead = bind.mainGetLocalOption(key: TtsService.kContinuousRead) == 'Y';
+    _ttsIdleTimeout = TtsService.instance.idleTimeoutMinutes;
+    _ttsVoiceId = int.tryParse(
+            bind.mainGetLocalOption(key: TtsService.kVoiceId).trim()) ??
+        0;
+    _ttsSpeed = double.tryParse(
+            bind.mainGetLocalOption(key: TtsService.kSpeed).trim()) ??
+        1.0;
+    if (_ttsSpeed <= 0) _ttsSpeed = 1.0;
     _messageVibrationEnabled = option2bool(kOptionMessageVibration,
         bind.mainGetOptionSync(key: kOptionMessageVibration));
     final soundPath =
@@ -189,6 +212,8 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
         _messageVibrationDuration != 'long') {
       _messageVibrationDuration = 'short';
     }
+    _autoStartScreenShare =
+        bind.mainGetLocalOption(key: kOptionAutoStartScreenShare) == 'Y';
   }
 
   @override
@@ -207,6 +232,18 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
       });
     };
     DirectChatAccessController.instance.addListener(_directChatAccessListener!);
+
+    _ttsListener = () {
+      if (!mounted) return;
+      setState(() {
+        _ttsDownloading = TtsService.instance.isDownloading;
+        _ttsProgress = TtsService.instance.downloadProgress;
+      });
+    };
+    TtsService.instance.addListener(_ttsListener!);
+    TtsService.instance.isModelDownloaded().then((ready) {
+      if (mounted) setState(() => _ttsModelReady = ready);
+    });
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       var update = false;
@@ -291,6 +328,10 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
       DirectChatAccessController.instance
           .removeListener(_directChatAccessListener!);
       _directChatAccessListener = null;
+    }
+    if (_ttsListener != null) {
+      TtsService.instance.removeListener(_ttsListener!);
+      _ttsListener = null;
     }
     super.dispose();
   }
@@ -582,6 +623,28 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                     key: kOptionAllowAutoDisconnect, value: value);
                 setState(() {});
               },
+      ),
+      SettingsTile(
+        title: Text(translate('Connection mode')),
+        description: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${translate("Local Address")}: $_localIP'
+              '${_directAccessPort.isEmpty ? "" : ":$_directAccessPort"}',
+              style: const TextStyle(fontSize: 13),
+            ),
+            if (_publicIP.isNotEmpty)
+              Text(
+                '${translate("Public IP")}: $_publicIP',
+                style: const TextStyle(fontSize: 13),
+              ),
+            Text(
+              translate('relay_last_resort_tip'),
+              style: const TextStyle(fontSize: 12),
+            ),
+          ],
+        ),
       )
     ];
     if (_hasIgnoreBattery) {
@@ -1098,6 +1161,235 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
             ),
           ],
         ),
+        SettingsSection(
+          title: Text(translate('Voice reading')),
+          tiles: [
+            SettingsTile.switchTile(
+              leading: const Icon(Icons.record_voice_over_outlined),
+              title: Text(translate('Read new messages aloud')),
+              description: Text(translate(
+                  'Offline voice reading via local model; no server involved')),
+              initialValue: _ttsEnabled,
+              onToggle: (value) async {
+                await bind.mainSetLocalOption(
+                    key: TtsService.kEnabled, value: value ? 'Y' : '');
+                if (mounted) setState(() => _ttsEnabled = value);
+                // 关闭朗读开关时同步关闭连续朗读模式。
+                if (!value && _ttsContinuousRead) {
+                  await TtsService.instance.setContinuousRead(false);
+                  if (mounted) setState(() => _ttsContinuousRead = false);
+                }
+                if (value && !_ttsModelReady) {
+                  await _ensureTtsModel();
+                }
+              },
+            ),
+            SettingsTile.switchTile(
+              leading: const Icon(Icons.queue_music_rounded),
+              title: Text(translate('Continuous reading')),
+              description: Text(translate(
+                  'Automatically read all incoming messages one by one until turned off')),
+              initialValue: _ttsContinuousRead,
+              onToggle: (value) async {
+                await TtsService.instance.setContinuousRead(value);
+                if (mounted) setState(() => _ttsContinuousRead = value);
+                if (value && !_ttsEnabled) {
+                  await bind.mainSetLocalOption(
+                      key: TtsService.kEnabled, value: 'Y');
+                  if (mounted) setState(() => _ttsEnabled = true);
+                }
+                if (value && !_ttsModelReady) {
+                  await _ensureTtsModel();
+                }
+              },
+            ),
+            // 使用提示：长按消息可朗读。
+            SettingsTile(
+              leading: const Icon(Icons.lightbulb_outline, size: 20),
+              title: Text(
+                translate('Long-press any text message to read it aloud'),
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.55),
+                ),
+              ),
+            ),
+            SettingsTile.navigation(
+              leading: const Icon(Icons.graphic_eq_outlined),
+              title: Text(translate('Reading voice')),
+              description: Text(
+                _ttsModelReady
+                    ? (TtsService.presetVoices.length > _ttsVoiceId
+                        ? TtsService.presetVoices[_ttsVoiceId]
+                        : TtsService.presetVoices.first)
+                    : translate('Model not downloaded yet'),
+              ),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              enabled: _ttsModelReady,
+              onPressed:
+                  _ttsModelReady ? (_) => _showVoicePicker() : null,
+            ),
+            SettingsTile(
+              leading: const Icon(Icons.speed_outlined),
+              title: Text(translate('Reading speed')),
+              enabled: _ttsModelReady && _ttsEnabled,
+              trailing: SizedBox(
+                width: 170,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Expanded(
+                      child: Slider(
+                        value: _ttsSpeed,
+                        min: 0.5,
+                        max: 1.5,
+                        divisions: 10,
+                        activeColor: const Color(0xFF07C160),
+                        onChanged: (v) {
+                          setState(() => _ttsSpeed = v);
+                        },
+                        onChangeEnd: (v) async {
+                          await bind.mainSetLocalOption(
+                            key: TtsService.kSpeed,
+                            value: v.toStringAsFixed(1),
+                          );
+                          if (_ttsEnabled) {
+                            TtsService.instance.speed;
+                          }
+                        },
+                      ),
+                    ),
+                    SizedBox(
+                      width: 34,
+                      child: Text(
+                        '${(_ttsSpeed * 100).round()}%',
+                        textAlign: TextAlign.right,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF8A8D94),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            SettingsTile(
+              leading: const Icon(Icons.timer_outlined),
+              title: Text(translate('Engine idle timeout')),
+              description: Text(
+                _ttsIdleTimeout == 0
+                    ? translate('Never auto-release')
+                    : '$_ttsIdleTimeout ${translate('minutes')}',
+              ),
+              enabled: _ttsModelReady && _ttsEnabled,
+              trailing: SizedBox(
+                width: 170,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Expanded(
+                      child: Slider(
+                        value: _ttsIdleTimeout.toDouble(),
+                        min: 0,
+                        max: 15,
+                        divisions: 16,
+                        activeColor: const Color(0xFF07C160),
+                        onChanged: (v) {
+                          setState(() => _ttsIdleTimeout = v.round());
+                        },
+                        onChangeEnd: (v) async {
+                          await TtsService.instance
+                              .setIdleTimeoutMinutes(v.round());
+                        },
+                      ),
+                    ),
+                    SizedBox(
+                      width: 42,
+                      child: Text(
+                        _ttsIdleTimeout == 0
+                            ? '∞'
+                            : '$_ttsIdleTimeout m',
+                        textAlign: TextAlign.right,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF8A8D94),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (_ttsModelReady)
+              SettingsTile.navigation(
+                leading: const Icon(Icons.delete_outline),
+                title: Text(translate('Delete voice model')),
+                description: Text(
+                  TtsService.instance.isModelBundled
+                      ? translate('Bundled model (about 133 MB)')
+                      : translate('Free up about 133 MB of storage'),
+                ),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onPressed: (_) => _confirmDeleteTtsModel(),
+              )
+            else if (TtsService.instance.isModelBundled && _ttsDownloading)
+              // 内置模型版本：正在从 assets 复制
+              SettingsTile(
+                leading: const Icon(Icons.content_copy_rounded),
+                title: Text(translate('Copying voice model…')),
+                description: Text(
+                  '${(_ttsProgress * 100).toStringAsFixed(0)}%',
+                  style: const TextStyle(color: Color(0xFF07C160)),
+                ),
+                enabled: false,
+              )
+            else
+              SettingsTile(
+                leading: Icon(
+                  _ttsDownloading
+                      ? Icons.downloading_rounded
+                      : Icons.download_outlined,
+                ),
+                title: Text(_ttsDownloading
+                    ? translate('Downloading voice model…')
+                    : translate('Download voice model (about 133 MB)')),
+                description: _ttsDownloading
+                    ? Text(
+                        '${(_ttsProgress * 100).toStringAsFixed(0)}%',
+                        style: const TextStyle(color: Color(0xFF07C160)),
+                      )
+                    : Text(translate(
+                        'One-time download, then fully offline reading')),
+                enabled: !_ttsDownloading,
+                onPressed: (_) => _startTtsDownload(),
+              ),
+          ],
+        ),
+        if (isAndroid)
+          SettingsSection(
+            title: Text(translate('Screen sharing (remote assist)')),
+            tiles: [
+              SettingsTile.switchTile(
+                leading: const Icon(Icons.screen_share_outlined),
+                title: Text(translate('Auto-start screen sharing')),
+                description: Text(translate(
+                    'Auto start the share service on app launch (shows the system record/project dialog)')),
+                initialValue: _autoStartScreenShare,
+                onToggle: (value) async {
+                  await bind.mainSetLocalOption(
+                      key: kOptionAutoStartScreenShare,
+                      value: value ? 'Y' : '');
+                  if (mounted) {
+                    setState(() => _autoStartScreenShare = value);
+                  }
+                  showToast(value
+                      ? translate('Screen sharing will auto start on next launch')
+                      : translate('Screen sharing will not auto start'));
+                },
+              ),
+            ],
+          ),
         if (!kLocalProfileOnly && !bind.isDisableAccount())
           SettingsSection(
             title: Text(translate('Account')),
@@ -2240,6 +2532,100 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
             })
       ],
     );
+  }
+
+  Future<void> _showVoicePicker() async {
+    await gFFI.dialogManager.show<void>(
+      (setState, close, context) => CustomAlertDialog(
+        title: Text(translate('Reading voice')),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (var i = 0; i < TtsService.presetVoices.length; i++) ...<Widget>[
+                ListTile(
+                  leading: const Icon(Icons.record_voice_over_outlined),
+                  title: Text(translate(TtsService.presetVoices[i])),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      IconButton(
+                        icon: const Icon(Icons.play_circle_outline,
+                            color: Color(0xFF07C160)),
+                        tooltip: translate('Preview'),
+                        onPressed: () =>
+                            TtsService.instance.preview(i),
+                      ),
+                      if (_ttsVoiceId == i)
+                        const Icon(Icons.check, color: Color(0xFF07C160)),
+                    ],
+                  ),
+                  onTap: () async {
+                    await bind.mainSetLocalOption(
+                        key: TtsService.kVoiceId, value: '$i');
+                    if (mounted) setState(() => _ttsVoiceId = i);
+                    close();
+                  },
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: close,
+            child: Text(translate('Cancel')),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _ensureTtsModel() async {
+    if (_ttsModelReady || _ttsDownloading) return;
+    try {
+      await TtsService.instance.downloadModel();
+      if (mounted) setState(() => _ttsModelReady = true);
+      showToast(translate('Voice model ready'));
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _ttsDownloading = false;
+          _ttsModelReady = false;
+        });
+      }
+      showToast(translate('Voice model download failed, please retry'));
+    }
+  }
+
+  void _startTtsDownload() {
+    showToast(translate('Download started, please wait'));
+    _ensureTtsModel();
+  }
+
+  Future<void> _confirmDeleteTtsModel() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(translate('Delete voice model')),
+        content: Text(translate(
+            'This removes the offline voice model (about 133 MB). Reading aloud will stop until you download it again.')),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(translate('Cancel')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(translate('Delete')),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await TtsService.instance.deleteModel();
+    if (mounted) setState(() => _ttsModelReady = false);
+    showToast(translate('Voice model deleted'));
   }
 }
 
