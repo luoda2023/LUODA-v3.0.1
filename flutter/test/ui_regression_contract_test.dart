@@ -1143,12 +1143,16 @@ void main() {
       chatModelSource,
       contains("msg.customProperties!['ldesk_conn_mode'] = record.connMode;"),
     );
-    // 提示文字与时间统一字号，85% 不透明度的中性灰小字，浅深色主题各一种。
+    // 提示文字与时间统一字号，统一中性灰 + 50% 透明度（_chatMetaGrey），
+    // 浅深色主题各一种颜色，透明度一致避免深浅不一。
     final sourceRender = chatPageSource.split('if (showMessageSource)')[1];
     expect(sourceRender, contains('fontSize: 10'));
-    expect(sourceRender, contains('.withOpacity(0.85)'));
-    expect(sourceRender, contains('const Color(0xFF9AA0A8)'));
-    expect(sourceRender, contains('const Color(0xFF8A8F98)'));
+    expect(sourceRender, contains('_chatMetaGrey(dark)'));
+    // 统一灰色定义：同一种灰色 + 50% 透明度。
+    expect(chatPageSource, contains('_chatMetaGrey(bool dark)'));
+    expect(chatPageSource, contains('.withOpacity(0.5)'));
+    expect(chatPageSource, contains('const Color(0xFF9AA0A8)'));
+    expect(chatPageSource, contains('const Color(0xFF8A8F98)'));
   });
 
   test('mobile QR scanner exposes camera and gallery controls', () {
@@ -2287,8 +2291,8 @@ void main() {
     expect(flutterBuild, greaterThan(normalization));
   });
 
-  test('MSI package and release asset use LDesk branding', () {
-    expect(msiWorkflowSource, contains('--app-name LDesk'));
+  test('MSI package and release asset use 点聊 branding', () {
+    expect(msiWorkflowSource, contains('--app-name 点聊'));
     expect(msiWorkflowSource, contains('LDesk-3.1.1-MSI'));
     expect(msiWorkflowSource, contains('LDesk-3.1.1-Setup-\$culture.msi'));
     expect(msiWorkflowSource, contains('LDesk-3.1.1-Setup-*.msi'));
@@ -2433,7 +2437,7 @@ void main() {
     expect(quickAction, contains('BorderRadius.circular(10)'));
     // 访问历史设备页面隐藏“收藏” tab（收藏已独立为 PC 导航大项 /
     // 手机右上角“+”菜单入口）。
-    expect(deviceHistory, contains('child: PeerTabPage(hideFavoritesTab: true)'));
+    expect(deviceHistory, contains('const DeviceHistoryPage(),'));
     expect(mobileConnectionSource, contains('_matchesContactQuery('));
     expect(mobileConnectionSource, contains('Semantics('));
 
@@ -2897,6 +2901,8 @@ void main() {
       'Pin Toolbar',
       'Unpin Toolbar',
     });
+    // Symbols that are identical in all languages must not be flagged.
+    usedKeys.removeWhere((key) => key.length <= 2 && RegExp(r'^[^a-zA-Z]+$').hasMatch(key));
     final cnSource = File('../src/lang/cn.rs').readAsStringSync();
     final translations = <String, String>{
       for (final match in tuplePattern.allMatches(cnSource))
@@ -3003,5 +3009,22 @@ void main() {
     expect(homePageSource, contains('_isLoopbackPeer(peer)'));
     expect(homePageSource, contains('_historyIdentity(peer)'));
     expect(homePageSource, contains('seenPeerKeys.add(identity)'));
+  });
+
+  test('desktop shows file helper only after phone pairing and closes QR dialog',
+      () {
+    // 绑定手机后：文件传输助手置顶出现（微信风格）。
+    expect(homePageSource, contains('boundToPhone ='));
+    expect(homePageSource, contains('ensureFileHelperEntry()'));
+    expect(homePageSource, contains('gFFI.chatModel.fileHelperKey'));
+    expect(homePageSource, contains('MapEntry<MessageKey, MessageBody>('));
+    expect(homePageSource, contains('if (fileHelperRow != null)'));
+    // 二维码弹窗：绑定成功后自动关闭（监听 DirectPairingStore.revision）。
+    final qrFlow = homePageSource
+        .split('Future<void> _showPairingQrDialog(')[1]
+        .split('Future<void> _showBoundPhoneDialog(')[0];
+    expect(qrFlow, contains('DirectPairingStore.revision.addListener'));
+    expect(qrFlow, contains('Navigator.of(ctx).pop()'));
+    expect(qrFlow, contains('removeListener(bindingListener)'));
   });
 }

@@ -74,7 +74,7 @@ class _AccountState extends State<_Account> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                            fontSize: 16,
+                            fontSize: _kTitleFontSize,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -85,7 +85,7 @@ class _AccountState extends State<_Account> {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              fontSize: 13,
+                              fontSize: _kContentFontSize,
                               color:
                                   Theme.of(context).textTheme.bodySmall?.color,
                             ),

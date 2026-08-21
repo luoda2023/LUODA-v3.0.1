@@ -191,7 +191,7 @@ class _GeneralState extends State<_General> {
                             child: Text(
                               translate('Advanced settings'),
                               style: theme.textTheme.titleLarge?.copyWith(
-                                fontSize: 18,
+                                fontSize: _kTitleFontSize,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -1039,7 +1039,7 @@ class _GeneralState extends State<_General> {
                         translate('Choose'),
                         style: TextStyle(
                           color: Theme.of(context).colorScheme.primary,
-                          fontSize: 13,
+                          fontSize: _kContentFontSize,
                         ),
                       ),
                       Icon(
@@ -1164,7 +1164,7 @@ class _GeneralState extends State<_General> {
                         ),
                         style: TextStyle(
                           color: Theme.of(context).colorScheme.primary,
-                          fontSize: 13,
+                          fontSize: _kContentFontSize,
                         ),
                       ),
                       Icon(

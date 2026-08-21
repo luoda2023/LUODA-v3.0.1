@@ -57,9 +57,13 @@ Future<void> showDirectConnectionDetails(
         borderRadius: BorderRadius.circular(16),
       ),
       content: ConstrainedBox(
-        // 桌面端弹窗加宽 1/2（620 → 930）：详情卡片横向铺开，
-        // ID / 指纹 / IP 历史等字段不再拥挤换行，避免“太扁”。
-        constraints: const BoxConstraints(maxWidth: 930, maxHeight: 760),
+        // 桌面端弹窗加宽：详情卡片横向铺开，
+        // ID / 指纹 / IP 历史等字段不再拥挤换行。
+        constraints: const BoxConstraints(
+          minWidth: 680,
+          maxWidth: 1400,
+          maxHeight: 760,
+        ),
         child: content,
       ),
     ),

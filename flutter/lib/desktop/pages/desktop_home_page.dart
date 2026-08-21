@@ -2525,26 +2525,27 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                   : selectedPeerId;
               RuntimeLogger.instance.info('WSCOPE',
                   'sel=${rawSelectedPeerId} model=${modelPeerId} canon=${modelConversationId} match=${userMatchesSelection} peer=${peerId} activeD=${_activeDirectChatPeerId}');
-              // 使用统一的名称解析逻辑，确保与联系人列表一致。
-              // 注意：必须实时调用 _findContact 获取最新联系人，
-              // 不能使用缓存的 _selectedContact（可能已过时）。
-              final titlePairing = DirectPairingStore.findForConversation(rawSelectedPeerId);
+              // 使用与列表行完全相同的名称解析逻辑，确保一致。
               final modelDisplayName = (user?.firstName ?? '').trim();
-              // 实时解析 contact，确保头部名称与列表行完全一致。
+              // 实时查询 contact（与列表行 _buildMergedChatRow 相同）。
               final freshContact = rawSelectedPeerId.isNotEmpty
                   ? _findContact(rawSelectedPeerId)
                   : _selectedContact;
-              final resolvedContactName = freshContact != null
-                  ? _resolveContactDisplayName(freshContact)
-                  : modelDisplayName;
+              // 完全对齐列表行的 _resolveConversationDisplayName 逻辑，
+              // 包括 contactName → pairing displayName → chatName → peerId 的优先级，
+              // 以及过滤本地用户名、'luoda'、ID-like 名称等规则。
               final selectedName = rawSelectedPeerId.isEmpty
                   ? ''
-                  : _resolveConversationDisplayName(
-                      rawSelectedPeerId,
-                      contactName: resolvedContactName,
-                      chatName: titlePairing?.displayName ?? '',
-                      idFallback: rawSelectedPeerId,
-                    );
+                  : rawSelectedPeerId == kFileHelperId
+                      ? translate('File Transfer Assistant')
+                      : _resolveConversationDisplayName(
+                          rawSelectedPeerId,
+                          contactName: freshContact != null
+                              ? _resolveContactDisplayName(freshContact)
+                              : '',
+                          chatName: modelDisplayName,
+                          idFallback: rawSelectedPeerId,
+                        );
               final hasConversation =
                   user != null && userMatchesSelection && peerId.isNotEmpty;
               final canStartDirectSession =
@@ -2560,11 +2561,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                       chatModel: model,
                       title: selectedName.isNotEmpty
                           ? selectedName
-                          : hasConversation && modelDisplayName.isNotEmpty
-                              ? modelDisplayName
-                              : rawSelectedPeerId.isNotEmpty
-                                      ? rawSelectedPeerId
-                                      : translate('Direct chat'),
+                          : translate('Direct chat'),
                       peerId: peerId,
                       hasConversation: hasConversation,
                       canStartDirectSession: canStartDirectSession,
@@ -5348,14 +5345,38 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     if (requestedId.isEmpty) return;
 
     if (await DirectPairingStore.isSelfTarget(requestedId)) {
-      if (activate) {
-        _showConversationNotice(
-          translate(
-              'This is the current device. You cannot connect to or message yourself.'),
-          tone: _WorkspaceNoticeTone.error,
-        );
+      // Companion sync: the requestedId is a person account shared by
+      // multiple devices (e.g. PC + OPPO phone).  If any live incoming
+      // chat client or bound device exists for this account, it is NOT
+      // self — allow the connection.
+      final canonical = DirectPairingStore.canonicalConversationId(requestedId);
+      final hasLiveClient = gFFI.serverModel.clients.any(
+        (c) => c.isChat &&
+            c.authorized &&
+            !c.disconnected &&
+            (c.peerId == requestedId ||
+                c.peerId == canonical ||
+                DirectPairingStore.conversationPeerIds(requestedId)
+                    .contains(c.peerId)),
+      );
+      final ownId = (await bind.mainGetMyId()).trim();
+      final hasBoundDevices =
+          DirectPairingStore.boundDevices(canonical)
+              .where((d) => d.peerId != ownId)
+              .isNotEmpty;
+      final hasPersonDevices =
+          (DirectPairingStore.loadPersonDevices()[canonical]?.isNotEmpty ??
+              false);
+      if (!hasLiveClient && !hasBoundDevices && !hasPersonDevices) {
+        if (activate) {
+          _showConversationNotice(
+            translate(
+                'This is the current device. You cannot connect to or message yourself.'),
+            tone: _WorkspaceNoticeTone.error,
+          );
+        }
+        return;
       }
-      return;
     }
     final pairing = DirectPairingStore.find(requestedId) ??
         DirectPairingStore.findByEndpoint(requestedId) ??
@@ -5408,12 +5429,15 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     }
     final incoming = _incomingDirectChatClientFor(peerId);
     if (incoming != null) {
+      // Always update currentKey with the live connId so _sendWireImpl can
+      // route via cmSendChat — even when called from ensureChatConnection
+      // (activate: false) the key must carry the real client id.
+      gFFI.chatModel.changeCurrentKey(MessageKey(peerId, incoming.id));
       if (activate) {
         final fallbackName = normalizeDirectPeerName(
           contact == null ? '' : _contactName(contact),
           fallback: peerId,
         );
-        gFFI.chatModel.changeCurrentKey(MessageKey(peerId, incoming.id));
         gFFI.chatModel.updatePeerIdentity(
           peerId,
           displayName: normalizeDirectPeerName(
@@ -8503,6 +8527,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       if (await DirectPairingStore.isSelfTarget(peerId)) return;
       if (DirectPairingStore.resolveConnectionTarget(peerId) == null) return;
       await _startDirectChat(peerId, activate: false);
+    };
+    gFFI.chatModel.findDirectSession = (peerId) {
+      return _directChatSessionFor(peerId);
     };
     pendingViewerInvite.addListener(_handlePendingViewerInvite);
     WidgetsBinding.instance.addPostFrameCallback((_) {

@@ -1324,14 +1324,36 @@ class DirectPairingStore {
 
   static Future<bool> isSelfTarget(String value) async {
     try {
-      return isSelfTargetValue(
+      final ownId = (await bind.mainGetMyId()).trim();
+      final selfId = isSelfTargetValue(
         value,
-        ownId: await bind.mainGetMyId(),
+        ownId: ownId,
         localAddresses: <String>[
           bind.mainGetOptionSync(key: 'lan-ip'),
           bind.mainGetOptionSync(key: 'public-ip'),
         ],
       );
+      if (!selfId) return false;
+      // When the ID matches our own but it is a person account (companion
+      // sync) with linked devices, it is NOT self — it represents another
+      // person's devices.  Block only when there are no linked devices,
+      // which truly means "chatting with yourself".
+      //
+      // IMPORTANT: Exclude our own device from the bound list. If OPPO
+      // phone's pairing has accountId == our own ID (due to companion sync),
+      // boundDevices(ourId) returns both the phone AND ourselves — we must
+      // count only non-self devices to decide.
+      final input = value.trim().replaceAll(' ', '');
+      final at = input.indexOf('@');
+      final targetId = at > 0 ? input.substring(0, at) : input;
+      final canonical = canonicalConversationId(targetId);
+      final bound = boundDevices(canonical)
+          .where((d) => d.peerId != ownId)
+          .toList();
+      if (bound.isNotEmpty) return false;
+      final personDevices = loadPersonDevices()[canonical];
+      if (personDevices != null && personDevices.isNotEmpty) return false;
+      return true;
     } catch (error) {
       debugPrint('Unable to check local connection target: $error');
       return false;

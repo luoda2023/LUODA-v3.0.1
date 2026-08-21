@@ -71,7 +71,7 @@ class _VoiceMessageRecorderButtonState
         child: Stack(
           alignment: Alignment.center,
           children: <Widget>[
-            Container(color: Colors.black.withOpacity(0.28)),
+            Container(color: const Color(0xCC000000)),
             StatefulBuilder(
               builder: (context, setOverlayState) {
                 _overlaySetState = setOverlayState;

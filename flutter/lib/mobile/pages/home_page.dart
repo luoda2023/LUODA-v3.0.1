@@ -67,6 +67,26 @@ class _MobileChatGroup {
 /// 点聊列表里的“系统通知”入口（会议分类上方）。
 class _SystemNoticeEntry {}
 
+/// Check if a platform string represents a mobile device.
+bool _isMobilePlatform(String? platform) {
+  final value = (platform ?? '').toLowerCase();
+  return value.contains('android') ||
+      value.contains('ios') ||
+      value.contains('phone');
+}
+
+/// Compute the display name for a peer that matches the conversation list.
+/// For mobile peers, prefers hostname (e.g. "OPPO-PFUM10") over displayName
+/// (e.g. "Android"), matching the merged-row logic in _buildMergedEntry.
+String _resolveContactDisplayName(Peer? peer) {
+  if (peer == null) return '';
+  if (_isMobilePlatform(peer.platform)) {
+    final h = peer.hostname.trim();
+    if (h.isNotEmpty) return h;
+  }
+  return peer.finalName();
+}
+
 /// ???????????/???????????ID ????????????
 /// peerId?????????ID ???????????
 String _resolveConversationName(
@@ -303,17 +323,34 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
       watchPeer = await gFFI.chatModel.firstPendingPeerId();
     }
     if (watchPeer == null || watchPeer.isEmpty) return;
-    final access = DirectChatAccessController.instance..load();
-    if (!access.shouldAutoReconnect(watchPeer)) return;
-    if (DirectPairingStore.resolveConnectionTarget(watchPeer) == null) return;
     final hasStuck = await gFFI.chatModel.hasPendingOutgoing(watchPeer);
-    if (!gFFI.closed &&
-        gFFI.connType == ConnType.chat &&
-        gFFI.chatModel.currentKey.peerId == watchPeer &&
-        gFFI.ffiModel.pi.isSet.isTrue &&
-        !hasStuck) {
+    if (!hasStuck) {
+      // No undelivered messages: only reconnect when the user enabled
+      // auto-reconnect for this peer (battery/流量 friendly).
+      final access = DirectChatAccessController.instance..load();
+      if (!access.shouldAutoReconnect(watchPeer)) return;
+      if (DirectPairingStore.resolveConnectionTarget(watchPeer) == null) {
+        return;
+      }
+    }
+    final healthy =
+        !gFFI.closed &&
+            gFFI.connType == ConnType.chat &&
+            gFFI.chatModel.currentKey.peerId == watchPeer &&
+            gFFI.ffiModel.pi.isSet.isTrue;
+    if (healthy) {
+      // LUODA fix: keep the live connection instead of force-redialing it.
+      // The old code redialed whenever pending messages existed, which closed
+      // the just-established session (`gFFI.close()` + re-dial) before the
+      // messages could be delivered -> pending never drains -> redial every
+      // 10s forever (connection ping-pong, messages stuck at "待发送").
+      if (hasStuck) {
+        // Deliver pending messages over the existing live session.
+        unawaited(_flushPendingAfterDial(watchPeer));
+      }
       return;
     }
+    if (!hasStuck) return;
     await _ensureChatConnection(watchPeer, force: true);
     // 拨号完成后刷新该会话的待发消息。
     unawaited(_flushPendingAfterDial(watchPeer));
@@ -421,11 +458,79 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
+  /// Public entry: open a chat conversation with the same full-featured
+  /// detail page used by the Messages tab (custom AppBar, action buttons,
+  /// file/image/photo send, etc.). Called from the Contacts tab so both
+  /// tabs share the identical chat experience.
+  void openChatFromContacts(MessageKey key) => _openConversation(key);
+
+  /// Green/gray online status dot for the chat detail AppBar.
+  Widget _buildChatOnlineDot(String peerId) {
+    final online = _isChatPeerOnline(peerId);
+    final color = online ? const Color(0xFF07C160) : const Color(0xFF8A8D94);
+    return Container(
+      width: 10,
+      height: 10,
+      decoration: BoxDecoration(
+        color: color,
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.4),
+            blurRadius: 4,
+            spreadRadius: 1,
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Whether [peerId] is currently reachable (active authorized chat client
+  /// or rendezvous-reported online).
+  bool _isChatPeerOnline(String peerId) {
+    if (peerId.isEmpty) return false;
+    // Direct incoming/outgoing chat session counts as online.
+    final hasClient = gFFI.serverModel.clients.any(
+      (c) => c.peerId == peerId && c.authorized && !c.disconnected,
+    );
+    if (hasClient) return true;
+    // Check rendezvous online state via the model.
+    final connPage = _contactsPageKey.currentState;
+    if (connPage != null) {
+      return connPage.isPeerOnline(peerId);
+    }
+    return false;
+  }
+
   Future<void> _openCurrentConversation() async {
     final key = gFFI.chatModel.currentKey;
     if (!mounted || _chatDetailOpen || key.peerId.isEmpty) return;
     _chatDetailOpen = true;
     try {
+      // LUODA FIX: Create ChatPage OUTSIDE AnimatedBuilder so that
+      // chatModel.notifyListeners() does NOT recreate the ChatPage widget
+      // tree and cause the TextField to lose focus (keyboard dismissing
+      // on every typing indicator or message status update).
+      final chatPage = ChatPage(
+        type: ChatPageType.mobileMain,
+        onAttachFile: _sendDirectChatFiles,
+        isMeetingChat: gFFI.chatModel.currentKey.peerId
+            .startsWith('meeting:'),
+        onRemoteAssist: gFFI.chatModel.currentKey.peerId
+                .startsWith('meeting:')
+            ? () {
+                final group = MeetingGroupStore.find(
+                  gFFI.chatModel.currentKey.peerId
+                      .substring('meeting:'.length),
+                );
+                if (group != null) _joinMeetingSessionFromChat(group);
+              }
+            : _startRemoteFromChat,
+        onForwardMessages: _forwardConversationMessages,
+        onSendImage: _pickImageOrFile,
+        onTakePhoto: _takePhoto,
+        onSendLocation: _sendLocation,
+      );
       await Navigator.of(context).push<void>(
         MaterialPageRoute<void>(
           builder: (_) => AnimatedBuilder(
@@ -433,7 +538,6 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
             builder: (context, __) {
               final user = gFFI.chatModel.currentUser;
               final currentKey = gFFI.chatModel.currentKey;
-              // 会议群聊：标题显示会议名 + 群成员徽标，点击打开成员查询窗口。
               final isMeetingChat = currentKey.peerId.startsWith('meeting:');
               final meetingGroup = isMeetingChat
                   ? MeetingGroupStore.find(
@@ -448,10 +552,9 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       ? translate('File Transfer Assistant')
                       : _resolveConversationName(
                           currentKey.peerId,
-                          contactName: _findContactByPeerId(currentKey.peerId)
-                                  ?.finalName() ??
-                              '',
+                          contactName: _resolveContactDisplayName(_findContactByPeerId(currentKey.peerId)),
                           chatName: user?.firstName ?? '',
+                          idFallback: currentKey.peerId,
                         );
               final pairing = DirectPairingStore.findForConversation(
                 currentKey.peerId,
@@ -469,19 +572,30 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             : () => showDirectConnectionDetails(
                                   context,
                                   conversationId: currentKey.peerId,
-                            ),
+                                ),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: <Widget>[
-                        Text(
-                          name.isEmpty ? currentKey.peerId : name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: MobileText.bodyLg,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 0,
-                          ),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: <Widget>[
+                            if (!isMeetingChat) ...<Widget>[
+                              _buildChatOnlineDot(currentKey.peerId),
+                              const SizedBox(width: 6),
+                            ],
+                            Flexible(
+                              child: Text(
+                                name.isEmpty ? currentKey.peerId : name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: MobileText.bodyLg,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: 0,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                         if (meetingGroup != null)
                           Text(
@@ -660,28 +774,7 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     ),
                   ],
                 ),
-                body: ChatPage(
-                  type: ChatPageType.mobileMain,
-                  onAttachFile: _sendDirectChatFiles,
-                  // 会议群聊：+ 面板入口为“进入观看”（只读观看演示）；
-                  // 普通会话才是“远程桌面”（可操控）。
-                  isMeetingChat: gFFI.chatModel.currentKey.peerId
-                      .startsWith('meeting:'),
-                  onRemoteAssist: gFFI.chatModel.currentKey.peerId
-                          .startsWith('meeting:')
-                      ? () {
-                          final group = MeetingGroupStore.find(
-                            gFFI.chatModel.currentKey.peerId
-                                .substring('meeting:'.length),
-                          );
-                          if (group != null) _joinMeetingSessionFromChat(group);
-                        }
-                      : _startRemoteFromChat,
-                  onForwardMessages: _forwardConversationMessages,
-                  onSendImage: _pickImageOrFile,
-                  onTakePhoto: _takePhoto,
-                  onSendLocation: _sendLocation,
-                ),
+                body: chatPage,
               );
             },
           ),
@@ -2648,7 +2741,7 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
     final contact = _findContactByPeerId(entry.key.peerId);
     final name = _resolveConversationName(
       entry.key.peerId,
-      contactName: contact?.finalName() ?? '',
+      contactName: _resolveContactDisplayName(contact),
       chatName: user.firstName ?? '',
       idFallback: user.id,
     );
@@ -2927,8 +3020,9 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
     final contact = _findContactByPeerId(entry.key.peerId);
     final name = _resolveConversationName(
       entry.key.peerId,
-      contactName: contact?.finalName() ?? '',
+      contactName: _resolveContactDisplayName(contact),
       chatName: user.firstName ?? '',
+      idFallback: entry.key.peerId,
     );
     final client = gFFI.serverModel.clients.firstWhereOrNull(
       (client) => group.conversations.any((e) =>
@@ -3488,8 +3582,9 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
                                             : _resolveConversationName(
                                                 entry.key.peerId,
                                                 contactName:
-                                                    contact?.finalName() ?? '',
+                                                    _resolveContactDisplayName(contact),
                                                 chatName: user.firstName ?? '',
+                                                idFallback: entry.key.peerId,
                                               );
                                         final client = gFFI.serverModel.clients
                                             .firstWhereOrNull(

@@ -61,7 +61,7 @@ Widget _Card({
                                 Text(
                                   translate(title),
                                   style: theme.textTheme.titleLarge?.copyWith(
-                                    fontSize: 16,
+                                    fontSize: _kTitleFontSize,
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
@@ -72,7 +72,7 @@ Widget _Card({
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                     style: theme.textTheme.bodySmall?.copyWith(
-                                      fontSize: 12,
+                                      fontSize: _kContentFontSize,
                                       color: theme.textTheme.bodySmall?.color,
                                     ),
                                   ),

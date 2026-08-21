@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:luoda_flutter/common/direct_chat_policy.dart';
+import 'package:luoda_flutter/common/direct_pairing.dart';
 import 'package:luoda_flutter/consts.dart';
 import 'package:luoda_flutter/main.dart';
 import 'package:luoda_flutter/mobile/pages/settings_page.dart';
@@ -510,45 +511,25 @@ class ServerModel with ChangeNotifier {
     }
   }
 
-  /// Auto-start the service on app launch once the user has authorized it at
-  /// least once. Mirrors the manual toggle flow but skips the confirmation
-  /// dialog. No-op when the user never authorized the service.
+  /// Auto-start the screen-share (remote-control) service on app launch ONLY
+  /// when the user explicitly enabled it in Settings.
+  ///
+  /// Default is OFF: the Android MediaProjection token is a Binder that the
+  /// system revokes whenever the process dies, so the OS forces a fresh
+  /// "开始录制或投射内容吗？" consent dialog on every cold start. Auto-starting
+  /// by default therefore nagged users with that dialog on every launch, which
+  /// is why it is now opt-in. Users who want the device reachable for remote
+  /// control right after launch can enable it in Settings; everyone else
+  /// starts the service manually from the Assist page when needed (no dialog
+  /// until they actually tap start).
   Future<void> maybeAutoStartService() async {
     debugPrint('maybeAutoStartService enter android=$isAndroid isStart=$_isStart');
     if (!isAndroid || _isStart) return;
-    final autoStartOpt = bind.mainGetLocalOption(key: kOptionAutoStartService);
-    // A saved MediaProjection token means the user granted the service at
-    // least once (even before the auto-start option existed). Treat it as
-    // consent so MainService starts without asking again on every launch.
-    var hasToken = false;
-    try {
-      hasToken = await gFFI.invokeMethod('has_media_projection_token') == true;
-    } catch (_) {}
-    // Completing the one-time permission wizard is also consent: after a
-    // reinstall the persisted option/token are gone, but the user has already
-    // authorized the app before, so keep auto-starting instead of making them
-    // hunt for the manual toggle again.
-    final wizardDone =
-        bind.mainGetLocalOption(key: 'first_run_permissions_done_v2');
-    debugPrint(
-        'maybeAutoStartService autoStartOpt=$autoStartOpt hasToken=$hasToken wizardDone=$wizardDone');
-    if (autoStartOpt != 'Y' && !hasToken && wizardDone != 'Y') return;
-    // MediaProjection tokens are Binders and cannot survive a process death,
-    // so hasToken is only true while the consent intent is still alive.
-    //
-    // LUODA fix: when the user has explicitly enabled the auto-start option
-    // (autoStartOpt == 'Y') OR completed the one-time permission wizard
-    // (wizardDone == 'Y'), start the service even without a live token.
-    // The native startService flow re-requests MediaProjection consent via the
-    // system screen-capture dialog, and the user approving it is a one-time
-    // tap. Previously a missing token made auto-start a no-op, which left the
-    // device without a registered rendezvous session on every cold launch
-    // (chat/remote control unreachable by ID even though the UI said online).
-    //
-    // Only skip when the user NEVER authorized the service (no option, no
-    // token, no wizard) so we don't nag fresh installs with a permission
-    // dialog on first launch.
-    if (autoStartOpt != 'Y' && wizardDone != 'Y' && !hasToken) return;
+    // Opt-in only. Absent value (fresh install) defaults to OFF — no dialog.
+    final autoStartScreenShare =
+        bind.mainGetLocalOption(key: kOptionAutoStartScreenShare);
+    debugPrint('maybeAutoStartService autoStartScreenShare=$autoStartScreenShare');
+    if (autoStartScreenShare != 'Y') return;
     // Ask the native side for the current state; if the service is already
     // running, its on_state_changed(media) event restarts the model state.
     await gFFI.invokeMethod("check_service");
@@ -641,6 +622,21 @@ class ServerModel with ChangeNotifier {
         // But still register them in _clients for message routing / online status.
         if (client.isChat) {
           if (client.authorized) {
+            // LUODA: Auto-detect companion phone binding. When a phone
+            // scans the PC QR code and connects, the PC must record the
+            // binding so "文件传输助手" appears. Normally this happens
+            // when the phone sends a replica_request, but if that message
+            // is delayed or lost the binding never fires. Detect any
+            // incoming authorized chat client and bind proactively.
+            // NOTE: Always update binding when a new authorized chat client
+            // connects, even if already bound to another phone. This handles
+            // the case where the user switches phones or re-binds.
+            if (client.peerId.trim().isNotEmpty) {
+              unawaited(DirectPairingStore.rememberBoundPhone(
+                peerId: client.peerId,
+                displayName: client.name,
+              ));
+            }
             final chatModel = parent.target?.chatModel;
             if (chatModel != null) {
               unawaited(chatModel.onDirectSessionReady(
@@ -719,6 +715,20 @@ class ServerModel with ChangeNotifier {
         unawaited(
           DirectChatAccessController.instance.markAccepted(client.peerId),
         );
+        // LUODA: Auto-detect companion phone binding. When a phone scans
+        // the PC QR code and connects, the PC must record the binding so
+        // "文件传输助手" appears. Normally this happens when the phone
+        // sends a replica_request, but if that message is delayed or lost
+        // the binding never fires. Detect any incoming authorized chat
+        // client and bind proactively.
+        // NOTE: Always update binding when a new authorized chat client
+        // connects, even if already bound to another phone.
+        if (client.peerId.trim().isNotEmpty) {
+          unawaited(DirectPairingStore.rememberBoundPhone(
+            peerId: client.peerId,
+            displayName: client.name,
+          ));
+        }
         final chatModel = parent.target?.chatModel;
         if (chatModel != null) {
           unawaited(chatModel.onDirectSessionReady(

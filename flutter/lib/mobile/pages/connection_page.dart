@@ -16,16 +16,17 @@ import '../../common/direct_chat_policy.dart';
 import '../../common/direct_pairing.dart';
 import '../../common/direct_viewer_invite.dart';
 import '../../common/widgets/join_viewer_page.dart';
-import '../../common/widgets/peer_tab_page.dart';
 import '../../common/widgets/autocomplete.dart';
 import '../../consts.dart';
 import '../../models/chat_model.dart';
 import '../../models/model.dart';
 import '../../models/peer_tab_model.dart';
 import '../../models/platform_model.dart';
+import 'device_history_page.dart';
 import 'home_page.dart';
 import 'bt_chat_page.dart';
 import 'scan_page.dart';
+import '../../common/widgets/chat_page.dart';
 
 /// Connection page for connecting to a remote peer.
 enum _ConnectionMode { chat, remote, viewer, bluetooth }
@@ -567,26 +568,7 @@ class ConnectionPageState extends State<ConnectionPage>
   void _openDeviceHistory() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (pageContext) {
-          final dark = Theme.of(pageContext).brightness == Brightness.dark;
-          return Scaffold(
-            backgroundColor: dark ? MyTheme.canvasDark : MyTheme.canvasLight,
-            appBar: AppBar(
-              title: Text(translate('Access history devices')),
-            ),
-            body: SafeArea(
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: kMobilePageConstraints,
-                  child: const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 10),
-                    child: PeerTabPage(hideFavoritesTab: true),
-                  ),
-                ),
-              ),
-            ),
-          );
-        },
+        builder: (_) => const DeviceHistoryPage(),
       ),
     );
   }
@@ -1010,6 +992,7 @@ class ConnectionPageState extends State<ConnectionPage>
         ) &&
         !hasStuckOutgoing) {
       ChatModel.clearDialing(peerId);
+      // 已连接：跳转到点聊页面以便输入消息。
       HomePage.homeKey.currentState?.selectChatPage();
       return;
     }
@@ -1032,6 +1015,7 @@ class ConnectionPageState extends State<ConnectionPage>
             : pairing?.displayName ?? peerId,
         avatar: incoming.avatar,
       );
+      // 入站连接已建立：跳转到点聊页面。
       HomePage.homeKey.currentState?.selectChatPage();
       gFFI.chatModel.requestChatInputFocus();
       return;
@@ -1050,6 +1034,7 @@ class ConnectionPageState extends State<ConnectionPage>
     }
     gFFI.suppressConnectionDialogs = true;
     gFFI.start(endpoint, isChat: true, forceRelay: false);
+    // 连接建立后跳转到点聊页面，用户才能输入和发送消息。
     HomePage.homeKey.currentState?.selectChatPage();
   }
 
@@ -1303,7 +1288,20 @@ class ConnectionPageState extends State<ConnectionPage>
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: () => _startDirectChat(group.latest.peerId),
+        onTap: () {
+          // 统一走点聊 tab 的 _openConversation → _ensureChatConnection 路径，
+          // 不再调用本页的 _startDirectChat，避免两套连接逻辑冲突。
+          // 但仍需 canonicalConversationId 将不同形式的 ID 统一。
+          final canonicalId = DirectPairingStore.canonicalConversationId(
+            group.latest.peerId,
+          );
+          HomePage.homeKey.currentState?.openChatFromContacts(
+            MessageKey(
+              canonicalId.isNotEmpty ? canonicalId : group.latest.peerId,
+              ChatModel.clientModeID,
+            ),
+          );
+        },
         // WeChat-style gray tap highlight, identical to the chats list rows.
         highlightColor: Theme.of(context).brightness == Brightness.dark
             ? const Color(0xFF34373D)
@@ -1528,6 +1526,18 @@ class ConnectionPageState extends State<ConnectionPage>
       return ('Connecting', const Color(0xFF07C160));
     }
     return ('Not connected', const Color(0xFF7B7E85));
+  }
+
+  /// Public: check whether [peerId] is reachable (for the chat detail AppBar
+  /// online dot). Uses the same rendezvous + live-client logic as the
+  /// contacts list.
+  bool isPeerOnline(String peerId) {
+    if (peerId.isEmpty) return false;
+    final hasClient = gFFI.serverModel.clients.any(
+      (c) => c.peerId == peerId && c.authorized && !c.disconnected,
+    );
+    if (hasClient) return true;
+    return _onlineByPeer[peerId] == true;
   }
 
   void onFocusChanged() {
