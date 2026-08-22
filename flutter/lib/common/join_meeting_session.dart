@@ -52,17 +52,19 @@ Future<void> joinMeetingSession(
 /// 会议群聊内收到 viewer 邀请链接时调用：解析出令牌与 endpoint 并保存到
 /// 会议，供成员点"进入观看"时直接使用。
 ///
-/// 链接格式 `luoda://join/<token>?endpoint=<endpoint>` 或纯 token 文本。
+/// 链接格式 `dotchat://join/<token>?endpoint=<endpoint>` 或纯 token 文本。
+/// 同时兼容旧版 `luoda://` 前缀。
 void captureMeetingViewerToken(MeetingGroup group, String link) {
-  final trimmed = link.trim();
-  if (trimmed.isEmpty) return;
-  String? token;
-  String? endpoint;
-  final uri = Uri.tryParse(trimmed);
-  if (uri != null &&
-      uri.scheme.toLowerCase() == 'luoda' &&
-      uri.host.toLowerCase() == 'join' &&
-      uri.pathSegments.isNotEmpty) {
+ final trimmed = link.trim();
+ if (trimmed.isEmpty) return;
+ String? token;
+ String? endpoint;
+ final uri = Uri.tryParse(trimmed);
+ if (uri != null &&
+ (uri.scheme.toLowerCase() == 'dotchat' ||
+ uri.scheme.toLowerCase() == 'luoda') &&
+ uri.host.toLowerCase() == 'join' &&
+ uri.pathSegments.isNotEmpty) {
     token = uri.pathSegments.first.trim();
     final ep = uri.queryParameters['endpoint']?.trim();
     if (ep != null && ep.isNotEmpty) endpoint = ep;

@@ -2144,7 +2144,7 @@ class ChatPage extends StatelessWidget implements PageShape {
                           'https://webrd0{s}.is.autonavi.com/appmaptile'
                           '?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}',
                       subdomains: const <String>['1', '2', '3', '4'],
-                      userAgentPackageName: 'com.luoda.remote',
+                      userAgentPackageName: 'com.dotchat.remote',
                       maxNativeZoom: 19,
                     ),
                     flutter_map.MarkerLayer(
@@ -2645,9 +2645,9 @@ class ChatPage extends StatelessWidget implements PageShape {
 
             Widget _buildInviteCard(
                 BuildContext context, String link, Color foreground) {
-              // 会议群邀请: luoda://meeting/{meetingId}
-              if (link.startsWith('luoda://meeting/')) {
-                final meetingId = link.split('luoda://meeting/').last.trim();
+ // 会议群邀请: dotchat://meeting/{meetingId} (兼容旧版 luoda://)
+ if (link.startsWith('dotchat://meeting/') || link.startsWith('luoda://meeting/')) {
+ final meetingId = link.split(RegExp(r'https?://|dotchat://meeting/|luoda://meeting/')).last.trim();
                 final theme = Theme.of(context);
                 final dark = theme.brightness == Brightness.dark;
                 return GestureDetector(
@@ -3042,8 +3042,10 @@ class ChatPage extends StatelessWidget implements PageShape {
                         ),
                       ),
                     )
-                  else if (message.text.trim().startsWith('luoda://join/') ||
-                      message.text.trim().startsWith('luoda://meeting/'))
+ else if (message.text.trim().startsWith('dotchat://join/') ||
+ message.text.trim().startsWith('dotchat://meeting/') ||
+ message.text.trim().startsWith('luoda://join/') ||
+ message.text.trim().startsWith('luoda://meeting/'))
                     _buildInviteCard(context, message.text.trim(), foreground)
                   else if (DirectChatContact.tryParse(message.text)
                       case final DirectChatContact contact)

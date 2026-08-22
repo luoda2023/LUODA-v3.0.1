@@ -3475,9 +3475,15 @@ int versionCmp(String v1, String v2) {
 
 /// ??????????????????????????????????
 String getProductDisplayName() {
-  final raw = bind.mainGetAppNameSync().trim();
-  if (raw.isEmpty || raw == 'LDesk' || raw == 'LUODA') return '点聊';
-  return raw;
+  try {
+    final raw = bind.mainGetAppNameSync().trim();
+    if (raw.isEmpty || raw == 'LDesk' || raw == 'LUODA') return '点聊';
+    return raw;
+  } catch (_) {
+    // Sub-windows (e.g. file preview) run before platformFFI is
+    // initialized, so _ffiBind is not ready. Return the default name.
+    return '点聊';
+  }
 }
 
 String getWindowName({WindowType? overrideType}) {

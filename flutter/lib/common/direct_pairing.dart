@@ -1450,9 +1450,9 @@ class DirectPairingStore {
     } catch (_) {}
     final fingerprint = (await bind.mainGetFingerprint()).trim();
     final syncSecret = await _getOrCreateCompanionSecret();
-    return Uri(
-      scheme: 'luoda',
-      host: 'pair',
+return Uri(
+ scheme: 'dotchat',
+ host: 'pair',
       queryParameters: <String, String>{
         'v': '2',
         'id': peerId,
@@ -1481,9 +1481,9 @@ class DirectPairingStore {
       displayName =
           (profile['display_name'] ?? profile['name'] ?? '').toString().trim();
     } catch (_) {}
-    return Uri(
-      scheme: 'luoda',
-      host: 'friend',
+return Uri(
+ scheme: 'dotchat',
+ host: 'friend',
       queryParameters: <String, String>{
         'v': '1',
         'id': peerId,
@@ -1497,11 +1497,12 @@ class DirectPairingStore {
   static ({String peerId, String name, String accountId})?
       parseFriendPayload(String value) {
     final uri = Uri.tryParse(value.trim());
-    if (uri == null ||
-        uri.scheme.toLowerCase() != 'luoda' ||
-        uri.host.toLowerCase() != 'friend') {
-      return null;
-    }
+ if (uri == null ||
+ (uri.scheme.toLowerCase() != 'dotchat' &&
+ uri.scheme.toLowerCase() != 'luoda') ||
+ uri.host.toLowerCase() != 'friend') {
+ return null;
+ }
     final id = (uri.queryParameters['id'] ?? '').trim();
     if (id.isEmpty) return null;
     return (
@@ -1512,10 +1513,11 @@ class DirectPairingStore {
   }
 
   static DirectPairing? parsePayload(String value) {
-    final uri = Uri.tryParse(value.trim());
-    if (uri == null ||
-        uri.scheme.toLowerCase() != 'luoda' ||
-        uri.host.toLowerCase() != 'pair' ||
+ final uri = Uri.tryParse(value.trim());
+ if (uri == null ||
+ (uri.scheme.toLowerCase() != 'dotchat' &&
+ uri.scheme.toLowerCase() != 'luoda') ||
+ uri.host.toLowerCase() != 'pair' ||
         !<String>{'1', '2'}.contains(uri.queryParameters['v'])) {
       return null;
     }

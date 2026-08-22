@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">点聊</string>
-    <string name="accessibility_service_label">点聊输入</string>
-    <string name="accessibility_service_description">远程协助会话进行时，允许受信任的设备控制这台手机</string>
-</resources>
+ <string name="app_name">点聊</string>
+ <string name="accessibility_service_label">点聊输入</string>
+ <string name="accessibility_service_description">远程协助会话进行时，允许受信任的设备控制这台手机</string>
+	</resources>

@@ -1,15 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:ffi';
 import 'dart:io';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:desktop_multi_window/desktop_multi_window.dart';
-import 'package:ffi/ffi.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:win32/win32.dart';
 
 import '../../common.dart';
 import '../../common/widgets/docx_native_preview.dart';
@@ -17,6 +16,19 @@ import '../../common/widgets/dwg_preview_view.dart';
 import '../../common/widgets/file_preview_types.dart';
 import '../../common/widgets/office_preview_view.dart';
 import '../../common/widgets/pdf_native_preview.dart';
+
+/// Set whether this window stays on top of all other windows.
+/// Delegates to the desktop_multi_window native plugin which calls
+/// Win32 SetWindowPos with HWND_TOPMOST/HWND_NOTOPMOST on Windows.
+Future<bool> _setWindowTopMost(int windowId, bool topmost) async {
+  if (!Platform.isWindows) return false;
+  try {
+ await WindowController.fromWindowId(windowId).setAlwaysOnTop(topmost);
+ return true;
+  } catch (_) {
+ return false;
+  }
+}
 
 String _formatFileSize(int fileSize) {
   if (fileSize < 1024) return '$fileSize B';
@@ -54,15 +66,12 @@ class _FilePreviewPageState extends State<FilePreviewPage> {
   late final List<String> _paths;
   final TransformationController _imageTransformController =
       TransformationController();
-  double _imageScale = 1;
-  int _rotationQuarterTurns = 0;
-  bool _isMaximized = false;
-  bool _isFullScreen = false;
-  Timer? _windowDragTimer;
-  final List<Timer> _firstPaintTimers = <Timer>[];
-  Rect? _windowFrame;
-  Rect? _windowDragStartFrame;
-  Offset? _windowDragStartCursor;
+ double _imageScale = 1;
+	 int _rotationQuarterTurns = 0;
+	 bool _isPinned = false;
+ bool _showThumbnailStrip = false;
+ final List<Timer> _firstPaintTimers = <Timer>[];
+ Rect? _windowFrame;
 
   WindowController get _windowController =>
       WindowController.fromWindowId(widget.windowId);
@@ -103,17 +112,16 @@ class _FilePreviewPageState extends State<FilePreviewPage> {
     }));
   }
 
-  @override
-  void dispose() {
-    for (final t in _firstPaintTimers) {
-      t.cancel();
-    }
-    _firstPaintTimers.clear();
-    _windowDragTimer?.cancel();
-    _imageTransformController.dispose();
-    _saveWindowState();
-    super.dispose();
-  }
+ @override
+ void dispose() {
+   for (final t in _firstPaintTimers) {
+     t.cancel();
+   }
+   _firstPaintTimers.clear();
+   _imageTransformController.dispose();
+   _saveWindowState();
+   super.dispose();
+ }
 
   /// Restore window frame from last session.
   Future<void> _restoreWindowState() async {
@@ -151,97 +159,18 @@ class _FilePreviewPageState extends State<FilePreviewPage> {
     } catch (_) {}
   }
 
-  Offset? _windowsCursorPosition() {
-    final cursorPoint = calloc<POINT>();
-    try {
-      if (GetCursorPos(cursorPoint) == 0) return null;
-      return Offset(
-        cursorPoint.ref.x.toDouble(),
-        cursorPoint.ref.y.toDouble(),
-      );
-    } finally {
-      calloc.free(cursorPoint);
-    }
-  }
+Future<void> _syncWindowState() async {
+	final fullScreen = await _windowController.isFullScreen();
+	final maximized = await _windowController.isMaximized();
+	final frame =
+	!fullScreen && !maximized ? await _windowController.getFrame() : null;
+	if (!mounted) return;
+	if (frame != null) {
+	setState(() => _windowFrame = frame);
+	}
+}
 
-  void _beginWindowDrag(PointerDownEvent _) {
-    if (_isFullScreen || _isMaximized) return;
-    if (!Platform.isWindows) {
-      unawaited(_windowController.startDragging());
-      return;
-    }
-
-    final frame = _windowFrame;
-    final cursor = _windowsCursorPosition();
-    if (frame == null || cursor == null) return;
-
-    _windowDragTimer?.cancel();
-    _windowDragStartFrame = frame;
-    _windowDragStartCursor = cursor;
-    _windowDragTimer = Timer.periodic(
-      const Duration(milliseconds: 16),
-      (_) => _updateWindowDrag(),
-    );
-    _updateWindowDrag();
-  }
-
-  void _updateWindowDrag() {
-    final startFrame = _windowDragStartFrame;
-    final startCursor = _windowDragStartCursor;
-    final cursor = Platform.isWindows ? _windowsCursorPosition() : null;
-    if (startFrame == null || startCursor == null || cursor == null) return;
-
-    final delta = cursor - startCursor;
-    if (delta.distanceSquared < 1) return;
-    final frame = startFrame.shift(delta);
-    _windowFrame = frame;
-    unawaited(_windowController.setFrame(frame));
-  }
-
-  void _endWindowDrag() {
-    _windowDragTimer?.cancel();
-    _windowDragTimer = null;
-    _updateWindowDrag();
-    _windowDragStartFrame = null;
-    _windowDragStartCursor = null;
-    _saveWindowState();
-  }
-
-  Future<void> _syncWindowState() async {
-    final fullScreen = await _windowController.isFullScreen();
-    final maximized = await _windowController.isMaximized();
-    final frame =
-        !fullScreen && !maximized ? await _windowController.getFrame() : null;
-    if (!mounted) return;
-    setState(() {
-      _isFullScreen = fullScreen;
-      _isMaximized = maximized;
-      if (frame != null) _windowFrame = frame;
-    });
-  }
-
-  Future<void> _toggleMaximized() async {
-    if (_isFullScreen) {
-      await _windowController.setFullscreen(false);
-    }
-    final maximized = await _windowController.isMaximized();
-    Rect? frame;
-    if (maximized) {
-      await _windowController.unmaximize();
-      frame = await _windowController.getFrame();
-    } else {
-      await _windowController.maximize();
-    }
-    if (!mounted) return;
-    setState(() {
-      _isFullScreen = false;
-      _isMaximized = !maximized;
-      if (frame != null) _windowFrame = frame;
-    });
-    _saveWindowState();
-  }
-
-  void _goPrevious() {
+void _goPrevious() {
     if (_currentIndex > 0) {
       _resetImageTransform(notify: false);
       setState(() {
@@ -286,31 +215,92 @@ class _FilePreviewPageState extends State<FilePreviewPage> {
     });
   }
 
-  void _updateImageScale() {
-    final scale = _imageTransformController.value.getMaxScaleOnAxis();
-    if ((scale - _imageScale).abs() < 0.001) return;
-    setState(() => _imageScale = scale);
-  }
+ void _updateImageScale() {
+ final scale = _imageTransformController.value.getMaxScaleOnAxis();
+ if ((scale - _imageScale).abs() < 0.001) return;
+ setState(() => _imageScale = scale);
+ }
+
+ Future<void> _togglePin() async {
+ final next = !_isPinned;
+ final ok = await _setWindowTopMost(widget.windowId, next);
+ if (!mounted) return;
+ setState(() => _isPinned = ok ? next : false);
+ }
+
+ void _toggleThumbnailStrip() {
+ setState(() => _showThumbnailStrip = !_showThumbnailStrip);
+ }
+
+ Future<void> _editWithSystemApp() async {
+ final path = _paths[_currentIndex];
+ if (Platform.isWindows) {
+ try {
+ await Process.run('mspaint.exe', [path]);
+ } catch (_) {
+ await OpenFilex.open(path);
+ }
+ } else {
+ await OpenFilex.open(path);
+ }
+ }
+
+ Future<void> _saveAs() async {
+	final srcPath = _paths[_currentIndex];
+	final srcFile = File(srcPath);
+	if (!await srcFile.exists()) return;
+	final name = srcPath.split(Platform.pathSeparator).last;
+	final saveName = await FilePicker.platform.saveFile(
+ dialogTitle: translate('Save as'),
+ fileName: name,
+ );
+ if (saveName == null || !mounted) return;
+ try {
+ await srcFile.copy(saveName);
+ } catch (_) {}
+ }
+
+ void _showMoreMenu(BuildContext context) {
+ final path = _paths[_currentIndex];
+ final menuItems = <PopupMenuEntry<String>>[
+ PopupMenuItem<String>(
+ value: 'copy_path',
+ child: Row(children: <Widget>[
+ const Icon(Icons.copy_outlined, size: 18),
+ const SizedBox(width: 8),
+ Text(translate('Copy')),
+ ]),
+ ),
+ PopupMenuItem<String>(
+ value: 'open_folder',
+ child: Row(children: <Widget>[
+ const Icon(Icons.folder_open_outlined, size: 18),
+ const SizedBox(width: 8),
+ Text(translate('Open with system app')),
+ ]),
+ ),
+ ];
+ showMenu<String>(
+ context: context,
+ position: RelativeRect.fromLTRB(
+ MediaQuery.of(context).size.width - 180,
+ 50,
+ 20,
+ MediaQuery.of(context).size.height - 200,
+ ),
+ items: menuItems,
+ ).then((value) {
+ if (value == 'copy_path') {
+ Clipboard.setData(ClipboardData(text: path));
+ } else if (value == 'open_folder') {
+ OpenFilex.open(path);
+ }
+ });
+ }
 
   String get _currentName =>
       _paths[_currentIndex].split(Platform.pathSeparator).last;
 
-  Widget _windowDragRegion({
-    required Widget child,
-    VoidCallback? onDoubleTap,
-  }) {
-    return Listener(
-      behavior: HitTestBehavior.opaque,
-      onPointerDown: _beginWindowDrag,
-      onPointerUp: (_) => _endWindowDrag(),
-      onPointerCancel: (_) => _endWindowDrag(),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onDoubleTap: onDoubleTap,
-        child: child,
-      ),
-    );
-  }
 
 
   @override
@@ -336,56 +326,59 @@ class _FilePreviewPageState extends State<FilePreviewPage> {
       backgroundColor: bgColor,
       body: Column(
         children: <Widget>[
-          // ── Top toolbar (Windows Photos style) ──
-          _windowDragRegion(
-            onDoubleTap: _toggleMaximized,
-            child: Container(
-              height: 44,
-              decoration: BoxDecoration(
-                color: toolbarBg,
-                border: Border(
-                  bottom: BorderSide(
-                    color: isImage
-                        ? const Color(0xFFE0E0E0)
-                        : (dark ? const Color(0xFF3A3D43) : const Color(0xFFE8E8E8)),
-                  ),
-                ),
-              ),
-              child: Row(
-                children: <Widget>[
+ // ── Top toolbar (Windows Photos style) ──
+ // The native OS title bar (kept via showTitleBar for FilePreview in
+ // main.dart) already handles window drag, double-click maximize, and
+ // the min/max/close buttons. Wrapping the toolbar in a drag region
+ // here would intercept pointer events and make every toolbar button
+ // unclickable, so the toolbar is a plain Container.
+ Container(
+ height: 44,
+ decoration: BoxDecoration(
+ color: toolbarBg,
+ border: Border(
+ bottom: BorderSide(
+ color: isImage
+ ? const Color(0xFFE0E0E0)
+ : (dark ? const Color(0xFF3A3D43) : const Color(0xFFE8E8E8)),
+ ),
+ ),
+ ),
+ child: Row(
+ children: <Widget>[
                   const SizedBox(width: 8),
-                  // ── Left section: navigation ──
-                  _ToolBtn(
-                    icon: Icons.push_pin_outlined,
-                    tooltip: translate('Pin'),
-                    color: iconColor,
-                    onPressed: () {},
-                  ),
-                  const SizedBox(width: 2),
-                  if (hasMultiple) ...<Widget>[
-                    _ToolBtn(
-                      icon: Icons.chevron_left,
-                      tooltip: translate('Previous'),
-                      color: iconColor,
-                      enabled: _currentIndex > 0,
-                      onPressed: _goPrevious,
-                    ),
-                    _ToolBtn(
-                      icon: Icons.chevron_right,
-                      tooltip: translate('Next'),
-                      color: iconColor,
-                      enabled: _currentIndex < _paths.length - 1,
-                      onPressed: _goNext,
-                    ),
-                  ],
-                  const SizedBox(width: 2),
-                  if (hasMultiple)
-                    _ToolBtn(
-                      icon: Icons.grid_view_rounded,
-                      tooltip: translate('Thumbnail view'),
-                      color: iconColor,
-                      onPressed: () {},
-                    ),
+ // ── Left section: navigation ──
+ _ToolBtn(
+ icon: _isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+ tooltip: translate(_isPinned ? 'Unpin' : 'Pin'),
+ color: iconColor,
+ onPressed: _togglePin,
+ ),
+ const SizedBox(width: 2),
+ if (hasMultiple) ...<Widget>[
+ _ToolBtn(
+ icon: Icons.chevron_left,
+ tooltip: translate('Previous'),
+ color: iconColor,
+ enabled: _currentIndex > 0,
+ onPressed: _goPrevious,
+ ),
+ _ToolBtn(
+ icon: Icons.chevron_right,
+ tooltip: translate('Next'),
+ color: iconColor,
+ enabled: _currentIndex < _paths.length - 1,
+ onPressed: _goNext,
+ ),
+ ],
+ const SizedBox(width: 2),
+ if (hasMultiple)
+ _ToolBtn(
+ icon: Icons.grid_view_rounded,
+ tooltip: translate('Thumbnail view'),
+ color: iconColor,
+ onPressed: _toggleThumbnailStrip,
+ ),
                   const SizedBox(width: 2),
                   // ── Center section: zoom ──
                   if (isImage) ...<Widget>[
@@ -419,70 +412,121 @@ class _FilePreviewPageState extends State<FilePreviewPage> {
                       color: iconColor,
                       onPressed: _rotateImage,
                     ),
-                  if (isImage)
-                    _ToolBtn(
-                      icon: Icons.edit_outlined,
-                      tooltip: translate('Edit'),
-                      color: iconColor,
-                      onPressed: () {},
-                    ),
-                  _ToolBtn(
-                    icon: Icons.download_rounded,
-                    tooltip: translate('Save as'),
-                    color: iconColor,
-                    onPressed: () {},
-                  ),
-                  const SizedBox(width: 2),
-                  _ToolBtn(
-                    icon: Icons.more_horiz_rounded,
-                    tooltip: translate('More'),
-                    color: iconColor,
-                    onPressed: () {},
-                  ),
-                  const Spacer(),
-                  // ── Window controls ──
-                  _ToolBtn(
-                    icon: Icons.remove_rounded,
-                    tooltip: translate('Minimize'),
-                    color: iconColor,
-                    onPressed: _windowController.minimize,
-                  ),
-                  _ToolBtn(
-                    icon: _isMaximized
-                        ? Icons.filter_none_rounded
-                        : Icons.crop_square_rounded,
-                    tooltip: translate(_isMaximized ? 'Restore' : 'Maximize'),
-                    color: iconColor,
-                    iconSize: 17,
-                    onPressed: _toggleMaximized,
-                  ),
-                  _ToolBtn(
-                    icon: Icons.close_rounded,
-                    tooltip: translate('Close'),
-                    color: iconColor,
-                    isClose: true,
-                    onPressed: _windowController.close,
-                  ),
-                  const SizedBox(width: 4),
-                ],
-              ),
-            ),
-          ),
-          // ── Body ──
-          Expanded(
-            child: Stack(
-              children: <Widget>[
-                Positioned.fill(
-                    child: _buildPreview(currentPath, fileName, dark)),
-              ],
-            ),
-          ),
+if (isImage)
+ _ToolBtn(
+ icon: Icons.edit_outlined,
+ tooltip: translate('Edit'),
+ color: iconColor,
+ onPressed: _editWithSystemApp,
+ ),
+ _ToolBtn(
+ icon: Icons.download_rounded,
+ tooltip: translate('Save as'),
+ color: iconColor,
+ onPressed: _saveAs,
+ ),
+ const SizedBox(width: 2),
+ _ToolBtn(
+ icon: Icons.more_horiz_rounded,
+ tooltip: translate('More'),
+ color: iconColor,
+ onPressed: () => _showMoreMenu(context),
+ ),
+const Spacer(),
+// Native OS title bar provides minimize / maximize / close — no
+// duplicate buttons here.
+const SizedBox(width: 8),
+],
+),
+),
+ // ── Body ──
+ Expanded(
+ child: Stack(
+ children: <Widget>[
+ Positioned.fill(
+ child: _buildPreview(currentPath, fileName, dark)),
+ if (_showThumbnailStrip && hasMultiple)
+ Positioned(
+ left: 0,
+ right: 0,
+ bottom: 0,
+ child: _buildThumbnailStrip(dark),
+ ),
+ ],
+ ),
+ ),
         ],
       ),
     );
   }
 
-  Widget _buildPreview(String path, String fileName, bool dark) {
+  Widget _buildThumbnailStrip(bool dark) {
+ final bg = dark ? const Color(0xFF1C1E23) : const Color(0xFFF0F0F0);
+ final border = dark ? const Color(0xFF3A3D43) : const Color(0xFFD0D0D0);
+ return Container(
+ height: 96,
+ decoration: BoxDecoration(
+ color: bg.withOpacity(0.97),
+ border: Border(top: BorderSide(color: border)),
+ ),
+ child: ListView.builder(
+ scrollDirection: Axis.horizontal,
+ padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+ itemCount: _paths.length,
+ itemBuilder: (context, index) {
+ final p = _paths[index];
+ final name = p.split(Platform.pathSeparator).last;
+ final kind = filePreviewKindForName(name);
+ final isSelected = index == _currentIndex;
+ final isImg = kind == FilePreviewKind.image;
+ return GestureDetector(
+ onTap: () {
+ _resetImageTransform(notify: false);
+ setState(() {
+ _rotationQuarterTurns = 0;
+ _currentIndex = index;
+ });
+ },
+ child: Container(
+ width: 80,
+ height: 80,
+ margin: const EdgeInsets.only(right: 6),
+ decoration: BoxDecoration(
+ border: Border.all(
+ color: isSelected
+ ? Colors.blue
+ : (dark ? Colors.white12 : Colors.black12),
+ width: isSelected ? 2.5 : 1,
+ ),
+ borderRadius: BorderRadius.circular(4),
+ color: dark ? Colors.black26 : Colors.white,
+ ),
+ clipBehavior: Clip.antiAlias,
+ child: isImg
+ ? Image.file(
+ File(p),
+ fit: BoxFit.cover,
+ errorBuilder: (_, __, ___) => Container(
+ color: Colors.grey[300],
+ child: Icon(Icons.broken_image,
+ size: 28, color: Colors.grey[500]),
+ ),
+ )
+ : Center(
+ child: Icon(
+ filePreviewIcon(name),
+ size: 28,
+ color: filePreviewColor(name, 0.9),
+ ),
+ ),
+ ),
+ );
+ },
+ ),
+ );
+ }
+
+ Widget _buildPreview(String path, String fileName, bool dark) {
     final file = File(path);
     if (!file.existsSync()) {
       // High-contrast "not found" state: this must look obviously broken,
@@ -813,50 +857,44 @@ class _TextPreview extends StatelessWidget {
 
 /// Minimal toolbar button matching Windows Photos style.
 class _ToolBtn extends StatelessWidget {
-  const _ToolBtn({
-    required this.icon,
-    required this.tooltip,
-    required this.color,
-    required this.onPressed,
-    this.enabled = true,
-    this.iconSize = 20,
-    this.isClose = false,
-  });
+ const _ToolBtn({
+ required this.icon,
+ required this.tooltip,
+ required this.color,
+ required this.onPressed,
+ this.enabled = true,
+ });
 
-  final IconData icon;
-  final String tooltip;
-  final Color color;
-  final VoidCallback? onPressed;
-  final bool enabled;
-  final double iconSize;
-  final bool isClose;
+ final IconData icon;
+ final String tooltip;
+ final Color color;
+ final VoidCallback? onPressed;
+ final bool enabled;
 
-  @override
-  Widget build(BuildContext context) {
-    final effectiveOnPressed = enabled ? onPressed : null;
-    return Tooltip(
-      message: tooltip,
-      child: InkWell(
-        onTap: effectiveOnPressed,
-        hoverColor: isClose
-            ? const Color(0xFFE81123)
-            : Colors.black.withOpacity(0.06),
-        highlightColor: isClose
-            ? const Color(0xFFC42B1C)
-            : Colors.black.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(4),
-        child: SizedBox(
-          width: 36,
-          height: 36,
-          child: Icon(
-            icon,
-            size: iconSize,
-            color: effectiveOnPressed != null
-                ? (isClose ? const Color(0xFF333333) : color)
-                : color.withOpacity(0.35),
-          ),
-        ),
-      ),
-    );
-  }
+ @override
+ Widget build(BuildContext context) {
+ final effectiveOnPressed = enabled ? onPressed : null;
+	return Tooltip(
+	message: tooltip,
+	waitDuration: const Duration(milliseconds: 300),
+	showDuration: const Duration(seconds: 2),
+	child: InkWell(
+ onTap: effectiveOnPressed,
+ hoverColor: Colors.black.withOpacity(0.06),
+ highlightColor: Colors.black.withOpacity(0.1),
+ borderRadius: BorderRadius.circular(4),
+ child: SizedBox(
+ width: 36,
+ height: 36,
+ child: Icon(
+ icon,
+ size: 20,
+ color: effectiveOnPressed != null
+ ? color
+ : color.withOpacity(0.35),
+ ),
+ ),
+ ),
+ );
+ }
 }

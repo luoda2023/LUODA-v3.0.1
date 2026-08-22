@@ -1787,7 +1787,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   /// 创建成功后：给新成员发私聊邀请通知。
   Future<void> _notifyNewMeetingMembers(MeetingGroup group,
       List<Peer> members) async {
-    final link = 'luoda://meeting/${group.meetingId}';
+    final link = 'dotchat://meeting/${group.meetingId}';
     for (final peer in members) {
       final id = peer.id.trim();
       if (id.isEmpty || id == gFFI.serverModel.id) continue;
@@ -1929,7 +1929,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         close();
         if (group == null || group.meetingId.isEmpty) return;
         showToast(translate('Meeting created'));
-        final link = 'luoda://meeting/${group.meetingId}';
+        final link = 'dotchat://meeting/${group.meetingId}';
         _copyToClipboard(link);
         showToast(translate('Invite link copied'));
         if (members.isNotEmpty) {
@@ -2978,7 +2978,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       return;
     }
     final link =
-        'luoda://meeting/${group.meetingId}?code=${group.inviteShortCode}'
+        'dotchat://meeting/${group.meetingId}?code=${group.inviteShortCode}'
         '&host=${group.hostPeerId}';
     Clipboard.setData(ClipboardData(text: link));
     showToast(translate('Link copied'));

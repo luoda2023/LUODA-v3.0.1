@@ -63,22 +63,25 @@ Future<void> main(List<String> args) async {
     runMobileApp();
     return;
   }
-  // main window
-  if (args.isNotEmpty && args.first == 'multi_window') {
-    kWindowId = int.parse(args[1]);
-    stateGlobal.setWindowId(kWindowId!);
-    if (!isMacOS) {
-      WindowController.fromWindowId(kWindowId!).showTitleBar(false);
-    }
-    final argument = args[2].isEmpty
-        ? <String, dynamic>{}
-        : jsonDecode(args[2]) as Map<String, dynamic>;
-    int type = argument['type'] ?? -1;
-    // to-do: No need to parse window id ?
-    // Because stateGlobal.windowId is a global value.
-    argument['windowId'] = kWindowId;
-    kWindowType = type.windowType;
-    switch (kWindowType) {
+// main window
+if (args.isNotEmpty && args.first == 'multi_window') {
+ kWindowId = int.parse(args[1]);
+ stateGlobal.setWindowId(kWindowId!);
+ final argument = args[2].isEmpty
+ ? <String, dynamic>{}
+ : jsonDecode(args[2]) as Map<String, dynamic>;
+ int type = argument['type'] ?? -1;
+ // to-do: No need to parse window id ?
+ // Because stateGlobal.windowId is a global value.
+ argument['windowId'] = kWindowId;
+ kWindowType = type.windowType;
+ // File preview windows keep the native OS title bar so the user can
+ // drag, resize, maximize, minimize, and close via standard window
+ // chrome. Session windows hide the title bar and use a custom one.
+ if (!isMacOS && kWindowType != WindowType.FilePreview) {
+ WindowController.fromWindowId(kWindowId!).showTitleBar(false);
+ }
+ switch (kWindowType) {
       case WindowType.RemoteDesktop:
         desktopType = DesktopType.remote;
         runMultiWindow(
@@ -292,11 +295,16 @@ void runMultiWindow(
   Map<String, dynamic> argument,
   String appType,
 ) async {
-  // File preview sub-windows only display local files via Image.file.
-  // They do not need FFI, bluetooth, or event handlers. Skipping initEnv
-  // avoids the Rust backend hanging on unrecognized app types. translate()
-  // in common.dart safely returns the key when platformFFI is unavailable.
-  if (appType != kAppTypeDesktopFilePreview) {
+  // File preview sub-windows only display local files via Image.file and
+  // do not need the full Rust backend (service, event listeners, device
+  // registration). But runMultiWindow calls MyTheme.currentThemeMode() and
+  // getWindowName(), both of which call bind.*Sync() and crash with
+  // LateInitializationError on _ffiBind when it has not been initialized.
+  // initBindOnly loads the dylib and sets _ffiBind without starting any
+  // background tasks, so the sub-window stays isolated from the main process.
+  if (appType == kAppTypeDesktopFilePreview) {
+    await platformFFI.initBindOnly(appType);
+  } else {
     await initEnv(appType);
   }
   final title = getWindowName();

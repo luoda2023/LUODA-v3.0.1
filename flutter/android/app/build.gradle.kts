@@ -124,7 +124,7 @@ protobuf {
 }
 
 android {
-    namespace = "com.luoda.remote"
+    namespace = "com.dotchat.remote"
     compileSdkVersion(35)
 
     sourceSets {
@@ -144,7 +144,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.luoda.remote"
+        applicationId = "com.dotchat.remote"
         minSdkVersion(23)
         targetSdkVersion(33)
         versionCode = flutterVersionCode.toInt()

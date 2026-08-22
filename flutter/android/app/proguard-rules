@@ -23,7 +23,7 @@
 -keep class dev.flutter.** { *; }
 
 # Keep Rust bridge classes
--keep class com.luoda.remote.** { *; }
+-keep class com.dotchat.remote.** { *; }
 
 # Keep FaceAISDK (face_recognition_flutter) classes
 -dontwarn com.faceAI.demo.**

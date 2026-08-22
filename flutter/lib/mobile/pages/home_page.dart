@@ -3663,7 +3663,7 @@ class WebHomePage extends StatelessWidget {
           return;
         }
         list.removeAt(0);
-        fakelink = "luoda://${list.join(s)}";
+        fakelink = "dotchat://${list.join(s)}";
         break;
       }
     }

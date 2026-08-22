@@ -41,12 +41,27 @@ class PlatformFFI {
   static final PlatformFFI instance = PlatformFFI._();
   final _toAndroidChannel = const MethodChannel('mChannel');
 
-  Luoda get ffiBind => _ffiBind;
-  F3? _session_get_rgba;
+ Luoda get ffiBind => _ffiBind;
+ F3? _session_get_rgba;
 
-  static get localeName => Platform.localeName;
+ static get localeName => Platform.localeName;
 
-  static get isMain => instance._appType == kAppTypeMain;
+ static get isMain => instance._appType == kAppTypeMain;
+
+ /// Lightweight init for sub-windows that only need FFI bind calls
+ /// (bind.mainGetAppNameSync, bind.mainGetLocalOption, etc.) but must
+ /// NOT start the Rust backend service, event listeners, or device
+ /// registration — those conflict with the main process. Used by the
+ /// file-preview sub-window.
+ Future<void> initBindOnly(String appType) async {
+   _appType = appType;
+   final dylib = isWindows
+       ? DynamicLibrary.open('luoda.dll')
+       : isLinux
+           ? DynamicLibrary.open('libluoda.so')
+           : DynamicLibrary.process();
+   _ffiBind = LuodaImpl(dylib);
+ }
 
   static String getByName(String name, [String arg = '']) {
     return '';

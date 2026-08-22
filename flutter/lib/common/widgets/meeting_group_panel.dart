@@ -82,7 +82,7 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
   void _refreshInviteLink() {
     if (_group.inviteShortCode.isNotEmpty) {
       _inviteLink =
-          'luoda://meeting/${_group.meetingId}?code=${_group.inviteShortCode}&host=${_group.hostPeerId}';
+          'dotchat://meeting/${_group.meetingId}?code=${_group.inviteShortCode}&host=${_group.hostPeerId}';
     }
     setState(() {});
   }
