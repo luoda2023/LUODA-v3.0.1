@@ -1115,6 +1115,8 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Next", "下一张"),
         ("Zoom in", "放大"),
         ("Zoom out", "缩小"),
+        ("Fit to window", "适应窗口"),
+        ("Thumbnail view", "缩略图视图"),
         ("Reset zoom", "重置缩放"),
         ("Remove member", "移除成员"),
         ("from the group", "从群聊中"),

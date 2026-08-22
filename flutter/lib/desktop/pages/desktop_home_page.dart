@@ -154,6 +154,17 @@ bool _isIdLikeDeviceName(String name, String personKey) {
   return RegExp(r'^[0-9]{3,}$').hasMatch(compact);
 }
 
+/// Look up MeetingGroup.title for a meeting peerId.
+/// Returns empty string if not found, so caller can fall back.
+String _meetingTitleForPeerId(String peerId) {
+  final meetingId = peerId.startsWith('meeting:')
+      ? peerId.substring('meeting:'.length)
+      : '';
+  if (meetingId.isEmpty) return '';
+  final meeting = MeetingGroupStore.find(meetingId);
+  return meeting?.title ?? '';
+}
+
 /// ???????????/???????????ID ????????????
 /// peerId?????????ID ??????????
 String _resolveConversationDisplayName(
@@ -2505,47 +2516,52 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     Widget workspace(ChatModel activeModel) => ChangeNotifierProvider.value(
           value: activeModel,
           child: Consumer<ChatModel>(
-            builder: (context, model, _) {
-              final user = model.currentUser;
-              final rawSelectedPeerId =
-                  _selectedConversationPeerId ?? _selectedContact?.id ?? '';
-              final modelPeerId = user?.id.trim() ?? '';
-              final selectedPairing =
-                  DirectPairingStore.findForConversation(rawSelectedPeerId);
-              final selectedPeerId = DirectPairingStore.canonicalConversationId(
-                rawSelectedPeerId,
-              );
-              final modelConversationId =
-                  DirectPairingStore.canonicalConversationId(modelPeerId);
-              final userMatchesSelection = selectedPeerId.isEmpty ||
-                  selectedPeerId == modelConversationId ||
-                  selectedPairing?.conversationId == modelConversationId;
-              final peerId = userMatchesSelection && modelPeerId.isNotEmpty
-                  ? modelPeerId
-                  : selectedPeerId;
-              RuntimeLogger.instance.info('WSCOPE',
-                  'sel=${rawSelectedPeerId} model=${modelPeerId} canon=${modelConversationId} match=${userMatchesSelection} peer=${peerId} activeD=${_activeDirectChatPeerId}');
-              // 使用与列表行完全相同的名称解析逻辑，确保一致。
-              final modelDisplayName = (user?.firstName ?? '').trim();
-              // 实时查询 contact（与列表行 _buildMergedChatRow 相同）。
-              final freshContact = rawSelectedPeerId.isNotEmpty
-                  ? _findContact(rawSelectedPeerId)
-                  : _selectedContact;
-              // 完全对齐列表行的 _resolveConversationDisplayName 逻辑，
-              // 包括 contactName → pairing displayName → chatName → peerId 的优先级，
-              // 以及过滤本地用户名、'luoda'、ID-like 名称等规则。
-              final selectedName = rawSelectedPeerId.isEmpty
-                  ? ''
-                  : rawSelectedPeerId == kFileHelperId
-                      ? translate('File Transfer Assistant')
-                      : _resolveConversationDisplayName(
-                          rawSelectedPeerId,
-                          contactName: freshContact != null
-                              ? _resolveContactDisplayName(freshContact)
-                              : '',
-                          chatName: modelDisplayName,
-                          idFallback: rawSelectedPeerId,
-                        );
+ builder: (context, model, _) {
+ final user = model.currentUser;
+ final rawSelectedPeerId =
+ _selectedConversationPeerId ?? _selectedContact?.id ?? '';
+ final modelPeerId = user?.id.trim() ?? '';
+ final selectedPairing =
+ DirectPairingStore.findForConversation(rawSelectedPeerId);
+ final selectedPeerId = DirectPairingStore.canonicalConversationId(
+ rawSelectedPeerId,
+ );
+ final modelConversationId =
+ DirectPairingStore.canonicalConversationId(modelPeerId);
+ final userMatchesSelection = selectedPeerId.isEmpty ||
+ selectedPeerId == modelConversationId ||
+ selectedPairing?.conversationId == modelConversationId;
+ final peerId = userMatchesSelection && modelPeerId.isNotEmpty
+ ? modelPeerId
+ : selectedPeerId;
+ RuntimeLogger.instance.info('WSCOPE',
+ 'sel=${rawSelectedPeerId} model=${modelPeerId} canon=${modelConversationId} match=${userMatchesSelection} peer=${peerId} activeD=${_activeDirectChatPeerId}');
+ // 使用与列表行完全相同的名称解析逻辑，确保一致。
+ // chatName 候选优先从 model 当前 conversation body 取（与
+ // updatePeerIdentity 同步刷新），与列表行读取的 primary body 一致。
+ final modelDisplayName = (user?.firstName ?? '').trim();
+ // 实时查询 contact（与列表行 _buildMergedChatRow 相同）。
+ final freshContact = rawSelectedPeerId.isNotEmpty
+ ? _findContact(rawSelectedPeerId)
+ : _selectedContact;
+ // 完全对齐列表行的 _resolveConversationDisplayName 逻辑，
+ // 包括 contactName → pairing displayName → chatName → peerId 的优先级，
+ // 以及过滤本地用户名、'luoda'、ID-like 名称等规则。
+ // 会议：直接用 MeetingGroup.title，与列表行一致。
+ final selectedName = rawSelectedPeerId.isEmpty
+ ? ''
+ : rawSelectedPeerId == kFileHelperId
+ ? translate('File Transfer Assistant')
+ : rawSelectedPeerId.startsWith('meeting:')
+ ? _meetingTitleForPeerId(rawSelectedPeerId)
+ : _resolveConversationDisplayName(
+ rawSelectedPeerId,
+ contactName: freshContact != null
+ ? _resolveContactDisplayName(freshContact)
+ : '',
+ chatName: modelDisplayName,
+ idFallback: rawSelectedPeerId,
+ );
               final hasConversation =
                   user != null && userMatchesSelection && peerId.isNotEmpty;
               final canStartDirectSession =
@@ -4852,11 +4868,18 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final peerId = primary.key.peerId.trim();
     final user = primary.value.chatUser;
     final contact = _findContact(peerId);
-    final name = contact != null
-        ? _resolveContactDisplayName(contact)
-        : ((user.firstName ?? '').trim().isEmpty
-            ? peerId
-            : (user.firstName ?? '').trim());
+    // 会议群聊（meeting:xxx）直接用 MeetingGroup.title，与列表和标题栏一致。
+    final meetingTitle = peerId.startsWith('meeting:')
+        ? _meetingTitleForPeerId(peerId)
+        : '';
+    final name = meetingTitle.isNotEmpty
+        ? meetingTitle
+        : _resolveConversationDisplayName(
+            peerId,
+            contactName: contact != null ? _resolveContactDisplayName(contact) : '',
+            chatName: (user.firstName ?? '').trim(),
+            idFallback: peerId,
+          );
     final selected = _selectedConversationPeerId == peerId;
     final isFriend = _directChatAccess.isFriend(group.key);
     final targetGroup = isFriend ? 'Strangers' : 'Friends';

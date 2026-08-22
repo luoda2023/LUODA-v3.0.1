@@ -16,29 +16,37 @@ use hbb_common::{
 };
 
 fn run_rdp(port: u16) {
-    std::process::Command::new("cmdkey")
-        .arg("/delete:localhost")
-        .output()
-        .ok();
-    let username = std::env::var("rdp_username").unwrap_or_default();
-    let password = std::env::var("rdp_password").unwrap_or_default();
-    if !username.is_empty() || !password.is_empty() {
-        let mut args = vec!["/generic:localhost".to_owned()];
-        if !username.is_empty() {
-            args.push(format!("/user:{}", username));
-        }
-        if !password.is_empty() {
-            args.push(format!("/pass:{}", password));
-        }
-        std::process::Command::new("cmdkey")
-            .args(&args)
-            .output()
-            .ok();
-    }
-    std::process::Command::new("mstsc")
-        .arg(format!("/v:localhost:{}", port))
-        .spawn()
-        .ok();
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+#[cfg(windows)]
+fn apply_no_window(cmd: &mut std::process::Command) -> &mut std::process::Command {
+cmd.creation_flags(CREATE_NO_WINDOW)
+}
+#[cfg(not(windows))]
+fn apply_no_window(cmd: &mut std::process::Command) -> &mut std::process::Command {
+cmd
+}
+let mut cmd = std::process::Command::new("cmdkey");
+apply_no_window(&mut cmd).arg("/delete:localhost").output().ok();
+let username = std::env::var("rdp_username").unwrap_or_default();
+let password = std::env::var("rdp_password").unwrap_or_default();
+if !username.is_empty() || !password.is_empty() {
+let mut args = vec!["/generic:localhost".to_owned()];
+if !username.is_empty() {
+args.push(format!("/user:{}", username));
+}
+if !password.is_empty() {
+args.push(format!("/pass:{}", password));
+}
+let mut cmd = std::process::Command::new("cmdkey");
+apply_no_window(&mut cmd).args(&args).output().ok();
+}
+std::process::Command::new("mstsc")
+.arg(format!("/v:localhost:{}", port))
+.spawn()
+.ok();
 }
 
 pub async fn listen(

@@ -1,4 +1,11 @@
+#![cfg_attr(
+ all(not(debug_assertions), target_os = "windows"),
+ windows_subsystem = "windows"
+)]
+
+#[cfg(target_os = "macos")]
 use hbb_common::{config, log};
+#[cfg(target_os = "macos")]
 use luoda::*;
 
 #[cfg(not(target_os = "macos"))]

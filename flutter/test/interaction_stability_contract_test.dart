@@ -422,8 +422,12 @@ void main() {
 
     expect(changeKey, contains('_conversationRecords.containsKey(key.peerId)'));
     expect(updateIdentity, contains('if (changed) notifyListeners();'));
-    expect(updateIdentity,
-        isNot(contains('for (final entry in _messages.entries)')));
+    // updatePeerIdentity may iterate all bodies for the peer (header/list
+    // sync), but it MUST stay surgical: skip every entry whose peerId does
+    // not match, and it must never overwrite an already-persisted pairing
+    // display name (the database-backed canonical conversation name).
+    expect(updateIdentity, contains('entry.key.peerId != peerId'));
+    expect(updateIdentity, contains('pairing.displayName.trim().isEmpty'));
     expect(chatModelSource, contains('latestConversations()'));
     expect(directChatSource, contains('latestConversations()'));
   });

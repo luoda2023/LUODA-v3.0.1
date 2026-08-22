@@ -3,17 +3,68 @@
 #include <tchar.h>
 #include <uni_links_desktop/uni_links_desktop_plugin.h>
 #include <windows.h>
+#include <tlhelp32.h>
 
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
-#include <iostream>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "win32_desktop.h"
 #include "flutter_window.h"
 #include "utils.h"
+
+/// Hide the current process's own console window (if any).
+static void HideOwnConsole() {
+  HWND consoleWnd = ::GetConsoleWindow();
+  if (consoleWnd) {
+    ::ShowWindow(consoleWnd, SW_HIDE);
+  }
+}
+
+/// Hide ALL visible top-level windows whose owning process is conhost.exe.
+/// This catches console windows created by child processes (--server,
+/// --cm, --service, --tray) that inherit the console before FreeConsole
+/// takes effect.  Called periodically during the first 30 seconds.
+static void HideAllConHostWindows() {
+  HideOwnConsole();
+  struct ConHostPidSet {
+    std::vector<DWORD> pids;
+  } data;
+  HANDLE snap = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+  if (snap != INVALID_HANDLE_VALUE) {
+    PROCESSENTRY32W pe{};
+    pe.dwSize = sizeof(pe);
+    if (::Process32FirstW(snap, &pe)) {
+      do {
+        if (_wcsicmp(pe.szExeFile, L"conhost.exe") == 0) {
+          data.pids.push_back(pe.th32ProcessID);
+        }
+      } while (::Process32NextW(snap, &pe));
+    }
+    ::CloseHandle(snap);
+  }
+  if (data.pids.empty()) return;
+  struct EnumCtx {
+    const std::vector<DWORD>* targetPids;
+  } ctx{&data.pids};
+  ::EnumWindows([](HWND hwnd, LPARAM lParam) -> BOOL {
+    auto* ctx = reinterpret_cast<EnumCtx*>(lParam);
+    DWORD winPid = 0;
+    ::GetWindowThreadProcessId(hwnd, &winPid);
+    for (DWORD pid : *ctx->targetPids) {
+      if (winPid == pid) {
+        if (::IsWindowVisible(hwnd)) {
+          ::ShowWindow(hwnd, SW_HIDE);
+        }
+        break;
+      }
+    }
+    return TRUE;
+  }, reinterpret_cast<LPARAM>(&ctx));
+}
 
 typedef char** (*FUNC_LUODA_CORE_MAIN)(int*);
 typedef void (*FUNC_LUODA_FREE_ARGS)( char**, int);
@@ -26,24 +77,31 @@ const wchar_t* getWindowClassName();
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command)
 {
+  // Immediately detach from any inherited console window so the app
+  // never shows a terminal when launched from cmd/PowerShell/scripts.
+  ::FreeConsole();
+  // Redirect the C runtime standard streams to NUL so that std::cout/
+  // std::cerr never attempt to attach a new console.
+  { FILE* fNul = nullptr; freopen_s(&fNul, "NUL", "w", stdout); }
+  { FILE* fNul = nullptr; freopen_s(&fNul, "NUL", "w", stderr); }
+  // Aggressively hide any console windows already visible.
+  HideAllConHostWindows();
+
   HINSTANCE hInstance = LoadLibraryA("luoda.dll");
   if (!hInstance)
   {
-    std::cout << "Failed to load luoda.dll." << std::endl;
     return EXIT_FAILURE;
   }
   FUNC_LUODA_CORE_MAIN luoda_core_main =
       (FUNC_LUODA_CORE_MAIN)GetProcAddress(hInstance, "luoda_core_main_args");
   if (!luoda_core_main)
   {
-    std::cout << "Failed to get luoda_core_main." << std::endl;
     return EXIT_FAILURE;
   }
   FUNC_LUODA_FREE_ARGS free_c_args =
       (FUNC_LUODA_FREE_ARGS)GetProcAddress(hInstance, "free_c_args");
   if (!free_c_args)
   {
-    std::cout << "Failed to get free_c_args." << std::endl;
     return EXIT_FAILURE;
   }
   std::vector<std::string> command_line_arguments =
@@ -131,16 +189,22 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     }
   }
 
-  // Attach to console when present (e.g., 'flutter run') or create a
-  // new console when running with a debugger.
-  if (!::AttachConsole(ATTACH_PARENT_PROCESS) && ::IsDebuggerPresent())
-  {
-    CreateAndAttachConsole();
-  }
+  // Note: we intentionally do NOT call AttachConsole here.
+  // FreeConsole() above already detached from any inherited console.
+  // Re-attaching would make the terminal window reappear when the app
+  // is launched from cmd/PowerShell/scripts.
 
   // Initialize COM, so that it is available for use in the library and/or
   // plugins.
   ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+
+  // Many plugin DLLs (flutter_windows.dll, desktop_multi_window, etc.)
+  // are compiled as Console subsystem.  When they are loaded they may
+  // cause a console window to appear.  Re-detach here after all DLLs
+  // have been loaded to prevent that.
+  ::FreeConsole();
+  { FILE* fNul = nullptr; freopen_s(&fNul, "NUL", "w", stdout); }
+  { FILE* fNul = nullptr; freopen_s(&fNul, "NUL", "w", stderr); }
 
   flutter::DartProject project(L"data");
   // connection manager hide icon from taskbar
@@ -202,6 +266,13 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   if (!window.CreateAndShow(window_title, origin, size, !is_cm_page)) {
       return EXIT_FAILURE;
   }
+  // The Flutter engine and plugin DLLs are loaded during CreateAndShow.
+  // Several of these DLLs are Console-subsystem and may re-attach a
+  // console.  Detach again unconditionally and hide any visible console.
+  ::FreeConsole();
+  { FILE* fNul = nullptr; freopen_s(&fNul, "NUL", "w", stdout); }
+  { FILE* fNul = nullptr; freopen_s(&fNul, "NUL", "w", stderr); }
+  HideAllConHostWindows();
   if (show_on_startup) {
     const HWND startup_window = window.GetHandle();
     ::ShowWindow(startup_window, SW_SHOWNORMAL);
@@ -220,6 +291,21 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     }).detach();
   }
   window.SetQuitOnClose(true);
+
+  // Console-subsystem DLLs (flutter_windows.dll, plugins) and child
+  // processes (--server, --cm, --service) may create or attach to
+  // console windows.  Spawn a guard thread that keeps detaching and
+  // hiding console windows for the first 30 seconds.
+  std::thread([]() {
+    for (int i = 0; i < 60; ++i) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(500));
+      ::FreeConsole();
+      FILE* fNul = nullptr;
+      freopen_s(&fNul, "NUL", "w", stdout);
+      freopen_s(&fNul, "NUL", "w", stderr);
+      HideAllConHostWindows();
+    }
+  }).detach();
 
   ::MSG msg;
   while (::GetMessage(&msg, nullptr, 0, 0))

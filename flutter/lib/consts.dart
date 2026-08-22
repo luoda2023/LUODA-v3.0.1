@@ -237,6 +237,7 @@ const String kOptionToggleShowMyCursor = "show-my-cursor";
 
 const String kOptionDisableFloatingWindow = "disable-floating-window";
 const String kOptionAutoStartService = "auto-start-service";
+const String kOptionAutoStartScreenShare = "auto-start-screen-share";
 
 /// 文件助手（File Transfer Assistant）内置会话 ID，类似微信文件传输助手。
 const String kFileHelperId = "filehelper";

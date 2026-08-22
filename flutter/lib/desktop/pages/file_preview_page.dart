@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 
@@ -7,6 +8,7 @@ import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:ffi/ffi.dart';
 import 'package:flutter/material.dart';
 import 'package:open_filex/open_filex.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:win32/win32.dart';
 
 import '../../common.dart';
@@ -48,6 +50,7 @@ class FilePreviewPage extends StatefulWidget {
 
 class _FilePreviewPageState extends State<FilePreviewPage> {
   int _currentIndex = 0;
+
   late final List<String> _paths;
   final TransformationController _imageTransformController =
       TransformationController();
@@ -56,12 +59,16 @@ class _FilePreviewPageState extends State<FilePreviewPage> {
   bool _isMaximized = false;
   bool _isFullScreen = false;
   Timer? _windowDragTimer;
+  final List<Timer> _firstPaintTimers = <Timer>[];
   Rect? _windowFrame;
   Rect? _windowDragStartFrame;
   Offset? _windowDragStartCursor;
 
   WindowController get _windowController =>
       WindowController.fromWindowId(widget.windowId);
+
+  /// Persistence key for window frame.
+  static const _kPrefKey = 'file_preview_window_frame';
 
   @override
   void initState() {
@@ -73,14 +80,75 @@ class _FilePreviewPageState extends State<FilePreviewPage> {
     if (_paths.isEmpty) _paths.add(widget.filePath);
     _currentIndex = _paths.indexOf(widget.filePath);
     if (_currentIndex < 0) _currentIndex = 0;
-    WidgetsBinding.instance.addPostFrameCallback((_) => _syncWindowState());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _restoreWindowState();
+      _syncWindowState();
+      _ensureFirstPaint();
+    });
+  }
+
+  /// LUODA FIX: on some machines the child Flutter engine composites its
+  /// first frame partially (toolbar renders, the body stays as the raw
+  /// window background). Re-asserting window visibility and forcing a
+  /// rebuild shortly after mount makes the surface repaint and the image
+  /// body appear.
+  void _ensureFirstPaint() {
+    _firstPaintTimers.add(Timer(const Duration(milliseconds: 400), () {
+      if (!mounted) return;
+      _windowController.show();
+      setState(() {});
+      _firstPaintTimers.add(Timer(const Duration(milliseconds: 700), () {
+        if (mounted) setState(() {});
+      }));
+    }));
   }
 
   @override
   void dispose() {
+    for (final t in _firstPaintTimers) {
+      t.cancel();
+    }
+    _firstPaintTimers.clear();
     _windowDragTimer?.cancel();
     _imageTransformController.dispose();
+    _saveWindowState();
     super.dispose();
+  }
+
+  /// Restore window frame from last session.
+  Future<void> _restoreWindowState() async {
+    try {
+      final dir = await getApplicationSupportDirectory();
+      final file = File('${dir.path}${Platform.pathSeparator}$_kPrefKey.json');
+      if (await file.exists()) {
+        final json = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+        final left = (json['left'] as num?)?.toDouble();
+        final top = (json['top'] as num?)?.toDouble();
+        final width = (json['width'] as num?)?.toDouble();
+        final height = (json['height'] as num?)?.toDouble();
+        if (left != null && top != null && width != null && height != null) {
+          final frame = Rect.fromLTWH(left, top, width, height);
+          await _windowController.setFrame(frame);
+          _windowFrame = frame;
+        }
+      }
+    } catch (_) {}
+  }
+
+  /// Save window frame for next session.
+  Future<void> _saveWindowState() async {
+    try {
+      final frame = _windowFrame;
+      if (frame == null) return;
+      final dir = await getApplicationSupportDirectory();
+      final file = File('${dir.path}${Platform.pathSeparator}$_kPrefKey.json');
+      await file.writeAsString(jsonEncode({
+        'left': frame.left,
+        'top': frame.top,
+        'width': frame.width,
+        'height': frame.height,
+      }));
+    } catch (_) {}
   }
 
   Offset? _windowsCursorPosition() {
@@ -136,6 +204,7 @@ class _FilePreviewPageState extends State<FilePreviewPage> {
     _updateWindowDrag();
     _windowDragStartFrame = null;
     _windowDragStartCursor = null;
+    _saveWindowState();
   }
 
   Future<void> _syncWindowState() async {
@@ -147,18 +216,6 @@ class _FilePreviewPageState extends State<FilePreviewPage> {
     setState(() {
       _isFullScreen = fullScreen;
       _isMaximized = maximized;
-      if (frame != null) _windowFrame = frame;
-    });
-  }
-
-  Future<void> _toggleFullScreen() async {
-    final next = !_isFullScreen;
-    await _windowController.setFullscreen(next);
-    final frame = !next ? await _windowController.getFrame() : null;
-    if (!mounted) return;
-    setState(() {
-      _isFullScreen = next;
-      if (next) _isMaximized = false;
       if (frame != null) _windowFrame = frame;
     });
   }
@@ -181,6 +238,7 @@ class _FilePreviewPageState extends State<FilePreviewPage> {
       _isMaximized = !maximized;
       if (frame != null) _windowFrame = frame;
     });
+    _saveWindowState();
   }
 
   void _goPrevious() {
@@ -237,24 +295,6 @@ class _FilePreviewPageState extends State<FilePreviewPage> {
   String get _currentName =>
       _paths[_currentIndex].split(Platform.pathSeparator).last;
 
-  Widget _toolbarButton({
-    required String tooltip,
-    required IconData icon,
-    required VoidCallback? onPressed,
-    double iconSize = 20,
-  }) {
-    return IconButton(
-      tooltip: tooltip,
-      constraints: const BoxConstraints.tightFor(width: 36, height: 36),
-      padding: EdgeInsets.zero,
-      splashRadius: 16,
-      hoverColor: Colors.white12,
-      highlightColor: Colors.white10,
-      icon: Icon(icon, size: iconSize),
-      onPressed: onPressed,
-    );
-  }
-
   Widget _windowDragRegion({
     required Widget child,
     VoidCallback? onDoubleTap,
@@ -272,31 +312,6 @@ class _FilePreviewPageState extends State<FilePreviewPage> {
     );
   }
 
-  Widget _imageNavigationButton({
-    required String tooltip,
-    required IconData icon,
-    required VoidCallback? onPressed,
-  }) {
-    return Tooltip(
-      message: tooltip,
-      child: DecoratedBox(
-        decoration: const BoxDecoration(
-          color: Color(0x66000000),
-          shape: BoxShape.circle,
-        ),
-        child: IconButton(
-          icon: Icon(icon),
-          iconSize: 40,
-          color: Colors.white,
-          disabledColor: Colors.white30,
-          constraints: const BoxConstraints.tightFor(width: 56, height: 56),
-          padding: EdgeInsets.zero,
-          splashRadius: 25,
-          onPressed: onPressed,
-        ),
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -305,140 +320,163 @@ class _FilePreviewPageState extends State<FilePreviewPage> {
     final hasMultiple = _paths.length > 1;
     final isImage = filePreviewKindForName(fileName) == FilePreviewKind.image;
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final bgColor = filePreviewKindForName(fileName) == FilePreviewKind.image
-        ? Colors.black
-        : Colors.black87;
+    // Windows Photos style: white/light background for images,
+    // dark for other file types.
+    final bgColor = isImage
+        ? const Color(0xFFF5F5F5) // light gray like Windows Photos
+        : (dark ? const Color(0xFF1C1E23) : Colors.white);
+    final toolbarBg = isImage
+        ? const Color(0xFFF0F0F0)
+        : (dark ? const Color(0xFF2A2D33) : const Color(0xFFF8F8F8));
+    final iconColor = isImage
+        ? const Color(0xFF333333)
+        : (dark ? Colors.white70 : const Color(0xFF555555));
 
     return Scaffold(
       backgroundColor: bgColor,
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        backgroundColor: bgColor,
-        foregroundColor: Colors.white,
-        elevation: 0,
-        titleSpacing: 0,
-        title: _windowDragRegion(
-          onDoubleTap: _toggleMaximized,
-          child: SizedBox(
-            height: kToolbarHeight,
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                fileName,
-                style: const TextStyle(fontSize: 14),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ),
-        ),
-        leadingWidth: hasMultiple ? 72 : null,
-        leading: hasMultiple
-            ? _windowDragRegion(
-                child: Center(
-                  child: Text(
-                    '${_currentIndex + 1} / ${_paths.length}',
-                    style: const TextStyle(fontSize: 12, color: Colors.white60),
+      body: Column(
+        children: <Widget>[
+          // ── Top toolbar (Windows Photos style) ──
+          _windowDragRegion(
+            onDoubleTap: _toggleMaximized,
+            child: Container(
+              height: 44,
+              decoration: BoxDecoration(
+                color: toolbarBg,
+                border: Border(
+                  bottom: BorderSide(
+                    color: isImage
+                        ? const Color(0xFFE0E0E0)
+                        : (dark ? const Color(0xFF3A3D43) : const Color(0xFFE8E8E8)),
                   ),
                 ),
-              )
-            : null,
-        actions: [
-          if (isImage) ...<Widget>[
-            _toolbarButton(
-              tooltip: translate('Zoom out'),
-              icon: Icons.zoom_out_rounded,
-              onPressed: _imageScale > 0.1 ? () => _zoomImage(0.8) : null,
-            ),
-            SizedBox(
-              width: 52,
-              child: Center(
-                child: Text(
-                  '${(_imageScale * 100).round()}%',
-                  style: const TextStyle(fontSize: 12, color: Colors.white70),
-                ),
+              ),
+              child: Row(
+                children: <Widget>[
+                  const SizedBox(width: 8),
+                  // ── Left section: navigation ──
+                  _ToolBtn(
+                    icon: Icons.push_pin_outlined,
+                    tooltip: translate('Pin'),
+                    color: iconColor,
+                    onPressed: () {},
+                  ),
+                  const SizedBox(width: 2),
+                  if (hasMultiple) ...<Widget>[
+                    _ToolBtn(
+                      icon: Icons.chevron_left,
+                      tooltip: translate('Previous'),
+                      color: iconColor,
+                      enabled: _currentIndex > 0,
+                      onPressed: _goPrevious,
+                    ),
+                    _ToolBtn(
+                      icon: Icons.chevron_right,
+                      tooltip: translate('Next'),
+                      color: iconColor,
+                      enabled: _currentIndex < _paths.length - 1,
+                      onPressed: _goNext,
+                    ),
+                  ],
+                  const SizedBox(width: 2),
+                  if (hasMultiple)
+                    _ToolBtn(
+                      icon: Icons.grid_view_rounded,
+                      tooltip: translate('Thumbnail view'),
+                      color: iconColor,
+                      onPressed: () {},
+                    ),
+                  const SizedBox(width: 2),
+                  // ── Center section: zoom ──
+                  if (isImage) ...<Widget>[
+                    _ToolBtn(
+                      icon: Icons.add_circle_outline,
+                      tooltip: translate('Zoom in'),
+                      color: iconColor,
+                      enabled: _imageScale < 10,
+                      onPressed: () => _zoomImage(1.25),
+                    ),
+                    _ToolBtn(
+                      icon: Icons.remove_circle_outline,
+                      tooltip: translate('Zoom out'),
+                      color: iconColor,
+                      enabled: _imageScale > 0.1,
+                      onPressed: () => _zoomImage(0.8),
+                    ),
+                    _ToolBtn(
+                      icon: Icons.crop_square_rounded,
+                      tooltip: translate('Fit to window'),
+                      color: iconColor,
+                      onPressed: _resetImageTransform,
+                    ),
+                    const SizedBox(width: 2),
+                  ],
+                  // ── Right section: actions ──
+                  if (isImage)
+                    _ToolBtn(
+                      icon: Icons.rotate_right_rounded,
+                      tooltip: translate('Rotate right'),
+                      color: iconColor,
+                      onPressed: _rotateImage,
+                    ),
+                  if (isImage)
+                    _ToolBtn(
+                      icon: Icons.edit_outlined,
+                      tooltip: translate('Edit'),
+                      color: iconColor,
+                      onPressed: () {},
+                    ),
+                  _ToolBtn(
+                    icon: Icons.download_rounded,
+                    tooltip: translate('Save as'),
+                    color: iconColor,
+                    onPressed: () {},
+                  ),
+                  const SizedBox(width: 2),
+                  _ToolBtn(
+                    icon: Icons.more_horiz_rounded,
+                    tooltip: translate('More'),
+                    color: iconColor,
+                    onPressed: () {},
+                  ),
+                  const Spacer(),
+                  // ── Window controls ──
+                  _ToolBtn(
+                    icon: Icons.remove_rounded,
+                    tooltip: translate('Minimize'),
+                    color: iconColor,
+                    onPressed: _windowController.minimize,
+                  ),
+                  _ToolBtn(
+                    icon: _isMaximized
+                        ? Icons.filter_none_rounded
+                        : Icons.crop_square_rounded,
+                    tooltip: translate(_isMaximized ? 'Restore' : 'Maximize'),
+                    color: iconColor,
+                    iconSize: 17,
+                    onPressed: _toggleMaximized,
+                  ),
+                  _ToolBtn(
+                    icon: Icons.close_rounded,
+                    tooltip: translate('Close'),
+                    color: iconColor,
+                    isClose: true,
+                    onPressed: _windowController.close,
+                  ),
+                  const SizedBox(width: 4),
+                ],
               ),
             ),
-            _toolbarButton(
-              tooltip: translate('Zoom in'),
-              icon: Icons.zoom_in_rounded,
-              onPressed: _imageScale < 10 ? () => _zoomImage(1.25) : null,
-            ),
-            _toolbarButton(
-              tooltip: translate('Reset zoom'),
-              icon: Icons.center_focus_strong_rounded,
-              iconSize: 19,
-              onPressed: _imageScale == 1 ? null : _resetImageTransform,
-            ),
-            _toolbarButton(
-              tooltip: translate('Rotate right'),
-              icon: Icons.rotate_right_rounded,
-              onPressed: _rotateImage,
-            ),
-          ],
-          _toolbarButton(
-            tooltip: translate('Open with system app'),
-            icon: Icons.open_in_new_rounded,
-            onPressed: () => OpenFilex.open(currentPath),
           ),
-          _toolbarButton(
-            tooltip: translate(
-              _isFullScreen ? 'Exit Fullscreen' : 'Fullscreen',
+          // ── Body ──
+          Expanded(
+            child: Stack(
+              children: <Widget>[
+                Positioned.fill(
+                    child: _buildPreview(currentPath, fileName, dark)),
+              ],
             ),
-            icon: _isFullScreen
-                ? Icons.fullscreen_exit_rounded
-                : Icons.fullscreen_rounded,
-            onPressed: _toggleFullScreen,
           ),
-          _toolbarButton(
-            tooltip: translate('Minimize'),
-            icon: Icons.remove_rounded,
-            onPressed: _windowController.minimize,
-          ),
-          _toolbarButton(
-            tooltip: translate(_isMaximized ? 'Restore' : 'Maximize'),
-            icon: _isMaximized
-                ? Icons.filter_none_rounded
-                : Icons.crop_square_rounded,
-            iconSize: 18,
-            onPressed: _toggleMaximized,
-          ),
-          _toolbarButton(
-            tooltip: translate('Close'),
-            icon: Icons.close_rounded,
-            onPressed: _windowController.close,
-          ),
-          const SizedBox(width: 4),
-        ],
-      ),
-      body: Stack(
-        children: <Widget>[
-          Positioned.fill(child: _buildPreview(currentPath, fileName, dark)),
-          if (isImage && hasMultiple)
-            Positioned(
-              left: 20,
-              top: 0,
-              bottom: 0,
-              child: Center(
-                child: _imageNavigationButton(
-                  tooltip: translate('Previous'),
-                  icon: Icons.chevron_left_rounded,
-                  onPressed: _currentIndex > 0 ? _goPrevious : null,
-                ),
-              ),
-            ),
-          if (isImage && hasMultiple)
-            Positioned(
-              right: 20,
-              top: 0,
-              bottom: 0,
-              child: Center(
-                child: _imageNavigationButton(
-                  tooltip: translate('Next'),
-                  icon: Icons.chevron_right_rounded,
-                  onPressed: _currentIndex < _paths.length - 1 ? _goNext : null,
-                ),
-              ),
-            ),
         ],
       ),
     );
@@ -447,15 +485,25 @@ class _FilePreviewPageState extends State<FilePreviewPage> {
   Widget _buildPreview(String path, String fileName, bool dark) {
     final file = File(path);
     if (!file.existsSync()) {
+      // High-contrast "not found" state: this must look obviously broken,
+      // never like an empty black/white void.
+      final foreground = dark ? Colors.white70 : Colors.black54;
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.folder_off_outlined, size: 64, color: Colors.white38),
+            Icon(Icons.folder_off_outlined, size: 64, color: foreground),
             const SizedBox(height: 12),
             Text(
               translate('File not found'),
-              style: const TextStyle(color: Colors.white54, fontSize: 14),
+              style: TextStyle(color: foreground, fontSize: 14),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              fileName,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: foreground, fontSize: 12),
             ),
           ],
         ),
@@ -521,12 +569,12 @@ class _FilePreviewPageState extends State<FilePreviewPage> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.broken_image_outlined,
-                      size: 64, color: Colors.white38),
+                  Icon(Icons.broken_image_outlined,
+                      size: 64, color: Colors.grey[400]),
                   const SizedBox(height: 12),
                   Text(
                     translate('Cannot preview this image'),
-                    style: const TextStyle(color: Colors.white54, fontSize: 14),
+                    style: TextStyle(color: Colors.grey[500], fontSize: 14),
                   ),
                 ],
               ),
@@ -759,6 +807,56 @@ class _TextPreview extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+/// Minimal toolbar button matching Windows Photos style.
+class _ToolBtn extends StatelessWidget {
+  const _ToolBtn({
+    required this.icon,
+    required this.tooltip,
+    required this.color,
+    required this.onPressed,
+    this.enabled = true,
+    this.iconSize = 20,
+    this.isClose = false,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final Color color;
+  final VoidCallback? onPressed;
+  final bool enabled;
+  final double iconSize;
+  final bool isClose;
+
+  @override
+  Widget build(BuildContext context) {
+    final effectiveOnPressed = enabled ? onPressed : null;
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: effectiveOnPressed,
+        hoverColor: isClose
+            ? const Color(0xFFE81123)
+            : Colors.black.withOpacity(0.06),
+        highlightColor: isClose
+            ? const Color(0xFFC42B1C)
+            : Colors.black.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(4),
+        child: SizedBox(
+          width: 36,
+          height: 36,
+          child: Icon(
+            icon,
+            size: iconSize,
+            color: effectiveOnPressed != null
+                ? (isClose ? const Color(0xFF333333) : color)
+                : color.withOpacity(0.35),
+          ),
+        ),
+      ),
     );
   }
 }

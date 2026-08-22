@@ -639,10 +639,22 @@ class ServerModel with ChangeNotifier {
             }
             final chatModel = parent.target?.chatModel;
             if (chatModel != null) {
+              // LUODA FIX: refresh the conversation identity immediately
+              // when an incoming chat client is seen, exactly like
+              // _openConversation does when the row is clicked. Without
+              // this the conversation list keeps the stale name/preview
+              // until the user manually opens the conversation.
               unawaited(chatModel.onDirectSessionReady(
                 peerId: client.peerId,
                 connId: client.id,
               ));
+              if (client.name.trim().isNotEmpty) {
+                chatModel.updatePeerIdentity(
+                  client.peerId,
+                  displayName: client.name,
+                  avatar: client.avatar,
+                );
+              }
             }
           }
           parent.target?.chatModel

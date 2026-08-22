@@ -787,29 +787,33 @@ pub fn refresh_rendezvous_server() {
 }
 
 pub fn run_me<T: AsRef<std::ffi::OsStr>>(args: Vec<T>) -> std::io::Result<std::process::Child> {
-    #[cfg(target_os = "linux")]
-    if let Ok(appdir) = std::env::var("APPDIR") {
-        let appimage_cmd = std::path::Path::new(&appdir).join("AppRun");
-        if appimage_cmd.exists() {
-            log::info!("path: {:?}", appimage_cmd);
-            return std::process::Command::new(appimage_cmd).args(&args).spawn();
-        }
-    }
-    let cmd = std::env::current_exe()?;
-    let mut cmd = std::process::Command::new(cmd);
-    #[cfg(windows)]
-    let mut force_foreground = false;
-    #[cfg(windows)]
-    {
-        let arg_strs = args
-            .iter()
-            .map(|x| x.as_ref().to_string_lossy())
-            .collect::<Vec<_>>();
-        if arg_strs == vec!["--install"] || arg_strs == &["--noinstall"] {
-            cmd.env(crate::platform::SET_FOREGROUND_WINDOW, "1");
-            force_foreground = true;
-        }
-    }
+#[cfg(target_os = "linux")]
+if let Ok(appdir) = std::env::var("APPDIR") {
+let appimage_cmd = std::path::Path::new(&appdir).join("AppRun");
+if appimage_cmd.exists() {
+log::info!("path: {:?}", appimage_cmd);
+return std::process::Command::new(appimage_cmd).args(&args).spawn();
+}
+}
+let cmd = std::env::current_exe()?;
+let mut cmd = std::process::Command::new(cmd);
+#[cfg(windows)]
+let mut force_foreground = false;
+#[cfg(windows)]
+{
+use std::os::windows::process::CommandExt;
+// CREATE_NO_WINDOW (0x08000000) — never show a console window for
+// self-relaunched child processes (--tray, --server, --cm, ...).
+cmd.creation_flags(0x08000000);
+let arg_strs = args
+.iter()
+.map(|x| x.as_ref().to_string_lossy())
+.collect::<Vec<_>>();
+if arg_strs == vec!["--install"] || arg_strs == &["--noinstall"] {
+cmd.env(crate::platform::SET_FOREGROUND_WINDOW, "1");
+force_foreground = true;
+}
+}
     let result = cmd.args(&args).spawn();
     match result.as_ref() {
         Ok(_child) =>

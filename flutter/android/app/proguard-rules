@@ -57,3 +57,14 @@
 -keepattributes Signature
 -keepattributes InnerClasses
 -keepattributes EnclosingMethod
+
+# R8 generated rules for webview_flutter
+-dontwarn io.flutter.plugins.webviewflutter.DisplayListenerProxy
+-dontwarn io.flutter.plugins.webviewflutter.FlutterAssetManager$PluginBindingFlutterAssetManager
+-dontwarn io.flutter.plugins.webviewflutter.FlutterAssetManager
+-dontwarn io.flutter.plugins.webviewflutter.FlutterViewFactory
+-dontwarn io.flutter.plugins.webviewflutter.JavaScriptChannel
+-dontwarn io.flutter.plugins.webviewflutter.ProxyApiRegistrar
+-dontwarn io.flutter.plugins.webviewflutter.WebChromeClientProxyApi$SecureWebChromeClient
+-dontwarn io.flutter.plugins.webviewflutter.WebChromeClientProxyApi$WebChromeClientImpl
+-dontwarn io.flutter.plugins.webviewflutter.WebViewPoint

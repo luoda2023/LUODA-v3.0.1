@@ -193,7 +193,20 @@ impl RendezvousMediator {
             tokio::spawn(async move {
                 loop {
                     sleep(10.).await;
-                    let cm_reachable = crate::ipc::connect(1000, "_cm").await.is_ok();
+                    let cm_reachable = match crate::ipc::connect(1000, "_cm").await {
+                        Ok(mut c) => {
+                            // Politely close the probe connection: send Close
+                            // and linger briefly. Dropping the pipe instantly
+                            // races the CM's MonitorReady greeting on every
+                            // probe and spams "os error 232" in the log
+                            // (this watchdog runs in every non-CM process,
+                            // so the noise multiplied).
+                            let _ = c.send(&crate::ipc::Data::Close).await;
+                            sleep(0.2).await;
+                            true
+                        }
+                        Err(_) => false,
+                    };
                     if cm_reachable || crate::check_process("--cm", false) {
                         continue;
                     }
@@ -1020,7 +1033,8 @@ fn set_direct_listener_status(status: &str) {
 /// failures (needs elevation, which is available when installed).
 #[cfg(windows)]
 fn ensure_dynamic_firewall_rule() {
-    use std::sync::OnceLock;
+use std::os::windows::process::CommandExt;
+use std::sync::OnceLock;
     static DONE: OnceLock<()> = OnceLock::new();
     if DONE.get().is_some() {
         return;
@@ -1029,19 +1043,20 @@ fn ensure_dynamic_firewall_rule() {
         ("LUODA Direct Access Dynamic TCP", "TCP"),
         ("LUODA Direct Access Dynamic UDP", "UDP"),
     ] {
-        let status = std::process::Command::new("netsh")
-            .args([
-                "advfirewall",
-                "firewall",
-                "add",
-                "rule",
-                &format!("name={}", name),
-                "dir=in",
-                "action=allow",
-                &format!("protocol={}", proto),
-                "localport=20000-40000",
-                "enable=yes",
-            ])
+let status = std::process::Command::new("netsh")
+.creation_flags(0x08000000) // CREATE_NO_WINDOW
+.args([
+"advfirewall",
+"firewall",
+"add",
+"rule",
+&format!("name={}", name),
+"dir=in",
+"action=allow",
+&format!("protocol={}", proto),
+"localport=20000-40000",
+"enable=yes",
+])
             .output();
         match status {
             Ok(out) if out.status.success() => {

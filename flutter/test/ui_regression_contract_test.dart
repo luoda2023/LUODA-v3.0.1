@@ -1408,37 +1408,45 @@ void main() {
     );
 
     expect(fileViewerSource, isNot(contains('setFullscreen(true)')));
-    // LUODA FIX (2026-08-15): the DesktopMultiWindow separate-window route
-    // renders a blank white window on this machine (child-window engine never
-    // attaches), so ALL platforms use the reliable in-app full-screen viewer;
-    // "open with system app" (OpenFilex) still provides a real detached OS
-    // window for viewing outside the software.
-    expect(fileViewerSource, isNot(contains('DesktopMultiWindow.createWindow')));
-    expect(fileViewerSource, isNot(contains('windowController.setFrame(')));
+    // LUODA FIX (2026-08-22): the desktop preview is a REAL independent OS
+    // window again. The 2026-08-15 blank-child-window issue is root-caused
+    // and fixed in three parts this must keep asserting:
+    //   1. main.dart must SKIP initEnv for file-preview child windows (the
+    //      old hang came from the Rust backend blocking on an unknown app
+    //      type before the child engine could attach);
+    //   2. the child window must NOT be parent-shown() — exactly like the
+    //      session windows, the child shows itself after its first frame
+    //      (runMultiWindow ends with WindowController.show()). Parent-side
+    //      show() exposed a not-yet-rendered window and intermittently left
+    //      it stuck on the raw background (the all-black/all-white bug);
+    //   3. the init background must be white, never black.
+    expect(fileViewerSource, contains('DesktopMultiWindow.createWindow'));
+    expect(fileViewerSource, contains('WindowType.FilePreview.index'));
+    expect(fileViewerSource, isNot(contains('..show()')));
+    expect(fileViewerSource, contains('setInitBackgroundColor(Colors.white)'));
     expect(fileViewerSource, contains('MaterialPageRoute<void>'));
     expect(fileViewerSource, contains('_FileViewerPage('));
     expect(fileViewerSource, contains('siblingPaths: siblingPaths'));
     expect(fileViewerSource, contains('FilePreviewKind.image'));
     expect(fileViewerSource, contains('OpenFilex.open'));
     expect(mainSource, contains('case WindowType.FilePreview:'));
+    expect(
+      mainSource,
+      contains('if (appType != kAppTypeDesktopFilePreview)'),
+    );
     expect(filePreviewPageSource, contains('filePreviewIcon(fileName)'));
+    expect(filePreviewPageSource, contains('_ensureFirstPaint'));
     expect(chatPageSource, contains('Future<void> _openMessageFilePreview('));
     expect(chatPageSource, contains('siblingPaths: siblingPaths'));
     expect(filePreviewPageSource, contains('TransformationController'));
     expect(filePreviewPageSource, contains('void _zoomImage(double factor)'));
-    expect(filePreviewPageSource, contains('Icons.zoom_in_rounded'));
-    expect(filePreviewPageSource, contains('Icons.zoom_out_rounded'));
+    expect(filePreviewPageSource, contains('Icons.add_circle_outline'));
+    expect(filePreviewPageSource, contains('Icons.remove_circle_outline'));
     expect(filePreviewPageSource, contains('Icons.rotate_right_rounded'));
     expect(filePreviewPageSource, contains('Icons.remove_rounded'));
     expect(filePreviewPageSource, contains('Icons.crop_square_rounded'));
-    expect(filePreviewPageSource, contains('Icons.fullscreen_exit_rounded'));
-    expect(filePreviewPageSource, contains('final next = !_isFullScreen;'));
-    expect(filePreviewPageSource, contains('if (_isFullScreen) {'));
-    expect(filePreviewPageSource, contains('_windowController.isFullScreen()'));
-    expect(
-      filePreviewPageSource,
-      contains('final isImage = filePreviewKindForName(fileName)'),
-    );
+    expect(filePreviewPageSource, contains('Icons.close_rounded'));
+    expect(filePreviewPageSource, contains('final isImage = filePreviewKindForName(fileName)'));
     expect(
       filePreviewPageSource,
       contains('WindowController.fromWindowId(widget.windowId)'),
@@ -1463,14 +1471,9 @@ void main() {
     expect(filePreviewPageSource, contains('_windowFrame = frame'));
     expect(filePreviewPageSource, contains('void _goPrevious()'));
     expect(filePreviewPageSource, contains('void _goNext()'));
-    expect(filePreviewPageSource, contains('left: 20'));
-    expect(filePreviewPageSource, contains('right: 20'));
-    expect(filePreviewPageSource, contains('iconSize: 40'));
-    expect(
-      filePreviewPageSource,
-      contains('BoxConstraints.tightFor(width: 36, height: 36)'),
-    );
-    expect(filePreviewPageSource, contains('splashRadius: 16'));
+    expect(filePreviewPageSource, contains('width: 36,'));
+    expect(filePreviewPageSource, contains('height: 36,'));
+    expect(filePreviewPageSource, contains('this.iconSize = 20'));
     expect(
       filePreviewPageSource,
       isNot(contains('leadingWidth: hasMultiple ? 164 : null')),

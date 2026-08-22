@@ -34,7 +34,6 @@ import '../common/backup_restore.dart';
 import '../common/direct_voice_storage.dart';
 import '../common/chat_notifier.dart';
 import '../common/widgets/overlay.dart';
-import '../main.dart';
 import 'model.dart';
 
 class MessageKey {
@@ -392,6 +391,8 @@ class ChatModel with ChangeNotifier {
   // 发送消息但当前无可用连接时，由页面层提供一个“建立直连会话”的回调，
   // 确保消息能尽快送达（连上后 onDirectSessionReady 会自动重发 pending）。
   Future<void> Function(String peerId, {bool force})? ensureChatConnection;
+  /// Returns a direct chat session FFI instance for [peerId], if one is live.
+  dynamic Function(String peerId)? findDirectSession;
 
   // Cached live incoming chat client (hosted by the connection-manager
   // process on Windows) that can carry replies to [peerId]. Refreshed before
@@ -800,44 +801,58 @@ class ChatModel with ChangeNotifier {
     // must never overwrite a peer's identity.
     final usableName = _isSelfLikePeerName(normalizedName) ? '' : normalizedName;
     final pairing = DirectPairingStore.find(peerId);
-    if (pairing != null &&
-        (usableName.isNotEmpty && usableName != pairing.displayName ||
-            normalizedAvatar.isNotEmpty &&
-                normalizedAvatar != pairing.avatar)) {
-      unawaited(DirectPairingStore.updateIdentity(
-        peerId,
-        displayName: normalizedName,
-        avatar: normalizedAvatar,
-      ));
-    }
-    var changed = false;
-    final body = _messages[MessageKey(peerId, clientModeID)];
-    if (body != null) {
-      if (usableName.isNotEmpty && body.chatUser.firstName != usableName) {
-        body.chatUser.firstName = usableName;
-        changed = true;
-      }
-      final nextProfileImage = normalizedAvatar.isEmpty
-          ? body.chatUser.profileImage
-          : normalizedAvatar;
-      if (body.chatUser.profileImage != nextProfileImage) {
-        body.chatUser.profileImage = nextProfileImage;
-        changed = true;
-      }
-      for (final message in body.chatMessages) {
-        if (message.user.id != peerId) continue;
-        if (usableName.isNotEmpty &&
-            message.user.firstName != usableName) {
-          message.user.firstName = usableName;
-          changed = true;
-        }
-        if (message.user.profileImage != nextProfileImage) {
-          message.user.profileImage = nextProfileImage;
-          changed = true;
-        }
+    // LUODA FIX: the persisted DirectPairingStore displayName is the
+    // canonical, database-backed conversation name. Runtime identity
+    // events fire repeatedly with different values (device hostname vs
+    // account nickname depending on which side reported first), and
+    // overwriting the store each time made list names drift. Only
+    // capture the FIRST non-empty value; after that the store changes
+    // only through an explicit user rename. In-memory bodies below are
+    // still refreshed so the UI never goes stale.
+    if (pairing != null && pairing.displayName.trim().isEmpty) {
+      if (usableName.isNotEmpty || normalizedAvatar.isNotEmpty) {
+        unawaited(DirectPairingStore.updateIdentity(
+          peerId,
+          displayName: usableName,
+          avatar: normalizedAvatar,
+        ));
       }
     }
-    if (changed) notifyListeners();
+ var changed = false;
+ // LUODA FIX: update *every* MessageBody for this peer, not only the
+ // clientModeID one. The desktop header title reads
+ // _messages[_currentKey].chatUser.firstName, and _currentKey's connId
+ // can differ from clientModeID (e.g. an incoming connection id).
+ // Updating all keys keeps the header in sync with the conversation list,
+ // which reads from the primary (newest) body.
+ for (final entry in _messages.entries) {
+ if (entry.key.peerId != peerId) continue;
+ final body = entry.value;
+ if (usableName.isNotEmpty && body.chatUser.firstName != usableName) {
+ body.chatUser.firstName = usableName;
+ changed = true;
+ }
+ final nextProfileImage = normalizedAvatar.isEmpty
+ ? body.chatUser.profileImage
+ : normalizedAvatar;
+ if (body.chatUser.profileImage != nextProfileImage) {
+ body.chatUser.profileImage = nextProfileImage;
+ changed = true;
+ }
+ for (final message in body.chatMessages) {
+ if (message.user.id != peerId) continue;
+ if (usableName.isNotEmpty &&
+ message.user.firstName != usableName) {
+ message.user.firstName = usableName;
+ changed = true;
+ }
+ if (message.user.profileImage != nextProfileImage) {
+ message.user.profileImage = nextProfileImage;
+ changed = true;
+ }
+ }
+ }
+ if (changed) notifyListeners();
   }
 
   showChatIconOverlay({Offset offset = const Offset(200, 50)}) {
@@ -1070,15 +1085,32 @@ class ChatModel with ChangeNotifier {
           }
         }
       }
-      peerAvatar = pairing?.avatar.isNotEmpty == true
-          ? pairing!.avatar
-          : _messages[key]?.chatUser.profileImage;
-    } else {
-      final client = parent.target?.serverModel.clients
-          .firstWhereOrNull((client) => client.peerId == key.peerId);
-      peerName = client?.name;
-      peerAvatar = client?.avatar;
-    }
+peerAvatar = pairing?.avatar.isNotEmpty == true
+? pairing!.avatar
+: _messages[key]?.chatUser.profileImage;
+} else {
+ // LUODA FIX: for non-clientModeID connections (incoming sessions),
+ // resolve the name from the pairing store first, then the existing
+ // message body, then the live client. Using client?.name directly
+ // can overwrite a correct display name with a raw device hostname.
+ final pairing = DirectPairingStore.findForConversation(key.peerId);
+ peerName = pairing?.displayName.trim().isNotEmpty == true
+? pairing!.displayName.trim()
+: '';
+ if (peerName.isEmpty || _isSelfLikePeerName(peerName)) {
+final existing = _messages[key]?.chatUser.firstName ?? '';
+ if (existing.isNotEmpty && !_isSelfLikePeerName(existing)) {
+peerName = existing;
+} else {
+final client = parent.target?.serverModel.clients
+.firstWhereOrNull((client) => client.peerId == key.peerId);
+peerName = (client?.name ?? '').trim();
+}
+}
+peerAvatar = pairing?.avatar.isNotEmpty == true
+? pairing!.avatar
+: _messages[key]?.chatUser.profileImage;
+}
     if (!_messages.containsKey(key)) {
       final chatUser = ChatUser(
         id: key.peerId,
@@ -1087,7 +1119,7 @@ class ChatModel with ChangeNotifier {
       );
       _messages[key] = MessageBody(chatUser, []);
     } else {
-      if (peerName != null && peerName.isNotEmpty) {
+      if (peerName?.isNotEmpty == true) {
         _messages[key]?.chatUser.firstName = peerName;
       }
       _messages[key]?.chatUser.profileImage = peerAvatar;
@@ -2501,6 +2533,16 @@ class ChatModel with ChangeNotifier {
       insertMessage(key, _taggedChatMessage(updated, me));
       notifyListeners();
       _scheduleDeliveryWatchdog(key, updated);
+    } else if (!sent) {
+      // LUODA FIX: the wire send failed (no live session / dialing in
+      // progress / peer offline). The record is already persisted as
+      // "queued" by createOutgoing. Without a watchdog here the message
+      // stayed queued forever — the dialing de-dup in ensureChatConnection
+      // returns early while a dial is in-flight, so no retry was ever
+      // scheduled. Start the watchdog so it periodically re-dials and
+      // re-flushes until the message either goes out or exhausts retries
+      // (same 10s/36-retry budget as the sent path).
+      _scheduleDeliveryWatchdog(key, record);
     }
   }
 

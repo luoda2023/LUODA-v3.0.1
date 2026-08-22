@@ -1,21 +1,27 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter/gestures.dart' show PointerScrollEvent;
 import 'package:luoda_flutter/common.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:external_path/external_path.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:open_filex/open_filex.dart';
-import 'package:window_manager/window_manager.dart';
+import 'package:desktop_multi_window/desktop_multi_window.dart';
+import 'package:luoda_flutter/utils/multi_window_manager.dart';
 
 import 'docx_native_preview.dart';
 import 'dwg_preview_view.dart';
 import 'system_share.dart';
 import 'file_preview_types.dart';
+
 import 'office_preview_view.dart';
 import 'pdf_native_preview.dart';
+
 
 String formatFileSize(int fileSize) {
   if (fileSize < 1024) return '$fileSize B';
@@ -32,6 +38,16 @@ String formatFileSize(int fileSize) {
 Future<String?> resolveReceivedFilePath(String fileName, int fileSize) async {
   if (fileName.isEmpty) return null;
   final dirs = <Directory>[];
+  // The app's own persistent store for clipboard-pasted chat images.
+  // Must be searched FIRST: after a restart the in-memory path cache is
+  // gone and this is the only stable location for those files.
+  try {
+    final support = await getApplicationSupportDirectory();
+    final chatImages = Directory(
+      '${support.path}${Platform.pathSeparator}chat_images',
+    );
+    if (await chatImages.exists()) dirs.add(chatImages);
+  } catch (_) {}
   try {
     dirs.add(await getTemporaryDirectory());
   } catch (_) {}
@@ -110,53 +126,61 @@ Future<String?> resolveReceivedFilePath(String fileName, int fileSize) async {
 /// (mobile). Supports image zoom, audio playback, text display, and
 /// prev/next navigation via [siblingPaths].
 Future<void> showFileViewer(
-  BuildContext context, {
-  required String fileName,
-  required int fileSize,
-  String? localPath,
-  List<String>? siblingPaths,
+BuildContext context, {
+required String fileName,
+required int fileSize,
+String? localPath,
+List<String>? siblingPaths,
 }) async {
-  String? path = localPath?.isNotEmpty == true ? localPath : null;
-  if (path == null || !(await File(path).exists())) {
-    path = await resolveReceivedFilePath(fileName, fileSize);
-  }
-  final resolved = path != null && await File(path).exists();
+String? path = localPath?.isNotEmpty == true ? localPath : null;
+if (path == null || !(await File(path).exists())) {
+path = await resolveReceivedFilePath(fileName, fileSize);
+}
+final resolved = path != null && await File(path).exists();
 
-  if (!resolved) {
-    // File not found locally — show info dialog in-app.
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        fullscreenDialog: true,
-        builder: (_) => _FileViewerPage(
-          fileName: fileName,
-          fileSize: fileSize,
-          path: null,
-        ),
-      ),
-    );
-    return;
-  }
-
-  // All platforms: use the in-app full-screen viewer.
-  //
-  // LUODA FIX: the desktop separate-window route (a second Flutter engine in
-  // the same process) renders a blank white window on this machine — the
-  // child-window engine never attaches, so the preview is invisible. The
-  // in-app full-screen route is reliable everywhere and keeps zoom / rotate /
-  // prev-next / "open with system app" (a real detached OS window via the
-  // system viewer, e.g. Windows Photos) for the "view outside the software"
-  // need.
-  await Navigator.of(context).push(
-    MaterialPageRoute<void>(
-      fullscreenDialog: true,
-      builder: (_) => _FileViewerPage(
-        fileName: fileName,
-        fileSize: fileSize,
-        path: path,
-        siblingPaths: siblingPaths,
-      ),
-    ),
-  );
+// Desktop: open as a real independent OS window via desktop_multi_window.
+// The FilePreviewPage (desktop/pages/file_preview_page.dart) renders a
+// custom title bar with drag-to-move, minimize / maximize / close buttons.
+// Mobile: open in-app full-screen page.
+if (isDesktop) {
+final filePath = resolved ? path : '';
+final msg = jsonEncode({
+'type': WindowType.FilePreview.index,
+'file_path': filePath,
+'file_name': fileName,
+'file_size': fileSize,
+if (siblingPaths != null) 'sibling_paths': siblingPaths,
+});
+final windowController = await DesktopMultiWindow.createWindow(msg);
+if (isWindows) {
+// White init background: if the child engine is slow to paint its first
+// frame the user sees a neutral white, never an alarming black window.
+windowController.setInitBackgroundColor(Colors.white);
+}
+windowController
+..setFrame(
+const Offset(0, 0) & const Size(900, 640))
+..center()
+..setTitle(fileName);
+// Do NOT call show() here. Exactly like the session windows
+// (LUODAMultiWindowManager.newSessionWindow), the child window shows
+// ITSELF from main.dart's runMultiWindow once its first frame is ready.
+// Parent-side show() exposes the window before the child engine has
+// created its surface, which intermittently leaves the window stuck on
+// the raw background (the all-black / all-white preview bug).
+} else {
+await Navigator.of(context).push(
+MaterialPageRoute<void>(
+fullscreenDialog: true,
+builder: (_) => _FileViewerPage(
+fileName: fileName,
+fileSize: fileSize,
+path: resolved ? path : null,
+siblingPaths: siblingPaths,
+),
+),
+);
+}
 }
 
 class _FileViewerPage extends StatefulWidget {
@@ -181,15 +205,6 @@ class _FileViewerPageState extends State<_FileViewerPage> {
   late int _currentIndex;
   final TransformationController _transformController = TransformationController();
   int _rotationQuarterTurns = 0;
-  Offset? _savedPos;
-  Size? _savedSize;
-  bool _wasMaximized = false;
-  bool _enteredFullScreen = false;
-
-  /// 图片预览在桌面端临时把主窗口切到全屏（微信图片查看器风格，
-  /// 无边框无标题栏覆盖整个屏幕），关闭时恢复原窗口位置和大小。
-  bool get _isImagePreview =>
-      filePreviewKindForName(widget.fileName) == FilePreviewKind.image;
 
   @override
   void initState() {
@@ -201,71 +216,58 @@ class _FileViewerPageState extends State<_FileViewerPage> {
     if (_paths.isEmpty && widget.path != null) _paths.add(widget.path!);
     _currentIndex = _paths.indexOf(widget.path ?? '');
     if (_currentIndex < 0) _currentIndex = 0;
-    if (_isImagePreview && !isMobile) {
-      unawaited(_enterFullscreenPreview());
-    }
   }
 
-  Future<void> _enterFullscreenPreview() async {
-    try {
-      // window_manager 在 Windows 上进入全屏时会自动保存当前窗口 frame
-      // （g_frame_before_fullscreen），退出全屏时自动恢复原位置和大小，
-      // 因此无需手动记录/恢复，避免“先恢复再移动”造成闪跳。
-      _savedPos = await windowManager.getPosition();
-      _savedSize = await windowManager.getSize();
-      _wasMaximized = await windowManager.isMaximized();
-      // 若已全屏则无需重复切换。
-      if (await windowManager.isFullScreen()) return;
-      await windowManager.setFullScreen(true);
-      _enteredFullScreen = true;
-    } catch (_) {
-      _enteredFullScreen = false;
-    }
-  }
-
-  /// 恢复窗口：退出全屏让 window_manager 自动还原 frame（Windows），
-  /// 其它平台作为兜底再手动设置一次。调用后立即 pop，避免退场动画期间
-  /// 窗口状态突变造成闪跳。
-  Future<void> _restoreWindow() async {
-    if (!_enteredFullScreen) return;
-    _enteredFullScreen = false;
-    try {
-      final wasFullScreen = await windowManager.isFullScreen();
-      if (wasFullScreen) {
-        await windowManager.setFullScreen(false);
-        // 等待原生窗口重绘完成，避免与退场动画竞争。
-        await Future<void>.delayed(const Duration(milliseconds: 120));
-      }
-      // 兜底：仅当窗口没有自动回到原状态时才手动恢复（非 Windows）。
-      if (!_wasMaximized) {
-        final pos = _savedPos;
-        final size = _savedSize;
-        if (pos != null && size != null) {
-          final cur = await windowManager.getPosition();
-          final curSize = await windowManager.getSize();
-          if ((cur - pos).distance > 40 ||
-              (curSize.width - size.width).abs() > 40 ||
-              (curSize.height - size.height).abs() > 40) {
-            await windowManager.setSize(size);
-            await windowManager.setPosition(pos);
-          }
-        }
-      }
-    } catch (_) {}
-  }
-
-  /// 关闭预览：先恢复窗口再 pop，退场动画在已恢复的窗口上播放，无闪跳。
   Future<void> _closePreview() async {
-    await _restoreWindow();
     if (mounted) Navigator.of(context).pop();
   }
 
+  KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.escape) {
+      unawaited(_closePreview());
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowLeft) {
+      _goPrevious();
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowRight) {
+      _goNext();
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.equal || key == LogicalKeyboardKey.numpadAdd) {
+      _zoomIn();
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.minus || key == LogicalKeyboardKey.numpadSubtract) {
+      _zoomOut();
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.digit0 || key == LogicalKeyboardKey.numpad0) {
+      _resetTransform();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  void _zoomIn() {
+    final currentScale = _transformController.value.getMaxScaleOnAxis();
+    final newScale = (currentScale * 1.25).clamp(0.1, 10.0);
+    _transformController.value = Matrix4.identity()..scale(newScale);
+  }
+
+  void _zoomOut() {
+    final currentScale = _transformController.value.getMaxScaleOnAxis();
+    final newScale = (currentScale / 1.25).clamp(0.1, 10.0);
+    _transformController.value = Matrix4.identity()..scale(newScale);
+  }
   @override
   void dispose() {
     _transformController.dispose();
-    if (_enteredFullScreen) {
-      unawaited(_restoreWindow());
-    }
     super.dispose();
   }
 
@@ -304,125 +306,96 @@ class _FileViewerPageState extends State<_FileViewerPage> {
     });
   }
 
+  /// Windows Photos style top toolbar for image preview.
+  Widget _buildImageToolbar(String path) {
+    return Container(
+      height: 44,
+      decoration: const BoxDecoration(
+        color: Color(0xFFF0F0F0),
+        border: Border(bottom: BorderSide(color: Color(0xFFE0E0E0))),
+      ),
+      child: Row(
+        children: <Widget>[
+          const SizedBox(width: 8),
+          _toolbarBtn(Icons.push_pin_outlined, translate('Pin'), () {}),
+          if (_hasMultiple) ...<Widget>[
+            _toolbarBtn(Icons.chevron_left, translate('Previous'),
+                _currentIndex > 0 ? _goPrevious : null),
+            _toolbarBtn(Icons.chevron_right, translate('Next'),
+                _currentIndex < _paths.length - 1 ? _goNext : null),
+          ],
+          const SizedBox(width: 4),
+          _toolbarBtn(Icons.add_circle_outline, translate('Zoom in'),
+              _zoomIn),
+          _toolbarBtn(Icons.remove_circle_outline, translate('Zoom out'),
+              _zoomOut),
+          _toolbarBtn(Icons.center_focus_strong_rounded, translate('Fit to window'),
+              _resetTransform),
+          const SizedBox(width: 4),
+          _toolbarBtn(Icons.rotate_right_rounded, translate('Rotate right'), _rotate),
+          _toolbarBtn(Icons.edit_outlined, translate('Edit'), () {}),
+          _toolbarBtn(Icons.download_rounded, translate('Save as'), () {}),
+          _toolbarBtn(Icons.more_horiz_rounded, translate('More'), () {}),
+          const Spacer(),
+          IconButton(
+            tooltip: translate('Open with system app'),
+            icon: const Icon(Icons.open_in_new_rounded, size: 20),
+            color: const Color(0xFF333333),
+            onPressed: () => OpenFilex.open(path),
+          ),
+          IconButton(
+            tooltip: translate('Close'),
+            icon: const Icon(Icons.close_rounded, size: 22),
+            color: const Color(0xFF333333),
+            onPressed: () => unawaited(_closePreview()),
+          ),
+          const SizedBox(width: 4),
+        ],
+      ),
+    );
+  }
+
+  Widget _toolbarBtn(IconData icon, String tooltip, VoidCallback? onPressed) {
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onPressed,
+        hoverColor: Colors.black.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(4),
+        child: SizedBox(
+          width: 36, height: 36,
+          child: Icon(icon, size: 20, color: const Color(0xFF333333)),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final kind = filePreviewKindForName(_fileName);
     final path = _path;
     if (path != null && kind == FilePreviewKind.image) {
-      // PopScope 拦截 Esc / 返回手势等系统退出，统一先恢复窗口再 pop，
-      // 避免窗口状态突变造成闪跳。
+      // Windows Photos style: light background + top toolbar
       return PopScope(
-        canPop: !_enteredFullScreen,
+        canPop: true,
         onPopInvokedWithResult: (didPop, _) {
           if (!didPop) unawaited(_closePreview());
         },
+        child: Focus(
+        autofocus: true,
+        onKeyEvent: _handleKeyEvent,
         child: Scaffold(
-        backgroundColor: Colors.black,
-        body: Stack(
-          fit: StackFit.expand,
+        backgroundColor: const Color(0xFFF5F5F5),
+        body: Column(
           children: <Widget>[
-            _buildPreview(context),
-            Positioned(
-              left: 12,
-              top: 0,
-              right: 8,
-              child: SafeArea(
-                child: Row(
-                  children: <Widget>[
-                    if (_hasMultiple)
-                      Text(
-                        '${_currentIndex + 1} / ${_paths.length}',
-                        style: const TextStyle(
-                          color: Colors.white60,
-                          fontSize: 12,
-                        ),
-                      ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        _fileName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                          shadows: <Shadow>[
-                            Shadow(color: Colors.black54, blurRadius: 4),
-                          ],
-                        ),
-                      ),
-                    ),
-                    if (path.isNotEmpty) ...<Widget>[
-                      IconButton(
-                        tooltip: translate('Rotate'),
-                        icon: const Icon(Icons.rotate_right_rounded),
-                        color: Colors.white,
-                        onPressed: _rotate,
-                      ),
-                      IconButton(
-                        tooltip: translate('Reset zoom'),
-                        icon: const Icon(Icons.center_focus_strong_rounded),
-                        color: Colors.white,
-                        onPressed: _resetTransform,
-                      ),
-                      IconButton(
-                        tooltip: translate('Share to WeChat'),
-                        icon: const Icon(Icons.share_outlined),
-                        color: Colors.white,
-                        onPressed: () =>
-                            unawaited(shareFileToSystemApp(path)),
-                      ),
-                      IconButton(
-                        tooltip: translate('Open with system app'),
-                        icon: const Icon(Icons.open_in_new_rounded),
-                        color: Colors.white,
-                        onPressed: () => OpenFilex.open(path),
-                      ),
-                    ],
-                    IconButton(
-                      tooltip: translate('Close'),
-                      icon: const Icon(Icons.close_rounded),
-                      color: Colors.white,
-                      onPressed: () => unawaited(_closePreview()),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            if (_hasMultiple)
-              Positioned(
-                left: 12,
-                top: 0,
-                bottom: 0,
-                child: Center(
-                  child: IconButton(
-                    tooltip: translate('Previous'),
-                    icon: const Icon(Icons.chevron_left_rounded,
-                        size: 40, color: Colors.white70),
-                    onPressed: _currentIndex > 0 ? _goPrevious : null,
-                  ),
-                ),
-              ),
-            if (_hasMultiple)
-              Positioned(
-                right: 12,
-                top: 0,
-                bottom: 0,
-                child: Center(
-                  child: IconButton(
-                    tooltip: translate('Next'),
-                    icon: const Icon(Icons.chevron_right_rounded,
-                        size: 40, color: Colors.white70),
-                    onPressed: _currentIndex < _paths.length - 1
-                        ? _goNext
-                        : null,
-                  ),
-                ),
-              ),
+            // Top toolbar
+            _buildImageToolbar(path),
+            // Image body
+            Expanded(child: _buildPreview(context)),
           ],
         ),
+      ),
       ),
       );
     }
@@ -466,36 +439,70 @@ class _FileViewerPageState extends State<_FileViewerPage> {
   Widget _buildPreview(BuildContext context) {
     final kind = filePreviewKindForName(_fileName);
     if (kind == FilePreviewKind.image) {
-      return InteractiveViewer(
-        transformationController: _transformController,
-        minScale: 0.1,
-        maxScale: 10.0,
-        boundaryMargin: const EdgeInsets.all(80),
-        child: Center(
-          child: RotatedBox(
-            quarterTurns: _rotationQuarterTurns,
-            child: Image.file(
-              File(_path!),
-              fit: BoxFit.contain,
-              errorBuilder: (_, __, ___) => Column(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Icon(Icons.broken_image_outlined,
-                      size: 64,
-                      color: Theme.of(context).brightness == Brightness.dark
-                          ? Colors.white38
-                          : Colors.black26),
-                  const SizedBox(height: 12),
-                  Text(
-                    translate('Cannot preview this image'),
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Theme.of(context).brightness == Brightness.dark
-                          ? Colors.white54
-                          : Colors.black45,
-                    ),
+      return Listener(
+        onPointerSignal: (event) {
+          // 鼠标滚轮缩放
+          if (event is PointerScrollEvent) {
+            final delta = -event.scrollDelta.dy * 0.001;
+            final current = _transformController.value;
+            final currentScale = current.getMaxScaleOnAxis();
+            final newScale = (currentScale * (1 + delta)).clamp(0.1, 10.0);
+            final focalPoint = event.localPosition;
+            // 以鼠标位置为中心缩放
+            final Matrix4 m = Matrix4.identity()
+              ..translate(focalPoint.dx, focalPoint.dy)
+              ..scale(newScale / currentScale)
+              ..translate(-focalPoint.dx, -focalPoint.dy);
+            _transformController.value = m * current;
+          }
+        },
+        child: GestureDetector(
+          onDoubleTap: () {
+            // 双击切换缩放：已放大则还原，否则放大到 2x
+            final currentScale =
+                _transformController.value.getMaxScaleOnAxis();
+            if (currentScale > 1.5) {
+              // 还原
+              _transformController.value = Matrix4.identity();
+            } else {
+              // 放大到 2x
+              _transformController.value = Matrix4.identity()..scale(2.0);
+            }
+          },
+          child: InteractiveViewer(
+            transformationController: _transformController,
+            minScale: 0.1,
+            maxScale: 10.0,
+            boundaryMargin: const EdgeInsets.all(80),
+            child: Center(
+              child: RotatedBox(
+                quarterTurns: _rotationQuarterTurns,
+                child: Image.file(
+                  File(_path!),
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Icon(Icons.broken_image_outlined,
+                          size: 64,
+                          color: Theme.of(context).brightness ==
+                                  Brightness.dark
+                              ? Colors.white38
+                              : Colors.black26),
+                      const SizedBox(height: 12),
+                      Text(
+                        translate('Cannot preview this image'),
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Theme.of(context).brightness ==
+                                  Brightness.dark
+                              ? Colors.white54
+                              : Colors.black45,
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
           ),

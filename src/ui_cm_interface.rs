@@ -551,13 +551,16 @@ impl<T: InvokeUiCM> IpcTaskRunner<T> {
                                 }
                                 Data::CmQueryClients => {
                                     allow_err!(self.stream.send(&Data::CmClientsState(get_clients_state())).await);
-                                    self.running = false;
-                                    return;
+                                    // LUODA FIX: keep the connection open. The main window
+                                    // polls every few seconds over one persistent pipe
+                                    // (flutter_ffi.rs cm_clients_state_from_ipc). Closing
+                                    // here forced a reconnect per query and produced the
+                                    // "os error 232" pipe-closed storm.
                                 }
                                 Data::CmSendChat { id, text } => {
                                     send_chat(id, text);
-                                    self.running = false;
-                                    return;
+                                    // LUODA FIX: ditto — one chat message must not
+                                    // terminate the whole pipe.
                                 }
                                 Data::FS(mut fs) => {
                                     if let ipc::FS::WriteBlock { id, file_num, data: _, compressed } = fs {

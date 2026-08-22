@@ -302,7 +302,7 @@ jobs:
         shell: cmd
         run: |
           cd res\msi
-          python preprocess.py --dist-dir ../../ldesk --app-name LDesk -m LDesk -v 3.1.1
+          python preprocess.py --dist-dir ../../ldesk --app-name 点聊 -m LDesk -v 3.1.1
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2

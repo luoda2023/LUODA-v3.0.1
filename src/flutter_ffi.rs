@@ -2415,20 +2415,47 @@ pub fn main_get_fingerprint() -> String {
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn cm_clients_state_from_ipc() -> Option<String> {
+    use hbb_common::tokio::sync::Mutex;
+    static CM_PIPE: Mutex<
+        Option<crate::ipc::ConnectionTmpl<parity_tokio_ipc::ConnectionClient>>,
+    > = Mutex::const_new(None);
     CM_IPC_RUNTIME.as_ref()?.block_on(async {
-        let mut connection = crate::ipc::connect(250, "_cm").await.ok()?;
-        connection
+        // The main window polls this every ~2s. Opening a fresh pipe per
+        // query made the CM process accept+close a connection each tick,
+        // producing thousands of "os error 232" pipe-closed errors per day
+        // and constant task/thread churn. Keep one persistent connection
+        // and reconnect only when it breaks.
+        let mut guard = CM_PIPE.lock().await;
+        if guard.is_none() {
+            *guard = crate::ipc::connect(250, "_cm").await.ok();
+        }
+        let send_ok = guard
+            .as_mut()?
             .send(&crate::ipc::Data::CmQueryClients)
             .await
-            .ok()?;
+            .is_ok();
+        if !send_ok {
+            // Stale pipe (e.g. the CM process restarted): reconnect once.
+            *guard = crate::ipc::connect(250, "_cm").await.ok();
+            guard
+                .as_mut()?
+                .send(&crate::ipc::Data::CmQueryClients)
+                .await
+                .ok()?;
+        }
         // The CM connection greets every client with unsolicited frames
         // (e.g. ClipboardFile(MonitorReady)); skip them until the actual
         // CmClientsState response arrives.
         loop {
-            match connection.next().await {
+            match guard.as_mut()?.next_timeout(2_000).await {
                 Ok(Some(crate::ipc::Data::CmClientsState(state))) => return Some(state),
                 Ok(Some(_)) => continue,
-                _ => return None,
+                Ok(None) | Err(_) => {
+                    // Pipe closed or stalled: drop it so the next call
+                    // reconnects instead of hanging on a dead stream.
+                    *guard = None;
+                    return None;
+                }
             }
         }
     })

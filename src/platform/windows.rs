@@ -2687,20 +2687,20 @@ pub fn create_process_with_logon(user: &str, pwd: &str, exe: &str, arg: &str) ->
         si.dwFlags = STARTF_USESHOWWINDOW;
         let mut pi: PROCESS_INFORMATION = mem::zeroed();
         let wexe = wide_string(exe);
-        if FALSE
-            == CreateProcessWithLogonW(
-                wuser.as_ptr(),
-                wpc.as_ptr(),
-                wpwd.as_ptr(),
-                LOGON_WITH_PROFILE,
-                wexe.as_ptr(),
-                wcmd.as_mut_ptr(),
-                CREATE_UNICODE_ENVIRONMENT,
-                NULL,
-                NULL as _,
-                &mut si as *mut STARTUPINFOW,
-                &mut pi as *mut PROCESS_INFORMATION,
-            )
+if FALSE
+== CreateProcessWithLogonW(
+wuser.as_ptr(),
+wpc.as_ptr(),
+wpwd.as_ptr(),
+LOGON_WITH_PROFILE,
+wexe.as_ptr(),
+wcmd.as_mut_ptr(),
+CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW,
+NULL,
+NULL as _,
+&mut si as *mut STARTUPINFOW,
+&mut pi as *mut PROCESS_INFORMATION,
+)
         {
             let last_error = GetLastError();
             bail!(
@@ -2721,6 +2721,7 @@ pub fn set_path_permission(dir: &Path, permission: &str) -> ResultType<()> {
         .arg("/grant")
         .arg(format!("*S-1-1-0:(OI)(CI){}", permission))
         .arg("/T")
+        .creation_flags(CREATE_NO_WINDOW)
         .spawn()?;
     Ok(())
 }
@@ -3505,7 +3506,9 @@ fn run_after_run_cmds(silent: bool) {
             .spawn());
     }
     if Config::get_option("stop-service") != "Y" {
-        allow_err!(std::process::Command::new(&exe).arg("--tray").spawn());
+        allow_err!(std::process::Command::new(&exe).arg("--tray")
+            .creation_flags(winapi::um::winbase::CREATE_NO_WINDOW)
+            .spawn());
     }
     std::thread::sleep(std::time::Duration::from_millis(300));
 }
@@ -3706,7 +3709,9 @@ pub fn is_self_service_running() -> bool {
 /// Run sc.exe synchronously and report success. Best-effort helper used by
 /// ensure_server_service; errors are logged, never fatal.
 fn run_sc(args: &[&str]) -> bool {
-    match std::process::Command::new("sc.exe").args(args).output() {
+    match std::process::Command::new("sc.exe").args(args)
+        .creation_flags(CREATE_NO_WINDOW)
+        .output() {
         Ok(out) => {
             if !out.status.success() {
                 log::debug!(

@@ -292,7 +292,13 @@ void runMultiWindow(
   Map<String, dynamic> argument,
   String appType,
 ) async {
-  await initEnv(appType);
+  // File preview sub-windows only display local files via Image.file.
+  // They do not need FFI, bluetooth, or event handlers. Skipping initEnv
+  // avoids the Rust backend hanging on unrecognized app types. translate()
+  // in common.dart safely returns the key when platformFFI is unavailable.
+  if (appType != kAppTypeDesktopFilePreview) {
+    await initEnv(appType);
+  }
   final title = getWindowName();
   // Session windows intercept close for confirmation. A preview has no session
   // state, so its native and toolbar close actions should close immediately.
