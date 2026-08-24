@@ -16,18 +16,36 @@ import '../../common/widgets/dwg_preview_view.dart';
 import '../../common/widgets/file_preview_types.dart';
 import '../../common/widgets/office_preview_view.dart';
 import '../../common/widgets/pdf_native_preview.dart';
+import '../../runtime_logger.dart';
 
 /// Set whether this window stays on top of all other windows.
 /// Delegates to the desktop_multi_window native plugin which calls
 /// Win32 SetWindowPos with HWND_TOPMOST/HWND_NOTOPMOST on Windows.
+/// Returns true only if the native call succeeded AND the OS reports
+/// the expected topmost state (verified via isAlwaysOnTop).
 Future<bool> _setWindowTopMost(int windowId, bool topmost) async {
-  if (!Platform.isWindows) return false;
-  try {
- await WindowController.fromWindowId(windowId).setAlwaysOnTop(topmost);
+ if (!Platform.isWindows) return false;
+ final controller = WindowController.fromWindowId(windowId);
+ try {
+ await controller.setAlwaysOnTop(topmost);
+ // Verify the native call actually took effect.
+ final actual = await controller.isAlwaysOnTop();
+ RuntimeLogger.instance.info('PIN',
+ 'windowId=$windowId requested=$topmost actual=$actual ok=${actual == topmost}');
+ if (actual != topmost) {
+ // Retry once — the first SetWindowPos can be dropped if the
+ // window hasn't finished initializing or lost foreground.
+ await controller.setAlwaysOnTop(topmost);
+ final retried = await controller.isAlwaysOnTop();
+ RuntimeLogger.instance.info('PIN',
+ 'windowId=$windowId retry actual=$retried ok=${retried == topmost}');
+ return retried == topmost;
+ }
  return true;
-  } catch (_) {
+ } catch (e) {
+ RuntimeLogger.instance.info('PIN', 'windowId=$windowId error=$e');
  return false;
-  }
+ }
 }
 
 String _formatFileSize(int fileSize) {
@@ -89,11 +107,12 @@ class _FilePreviewPageState extends State<FilePreviewPage> {
     if (_paths.isEmpty) _paths.add(widget.filePath);
     _currentIndex = _paths.indexOf(widget.filePath);
     if (_currentIndex < 0) _currentIndex = 0;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _restoreWindowState();
-      _syncWindowState();
-      _ensureFirstPaint();
-    });
+ WidgetsBinding.instance.addPostFrameCallback((_) {
+ _restoreWindowState();
+ _syncWindowState();
+ _ensureFirstPaint();
+ _restorePinState();
+ });
   }
 
   /// LUODA FIX: on some machines the child Flutter engine composites its
@@ -160,14 +179,31 @@ class _FilePreviewPageState extends State<FilePreviewPage> {
   }
 
 Future<void> _syncWindowState() async {
-	final fullScreen = await _windowController.isFullScreen();
-	final maximized = await _windowController.isMaximized();
-	final frame =
-	!fullScreen && !maximized ? await _windowController.getFrame() : null;
-	if (!mounted) return;
-	if (frame != null) {
-	setState(() => _windowFrame = frame);
-	}
+		final fullScreen = await _windowController.isFullScreen();
+		final maximized = await _windowController.isMaximized();
+		final frame =
+		!fullScreen && !maximized ? await _windowController.getFrame() : null;
+		if (!mounted) return;
+		if (frame != null) {
+		setState(() => _windowFrame = frame);
+		}
+}
+
+/// Read the OS-level topmost state and sync the UI toggle to match.
+/// This handles cases where the window was pinned externally or the
+/// state was lost across rebuilds.
+Future<void> _restorePinState() async {
+ try {
+ final topmost = await _windowController.isAlwaysOnTop();
+ if (!mounted) return;
+ if (_isPinned != topmost) {
+ setState(() => _isPinned = topmost);
+ }
+ RuntimeLogger.instance.info('PIN',
+ 'restorePinState windowId=${widget.windowId} topmost=$topmost');
+ } catch (e) {
+ RuntimeLogger.instance.info('PIN', 'restorePinState error=$e');
+ }
 }
 
 void _goPrevious() {
@@ -226,6 +262,16 @@ void _goPrevious() {
  final ok = await _setWindowTopMost(widget.windowId, next);
  if (!mounted) return;
  setState(() => _isPinned = ok ? next : false);
+ if (!ok) {
+ // Show a snackbar so the user knows the pin failed, rather than
+ // the button appearing to do nothing.
+ ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+ SnackBar(
+ content: Text(translate('Unable to toggle pin')),
+ duration: const Duration(seconds: 2),
+ ),
+ );
+ }
  }
 
  void _toggleThumbnailStrip() {

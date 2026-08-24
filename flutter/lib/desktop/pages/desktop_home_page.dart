@@ -316,9 +316,20 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   var watchIsProcessTrust = false;
   var watchIsInputMonitoring = false;
   var watchIsCanRecordAudio = false;
-  Timer? _updateTimer;
-  Timer? _directChatKeepAliveTimer;
-  VoidCallback? _serverConfigListener;
+Timer? _updateTimer;
+Timer? _directChatKeepAliveTimer;
+VoidCallback? _serverConfigListener;
+// Bridge MeetingGroupStore's GetX RxList to a standard ChangeNotifier so
+// the conversation list's AnimatedBuilder can rebuild when meeting titles
+// change. GetX RxList emits via .listen(); we forward that to notifyListeners.
+final _meetingGroupChangeNotifier = ChangeNotifier();
+StreamSubscription<List<MeetingGroup>>? _meetingGroupSubscription;
+// Per-build cache to avoid repeated synchronous IPC reads when rendering
+// many conversation rows. Set at the start of _buildConversationList's
+// builder, cleared after the build completes. _findContact checks this
+// cache; _findContactUncached populates it.
+Map<String, Peer?>? _frameContactCache;
+Map<String, List<String>>? _framePersonDevices;
   static const List<Duration> _backgroundChatRetryDelays = <Duration>[
     Duration(seconds: 30),
     Duration(minutes: 1),
@@ -2521,6 +2532,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
  final rawSelectedPeerId =
  _selectedConversationPeerId ?? _selectedContact?.id ?? '';
  final modelPeerId = user?.id.trim() ?? '';
+ RuntimeLogger.instance.info('WSCOPE2',
+ 'modelKey=${model.currentKey.peerId} sel=$rawSelectedPeerId user=${user?.id ?? "-"} isMain=${identical(model, gFFI.chatModel)}');
  final selectedPairing =
  DirectPairingStore.findForConversation(rawSelectedPeerId);
  final selectedPeerId = DirectPairingStore.canonicalConversationId(
@@ -2536,10 +2549,16 @@ class _DesktopHomePageState extends State<DesktopHomePage>
  : selectedPeerId;
  RuntimeLogger.instance.info('WSCOPE',
  'sel=${rawSelectedPeerId} model=${modelPeerId} canon=${modelConversationId} match=${userMatchesSelection} peer=${peerId} activeD=${_activeDirectChatPeerId}');
- // 使用与列表行完全相同的名称解析逻辑，确保一致。
- // chatName 候选优先从 model 当前 conversation body 取（与
- // updatePeerIdentity 同步刷新），与列表行读取的 primary body 一致。
- final modelDisplayName = (user?.firstName ?? '').trim();
+ // LUODA FIX: read the chatName candidate from the SAME primary (newest)
+ // MessageBody that the conversation list row reads — from the main
+ // chat model (gFFI.chatModel), not the active session's ChatModel.
+ // The session model and the main model can be different ChatModel
+ // instances with separate _messages maps; reading model.currentUser
+ // (= session._messages[_currentKey]) caused the header name to diverge
+ // from the list name.
+ final primaryBody = _primaryConversationBody(rawSelectedPeerId);
+ final modelDisplayName =
+ (primaryBody?.value.chatUser.firstName ?? '').trim();
  // 实时查询 contact（与列表行 _buildMergedChatRow 相同）。
  final freshContact = rawSelectedPeerId.isNotEmpty
  ? _findContact(rawSelectedPeerId)
@@ -2562,10 +2581,12 @@ class _DesktopHomePageState extends State<DesktopHomePage>
  chatName: modelDisplayName,
  idFallback: rawSelectedPeerId,
  );
-              final hasConversation =
-                  user != null && userMatchesSelection && peerId.isNotEmpty;
-              final canStartDirectSession =
-                  DirectPairingStore.resolveConnectionTarget(peerId) != null;
+ final hasConversation =
+ user != null && userMatchesSelection && peerId.isNotEmpty;
+ RuntimeLogger.instance.info('WSCOPE3',
+ 'hasConv=$hasConversation user=${user?.id ?? "-"} match=$userMatchesSelection peerId=$peerId sel=$rawSelectedPeerId');
+ final canStartDirectSession =
+ DirectPairingStore.resolveConnectionTarget(peerId) != null;
               return ColoredBox(
                 color: Theme.of(context).brightness == Brightness.dark
                     ? const Color(0xFF1C1E23)
@@ -2686,8 +2707,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final meetingMemberCount = (meetingGroup?.members?.length ?? 0) + 1;
     final status = _directDeliveryStatus(peerId, contact: _selectedContact);
     final routeLabel = peerId.isEmpty ? '' : directConnectionRouteLabel(peerId);
-    final avatar =
-        chatModel.currentUser?.profileImage ?? _selectedContact?.avatar ?? '';
+// Avatar source: the main model's primary body for this peer (same source
+// the conversation list uses in _buildMergedChatRow), NOT the session model's
+// currentUser (which can hold a stale/different profileImage).
+final headerPrimaryBody = _primaryConversationBody(peerId);
+final avatar = (headerPrimaryBody?.value.chatUser.profileImage ?? '').isNotEmpty
+? headerPrimaryBody!.value.chatUser.profileImage!
+: (_selectedContact?.avatar ?? chatModel.currentUser?.profileImage ?? '');
     final initial = title.trim().isEmpty ? '#' : title.trim()[0].toUpperCase();
     void showDetails() {
       if (peerId.isEmpty) return;
@@ -3621,12 +3647,41 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   DateTime _conversationTime(MapEntry<MessageKey, MessageBody> entry) {
     final messages = entry.value.chatMessages;
     if (messages.isEmpty) return DateTime.fromMillisecondsSinceEpoch(0);
-    return messages
-        .map((message) => message.createdAt)
-        .reduce((latest, value) => value.isAfter(latest) ? value : latest);
-  }
+ return messages
+ .map((message) => message.createdAt)
+ .reduce((latest, value) => value.isAfter(latest) ? value : latest);
+ }
 
-  String _conversationPreview(MapEntry<MessageKey, MessageBody> entry) {
+ /// Find the newest (primary) conversation body for [peerId] in the main
+ /// chat model, using the same selection logic as the conversation list
+ /// rows (_buildMergedChatRow). The header and list must read from the
+ /// same MessageBody to avoid name divergence.
+ MapEntry<MessageKey, MessageBody>? _primaryConversationBody(
+ String peerId,
+ ) {
+ final trimmed = peerId.trim();
+ if (trimmed.isEmpty) return null;
+ final messages = gFFI.chatModel.messages;
+ // Fast path: if there's only one entry for this peer, skip the scan.
+ MapEntry<MessageKey, MessageBody>? result;
+ var count = 0;
+ for (final entry in messages.entries) {
+ if (entry.key.peerId.trim() == trimmed) {
+ count++;
+ if (count == 1) {
+ result = entry;
+ } else {
+ // Multiple entries — pick the newest by latest message time.
+ if (_conversationTime(entry).isAfter(_conversationTime(result!))) {
+ result = entry;
+ }
+ }
+ }
+ }
+ return result;
+ }
+
+ String _conversationPreview(MapEntry<MessageKey, MessageBody> entry) {
     final messages = entry.value.chatMessages;
     if (messages.isEmpty) return translate('Start a conversation');
     final message = messages.reduce(
@@ -3799,20 +3854,31 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
   Widget _buildConversationList(BuildContext context) {
     return AnimatedBuilder(
-      animation: Listenable.merge(<Listenable>[
-        gFFI.chatModel,
-        gFFI.serverModel,
-        DirectPairingStore.revision,
-        gFFI.chatSettingsModel,
-        _directChatAccess,
-        _contactQuery,
-      ]),
-      builder: (context, _) {
-        final theme = Theme.of(context);
-        final conversationHoverColor = theme.brightness == Brightness.dark
-            ? const Color(0xFF34373D)
-            : kWeChatConversationHoverColor;
-        final query = _contactQuery.value.trim().toLowerCase();
+ animation: Listenable.merge(<Listenable>[
+ gFFI.chatModel,
+ gFFI.serverModel,
+ DirectPairingStore.revision,
+ gFFI.chatSettingsModel,
+ _directChatAccess,
+ _contactQuery,
+ _meetingGroupChangeNotifier,
+ ]),
+ builder: (context, _) {
+ final theme = Theme.of(context);
+ final conversationHoverColor = theme.brightness == Brightness.dark
+ ? const Color(0xFF34373D)
+ : kWeChatConversationHoverColor;
+ final query = _contactQuery.value.trim().toLowerCase();
+ // Per-build caches to avoid repeated synchronous IPC reads when
+ // rendering many conversation rows. _findContact does a KV read +
+ // JSON decode (loadPersonDevices) on every call; with N rows that's
+ // N×K IPC reads per frame — the primary cause of list-switch lag.
+ _frameContactCache = <String, Peer?>{};
+ _framePersonDevices = null;
+ WidgetsBinding.instance.addPostFrameCallback((_) {
+ _frameContactCache = null;
+ _framePersonDevices = null;
+ });
         final entries = gFFI.chatModel.messages.entries.where((entry) {
           final peerId = entry.key.peerId.trim();
           if (peerId.isEmpty ||
@@ -3918,11 +3984,18 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           return null;
         }
 
-        bool _isMeetingItem(Object item) {
-          if (item is MeetingGroup) return true;
-          final pid = _peerIdOf(item);
-          return pid != null && pid.startsWith('meeting:');
-        }
+bool _isMeetingItem(Object item) {
+ if (item is MeetingGroup) return true;
+ final pid = _peerIdOf(item);
+ if (pid == null) return false;
+ if (pid.startsWith('meeting:')) return true;
+ // A 1:1 conversation whose peer is already a member of any meeting
+ // group belongs in the Meeting section too, not in Friends/Strangers
+ // (otherwise the same device appears twice in the list).
+ return MeetingGroupStore.all.any((g) =>
+ g.hostPeerId == pid ||
+ (g.members?.any((m) => m.peerId == pid) ?? false));
+ }
 
         final meetingRows = <Object>[];
         final friendRows = <Object>[];
@@ -5364,10 +5437,14 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     String rawPeerId, {
     bool activate = true,
   }) async {
-    final requestedId = rawPeerId.trim().replaceAll(' ', '');
-    if (requestedId.isEmpty) return;
+ final requestedId = rawPeerId.trim().replaceAll(' ', '');
+ if (requestedId.isEmpty) return;
+ RuntimeLogger.instance
+ .info('DIRECT', 'startDirectChat requestedId=$requestedId activate=$activate');
 
-    if (await DirectPairingStore.isSelfTarget(requestedId)) {
+ final isSelf = await DirectPairingStore.isSelfTarget(requestedId);
+ RuntimeLogger.instance.info('DIRECT', 'isSelfTarget=$isSelf id=$requestedId');
+ if (isSelf) {
       // Companion sync: the requestedId is a person account shared by
       // multiple devices (e.g. PC + OPPO phone).  If any live incoming
       // chat client or bound device exists for this account, it is NOT
@@ -5404,9 +5481,11 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final pairing = DirectPairingStore.find(requestedId) ??
         DirectPairingStore.findByEndpoint(requestedId) ??
         DirectPairingStore.findForConversation(requestedId);
-    final peerId = DirectPairingStore.canonicalConversationId(requestedId);
-    final endpoint = DirectPairingStore.resolveConnectionTarget(requestedId);
-    if (endpoint == null) {
+ final peerId = DirectPairingStore.canonicalConversationId(requestedId);
+ final endpoint = DirectPairingStore.resolveConnectionTarget(requestedId);
+ RuntimeLogger.instance.info('DIRECT',
+ 'peerId=$peerId endpoint=$endpoint pairing=${pairing?.peerId ?? "null"}');
+ if (endpoint == null) {
       if (activate) {
         _showConversationNotice(
           translate(
@@ -5420,8 +5499,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       unawaited(_releaseInactiveDirectChatSessions(peerId));
     }
     final contact = _findContact(peerId);
-    final existing = _directChatSessionFor(peerId);
-    if (existing != null && !existing.closed) {
+ final existing = _directChatSessionFor(peerId);
+ RuntimeLogger.instance.info('DIRECT',
+ 'existing=${existing != null ? "yes" : "no"} closed=${existing?.closed ?? "-"} piSet=${existing?.ffiModel.pi.isSet ?? "-"} err=${existing?.ffiModel.lastConnectionError ?? "-"} peerId=$peerId');
+ if (existing != null && !existing.closed) {
       final attemptedAt = _directChatAttemptedAt[peerId];
       final connecting = !existing.ffiModel.pi.isSet.isTrue &&
           existing.ffiModel.lastConnectionError?.isNotEmpty != true &&
@@ -5450,8 +5531,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     } else if (existing != null) {
       _removeDirectChatSession(existing);
     }
-    final incoming = _incomingDirectChatClientFor(peerId);
-    if (incoming != null) {
+ final incoming = _incomingDirectChatClientFor(peerId);
+ RuntimeLogger.instance.info('DIRECT',
+ 'incomingClient=${incoming?.id.toString() ?? "null"} peerId=$peerId');
+ if (incoming != null) {
       // Always update currentKey with the live connId so _sendWireImpl can
       // route via cmSendChat — even when called from ensureChatConnection
       // (activate: false) the key must carry the real client id.
@@ -5487,12 +5570,20 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     if (!_openingDirectChatPeers.add(peerId)) return;
 
     try {
-      final ffi = FFI(null);
-      ffi.suppressConnectionDialogs = true;
-      final fallbackName = normalizeDirectPeerName(
-        contact == null ? '' : _contactName(contact),
-        fallback: peerId,
-      );
+final ffi = FFI(null);
+ ffi.suppressConnectionDialogs = true;
+ // LUODA FIX: propagate the ensureChatConnection and findDirectSession
+ // callbacks from the global model to this per-session ChatModel.
+ // Without this, messages typed in the session's chat page hit a
+ // null ensureChatConnection in _transmitRecord and _sendWireImpl,
+ // so the PC never (re)dials the phone when the session is stale or
+ // not yet established — messages silently stay "queued" forever.
+ ffi.chatModel.ensureChatConnection = gFFI.chatModel.ensureChatConnection;
+ ffi.chatModel.findDirectSession = gFFI.chatModel.findDirectSession;
+ final fallbackName = normalizeDirectPeerName(
+ contact == null ? '' : _contactName(contact),
+ fallback: peerId,
+ );
       ffi.chatModel
           .changeCurrentKey(MessageKey(peerId, ChatModel.clientModeID));
       ffi.chatModel.updatePeerIdentity(
@@ -5503,11 +5594,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         ),
         avatar: contact?.avatar ?? '',
       );
-      ffi.start(endpoint,
-          isChat: true,
-          forceRelay: false,
-          password: DirectPairingStore.cachedChatPassword(peerId));
-      _directChatSessions[peerId] = ffi;
+ ffi.start(endpoint,
+ isChat: true,
+ forceRelay: false,
+ password: DirectPairingStore.cachedChatPassword(peerId));
+ RuntimeLogger.instance.info('DIRECT',
+ 'ffi.start called peerId=$peerId endpoint=$endpoint isChat=true');
+ _directChatSessions[peerId] = ffi;
       _directChatAttemptedAt[peerId] = DateTime.now();
       if (mounted && activate) {
         setState(() {
@@ -5522,60 +5615,81 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   }
 
   Peer? _findContact(String peerId) {
-    for (final model in <Peers>[
-      gFFI.recentPeersModel,
-      gFFI.favoritePeersModel,
-      gFFI.lanPeersModel,
-      gFFI.abModel.peersModel,
-      gFFI.groupModel.peersModel,
-    ]) {
-      for (final peer in model.peers) {
-        if (peer.id == peerId || _conversationPeerId(peer.id) == peerId) {
-          return peer;
-        }
-      }
-    }
-    // Account conversations: the person's contact is one of its devices
-    // (e.g. the phone with id 372849 bound to account 423156).
-    final devices = DirectPairingStore.loadPersonDevices()[
-        DirectPairingStore.canonicalConversationId(peerId)];
-    if (devices != null && devices.isNotEmpty) {
-      for (final model in <Peers>[
-        gFFI.recentPeersModel,
-        gFFI.favoritePeersModel,
-        gFFI.lanPeersModel,
-        gFFI.abModel.peersModel,
-        gFFI.groupModel.peersModel,
-      ]) {
-        for (final peer in model.peers) {
-          if (devices.contains(peer.id)) return peer;
-        }
-      }
-    }
-    // Fallback: check DirectPairingStore for this specific peerId
-    final pairing = DirectPairingStore.findForConversation(peerId);
-    if (pairing != null) {
-      // Create a minimal Peer from pairing data
-      return Peer(
-        id: pairing.peerId,
-        hash: '',
-        password: '',
-        username: pairing.displayName,
-        hostname: pairing.deviceName,
-        platform: pairing.platform,
-        displayName: pairing.displayName,
-        alias: '',
-        tags: [],
-        forceAlwaysRelay: false,
-        rdpPort: '',
-        rdpUsername: '',
-        loginName: '',
-        device_group_name: '',
-        note: '',
-      );
-    }
-    return null;
-  }
+ if (_frameContactCache != null) {
+ final cached = _frameContactCache![peerId];
+ if (cached != null || _frameContactCache!.containsKey(peerId)) {
+ return cached;
+ }
+ }
+ final result = _findContactUncached(peerId);
+ if (_frameContactCache != null) {
+ _frameContactCache![peerId] = result;
+ }
+ return result;
+ }
+
+ /// Uncached lookup: scans all peer lists + person-devices mapping.
+ Peer? _findContactUncached(String peerId) {
+ for (final model in <Peers>[
+ gFFI.recentPeersModel,
+ gFFI.favoritePeersModel,
+ gFFI.lanPeersModel,
+ gFFI.abModel.peersModel,
+ gFFI.groupModel.peersModel,
+ ]) {
+ for (final peer in model.peers) {
+ if (peer.id == peerId || _conversationPeerId(peer.id) == peerId) {
+ return peer;
+ }
+ }
+ }
+ // Account conversations: the person's contact is one of its devices
+ // (e.g. the phone with id 372849 bound to account 423156).
+ // Cache loadPersonDevices() per build to avoid N KV reads per frame.
+ var personDevices = _framePersonDevices;
+ if (personDevices == null) {
+ personDevices = DirectPairingStore.loadPersonDevices();
+ _framePersonDevices = personDevices;
+ }
+ final devices = personDevices[
+ DirectPairingStore.canonicalConversationId(peerId)];
+ if (devices != null && devices.isNotEmpty) {
+ for (final model in <Peers>[
+ gFFI.recentPeersModel,
+ gFFI.favoritePeersModel,
+ gFFI.lanPeersModel,
+ gFFI.abModel.peersModel,
+ gFFI.groupModel.peersModel,
+ ]) {
+ for (final peer in model.peers) {
+ if (devices.contains(peer.id)) return peer;
+ }
+ }
+ }
+ // Fallback: check DirectPairingStore for this specific peerId
+ final pairing = DirectPairingStore.findForConversation(peerId);
+ if (pairing != null) {
+ // Create a minimal Peer from pairing data
+ return Peer(
+ id: pairing.peerId,
+ hash: '',
+ password: '',
+ username: pairing.displayName,
+ hostname: pairing.deviceName,
+ platform: pairing.platform,
+ displayName: pairing.displayName,
+ alias: '',
+ tags: [],
+ forceAlwaysRelay: false,
+ rdpPort: '',
+ rdpUsername: '',
+ loginName: '',
+ device_group_name: '',
+ note: '',
+ );
+ }
+ return null;
+ }
 
   void _canonicalizeDirectChatSessions() {
     var selectionChanged = false;
@@ -5711,28 +5825,30 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         _clearBackgroundChatRetry(conversationId);
         continue;
       }
-      final hasError =
-          existing?.ffiModel.lastConnectionError?.isNotEmpty == true;
-      final connected = existing != null &&
-          isDirectChatSessionReady(
-            closed: existing.closed,
-            peerInfoReady: existing.ffiModel.pi.isSet.isTrue,
-            connectionError: existing.ffiModel.lastConnectionError,
-          );
-      if (connected) {
-        _clearBackgroundChatRetry(conversationId);
-        continue;
-      }
-      final attemptedAt = _directChatAttemptedAt[conversationId];
-      final connecting = existing != null &&
-          !existing.closed &&
-          !hasError &&
-          attemptedAt != null &&
-          DateTime.now().difference(attemptedAt) <
-              _directChatConnectionGracePeriod;
-      if (connecting) continue;
-      if (!_backgroundChatRetryDue(conversationId)) continue;
-      if (existing != null) {
+ final hasError =
+ existing?.ffiModel.lastConnectionError?.isNotEmpty == true;
+ final connected = existing != null &&
+ isDirectChatSessionReady(
+ closed: existing.closed,
+ peerInfoReady: existing.ffiModel.pi.isSet.isTrue,
+ connectionError: existing.ffiModel.lastConnectionError,
+ );
+ if (connected) {
+ _clearBackgroundChatRetry(conversationId);
+ continue;
+ }
+ final attemptedAt = _directChatAttemptedAt[conversationId];
+ final connecting = existing != null &&
+ !existing.closed &&
+ !hasError &&
+ attemptedAt != null &&
+ DateTime.now().difference(attemptedAt) <
+ _directChatConnectionGracePeriod;
+ if (connecting) continue;
+ if (!_backgroundChatRetryDue(conversationId)) continue;
+ RuntimeLogger.instance.info('DIRECT',
+ 'maintain removing existing=$existing closed=${existing?.closed} hasError=$hasError err=${existing?.ffiModel.lastConnectionError ?? "-"} conv=$conversationId');
+ if (existing != null) {
         _removeDirectChatSession(existing);
         if (!existing.closed) await existing.close();
       }
@@ -5787,17 +5903,37 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     }
   }
 
-  Future<void> _refreshDirectSessions() async {
-    if (_refreshingDirectSessions || !mounted) return;
-    _refreshingDirectSessions = true;
-    try {
-      await _maintainTrustedChatSessions();
-      await _maintainPendingChatSessions();
-      await gFFI.chatModel.syncActiveCompanionSessions();
-    } finally {
-      _refreshingDirectSessions = false;
-    }
-  }
+Future<void> _refreshDirectSessions() async {
+ if (_refreshingDirectSessions || !mounted) return;
+ _refreshingDirectSessions = true;
+ try {
+ await _maintainTrustedChatSessions();
+ await _maintainPendingChatSessions();
+ await gFFI.chatModel.syncActiveCompanionSessions();
+ // LUODA FIX: on startup no conversation is selected, leaving the global
+ // ChatModel's _currentKey.peerId empty.  When that happens the chat
+ // composer is read-only (readOnly = currentKey.peerId.isEmpty) and the
+ // user cannot type or send — even to the built-in File Transfer
+ // Assistant.  Pick the file helper as the default conversation so the
+ // input bar is always usable immediately after launch.
+ if (gFFI.chatModel.currentKey.peerId.isEmpty) {
+ final boundPhoneNow = DirectPairingStore.boundPhone();
+ final boundToPhone =
+ (boundPhoneNow['peerId'] ?? '').trim().isNotEmpty;
+ if (boundToPhone) {
+ gFFI.chatModel.ensureFileHelperEntry();
+ setState(() {
+ _selectedContact = null;
+ _selectedConversationPeerId = kFileHelperId;
+ _activeDirectChatPeerId = null;
+ });
+ gFFI.chatModel.changeCurrentKey(gFFI.chatModel.fileHelperKey);
+ }
+ }
+ } finally {
+ _refreshingDirectSessions = false;
+ }
+ }
 
   Future<bool> _canMaintainBackgroundChat(String peerId) async {
     if (peerId.trim().isEmpty ||
@@ -6400,21 +6536,18 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     ffi.start(endpoint, isFileTransfer: true, forceRelay: false);
     final deadline = DateTime.now().add(const Duration(seconds: 30));
     while (mounted && DateTime.now().isBefore(deadline)) {
-      if (ffi.ffiModel.pi.isSet.isTrue) {
-        ffi.dialogManager.dismissAll();
-        if (ffi.ffiModel.direct != true) {
-          _directFileSessions.remove(peerId);
-          await _disposeFileSession(ffi);
-          _showConversationNotice(
-            translate('Direct connection failed. File relay is disabled.'),
-            tone: _WorkspaceNoticeTone.error,
-          );
-          return null;
-        }
-        final ready = await _waitForFileDirectories(ffi);
-        if (ready) return ffi;
-        break;
-      }
+ if (ffi.ffiModel.pi.isSet.isTrue) {
+ ffi.dialogManager.dismissAll();
+ // Allow file transfer over both direct and relay connections.
+ // Previously relay was blocked, but the Rust core supports
+ // file-transfer sessions over relay — the restriction was
+ // a Flutter-side policy that prevented cross-network file
+ // sharing (e.g. PC↔PC via public IP when peers are on
+ // different networks).
+ final ready = await _waitForFileDirectories(ffi);
+ if (ready) return ffi;
+ break;
+ }
       if (ffi.closed || (ffi.ffiModel.lastConnectionError ?? '').isNotEmpty) {
         break;
       }
@@ -8503,9 +8636,19 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   @override
   void initState() {
     super.initState();
-    _directChatAccess.load();
-    _categoryModel.load();
-    MeetingGroupStore.load();
+ _directChatAccess.load();
+ _categoryModel.load();
+ MeetingGroupStore.load();
+ // Preload pairings and contact policies from SQLite into the
+ // in-memory cache so the synchronous load() calls in the build
+ // phase return DB-backed data.
+ unawaited(DirectPairingStore.preloadFromDb());
+ unawaited(DirectChatAccessController.instance.preloadFromDb());
+ // Bridge MeetingGroupStore RxList changes → ChangeNotifier so the
+ // conversation list AnimatedBuilder rebuilds when meeting titles change.
+ _meetingGroupSubscription = MeetingGroupStore.reactive.listen((_) {
+ _meetingGroupChangeNotifier.notifyListeners();
+ });
     // 系统通知：启动即拉取，之后每 5 分钟刷新一次（未读红点）。
     SystemAnnouncementStore.instance.load();
     unawaited(SystemAnnouncementStore.instance.refresh());
@@ -8545,12 +8688,15 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     _peerOnlineQueryTimer = Timer.periodic(
         const Duration(seconds: 8), (_) => _queryPeerOnlineStates());
     _queryPeerOnlineStates();
-    gFFI.chatModel.ensureChatConnection = (peerId, {bool force = false}) async {
-      // LUODA: never try to connect to self (causes freeze / white screen.
-      if (await DirectPairingStore.isSelfTarget(peerId)) return;
-      if (DirectPairingStore.resolveConnectionTarget(peerId) == null) return;
-      await _startDirectChat(peerId, activate: false);
-    };
+gFFI.chatModel.ensureChatConnection = (peerId, {bool force = false}) async {
+ // LUODA FIX: delegate to _startDirectChat, which has nuanced
+ // self-target and endpoint checks (it allows connection when
+ // bound devices / live clients exist even for self-account ids).
+ // Previously this callback early-returned on isSelfTarget and
+ // resolveConnectionTarget==null before _startDirectChat could
+ // run its own logic, so the PC never redialed the phone.
+ await _startDirectChat(peerId, activate: false);
+ };
     gFFI.chatModel.findDirectSession = (peerId) {
       return _directChatSessionFor(peerId);
     };
@@ -8856,11 +9002,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   }
 
   @override
-  void dispose() {
-    if (_serverConfigListener != null) {
-      serverConfigChangedNotifier.removeListener(_serverConfigListener!);
-      _serverConfigListener = null;
-    }
+void dispose() {
+ if (_serverConfigListener != null) {
+ serverConfigChangedNotifier.removeListener(_serverConfigListener!);
+ _serverConfigListener = null;
+ }
+ _meetingGroupSubscription?.cancel();
+ _meetingGroupChangeNotifier.dispose();
     pendingViewerInvite.removeListener(_handlePendingViewerInvite);
     _uniLinksSubscription?.cancel();
     Get.delete<RxBool>(tag: 'stop-service');

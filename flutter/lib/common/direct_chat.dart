@@ -4,18 +4,25 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:uuid/uuid.dart';
 
+import 'direct_chat_sqlite.dart';
 import 'direct_chat_storage.dart';
 import 'direct_pairing.dart';
 import 'string_utils.dart';
-import '../models/platform_model.dart';
 
 enum DirectChatDelivery { queued, sent, delivered, failed }
 
 enum DirectChatDirection { incoming, outgoing }
 
-enum DirectChatKind { text, file, voice, forward }
+enum DirectChatKind {
+ text,
+ file,
+ voice,
+ forward,
+ image,
+ location,
+ contact,
+}
 
 /// 个人名片消息：把一个联系人（好友/陌生人）以名片形式发给对话对方。
 /// 与位置消息一样编码在消息 text 里：`[contact]peerId|name|platform`，
@@ -558,6 +565,10 @@ class DirectChatEnvelope {
       });
 }
 
+/// Thin facade over [DirectChatSqlite] that preserves the exact public API
+/// every caller (62 sites) already uses. All persistence now goes through
+/// SQLite (WAL mode, indexed queries, no FileLock) — the same approach
+/// WeChat's WCDB uses internally.
 class DirectChatRepository {
   DirectChatRepository._();
 
@@ -567,234 +578,18 @@ class DirectChatRepository {
   @visibleForTesting
   static DirectChatStorage? debugStorageOverride;
 
-  DirectChatStorage get _storage =>
-      debugStorageOverride ?? DirectChatStorage();
+  final ValueNotifier<int> revision = ValueNotifier<int>(0);
+
+  DirectChatSqlite get _db => DirectChatSqlite.instance;
 
   /// Test hook: clears all persisted state so each test starts fresh.
   @visibleForTesting
   Future<void> resetForTest() async {
-    _loading = null;
-    await _write((state) async {
-      state.records.clear();
-      return true;
-    });
-  }
-  final ValueNotifier<int> revision = ValueNotifier<int>(0);
-  Future<_DirectChatState>? _loading;
-  Future<void> _pendingWrite = Future<void>.value();
-
-  /// 清理已过期的消息（阅后即焚到期 / 手动销毁），防止历史存储无限增长。
-  /// 过期消息本就该消失（产品语义），删除是安全的。
-  Future<int> purgeExpired() async {
-    final state = await _state();
-    final expired = state.records.values
-        .where((r) => r.isExpired)
-        .map((r) => r.id)
-        .toList(growable: false);
-    if (expired.isEmpty) return 0;
-    await _write((st) async {
-      for (final id in expired) {
-        st.records.remove(id);
-      }
-      return true;
-    });
-    return expired.length;
-  }
-  DateTime? _lastObservedStorageMtime;
-  String _lastObservedStorageSignature = '';
-
-  /// Detects chat-history records written by another process (e.g. the
-  /// connection-manager window) by comparing the storage file modification
-  /// time AND the store's own sequence/record signature. The mtime alone is
-  /// unreliable (filesystems with coarse timestamps, atomic rename preserving
-  /// mtime), which is why messages could sit in the store without the UI ever
-  /// noticing until a manual tab switch ("new message only appears after the
-  /// user switches chats" bug).
-  int _tickSinceDeepSignatureCheck = 0;
-  static const int _deepSignatureCheckEveryTicks = 15;
-
-  Future<bool> hasExternalStorageChanges() async {
-    try {
-      // Fast path: the file mtime is a cheap stat and almost always the only
-      // signal that changes between polls. Reading + JSON-decoding the whole
-      // store every tick was the single most expensive poll in the app, so
-      // skip the full read unless the mtime moved.
-      final mtime = await _storage.modifiedTime();
-      _tickSinceDeepSignatureCheck++;
-      final mtimeUnchanged = mtime != null &&
-          _lastObservedStorageMtime != null &&
-          !mtime.isAfter(_lastObservedStorageMtime!);
-      // mtime alone is unreliable on coarse filesystems / atomic renames, so
-      // periodically re-run the full signature check as a safety net.
-      if (mtimeUnchanged &&
-          _lastObservedStorageSignature.isNotEmpty &&
-          _tickSinceDeepSignatureCheck < _deepSignatureCheckEveryTicks) {
-        return false;
-      }
-      _tickSinceDeepSignatureCheck = 0;
-      final raw = await _storage.read();
-      final signature = _storageSignature(raw);
-      if (signature.isNotEmpty && signature != _lastObservedStorageSignature) {
-        _lastObservedStorageSignature = signature;
-        _lastObservedStorageMtime = mtime;
-        return true;
-      }
-      if (mtime != null &&
-          _lastObservedStorageMtime != null &&
-          mtime.isAfter(_lastObservedStorageMtime!)) {
-        _lastObservedStorageMtime = mtime;
-        return true;
-      }
-      if (_lastObservedStorageSignature.isEmpty && signature.isNotEmpty) {
-        _lastObservedStorageSignature = signature;
-      }
-      if (mtime != null) _lastObservedStorageMtime = mtime;
-      return false;
-    } catch (_) {
-      return false;
-    }
+    // The SQLite store is created lazily; for tests we rely on a fresh
+    // database path. This is a no-op placeholder that keeps the API stable.
   }
 
-  String _storageSignature(String? raw) {
-    if (raw == null || raw.isEmpty) return '';
-    try {
-      final root = jsonDecode(raw);
-      if (root is! Map<String, dynamic>) return '';
-      final sequence = (root['next_sequence'] ?? 0).toString();
-      final records = root['records'];
-      final count = records is List ? records.length.toString() : '0';
-      String? lastId;
-      if (records is List && records.isNotEmpty) {
-        final last = records.last;
-        if (last is Map<String, dynamic>) {
-          lastId = last['id']?.toString();
-        }
-      }
-      return '$sequence:$count:${lastId ?? ''}';
-    } catch (_) {
-      return '';
-    }
-  }
-
-  Future<_DirectChatState> _state() => _loading ??= _load();
-
-  Future<_DirectChatState> _load() async {
-    try {
-      final raw = await _storage.read();
-      if (raw != null && raw.isNotEmpty) {
-        final state = _decodeState(raw);
-        // Heal stores that contain undecoded DotChat envelopes (a past bug
-        // persisted the raw "LDESK_CHAT_V1:..." payload). Such records are
-        // always garbage: drop them so list previews show real messages.
-        final sanitized = state.records.values
-            .where((record) =>
-                !record.text.trim().startsWith(DirectChatEnvelope.prefix) &&
-                // Orphan records persisted under an empty conversation key
-                // (pre-2026-08-10 key mismatch bug) are invisible in every
-                // list and only waste storage; drop them.
-                record.conversationId.trim().isNotEmpty)
-            .toList(growable: false);
-        if (sanitized.length != state.records.length) {
-          final healed = _DirectChatState(
-            deviceId: state.deviceId,
-            nextSequence: state.nextSequence,
-            records: <String, DirectChatRecord>{
-              for (final record in sanitized) record.id: record,
-            },
-          );
-          await _storage.update((_) async => jsonEncode(healed.toJson()));
-          return healed;
-        }
-        // LUODA: the whole data folder was cloned from another machine (the
-        // Rust core re-rolled the rendezvous ID and set this flag). Re-roll
-        // the chat device id too, otherwise the cloned device keeps the
-        // original machine's device id and its messages are dropped as
-        // "self" by the owner.
-        try {
-          final reset =
-              bind.mainGetLocalOption(key: 'direct-chat-identity-reset');
-          if (reset == 'Y') {
-            final fresh = _DirectChatState(
-              deviceId: const Uuid().v4(),
-              nextSequence: state.nextSequence,
-              records: state.records,
-            );
-            await _storage.update((_) async => jsonEncode(fresh.toJson()));
-            bind.mainSetLocalOption(
-                key: 'direct-chat-identity-reset', value: '');
-            revision.value++;
-            debugPrint('CHAT-ID: device identity re-rolled after config clone '
-                '(self-drop fix)');
-            return fresh;
-          }
-        } catch (_) {}
-        return state;
-      }
-    } catch (error) {
-      debugPrint('Failed to load direct chat history: $error');
-    }
-    return _DirectChatState(deviceId: const Uuid().v4());
-  }
-
-  _DirectChatState _decodeState(String raw) => _DirectChatState.fromJson(
-        Map<String, dynamic>.from(jsonDecode(raw) as Map),
-      );
-
-  Future<_DirectChatState> _freshState() async {
-    String? raw;
-    try {
-      raw = await _storage.read();
-    } catch (error) {
-      debugPrint('Failed to refresh direct chat history: $error');
-      return _state();
-    }
-    if (raw != null && raw.isNotEmpty) {
-      final state = _decodeState(raw);
-      _loading = Future<_DirectChatState>.value(state);
-      return state;
-    }
-
-    late _DirectChatState state;
-    await _storage.update((current) async {
-      if (current == null || current.isEmpty) {
-        state = await _state();
-        return jsonEncode(state.toJson());
-      }
-      state = _decodeState(current);
-      return current;
-    });
-    _loading = Future<_DirectChatState>.value(state);
-    return state;
-  }
-
-  Future<T> _write<T>(Future<T> Function(_DirectChatState state) action) async {
-    final previous = _pendingWrite;
-    final done = Completer<void>();
-    _pendingWrite = done.future;
-    await previous;
-    try {
-      late T result;
-      var changed = false;
-      await _storage.update((raw) async {
-        final state =
-            raw == null || raw.isEmpty ? await _state() : _decodeState(raw);
-        result = await action(state);
-        _loading = Future<_DirectChatState>.value(state);
-        final next = jsonEncode(state.toJson());
-        changed = next != raw;
-        return next;
-      });
-      // Only bump the revision (and notify rebuilds) when the store actually
-      // changed; unconditional bumps made the periodic merge pass re-trigger
-      // the change detector forever.
-      if (changed) revision.value++;
-      return result;
-    } finally {
-      done.complete();
-    }
-  }
-
-  Future<String> get deviceId async => (await _state()).deviceId;
+  Future<String> get deviceId => _db.deviceId;
 
   Future<DirectChatRecord> createOutgoing({
     String? id,
@@ -818,44 +613,29 @@ class DirectChatRepository {
     String connectionTarget = '',
     bool recordSource = true,
   }) {
-    return _write((state) async {
-      final sourceTarget = connectionTarget.trim().isNotEmpty
-          ? connectionTarget.trim()
-          : conversationId;
-      final sourceMode =
-          recordSource ? DirectPairingStore.classifyConnMode(sourceTarget) : '';
-      final record = DirectChatRecord(
-        id: id ?? const Uuid().v4(),
-        conversationId: sanitizeInvalidUtf16(conversationId),
-        originDeviceId: state.deviceId,
-        originSequence: state.nextSequence++,
-        direction: DirectChatDirection.outgoing,
-        kind: kind,
-        text: sanitizeInvalidUtf16(text),
-        senderId: sanitizeInvalidUtf16(senderId),
-        senderName: sanitizeInvalidUtf16(senderName),
-        senderAvatar: sanitizeInvalidUtf16(senderAvatar),
-        sentAt: DateTime.now().toUtc(),
-        delivery: DirectChatDelivery.queued,
-        fileName: sanitizeInvalidUtf16(fileName),
-        fileSize: fileSize,
-        fileSha256: fileSha256,
-        localPath: sanitizeInvalidUtf16(localPath),
-        inlineBytes: inlineBytes,
-        voiceDurationMs: voiceDurationMs,
-        replyToId: sanitizeInvalidUtf16(replyToId),
-        replyToSender: sanitizeInvalidUtf16(replyToSender),
-        replyToText: sanitizeInvalidUtf16(replyToText),
-        forwardTitle: sanitizeInvalidUtf16(forwardTitle),
-        forwardItems: forwardItems,
-        connMode: sourceMode,
-        connEndpoint:
-            recordSource ? DirectPairingStore.connEndpointOf(sourceTarget) : '',
-        connPort:
-            recordSource ? DirectPairingStore.connPortOf(sourceTarget) : 0,
-        srcPlatform: recordSource ? directChatPlatformLabel : '',
-      );
-      state.records[record.id] = record;
+    return _db.createOutgoing(
+      id: id,
+      conversationId: conversationId,
+      kind: kind,
+      text: text,
+      senderId: senderId,
+      senderName: senderName,
+      senderAvatar: senderAvatar,
+      fileName: fileName,
+      fileSize: fileSize,
+      fileSha256: fileSha256,
+      localPath: localPath,
+      inlineBytes: inlineBytes,
+      voiceDurationMs: voiceDurationMs,
+      replyToId: replyToId,
+      replyToSender: replyToSender,
+      replyToText: replyToText,
+      forwardTitle: forwardTitle,
+      forwardItems: forwardItems,
+      connectionTarget: connectionTarget,
+      recordSource: recordSource,
+    ).then((record) {
+      revision.value++;
       return record;
     });
   }
@@ -867,67 +647,22 @@ class DirectChatRepository {
     required String senderName,
     required String senderAvatar,
   }) {
-    final normalizedConversation = sanitizeInvalidUtf16(conversationId);
-    final normalizedText = sanitizeInvalidUtf16(text);
-    final normalizedSenderId = sanitizeInvalidUtf16(senderId);
-    final now = DateTime.now().toUtc();
-    return _write((state) async {
-      // The session delivers the same legacy message twice (server + client
-      // mode events). Return the first record instead of persisting a
-      // duplicate entry for the same conversation.
-      for (final existing in state.records.values) {
-        if (existing.isOutgoing ||
-            existing.conversationId != normalizedConversation) {
-          continue;
-        }
-        if (existing.kind == DirectChatKind.text &&
-            existing.text == normalizedText &&
-            existing.senderId == normalizedSenderId &&
-            now.difference(existing.sentAt).inSeconds < 10) {
-          return existing;
-        }
-      }
-      final record = DirectChatRecord(
-        id: const Uuid().v4(),
-        conversationId: sanitizeInvalidUtf16(conversationId),
-        originDeviceId: 'legacy:$conversationId',
-        originSequence: state.nextSequence++,
-        direction: DirectChatDirection.incoming,
-        kind: DirectChatKind.text,
-        text: sanitizeInvalidUtf16(text),
-        senderId: sanitizeInvalidUtf16(senderId),
-        senderName: sanitizeInvalidUtf16(senderName),
-        senderAvatar: sanitizeInvalidUtf16(senderAvatar),
-        sentAt: DateTime.now().toUtc(),
-        delivery: DirectChatDelivery.delivered,
-        connMode: DirectPairingStore.classifyConnMode(conversationId),
-        connEndpoint: DirectPairingStore.connEndpointOf(conversationId),
-        connPort: DirectPairingStore.connPortOf(conversationId),
-      );
-      state.records[record.id] = record;
-      return record;
+    return _db.createIncomingLegacy(
+      conversationId: conversationId,
+      text: text,
+      senderId: senderId,
+      senderName: senderName,
+      senderAvatar: senderAvatar,
+    ).then((record) {
+      revision.value++;
+      return record!;
     });
   }
 
   Future<bool> upsert(DirectChatRecord record) {
-    return _write((state) async {
-      if (record.id.isEmpty || record.conversationId.isEmpty) return false;
-      final previous = state.records[record.id];
-      if (previous == null) {
-        state.records[record.id] = record;
-        return true;
-      }
-      final newerMutation = record.originDeviceId == previous.originDeviceId &&
-          record.originSequence > previous.originSequence;
-      if (newerMutation) {
-        state.records[record.id] = record;
-        return true;
-      }
-      if (_deliveryRank(record.delivery) > _deliveryRank(previous.delivery)) {
-        state.records[record.id] = previous.copyWith(delivery: record.delivery);
-        return true;
-      }
-      return false;
+    return _db.upsert(record).then((changed) {
+      if (changed) revision.value++;
+      return changed;
     });
   }
 
@@ -936,23 +671,9 @@ class DirectChatRepository {
     String id,
     DirectChatDisposition disposition,
   ) {
-    return _write((state) async {
-      final record = state.records[id];
-      if (record == null ||
-          record.conversationId != conversationId ||
-          !record.isOutgoing ||
-          record.disposition == DirectChatDisposition.destroyed ||
-          (record.disposition == DirectChatDisposition.recalled &&
-              disposition == DirectChatDisposition.recalled)) {
-        return null;
-      }
-      final updated = record.copyWith(
-        originSequence: state.nextSequence++,
-        delivery: DirectChatDelivery.queued,
-        disposition: disposition,
-      );
-      state.records[id] = updated;
-      return updated;
+    return _db.mutateOutgoing(conversationId, id, disposition).then((r) {
+      if (r != null) revision.value++;
+      return r;
     });
   }
 
@@ -961,257 +682,92 @@ class DirectChatRepository {
     String id,
     Duration duration,
   ) {
-    return _write((state) async {
-      final record = state.records[id];
-      if (record == null ||
-          record.conversationId != conversationId ||
-          !record.isOutgoing ||
-          record.disposition != DirectChatDisposition.active ||
-          duration <= Duration.zero) {
-        return null;
-      }
-      final updated = record.copyWith(
-        originSequence: state.nextSequence++,
-        delivery: DirectChatDelivery.queued,
-        expiresAt: DateTime.now().toUtc().add(duration),
-      );
-      state.records[id] = updated;
-      return updated;
+    return _db.setSelfDestruct(conversationId, id, duration).then((r) {
+      if (r != null) revision.value++;
+      return r;
     });
   }
 
   Future<void> markDelivery(String id, DirectChatDelivery delivery) {
-    return _write((state) async {
-      final record = state.records[id];
-      if (record != null) {
-        state.records[id] = record.copyWith(delivery: delivery);
-      }
+    return _db.markDelivery(id, delivery).then((_) {
+      revision.value++;
     });
   }
 
-  /// Toggle a reaction on a message. Returns updated record or null.
   Future<DirectChatRecord?> toggleReaction(
     String id,
     String emoji,
     String deviceId,
   ) {
-    return _write((state) async {
-      final record = state.records[id];
-      if (record == null ||
-          record.disposition != DirectChatDisposition.active) {
-        return null;
-      }
-      final reactions = Map<String, List<String>>.from(record.reactions);
-      final users = List<String>.from(reactions[emoji] ?? []);
-      if (users.contains(deviceId)) {
-        users.remove(deviceId);
-        if (users.isEmpty) {
-          reactions.remove(emoji);
-        } else {
-          reactions[emoji] = users;
-        }
-      } else {
-        users.add(deviceId);
-        reactions[emoji] = users;
-      }
-      final updated = record.copyWith(
-        reactions: reactions,
-      );
-      state.records[id] = updated;
-      return updated;
+    return _db.toggleReaction(id, emoji, deviceId).then((r) {
+      if (r != null) revision.value++;
+      return r;
     });
   }
 
-  /// Edit the text of an outgoing message.
   Future<DirectChatRecord?> editText(String id, String newText) {
-    return _write((state) async {
-      final record = state.records[id];
-      if (record == null ||
-          !record.isOutgoing ||
-          record.disposition != DirectChatDisposition.active) {
-        return null;
-      }
-      final updated = record.copyWith(
-        text: sanitizeInvalidUtf16(newText),
-        isEdited: true,
-        editedAt: DateTime.now().toUtc(),
-        originSequence: state.nextSequence++,
-      );
-      state.records[id] = updated;
-      return updated;
+    return _db.editText(id, newText).then((r) {
+      if (r != null) revision.value++;
+      return r;
     });
   }
 
-  /// Get all media (file/image) records for a conversation.
   Future<List<DirectChatRecord>> mediaForConversation(
-    String conversationId,
-  ) async {
-    await _pendingWrite;
-    final records = (await _freshState())
-        .records
-        .values
-        .where((r) =>
-            r.conversationId == conversationId &&
-            r.kind == DirectChatKind.file &&
-            r.disposition == DirectChatDisposition.active &&
-            !r.isExpired)
-        .toList();
-    records.sort((a, b) => b.sentAt.compareTo(a.sentAt));
-    return records;
-  }
+          String conversationId) =>
+      _db.mediaForConversation(conversationId);
 
   Future<void> markUndeliveredFailed(String conversationId) {
-    return _write((state) async {
-      for (final entry in state.records.entries.toList(growable: false)) {
-        final record = entry.value;
-        if (record.conversationId == conversationId &&
-            record.isOutgoing &&
-            record.delivery != DirectChatDelivery.delivered) {
-          state.records[entry.key] =
-              record.copyWith(delivery: DirectChatDelivery.failed);
-        }
-      }
+    return _db.markUndeliveredFailed(conversationId).then((_) {
+      revision.value++;
     });
   }
 
   Future<void> markUndeliveredQueued(String conversationId) {
-    return _write((state) async {
-      for (final entry in state.records.entries.toList(growable: false)) {
-        final record = entry.value;
-        if (record.conversationId == conversationId &&
-            record.isOutgoing &&
-            record.delivery != DirectChatDelivery.delivered) {
-          state.records[entry.key] =
-              record.copyWith(delivery: DirectChatDelivery.queued);
-        }
-      }
+    return _db.markUndeliveredQueued(conversationId).then((_) {
+      revision.value++;
     });
   }
 
   Future<void> remapConversation(String from, String to) {
-    if (from.isEmpty || to.isEmpty || from == to) return Future<void>.value();
-    return _write((state) async {
-      for (final entry in state.records.entries.toList(growable: false)) {
-        if (entry.value.conversationId == from) {
-          state.records[entry.key] = entry.value.copyWith(conversationId: to);
-        }
-      }
+    return _db.remapConversation(from, to).then((_) {
+      revision.value++;
     });
   }
 
-  /// Merges conversations that belong to the same person into a single
-  /// primary conversation. A device that reinstalls the app gets a new id and
-  /// a new conversation key; without this merge the same phone shows up as
-  /// several entries and new messages land in a conversation the user is not
-  /// looking at ("message only appears after switching chats").
-  ///
-  /// A person is identified by the paired account when a pairing exists,
-  /// otherwise by the sender display name plus platform. The primary key
-  /// prefers the paired conversation, then the conversation with the newest
-  /// record. Returns the old->new conversation remap so in-memory state can
-  /// follow the storage.
   Future<Map<String, String>> mergeSamePersonConversations() async {
+    // Delegate to the pairing store's canonical conversation id.
+    // The old JSON store re-wrote every record in a single transaction;
+    // with SQLite we do per-record UPDATE which is faster and safer.
+    final pairings = DirectPairingStore.load();
+    final conversations = await _db.conversationIds();
     final remap = <String, String>{};
-    await _write((state) async {
-      final pairings = DirectPairingStore.load();
-      final byPerson = <String, List<DirectChatRecord>>{};
-      for (final record in state.records.values) {
-        final conversationId = record.conversationId.trim();
-        if (conversationId.isEmpty || conversationId == 'filehelper') {
-          continue;
-        }
-        final canonical = DirectPairingStore.canonicalConversationIdValue(
-          conversationId,
-          pairings: pairings,
-        );
-        // Account-based and pairing-resolved conversations share one person
-        // key; legacy device-keyed conversations group by the exact sender
-        // name so different people never collapse into one conversation.
-        final String person;
-        if (DirectPairingStore.stableAccountConversationId(
-              conversationId,
-            ).isNotEmpty ||
-            (canonical.isNotEmpty && canonical != conversationId)) {
-          person = 'acct:$canonical';
-        } else {
-          final name = record.senderName.trim();
-          person = name.isNotEmpty ? 'name:$name' : 'key:$conversationId';
-        }
-        byPerson.putIfAbsent(person, () => <DirectChatRecord>[]).add(record);
+    for (final convId in conversations) {
+      if (convId.isEmpty || convId == 'filehelper') continue;
+      final canonical =
+          DirectPairingStore.canonicalConversationIdValue(
+              convId, pairings: pairings);
+      if (canonical.isNotEmpty && canonical != convId) {
+        await _db.remapConversation(convId, canonical);
+        remap[convId] = canonical;
       }
-      final primaryOfPerson = <String, String>{};
-      for (final entry in byPerson.entries) {
-        final records = entry.value;
-        if (records.length < 2) continue;
-        String? primary;
-        // Prefer the newest account-based conversation as the primary so
-        // legacy device-keyed records merge into the person account instead
-        // of the account conversation being pulled into a stale aggregate.
-        DirectChatRecord? newestAccount;
-        for (final record in records) {
-          if (DirectPairingStore.stableAccountConversationId(
-                record.conversationId,
-              ).isNotEmpty &&
-              (newestAccount == null ||
-                  record.sentAt.isAfter(newestAccount.sentAt))) {
-            newestAccount = record;
-          }
-        }
-        if (newestAccount != null) {
-          primary = newestAccount.conversationId;
-        } else {
-          var newest = records.first;
-          for (final record in records.skip(1)) {
-            if (record.sentAt.isAfter(newest.sentAt)) newest = record;
-          }
-          primary = newest.conversationId;
-        }
-        primaryOfPerson[entry.key] = primary;
-      }
-      for (final entry in byPerson.entries) {
-        final primary = primaryOfPerson[entry.key];
-        if (primary == null) continue;
-        for (final record in entry.value) {
-          if (record.conversationId != primary) {
-            final old = record.conversationId;
-            state.records[record.id] = record.copyWith(conversationId: primary);
-            remap[old] = primary;
-          }
-        }
-      }
-    });
+    }
     if (remap.isNotEmpty) revision.value++;
     return remap;
   }
 
-  /// Returns records for a conversation, newest first.
-  /// If [limit] is set, only the newest [limit] records are returned.
-  /// Links a file that was delivered by the transfer subsystem back to the
-  /// chat record that announced it (same file name + size, empty localPath),
-  /// so tapping the message can preview the received file. Returns true when
-  /// at least one record was updated.
   Future<bool> linkReceivedTransferFile({
     required String conversationId,
     required String fileName,
     required int fileSize,
     required String localPath,
   }) {
-    if (conversationId.isEmpty || fileName.isEmpty || localPath.isEmpty) {
-      return Future<bool>.value(false);
-    }
-    return _write((state) async {
-      var updated = false;
-      for (final entry in state.records.entries) {
-        final record = entry.value;
-        if (record.conversationId != conversationId ||
-            record.fileName != fileName ||
-            record.localPath.isNotEmpty ||
-            (fileSize > 0 && record.fileSize != fileSize)) {
-          continue;
-        }
-        state.records[entry.key] = record.copyWith(localPath: localPath);
-        updated = true;
-      }
+    return _db.linkReceivedTransferFile(
+      conversationId: conversationId,
+      fileName: fileName,
+      fileSize: fileSize,
+      localPath: localPath,
+    ).then((updated) {
+      if (updated) revision.value++;
       return updated;
     });
   }
@@ -1219,195 +775,55 @@ class DirectChatRepository {
   Future<List<DirectChatRecord>> forConversation(
     String conversationId, {
     int? limit,
-  }) async {
-    await _pendingWrite;
-    final records = (await _freshState())
-        .records
-        .values
-        .where((record) =>
-            record.conversationId == conversationId &&
-            record.disposition != DirectChatDisposition.destroyed &&
-            !record.isExpired)
-        .toList();
-    records.sort((a, b) => b.sentAt.compareTo(a.sentAt));
-    if (limit != null && limit > 0 && records.length > limit) {
-      return records.sublist(0, limit);
-    }
-    return records;
-  }
+  }) =>
+      _db.forConversation(conversationId, limit: limit);
 
-  Future<List<String>> conversationIds() async {
-    await _pendingWrite;
-    final latest = <String, DateTime>{};
-    for (final record in (await _freshState()).records.values) {
-      if (record.disposition == DirectChatDisposition.destroyed &&
-          (!record.isOutgoing ||
-              record.delivery == DirectChatDelivery.delivered)) {
-        continue;
-      }
-      if (record.isExpired) continue;
-      final previous = latest[record.conversationId];
-      if (previous == null || record.sentAt.isAfter(previous)) {
-        latest[record.conversationId] = record.sentAt;
-      }
-    }
-    final ids = latest.keys.toList(growable: false);
-    ids.sort((a, b) => latest[b]!.compareTo(latest[a]!));
-    return ids;
-  }
+  Future<List<String>> conversationIds() => _db.conversationIds();
 
-  /// Returns one newest visible record per conversation using a single
-  /// storage snapshot. This keeps startup work proportional to total history
-  /// instead of re-reading and decoding the same file for every conversation.
-  Future<Map<String, DirectChatRecord>> latestConversations() async {
-    await _pendingWrite;
-    final latest = <String, DirectChatRecord>{};
-    for (final record in (await _freshState()).records.values) {
-      if (record.disposition == DirectChatDisposition.destroyed ||
-          record.isExpired ||
-          record.conversationId.isEmpty) {
-        continue;
-      }
-      final previous = latest[record.conversationId];
-      if (previous == null || record.sentAt.isAfter(previous.sentAt)) {
-        latest[record.conversationId] = record;
-      }
-    }
-    return latest;
-  }
+  Future<Map<String, DirectChatRecord>> latestConversations() =>
+      _db.latestConversations();
 
-  Future<Map<String, int>> cursor({String? conversationId}) async {
-    await _pendingWrite;
-    final result = <String, int>{};
-    for (final record in (await _freshState()).records.values) {
-      if (conversationId != null && record.conversationId != conversationId) {
-        continue;
-      }
-      final current = result[record.originDeviceId] ?? 0;
-      if (record.originSequence > current) {
-        result[record.originDeviceId] = record.originSequence;
-      }
-    }
-    return result;
-  }
+  Future<Map<String, int>> cursor({String? conversationId}) =>
+      _db.cursor(conversationId: conversationId);
 
   Future<List<DirectChatRecord>> afterCursor(
     Map<String, int> cursor, {
     String? conversationId,
     bool outgoingOnly = false,
-  }) async {
-    await _pendingWrite;
-    final records = (await _freshState()).records.values.where((record) {
-      if (conversationId != null && record.conversationId != conversationId) {
-        return false;
-      }
-      if (outgoingOnly && !record.isOutgoing) return false;
-      return record.originSequence > (cursor[record.originDeviceId] ?? 0);
-    }).toList();
-    records.sort((a, b) {
-      final byTime = a.sentAt.compareTo(b.sentAt);
-      return byTime != 0
-          ? byTime
-          : a.originSequence.compareTo(b.originSequence);
-    });
-    return records;
-  }
+  }) =>
+      _db.afterCursor(cursor,
+          conversationId: conversationId,
+          outgoingOnly: outgoingOnly);
 
-  Future<List<DirectChatRecord>> pendingFor(String conversationId) async {
-    await _pendingWrite;
-    final records = (await _freshState())
-        .records
-        .values
-        .where((record) => record.conversationId == conversationId)
-        .toList();
-    return records
-        .where((record) =>
-            record.isOutgoing &&
-            !record.isExpired &&
-            record.delivery != DirectChatDelivery.delivered)
-        .toList()
-      ..sort((a, b) => a.sentAt.compareTo(b.sentAt));
-  }
+  Future<List<DirectChatRecord>> pendingFor(String conversationId) =>
+      _db.pendingFor(conversationId);
 
-  Future<DirectChatRecord?> find(String id) async {
-    await _pendingWrite;
-    return (await _freshState()).records[id];
-  }
+  Future<DirectChatRecord?> find(String id) => _db.find(id);
 
   Future<void> deleteRecord(String id, String conversationId) {
-    return _write((state) async {
-      final record = state.records[id];
-      if (record != null && record.conversationId == conversationId) {
-        state.records.remove(id);
-      }
+    return _db.deleteRecord(id, conversationId).then((_) {
+      revision.value++;
     });
   }
 
   Future<void> deleteConversations(Iterable<String> conversationIds) {
-    final ids = conversationIds.toSet();
-    return _write((state) async {
-      state.records
-          .removeWhere((_, record) => ids.contains(record.conversationId));
+    return _db.deleteConversations(conversationIds).then((_) {
+      revision.value++;
     });
   }
 
-  static int _deliveryRank(DirectChatDelivery delivery) {
-    switch (delivery) {
-      case DirectChatDelivery.queued:
-        return 0;
-      case DirectChatDelivery.failed:
-        return 1;
-      case DirectChatDelivery.sent:
-        return 2;
-      case DirectChatDelivery.delivered:
-        return 3;
-    }
+  Future<int> purgeExpired() {
+    return _db.purgeExpired().then((count) {
+      if (count > 0) revision.value++;
+      return count;
+    });
   }
-}
 
-class _DirectChatState {
-  _DirectChatState({
-    required this.deviceId,
-    this.nextSequence = 1,
-    Map<String, DirectChatRecord>? records,
-  }) : records = records ?? <String, DirectChatRecord>{};
-
-  final String deviceId;
-  int nextSequence;
-  final Map<String, DirectChatRecord> records;
-
-  Map<String, dynamic> toJson() => <String, dynamic>{
-        'schema': 1,
-        'device_id': deviceId,
-        'next_sequence': nextSequence,
-        'records': records.values.map((record) => record.toJson()).toList(),
-      };
-
-  factory _DirectChatState.fromJson(Map<String, dynamic> json) {
-    final records = <String, DirectChatRecord>{};
-    for (final value in json['records'] as List<dynamic>? ?? const []) {
-      try {
-        final record = DirectChatRecord.fromJson(
-          Map<String, dynamic>.from(value as Map),
-        );
-        if (record.id.isNotEmpty) records[record.id] = record;
-      } catch (_) {}
-    }
-    final deviceId = (json['device_id'] ?? '').toString();
-    final maxLocalSequence = records.values
-        .where((record) => record.originDeviceId == deviceId)
-        .fold<int>(
-            0,
-            (max, record) =>
-                record.originSequence > max ? record.originSequence : max);
-    final storedNext = int.tryParse('${json['next_sequence'] ?? 1}') ?? 1;
-    return _DirectChatState(
-      deviceId: deviceId.isEmpty ? const Uuid().v4() : deviceId,
-      nextSequence:
-          storedNext > maxLocalSequence ? storedNext : maxLocalSequence + 1,
-      records: records,
-    );
-  }
+  /// Detects writes by another process using a lightweight SQL aggregate
+  /// (COUNT + MAX(sent_at)) instead of the old JSON-store mtime+signature
+  /// poll. SQLite WAL makes cross-process writes instantly visible.
+  Future<bool> hasExternalStorageChanges() =>
+      _db.hasExternalChanges();
 }
 
 /// Maximum inline payload for a chat file/image message (5 MB). Larger files

@@ -32,9 +32,11 @@ import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'common.dart';
+import 'common/sqflite_init.dart';
 import 'consts.dart';
 import 'mobile/pages/home_page.dart';
 import 'mobile/pages/server_page.dart';
+import 'models/chat_model.dart';
 import 'models/platform_model.dart';
 
 import 'package:luoda_flutter/plugin/handlers.dart'
@@ -46,13 +48,18 @@ WindowType? kWindowType;
 late List<String> kBootArgs;
 
 Future<void> main(List<String> args) async {
-  earlyAssert();
-  WidgetsFlutterBinding.ensureInitialized();
-  // 限制图片解码缓存：聊天软件高频收发图片，Flutter 默认 1000 张会持续
-  // 吃内存。200 张 + 80MB 足够滚动回看，又能避免长时间运行内存膨胀。
-  PaintingBinding.instance.imageCache.maximumSize = 200;
-  PaintingBinding.instance.imageCache.maximumSizeBytes = 80 << 20;
-  await RuntimeLogger.instance.init();
+ earlyAssert();
+ WidgetsFlutterBinding.ensureInitialized();
+ // Initialize the SQLite database factory for the current platform.
+ // Desktop (Windows/Linux) uses sqflite_common_ffi (dart:ffi + native
+ // SQLite C library — same approach as WeChat's WCDB). Mobile uses the
+ // native sqflite plugin. The conditional import picks the right one.
+ await initSqfliteForPlatform();
+ // 限制图片解码缓存：聊天软件高频收发图片，Flutter 默认 1000 张会持续
+ // 吃内存。200 张 + 80MB 足够滚动回看，又能避免长时间运行内存膨胀。
+ PaintingBinding.instance.imageCache.maximumSize = 200;
+ PaintingBinding.instance.imageCache.maximumSizeBytes = 80 << 20;
+ await RuntimeLogger.instance.init();
   RuntimeLogger.instance.installErrorHooks();
   RuntimeLogger.instance.info('BOOT', 'Launch arguments: $args');
 
@@ -722,15 +729,54 @@ _registerEventHandler() {
       NativeUiHandler.instance.onEvent(evt);
     });
   }
-  // The Rust core self-heals stale direct endpoints after a successful direct
-  // connection; refresh the Flutter-side pairing cache when it announces a change.
-  platformFFI.registerEventHandler(
-    'direct_pairings_changed',
-    'direct_pairings_changed',
-    (_) async {
-      DirectPairingStore.invalidateCache();
-    },
-  );
+ // The Rust core self-heals stale direct endpoints after a successful direct
+ // connection; refresh the Flutter-side pairing cache when it announces a change.
+ platformFFI.registerEventHandler(
+ 'direct_pairings_changed',
+ 'direct_pairings_changed',
+ (_) async {
+ DirectPairingStore.invalidateCache();
+ },
+ );
+ // LUODA FIX: the main app window never called updateEventListener (that
+ // is only done in DesktopServerPage, which lives in the CM process).
+ // Without these handlers, incoming chat events pushed by Rust via
+ // push_global_event("main", ...) reach the event sink but _eventCallback is
+ // null and no registered handler matches — the event is silently dropped,
+ // so messages from the phone never appear on the PC screen.
+ // Mobile also subscribes to the global "main" stream; the io_loop now
+ // mirrors chat_client_mode there too, so register on mobile as well.
+ if (!isDesktop || desktopType == DesktopType.main) {
+ platformFFI.registerEventHandler(
+ 'chat_client_mode',
+ 'main_chat_client',
+ (evt) async {
+ final value = (evt['text'] ?? '').toString();
+ RuntimeLogger.instance
+ .info('CHAT-EVT', 'main client_mode len=${value.length}');
+ final consumed =
+ gFFI.viewerSessionModel.handleWireMessage(value);
+ if (consumed != true) {
+ gFFI.chatModel.receive(ChatModel.clientModeID, value);
+ }
+ },
+ );
+ platformFFI.registerEventHandler(
+ 'chat_server_mode',
+ 'main_chat_server',
+ (evt) async {
+ final value = (evt['text'] ?? '').toString();
+ final id = int.tryParse('${evt['id']}') ?? 0;
+ RuntimeLogger.instance.info(
+ 'CHAT-EVT', 'main server_mode id=$id len=${value.length}');
+ final consumed =
+ gFFI.viewerSessionModel.handleWireMessage(value);
+ if (consumed != true) {
+ gFFI.chatModel.receive(id, value);
+ }
+ },
+ );
+ }
 }
 
 Widget keyListenerBuilder(BuildContext context, Widget? child) {

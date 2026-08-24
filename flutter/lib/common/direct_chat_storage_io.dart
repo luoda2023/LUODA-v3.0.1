@@ -160,12 +160,26 @@ class DirectChatStorage {
     throw lastError ?? StateError('Unable to read direct chat storage');
   }
 
-  Future<void> write(String value) async {
-    final file = await _file();
-    await file.writeAsString(value, flush: true);
-  }
+Future<void> write(String value) async {
+final file = await _file();
+await file.writeAsString(value, flush: true);
+}
 
-  Future<String> update(
+/// Rename the JSON store to `.bak` so the SQLite migration layer
+/// doesn't re-import it on every launch. Safe to call when the file
+/// doesn't exist.
+Future<void> renameToBackup() async {
+final file = await _file();
+if (await file.exists()) {
+final backup = File('${file.path}.bak');
+try {
+await backup.delete(); // remove a previous backup if present
+} catch (_) {}
+await file.rename(backup.path);
+}
+}
+
+Future<String> update(
     Future<String> Function(String? current) transform,
   ) async {
     final file = await _file();

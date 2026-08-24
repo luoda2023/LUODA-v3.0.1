@@ -439,10 +439,25 @@ pub async fn new_listener(postfix: &str) -> ResultType<Incoming> {
     #[cfg(not(any(windows, target_os = "android", target_os = "ios")))]
     check_pid(postfix).await;
     let mut endpoint = Endpoint::new(path.clone());
-    match SecurityAttributes::allow_everyone_create() {
-        Ok(attr) => endpoint.set_security_attributes(attr),
-        Err(err) => log::error!("Failed to set ipc{} security: {}", postfix, err),
-    };
+    #[cfg(windows)]
+    {
+        // Use SDDL that grants Everyone + SYSTEM full access AND sets a Medium
+        // integrity label so that user-level (Medium-IL) processes can write to
+        // pipes created by the SYSTEM (High-IL) service.  Without the S:(ML;;NW;;;ME)
+        // label, Mandatory Integrity Control blocks Medium-IL writers → os error 5.
+        let sddl = "D:(A;;GA;;;WD)(A;;GA;;;SY)S:(ML;;NW;;;ME)";
+        match SecurityAttributes::from_sddl(sddl) {
+            Ok(attr) => endpoint.set_security_attributes(attr),
+            Err(err) => log::error!("Failed to set ipc{} security: {}", postfix, err),
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        match SecurityAttributes::allow_everyone_create() {
+            Ok(attr) => endpoint.set_security_attributes(attr),
+            Err(err) => log::error!("Failed to set ipc{} security: {}", postfix, err),
+        }
+    }
     match endpoint.incoming() {
         Ok(incoming) => {
             log::info!("Started ipc{} server at path: {}", postfix, &path);

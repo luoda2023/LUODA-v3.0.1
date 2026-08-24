@@ -242,6 +242,9 @@ const String kOptionAutoStartScreenShare = "auto-start-screen-share";
 /// 文件助手（File Transfer Assistant）内置会话 ID，类似微信文件传输助手。
 const String kFileHelperId = "filehelper";
 
+/// VIP 功能页加载的网页地址（会员中心 / 功能介绍）。
+const String kVipPageUrl = 'https://www.dotchat.app/vip';
+
 const String kOptionKeepScreenOn = "keep-screen-on";
 
 const String kOptionKeepAwakeDuringIncomingSessions =

@@ -39,6 +39,7 @@ import 'voice_message_controls.dart';
 import '../../models/ai_config_model.dart';
 import 'ai_config_page.dart';
 import '../tts_service.dart';
+import '../../runtime_logger.dart';
 
 /// 会议群聊中，本地用户是否为演示人（演示人入口显示“进入演示”）。
 bool meetingPresenterForChatModel(ChatModel chatModel) {
@@ -1231,14 +1232,25 @@ class ChatPage extends StatelessWidget implements PageShape {
       ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
     final items =
         sorted.map(ChatForwardItem.fromMessage).toList(growable: false);
-    final handled = onForwardMessages != null
-        ? await onForwardMessages!(target, items, merged)
-        : await _forwardWithCurrentModel(target, items, merged);
-    if (!handled || !context.mounted) return;
-    chatModel.exitMultiSelect();
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      SnackBar(content: Text(translate('Forwarded'))),
-    );
+ final handled = onForwardMessages != null
+ ? await onForwardMessages!(target, items, merged)
+ : await _forwardWithCurrentModel(target, items, merged);
+ if (!handled || !context.mounted) {
+ // Forward failed — the target peer is unreachable or the
+ // connection couldn't be established. Tell the user instead
+ // of silently returning.
+ ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+ SnackBar(
+ content: Text(translate('Forward failed. Recipient is offline or unreachable.')),
+ duration: const Duration(seconds: 3),
+ ),
+ );
+ return;
+ }
+ chatModel.exitMultiSelect();
+ ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+ SnackBar(content: Text(translate('Forwarded'))),
+ );
   }
 
   Future<bool> _forwardWithCurrentModel(
@@ -1284,18 +1296,26 @@ class ChatPage extends StatelessWidget implements PageShape {
     return true;
   }
 
-  List<ChatMessage> _selectedMessagesForForward() {
-    final selected = chatModel.selectedMessageIds;
-    final messages =
-        chatModel.messages[chatModel.currentKey]?.chatMessages ?? const [];
-    return messages
-        .where(
-          (message) => selected.contains(
-            (message.customProperties?['ldesk_id'] ?? '').toString(),
-          ),
-        )
-        .toList(growable: false);
-  }
+List<ChatMessage> _selectedMessagesForForward() {
+ final selected = chatModel.selectedMessageIds;
+ final messages =
+ chatModel.messages[chatModel.currentKey]?.chatMessages ?? const [];
+ return messages
+ .where(
+ (message) => selected.contains(
+ (message.customProperties?['ldesk_id'] ?? '').toString(),
+ ),
+ )
+ // Filter out recalled messages — forwarding a "message recalled"
+ // placeholder is useless and confusing.
+ .where((message) {
+ final disposition =
+ (message.customProperties?['ldesk_disposition'] ?? '')
+ .toString();
+ return disposition != 'recalled' && disposition != 'destroyed';
+ })
+ .toList(growable: false);
+ }
 
   /// 把多选的消息收藏为一条「聊天记录」收藏（保留每条收发时间）。
   /// 收藏前弹出分类选择，用户选的分类标签存入收藏条目。
@@ -4329,11 +4349,12 @@ class _MobileChatComposerState extends State<_MobileChatComposer> {
     );
   }
 
-  void _send() {
-    final text = widget.chatModel.textController.text.trim();
-    if (!widget.enabled || text.isEmpty) return;
-    widget.chatModel.sendText(text);
-    widget.chatModel.textController.clear();
+void _send() {
+ final text = widget.chatModel.textController.text.trim();
+ RuntimeLogger.instance.info('CHAT', 'mobile _send enabled=${widget.enabled} textLen=${text.length} key=${widget.chatModel.currentKey.peerId}');
+ if (!widget.enabled || text.isEmpty) return;
+ widget.chatModel.sendText(text);
+ widget.chatModel.textController.clear();
     if (_showEmojiPanel || _showMorePanel) {
       setState(() {
         _showEmojiPanel = false;
@@ -5213,25 +5234,34 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
     if (!pastedImage) await _pasteClipboardText();
   }
 
-  KeyEventResult _handleComposerKeyEvent(FocusNode _, KeyEvent event) {
-    if (event is! KeyDownEvent || event.logicalKey != LogicalKeyboardKey.keyV) {
-      return KeyEventResult.ignored;
-    }
-    final keyboard = HardwareKeyboard.instance;
-    if (!keyboard.isControlPressed && !keyboard.isMetaPressed) {
-      return KeyEventResult.ignored;
-    }
-    if (enabled) unawaited(_handlePasteShortcut());
-    return KeyEventResult.handled;
-  }
+KeyEventResult _handleComposerKeyEvent(FocusNode _, KeyEvent event) {
+ if (event is! KeyDownEvent) return KeyEventResult.ignored;
+ final keyboard = HardwareKeyboard.instance;
+ // Ctrl/Cmd+V — paste
+ if (event.logicalKey == LogicalKeyboardKey.keyV &&
+ (keyboard.isControlPressed || keyboard.isMetaPressed)) {
+ if (enabled) unawaited(_handlePasteShortcut());
+ return KeyEventResult.handled;
+ }
+ // Enter (without Shift) — send message (Shift+Enter inserts newline)
+ if (event.logicalKey == LogicalKeyboardKey.enter ||
+ event.logicalKey == LogicalKeyboardKey.numpadEnter) {
+ if (enabled && !keyboard.isShiftPressed) {
+ _send();
+ return KeyEventResult.handled;
+ }
+ }
+ return KeyEventResult.ignored;
+ }
 
-  void _send() {
-    final text = chatModel.textController.text.trim();
-    if (!enabled || text.isEmpty) return;
-    chatModel.sendText(text);
-    chatModel.textController.clear();
-    chatModel.inputNode.requestFocus();
-  }
+void _send() {
+ final text = chatModel.textController.text.trim();
+ RuntimeLogger.instance.info('CHAT', 'desktop _send enabled=$enabled textLen=${text.length} key=${chatModel.currentKey.peerId}');
+ if (!enabled || text.isEmpty) return;
+ chatModel.sendText(text);
+ chatModel.textController.clear();
+ chatModel.inputNode.requestFocus();
+ }
 
   @override
   Widget build(BuildContext context) {

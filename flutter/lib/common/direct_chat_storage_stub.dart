@@ -6,11 +6,15 @@ class DirectChatStorage {
 
   Future<String?> read() async => _value;
 
-  Future<void> write(String value) async {
-    _value = value;
-  }
+Future<void> write(String value) async {
+_value = value;
+}
 
-  Future<String> update(
+Future<void> renameToBackup() async {
+_value = null;
+}
+
+Future<String> update(
     Future<String> Function(String? current) transform,
   ) async {
     _value = await transform(_value);

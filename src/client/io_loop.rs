@@ -1770,9 +1770,28 @@ impl<T: InvokeUiSession> Remote<T> {
                     Some(misc::Union::AudioFormat(f)) => {
                         self.audio_sender.send(MediaData::AudioFormat(f)).ok();
                     }
-                    Some(misc::Union::ChatMessage(c)) => {
-                        self.handler.new_message(c.text);
-                    }
+ Some(misc::Union::ChatMessage(c)) => {
+ self.handler.new_message(c.text.clone());
+ // LUODA: on mobile the session-level event stream is not
+ // consumed (the app only subscribes to the global "main"
+ // stream), so a chat_client_mode event pushed only to
+ // session_handlers never reaches the Flutter UI. Mirror
+ // the server-side fix in connection.rs and also push the
+ // event to the global "main" stream so incoming messages
+ // are received live on mobile.
+ #[cfg(feature = "flutter")]
+ {
+ let event = serde_json::json!({
+ "name": "chat_client_mode",
+ "text": c.text,
+ })
+ .to_string();
+ crate::flutter::push_global_event(
+ crate::flutter::APP_TYPE_MAIN,
+ event,
+ );
+ }
+ }
                     Some(misc::Union::PermissionInfo(p)) => {
                         log::info!("Change permission {:?} -> {}", p.permission, p.enabled);
                         // https://github.com/luoda/luoda/issues/3703#issuecomment-1474734754

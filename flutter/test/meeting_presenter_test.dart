@@ -125,30 +125,82 @@ void main() {
     });
   });
 
-  group('chat-list categorization (meeting excluded from stranger)', () {
-    // Mirrors the filter used by the mobile conversation list: meeting
-    // conversations (meeting:xxx) must be shown only under the Meeting
-    // group and must never fall into Friends/Strangers.
-    bool isMeetingPeer(String peerId) => peerId.startsWith('meeting:');
-    bool isFriendLike(String peerId, bool access) =>
-        !isMeetingPeer(peerId) && access;
+group('chat-list categorization (meeting excluded from stranger)', () {
+ // Mirrors the filter used by the mobile conversation list: meeting
+ // conversations (meeting:xxx) must be shown only under the Meeting
+ // group and must never fall into Friends/Strangers.
+ bool isMeetingPeer(String peerId, Set<String> meetingMembers) =>
+ peerId.startsWith('meeting:') ||
+ meetingMembers.contains(peerId);
+ bool isFriendLike(
+ String peerId, bool access, Set<String> meetingMembers) =>
+ !isMeetingPeer(peerId, meetingMembers) && access;
 
-    test('meeting peer id is not treated as stranger', () {
-      const peerId = 'meeting:m-123';
-      // Before the fix: stranger filter was `!access.isFriend(peerId)` which
-      // is true for meeting ids (they are never friends) → duplicate rows.
-      final strangerBeforeFix = !false; // isFriend('meeting:...') == false
-      final strangerAfterFix = !isMeetingPeer(peerId) && !false;
-      expect(strangerBeforeFix, true);
-      expect(strangerAfterFix, false);
-      expect(isMeetingPeer(peerId), true);
-    });
+ test('meeting peer id is not treated as stranger', () {
+ const peerId = 'meeting:m-123';
+ final members = <String>{};
+ // Before the fix: stranger filter was `!access.isFriend(peerId)` which
+ // is true for meeting ids (they are never friends) → duplicate rows.
+ final strangerBeforeFix = !false; // isFriend('meeting:...') == false
+ final strangerAfterFix =
+ !isMeetingPeer(peerId, members) && !false;
+ expect(strangerBeforeFix, true);
+ expect(strangerAfterFix, false);
+ expect(isMeetingPeer(peerId, members), true);
+ });
 
-    test('friend filter also excludes meeting ids', () {
-      const peerId = 'meeting:m-456';
-      expect(isFriendLike(peerId, true), false);
-      expect(isFriendLike('peer-1', true), true);
-      expect(isFriendLike('peer-1', false), false);
-    });
-  });
+ test('friend filter also excludes meeting ids', () {
+ const peerId = 'meeting:m-456';
+ final members = <String>{};
+ expect(isFriendLike(peerId, true, members), false);
+ expect(isFriendLike('peer-1', true, members), true);
+ expect(isFriendLike('peer-1', false, members), false);
+ });
+
+ test('a device that is a meeting member is excluded from strangers', () {
+ // Regression: a device peerId (e.g. "XIAOMI-123") that joined a
+ // meeting must not appear as a separate 1:1 stranger row when the
+ // meeting row already shows it. The set mirrors the mobile list's
+ // meetingMemberPeerIds collection (host + all member peerIds).
+ final meetingMembers = <String>{'HOST-1', 'XIAOMI-123'};
+ expect(isMeetingPeer('XIAOMI-123', meetingMembers), true);
+ expect(isFriendLike('XIAOMI-123', false, meetingMembers), false,
+ reason: 'meeting member must not be a stranger row');
+ expect(isFriendLike('XIAOMI-123', true, meetingMembers), false,
+ reason: 'meeting member must not be a friend row either');
+ expect(isFriendLike('OPPO-456', false, meetingMembers), true,
+ reason: 'non-member stranger still shows normally');
+ expect(isFriendLike('OPPO-456', true, meetingMembers), true,
+ reason: 'non-member friend still shows normally');
+ });
+
+ test('desktop _isMeetingItem also matches member peer ids', () {
+ // Mirrors desktop_home_page _isMeetingItem: a 1:1 conversation whose
+ // peer is a meeting member should be categorized as a meeting item.
+ final group = MeetingGroup(
+ meetingId: 'm-desktop',
+ title: 'Demo',
+ hostPeerId: 'HOST-1',
+ hostDisplayName: 'Alice',
+ members: <MeetingMember>[
+ MeetingMember(
+ peerId: 'XIAOMI-123',
+ displayName: 'Redmi',
+ joinedAt: DateTime.utc(2026, 8, 20),
+ ),
+ ],
+ );
+ final memberPeerIds = <String>{
+ group.hostPeerId,
+ for (final m in (group.members ?? <MeetingMember>[])) m.peerId,
+ };
+ bool isMeetingItem(String pid) =>
+ pid.startsWith('meeting:') || memberPeerIds.contains(pid);
+ expect(isMeetingItem(group.conversationId), true);
+ expect(isMeetingItem('XIAOMI-123'), true);
+ expect(isMeetingItem('HOST-1'), true);
+ expect(isMeetingItem('OPPO-456'), false);
+ });
+});
+}
 }

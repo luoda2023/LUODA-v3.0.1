@@ -116,6 +116,10 @@ dependencies:
   extended_text: 14.0.0
   xterm: 4.0.0
   sqflite: 2.2.0
+  # FFI backend for Windows/Linux desktop (sqflite only supports Android/iOS/macOS).
+  # Mirrors WeChat's WCDB approach: a native SQLite C library accessed via FFI.
+  sqflite_common_ffi: ^2.3.3
+  sqlite3_flutter_libs: ^0.5.0
   google_fonts: ^6.2.1
   vector_math: ^2.1.4
   # File preview: open received files with the system app (open_filex);

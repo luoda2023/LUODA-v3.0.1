@@ -1,10 +1,11 @@
-import 'dart:convert';
+import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import 'package:uuid/uuid.dart';
 
 import '../common.dart';
+import '../common/direct_chat_sqlite.dart';
 import 'platform_model.dart';
 
 /// A P2P meeting group — created locally, persisted via key-value store.
@@ -148,76 +149,140 @@ class MeetingMember {
 
 /// Thread-safe local store for meeting groups.
 ///
-/// All data is stored in the local key-value config store (same backend as
-/// contact categories), so it survives app restarts. No server dependency.
+/// All data is stored exclusively in the local SQLite database
+/// (`ldesk_chat.db`), so it survives app restarts with full transaction
+/// safety. No server dependency. The in-memory `RxList` mirrors the DB
+/// rows for UI binding. Every write goes through SQLite transactions —
+/// there is no KV fallback path that could cause data desync ("错位").
 class MeetingGroupStore {
-  MeetingGroupStore._();
-  static const _storageKey = 'meeting_groups_v1';
+ MeetingGroupStore._();
 
-  static final RxList<MeetingGroup> _groups = <MeetingGroup>[].obs;
+ static final RxList<MeetingGroup> _groups = <MeetingGroup>[].obs;
 
-  /// All known groups. Read-only observable — bind UI with Obx.
-  static List<MeetingGroup> get all => List.unmodifiable(_groups);
-  static RxList<MeetingGroup> get reactive => _groups;
+ /// All known groups. Read-only observable — bind UI with Obx.
+ static List<MeetingGroup> get all => List.unmodifiable(_groups);
+ static RxList<MeetingGroup> get reactive => _groups;
 
-  /// Load from persistent storage. Call once at app startup.
-  static void load() {
-    final raw = bind.mainGetLocalOption(key: _storageKey);
-    if (raw.isEmpty) return;
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is List) {
-        _groups.assignAll(
-          decoded
-              .map((item) => MeetingGroup.fromJson(item as Map<String, dynamic>))
-              .where((g) => g.meetingId.isNotEmpty),
-        );
-      }
-    } catch (e) {
-      debugPrint('Failed to load meeting groups: $e');
-    }
-  }
+ /// Load from SQLite. Call once at app startup.
+ static void load() {
+ _loadAsync();
+ }
 
-  static void _save() {
-    bind.mainSetLocalOption(
-      key: _storageKey,
-      value: jsonEncode(_groups.map((g) => g.toJson()).toList()),
-    );
-  }
+ static Future<void> _loadAsync() async {
+ try {
+ final rows = await DirectChatSqlite.instance.loadAllMeetings();
+ final groups = <MeetingGroup>[];
+ for (final row in rows) {
+ final meetingId = (row['meeting_id'] ?? '').toString();
+ if (meetingId.isEmpty) continue;
+ final membersRaw = (row['members'] as List?) ?? [];
+ final members = membersRaw.map((m) => MeetingMember(
+ peerId: (m['peer_id'] ?? '').toString(),
+ displayName: (m['display_name'] ?? '').toString(),
+ joinedAt: DateTime.tryParse((m['joined_at'] ?? '').toString()) ??
+ DateTime.now(),
+ )).toList();
+ final group = MeetingGroup(
+ meetingId: meetingId,
+ title: (row['title'] ?? '').toString(),
+ hostPeerId: (row['host_peer_id'] ?? '').toString(),
+ hostDisplayName: (row['host_display_name'] ?? '').toString(),
+ createdAt: DateTime.tryParse((row['created_at'] ?? '').toString()) ??
+ DateTime.now(),
+ members: members,
+ activeSessionEndpoint:
+ (row['active_session_endpoint'] ?? '').toString(),
+ inviteShortCode: (row['invite_short_code'] ?? '').toString(),
+ presenterPeerId: (row['presenter_peer_id'] ?? '').toString(),
+ presenterDisplayName:
+ (row['presenter_display_name'] ?? '').toString(),
+ viewerToken: (row['viewer_token'] ?? '').toString(),
+ startTime: DateTime.tryParse(
+ (row['start_time'] ?? '').toString()),
+ durationMinutes:
+ int.tryParse('${row['duration_minutes']}') ?? 60,
+ );
+ groups.add(group);
+ }
+ _groups.assignAll(groups);
+ } catch (e) {
+ debugPrint('Failed to load meeting groups from SQLite: $e');
+ // No KV fallback — SQLite is the single source of truth. If the DB
+ // is unavailable the in-memory list stays empty until the next
+ // successful load, rather than showing stale KV data that could
+ // desync from what other processes have written.
+ }
+ }
 
-  /// Public save (bridges to private _save for external callers).
-  static Future<void> save() async => _save();
+ /// Persist a single meeting group to SQLite (transaction-safe).
+ static Future<void> _persistGroup(MeetingGroup g) async {
+ await DirectChatSqlite.instance.upsertMeeting({
+ 'meeting_id': g.meetingId,
+ 'title': g.title,
+ 'host_peer_id': g.hostPeerId,
+ 'host_display_name': g.hostDisplayName,
+ 'created_at': g.createdAt.toUtc().toIso8601String(),
+ 'active_session_endpoint': g.activeSessionEndpoint,
+ 'invite_short_code': g.inviteShortCode,
+ 'presenter_peer_id': g.presenterPeerId,
+ 'presenter_display_name': g.presenterDisplayName,
+ 'viewer_token': g.viewerToken,
+ 'start_time': g.startTime?.toUtc().toIso8601String() ?? '',
+ 'duration_minutes': g.durationMinutes,
+ });
+ final members = (g.members ?? <MeetingMember>[])
+ .map((m) => <String, dynamic>{
+ 'peer_id': m.peerId,
+ 'display_name': m.displayName,
+ 'joined_at': m.joinedAt.toUtc().toIso8601String(),
+ })
+ .toList();
+ await DirectChatSqlite.instance.replaceMeetingMembers(
+ g.meetingId, members);
+ _groups.refresh();
+ }
 
-  /// Create a new meeting group. Returns the new [MeetingGroup].
-  static MeetingGroup create({
-    required String title,
-    required String hostPeerId,
-    required String hostDisplayName,
-    String? presenterPeerId,
-    String? presenterDisplayName,
-    DateTime? startTime,
-    int durationMinutes = 60,
-  }) {
-    final group = MeetingGroup(
-      meetingId: const Uuid().v4(),
-      title: title.trim().isNotEmpty ? title.trim() : hostDisplayName,
-      hostPeerId: hostPeerId,
-      hostDisplayName: hostDisplayName,
-      // The presenter defaults to the host (发起人自动是新建会议的人),
-      // but can be reassigned to another member afterwards.
-      presenterPeerId: presenterPeerId ?? hostPeerId,
-      presenterDisplayName: presenterDisplayName ?? hostDisplayName,
-      // The host is rendered separately in the member list, so do not
-      // duplicate the host inside [members] (older builds persisted the
-      // host as a member and showed the host twice).
-      members: const [],
-      startTime: startTime,
-      durationMinutes: durationMinutes,
-    );
-    _groups.add(group);
-    _save();
-    return group;
-  }
+ /// Persist all groups (bulk save). Used when migrating or syncing.
+ static Future<void> _saveAll() async {
+ for (final g in _groups) {
+ await _persistGroup(g);
+ }
+ _groups.refresh();
+ }
+
+ /// Public save (bridges to private _persistGroup for external callers).
+ static Future<void> save() async => _saveAll();
+
+/// Create a new meeting group. Returns the new [MeetingGroup].
+ static MeetingGroup create({
+ required String title,
+ required String hostPeerId,
+ required String hostDisplayName,
+ String? presenterPeerId,
+ String? presenterDisplayName,
+ DateTime? startTime,
+ int durationMinutes = 60,
+ }) {
+ final group = MeetingGroup(
+ meetingId: const Uuid().v4(),
+ title: title.trim().isNotEmpty ? title.trim() : hostDisplayName,
+ hostPeerId: hostPeerId,
+ hostDisplayName: hostDisplayName,
+ // The presenter defaults to the host (发起人自动是新建会议的人),
+ // but can be reassigned to another member afterwards.
+ presenterPeerId: presenterPeerId ?? hostPeerId,
+ presenterDisplayName: presenterDisplayName ?? hostDisplayName,
+ // The host is rendered separately in the member list, so do not
+ // duplicate the host inside [members] (older builds persisted the
+ // host as a member and showed the host twice).
+ members: const [],
+ startTime: startTime,
+ durationMinutes: durationMinutes,
+ );
+ _groups.add(group);
+ unawaited(_persistGroup(group));
+ return group;
+ }
 
   /// Find a group by [meetingId].
   static MeetingGroup? find(String meetingId) {
@@ -235,88 +300,88 @@ class MeetingGroupStore {
     ).toList();
   }
 
-  /// Add a member to an existing group.
-  static void addMember(String meetingId, String peerId, String displayName) {
-    final group = find(meetingId);
-    if (group == null) return;
-    if (peerId == group.hostPeerId) return;
-    if (group.members?.any((m) => m.peerId == peerId) ?? false) return;
-    group.members ??= [];
-    group.members!.add(MeetingMember(
-      peerId: peerId,
-      displayName: displayName,
-      joinedAt: DateTime.now(),
-    ));
-    final idx = _groups.indexWhere((g) => g.meetingId == meetingId);
-    if (idx >= 0) _groups[idx] = group;
-    _save();
-  }
+/// Add a member to an existing group.
+ static void addMember(String meetingId, String peerId, String displayName) {
+ final group = find(meetingId);
+ if (group == null) return;
+ if (peerId == group.hostPeerId) return;
+ if (group.members?.any((m) => m.peerId == peerId) ?? false) return;
+ group.members ??= [];
+ group.members!.add(MeetingMember(
+ peerId: peerId,
+ displayName: displayName,
+ joinedAt: DateTime.now(),
+ ));
+ final idx = _groups.indexWhere((g) => g.meetingId == meetingId);
+ if (idx >= 0) _groups[idx] = group;
+ unawaited(_persistGroup(group));
+ }
 
-  /// Remove a member from an existing group. No-op if not found.
-  static void removeMember(String meetingId, String peerId) {
-    final group = find(meetingId);
-    if (group == null) return;
-    if (group.members == null || group.members!.isEmpty) return;
-    group.members!.removeWhere((m) => m.peerId == peerId);
-    // If the removed member was the presenter, fall back to the host.
-    if (group.presenterPeerId == peerId) {
-      group.presenterPeerId = group.hostPeerId;
-      group.presenterDisplayName = group.hostDisplayName;
-    }
-    final idx = _groups.indexWhere((g) => g.meetingId == meetingId);
-    if (idx >= 0) _groups[idx] = group;
-    _save();
-  }
+ /// Remove a member from an existing group. No-op if not found.
+ static void removeMember(String meetingId, String peerId) {
+ final group = find(meetingId);
+ if (group == null) return;
+ if (group.members == null || group.members!.isEmpty) return;
+ group.members!.removeWhere((m) => m.peerId == peerId);
+ // If the removed member was the presenter, fall back to the host.
+ if (group.presenterPeerId == peerId) {
+ group.presenterPeerId = group.hostPeerId;
+ group.presenterDisplayName = group.hostDisplayName;
+ }
+ final idx = _groups.indexWhere((g) => g.meetingId == meetingId);
+ if (idx >= 0) _groups[idx] = group;
+ unawaited(_persistGroup(group));
+ }
 
-  /// Assign (or change) the presenter for a meeting. Only meaningful on the
-  /// host side, but harmless elsewhere. Returns true on success.
-  static bool setPresenter(String meetingId, String peerId, String displayName) {
-    final group = find(meetingId);
-    if (group == null) return false;
-    group.presenterPeerId = peerId;
-    group.presenterDisplayName =
-        displayName.trim().isNotEmpty ? displayName : peerId;
-    final idx = _groups.indexWhere((g) => g.meetingId == meetingId);
-    if (idx >= 0) _groups[idx] = group;
-    _save();
-    return true;
-  }
+ /// Assign (or change) the presenter for a meeting. Only meaningful on the
+ /// host side, but harmless elsewhere. Returns true on success.
+ static bool setPresenter(String meetingId, String peerId, String displayName) {
+ final group = find(meetingId);
+ if (group == null) return false;
+ group.presenterPeerId = peerId;
+ group.presenterDisplayName =
+ displayName.trim().isNotEmpty ? displayName : peerId;
+ final idx = _groups.indexWhere((g) => g.meetingId == meetingId);
+ if (idx >= 0) _groups[idx] = group;
+ unawaited(_persistGroup(group));
+ return true;
+ }
 
-  /// Store the viewer invite token issued by the host for the live session.
-  static void setViewerToken(String meetingId, String token) {
-    final group = find(meetingId);
-    if (group == null) return;
-    group.viewerToken = token.trim();
-    final idx = _groups.indexWhere((g) => g.meetingId == meetingId);
-    if (idx >= 0) _groups[idx] = group;
-    _save();
-  }
+ /// Store the viewer invite token issued by the host for the live session.
+ static void setViewerToken(String meetingId, String token) {
+ final group = find(meetingId);
+ if (group == null) return;
+ group.viewerToken = token.trim();
+ final idx = _groups.indexWhere((g) => g.meetingId == meetingId);
+ if (idx >= 0) _groups[idx] = group;
+ unawaited(_persistGroup(group));
+ }
 
-  /// Update the active session endpoint (host starts sharing).
-  static void setSessionEndpoint(String meetingId, String endpoint) {
-    final group = find(meetingId);
-    if (group == null) return;
-    group.activeSessionEndpoint = endpoint;
-    final idx = _groups.indexWhere((g) => g.meetingId == meetingId);
-    if (idx >= 0) _groups[idx] = group;
-    _save();
-  }
+ /// Update the active session endpoint (host starts sharing).
+ static void setSessionEndpoint(String meetingId, String endpoint) {
+ final group = find(meetingId);
+ if (group == null) return;
+ group.activeSessionEndpoint = endpoint;
+ final idx = _groups.indexWhere((g) => g.meetingId == meetingId);
+ if (idx >= 0) _groups[idx] = group;
+ unawaited(_persistGroup(group));
+ }
 
-  /// Update the invite short code (host regenerates invite).
-  static void setInviteCode(String meetingId, String shortCode) {
-    final group = find(meetingId);
-    if (group == null) return;
-    group.inviteShortCode = shortCode;
-    final idx = _groups.indexWhere((g) => g.meetingId == meetingId);
-    if (idx >= 0) _groups[idx] = group;
-    _save();
-  }
+ /// Update the invite short code (host regenerates invite).
+ static void setInviteCode(String meetingId, String shortCode) {
+ final group = find(meetingId);
+ if (group == null) return;
+ group.inviteShortCode = shortCode;
+ final idx = _groups.indexWhere((g) => g.meetingId == meetingId);
+ if (idx >= 0) _groups[idx] = group;
+ unawaited(_persistGroup(group));
+ }
 
-  /// Remove a meeting group entirely.
-  static void delete(String meetingId) {
-    _groups.removeWhere((g) => g.meetingId == meetingId);
-    _save();
-  }
+ /// Remove a meeting group entirely.
+ static void delete(String meetingId) {
+ _groups.removeWhere((g) => g.meetingId == meetingId);
+ unawaited(DirectChatSqlite.instance.deleteMeeting(meetingId));
+ }
 
   /// Alias for delete.
   static Future<void> remove(String meetingId) async => delete(meetingId);

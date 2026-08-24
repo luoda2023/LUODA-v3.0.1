@@ -1,8 +1,9 @@
-import 'dart:convert';
+import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
 import 'backup_restore.dart';
+import 'direct_chat_sqlite.dart';
 import 'direct_pairing.dart';
 import '../models/platform_model.dart';
 
@@ -104,23 +105,67 @@ class DirectChatAccessController extends ChangeNotifier {
         autoReconnect: _autoReconnect,
       );
 
-  void load() {
-    if (_loaded) return;
-    reload(notify: false);
-  }
+ void load() {
+ if (_loaded) return;
+ // Synchronous first read from KV flags (alwaysOn etc.) so UI
+ // doesn't block; peer policies load async from SQLite below.
+ _alwaysOn = bind.mainGetLocalOption(key: alwaysOnKey) != 'N';
+ _autoReconnect = bind.mainGetLocalOption(key: autoReconnectKey) != 'N';
+ _audience = bind.mainGetLocalOption(key: trustedOnlyKey) == 'Y'
+ ? DirectChatAudience.friendsOnly
+ : DirectChatAudience.everyone;
+ _audienceMtime = bind.mainGetLocalOption(key: audienceMtimeKey);
+ _loaded = true;
+ // Async load peer policies from SQLite (single source of truth).
+ unawaited(_loadPoliciesFromDb());
+ }
 
-  void reload({bool notify = true}) {
-    _alwaysOn = bind.mainGetLocalOption(key: alwaysOnKey) != 'N';
-    _autoReconnect = bind.mainGetLocalOption(key: autoReconnectKey) != 'N';
-    _audience = bind.mainGetLocalOption(key: trustedOnlyKey) == 'Y'
-        ? DirectChatAudience.friendsOnly
-        : DirectChatAudience.everyone;
-    _audienceMtime = bind.mainGetLocalOption(key: audienceMtimeKey);
-    _peerPolicies = _readStringMap(peerPoliciesKey);
-    _acceptedPeers = _readStringMap(acceptedPeersKey).keys.toSet();
-    _loaded = true;
-    if (notify) notifyListeners();
-  }
+ /// Async load peer policies + accepted peers from SQLite. Call at
+ /// startup so the synchronous [policyFor()] / [isFriend()] etc.
+ /// return DB-backed data. No KV fallback — SQLite is authoritative.
+ Future<void> preloadFromDb() async {
+ if (_policiesLoaded) return;
+ await _loadPoliciesFromDb();
+ }
+
+ bool _policiesLoaded = false;
+
+ Future<void> _loadPoliciesFromDb() async {
+ try {
+ final rows = await DirectChatSqlite.instance.loadAllContactPolicies();
+ final policies = <String, String>{};
+ final accepted = <String>{};
+ for (final row in rows) {
+ final peerId = (row['peer_id'] ?? '').toString();
+ if (peerId.isEmpty) continue;
+ final policy = (row['policy'] ?? 'ask').toString();
+ if (policy != 'ask') policies[peerId] = policy;
+ if ((row['accepted'] as int?) == 1) accepted.add(peerId);
+ }
+ _peerPolicies = policies;
+ _acceptedPeers = accepted;
+ _policiesLoaded = true;
+ notifyListeners();
+ } catch (e) {
+ debugPrint('Contact policies SQLite load failed: $e');
+ _policiesLoaded = true;
+ // No KV fallback — empty is safer than stale KV data.
+ }
+ }
+
+ void reload({bool notify = true}) {
+ _alwaysOn = bind.mainGetLocalOption(key: alwaysOnKey) != 'N';
+ _autoReconnect = bind.mainGetLocalOption(key: autoReconnectKey) != 'N';
+ _audience = bind.mainGetLocalOption(key: trustedOnlyKey) == 'Y'
+ ? DirectChatAudience.friendsOnly
+ : DirectChatAudience.everyone;
+ _audienceMtime = bind.mainGetLocalOption(key: audienceMtimeKey);
+ // Reload peer policies from SQLite (async, non-blocking).
+ _policiesLoaded = false;
+ unawaited(_loadPoliciesFromDb());
+ _loaded = true;
+ if (notify) notifyListeners();
+ }
 
   String policyFor(String peerId) {
     load();
@@ -203,51 +248,47 @@ class DirectChatAccessController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setPeerPolicy(String peerId, String policy) async {
-    DotChatBackup.schedule();
-    load();
-    final id = DirectPairingStore.canonicalConversationId(peerId);
-    if (id.isEmpty ||
-        !const <String>{'allow', 'ask', 'deny'}.contains(policy)) {
-      return;
-    }
-    if (policy == 'ask') {
-      _peerPolicies.remove(id);
-    } else {
-      _peerPolicies[id] = policy;
-    }
-    for (final device in DirectPairingStore.boundDevices(id)) {
-      _peerPolicies.remove(device.peerId);
-    }
-    if (policy == 'deny') _acceptedPeers.remove(id);
-    await _writeStringMap(peerPoliciesKey, _peerPolicies);
-    await _persistAcceptedPeers();
-    notifyListeners();
-  }
+Future<void> setPeerPolicy(String peerId, String policy) async {
+ DotChatBackup.schedule();
+ load();
+ final id = DirectPairingStore.canonicalConversationId(peerId);
+ if (id.isEmpty ||
+ !const <String>{'allow', 'ask', 'deny'}.contains(policy)) {
+ return;
+ }
+ if (policy == 'ask') {
+ _peerPolicies.remove(id);
+ await DirectChatSqlite.instance.deleteContactPolicy(id);
+ } else {
+ _peerPolicies[id] = policy;
+ await DirectChatSqlite.instance.upsertContactPolicy({
+ 'peer_id': id,
+ 'policy': policy,
+ 'accepted': _acceptedPeers.contains(id) ? 1 : 0,
+ });
+ }
+ for (final device in DirectPairingStore.boundDevices(id)) {
+ _peerPolicies.remove(device.peerId);
+ }
+ if (policy == 'deny') _acceptedPeers.remove(id);
+ // SQLite is the sole persistence layer for contact policies.
+ // No KV write — eliminates desync between processes.
+ notifyListeners();
+ }
 
-  Future<void> markAccepted(String peerId) async {
-    load();
-    final id = DirectPairingStore.canonicalConversationId(peerId);
-    if (id.isEmpty || !_acceptedPeers.add(id)) return;
-    await _persistAcceptedPeers();
-    notifyListeners();
-  }
+Future<void> markAccepted(String peerId) async {
+ load();
+ final id = DirectPairingStore.canonicalConversationId(peerId);
+ if (id.isEmpty || !_acceptedPeers.add(id)) return;
+ // Persist accepted state to SQLite.
+ await DirectChatSqlite.instance.upsertContactPolicy({
+ 'peer_id': id,
+ 'policy': _peerPolicies[id] ?? 'ask',
+ 'accepted': 1,
+ });
+ notifyListeners();
+ }
 
-  Map<String, String> _readStringMap(String key) {
-    try {
-      final raw = bind.mainGetLocalOption(key: key);
-      if (raw.isEmpty) return <String, String>{};
-      return Map<String, dynamic>.from(jsonDecode(raw) as Map).map(
-        (mapKey, value) => MapEntry(mapKey, value.toString()),
-      );
-    } catch (_) {
-      return <String, String>{};
-    }
-  }
-
-  Future<void> _writeStringMap(String key, Map<String, String> value) {
-    return bind.mainSetLocalOption(key: key, value: jsonEncode(value));
-  }
 
   /// 输出可同步的分类信息（好友/陌生人策略），供伴侣设备间同步。
   Map<String, dynamic> toSyncJson() => <String, dynamic>{
@@ -285,33 +326,29 @@ class DirectChatAccessController extends ChangeNotifier {
         }
       }
     }
-    final incomingPolicies = data['policies'];
-    var changed = false;
-    if (incomingPolicies is Map) {
-      for (final entry in incomingPolicies.entries) {
-        final policy = entry.value.toString();
-        if (!const <String>{'allow', 'ask', 'deny'}.contains(policy)) continue;
-        final id = entry.key.toString().trim();
-        if (id.isEmpty) continue;
-        if (policy == 'ask') {
-          changed = _peerPolicies.containsKey(id) || changed;
-          _peerPolicies.remove(id);
-        } else if (_peerPolicies[id] != policy) {
-          _peerPolicies[id] = policy;
-          changed = true;
-        }
-      }
-      if (changed) await _writeStringMap(peerPoliciesKey, _peerPolicies);
-    }
-    await _persistAcceptedPeers();
-    notifyListeners();
-  }
-
-  Future<void> _persistAcceptedPeers() {
-    final now = DateTime.now().toUtc().toIso8601String();
-    return _writeStringMap(
-      acceptedPeersKey,
-      <String, String>{for (final peerId in _acceptedPeers) peerId: now},
-    );
-  }
+ final incomingPolicies = data['policies'];
+ var changed = false;
+ if (incomingPolicies is Map) {
+ for (final entry in incomingPolicies.entries) {
+ final policy = entry.value.toString();
+ if (!const <String>{'allow', 'ask', 'deny'}.contains(policy)) continue;
+ final id = entry.key.toString().trim();
+ if (id.isEmpty) continue;
+ if (policy == 'ask') {
+ changed = _peerPolicies.containsKey(id) || changed;
+ _peerPolicies.remove(id);
+ await DirectChatSqlite.instance.deleteContactPolicy(id);
+ } else if (_peerPolicies[id] != policy) {
+ _peerPolicies[id] = policy;
+ changed = true;
+ await DirectChatSqlite.instance.upsertContactPolicy({
+ 'peer_id': id,
+ 'policy': policy,
+ 'accepted': _acceptedPeers.contains(id) ? 1 : 0,
+ });
+ }
+ }
+ }
+ notifyListeners();
+ }
 }

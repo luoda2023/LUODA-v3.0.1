@@ -802,8 +802,12 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // opening a conversation from the recent list sent into a dead session
     // (messages stuck at "sent" / "A rejects messages").
     gFFI.chatModel.ensureChatConnection = _ensureChatConnection;
-    // 启动即加载会议群聊数据，点聊列表才能混排显示会议。
-    MeetingGroupStore.load();
+// 启动即加载会议群聊数据，点聊列表才能混排显示会议。
+ MeetingGroupStore.load();
+ // Preload pairings and contact policies from SQLite so synchronous
+ // load() calls return DB-backed data.
+ unawaited(DirectPairingStore.preloadFromDb());
+ unawaited(DirectChatAccessController.instance.preloadFromDb());
     initPages();
     final count = _pages.length;
     // Start in the middle of the infinite carousel so BOTH swipe
@@ -1021,10 +1025,14 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (existing != null) {
       await existing.close();
     }
-    final ffi = FFI(const Uuid().v4obj());
-    ffi.suppressConnectionDialogs = true;
-    _companionSyncSession = ffi;
-    _companionSyncPeerId = pairing.peerId;
+final ffi = FFI(const Uuid().v4obj());
+ ffi.suppressConnectionDialogs = true;
+ // LUODA FIX: propagate callbacks so this per-session ChatModel can
+ // also (re)dial when messages are sent through it.
+ ffi.chatModel.ensureChatConnection = gFFI.chatModel.ensureChatConnection;
+ ffi.chatModel.findDirectSession = gFFI.chatModel.findDirectSession;
+ _companionSyncSession = ffi;
+ _companionSyncPeerId = pairing.peerId;
     ffi.chatModel.changeCurrentKey(
       MessageKey(pairing.peerId, ChatModel.clientModeID),
     );
@@ -1560,20 +1568,17 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
     ffi.start(endpoint, isFileTransfer: true, forceRelay: false);
     final deadline = DateTime.now().add(const Duration(seconds: 30));
     while (mounted && DateTime.now().isBefore(deadline)) {
-      if (ffi.ffiModel.pi.isSet.isTrue) {
-        ffi.dialogManager.dismissAll();
-        if (ffi.ffiModel.direct != true) {
-          _directFileSession = null;
-          _directFilePeerId = '';
-          await _disposeDirectFileSession(ffi);
-          showToast(
-            translate('Direct connection failed. File relay is disabled.'),
-          );
-          return null;
-        }
-        if (await _waitForFileDirectories(ffi)) return ffi;
-        break;
-      }
+ if (ffi.ffiModel.pi.isSet.isTrue) {
+ ffi.dialogManager.dismissAll();
+ // Allow file transfer over both direct and relay connections.
+ // Previously relay was blocked, but the Rust core supports
+ // file-transfer sessions over relay — the restriction was
+ // a Flutter-side policy that prevented cross-network file
+ // sharing (e.g. PC↔PC via public IP when peers are on
+ // different networks).
+ if (await _waitForFileDirectories(ffi)) return ffi;
+ break;
+ }
       if (ffi.closed || (ffi.ffiModel.lastConnectionError ?? '').isNotEmpty) {
         break;
       }
@@ -3426,16 +3431,28 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
             );
           // 会议群聊（meeting:xxx）只归入“会议”分组，不能混进好友/陌生
           // 分组（否则同一会议会在两处重复显示）。
-          final friends = _mergePersonEntries(entries
-              .where((entry) =>
-                  !entry.key.peerId.startsWith('meeting:') &&
-                  access.isFriend(entry.key.peerId))
-              .toList(growable: false));
-          final strangers = _mergePersonEntries(entries
-              .where((entry) =>
-                  !entry.key.peerId.startsWith('meeting:') &&
-                  !access.isFriend(entry.key.peerId))
-              .toList(growable: false));
+ // 同一台设备如果已经加入某会议，其 1:1 会话条目也归入会议分组，
+ // 不能在"陌生人/好友"里重复显示（否则同一手机出现 2 个条目）。
+ final meetingMemberPeerIds = <String>{
+ for (final g in MeetingGroupStore.all)
+ if (g.members != null)
+ for (final m in g.members!)
+ m.peerId,
+ for (final g in MeetingGroupStore.all) g.hostPeerId,
+ };
+ bool isMeetingScoped(String peerId) =>
+ peerId.startsWith('meeting:') ||
+ meetingMemberPeerIds.contains(peerId);
+ final friends = _mergePersonEntries(entries
+ .where((entry) =>
+ !isMeetingScoped(entry.key.peerId) &&
+ access.isFriend(entry.key.peerId))
+ .toList(growable: false));
+ final strangers = _mergePersonEntries(entries
+ .where((entry) =>
+ !isMeetingScoped(entry.key.peerId) &&
+ !access.isFriend(entry.key.peerId))
+ .toList(growable: false));
           final fileHelperRow =
               boundToPc ? model.messages[model.fileHelperKey] : null;
           final rows = <Object>[

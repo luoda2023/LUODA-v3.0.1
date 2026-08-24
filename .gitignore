@@ -37,3 +37,10 @@ flutter/coverage/
 
 # Android signing keystore (never commit secrets)
 *.jks
+
+# Build artifacts - never commit
+Releases/
+*.apk
+*.etl
+LUODA-Win64-*.zip
+capture_input*.etl

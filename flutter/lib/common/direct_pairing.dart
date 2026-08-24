@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
@@ -5,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import 'backup_restore.dart';
+import 'direct_chat_sqlite.dart';
 import '../models/platform_model.dart';
 
 class DirectEndpointObservation {
@@ -525,33 +527,57 @@ class DirectPairingStore {
     return accountId.trim().replaceAll(' ', '') == mine.trim();
   }
 
-  static Map<String, DirectPairing>? _cache;
+ static Map<String, DirectPairing>? _cache;
 
-  static Map<String, DirectPairing> load() {
-    final cached = _cache;
-    if (cached != null) return Map<String, DirectPairing>.of(cached);
-    try {
-      final raw = bind.mainGetLocalOption(key: storageKey);
-      if (raw.isEmpty) {
-        _cache = <String, DirectPairing>{};
-        return <String, DirectPairing>{};
-      }
-      final decoded = Map<String, dynamic>.from(jsonDecode(raw) as Map);
-      final pairings = <String, DirectPairing>{};
-      for (final entry in decoded.entries) {
-        final pairing = DirectPairing.fromJson(
-          Map<String, dynamic>.from(entry.value as Map),
-        );
-        if (pairing.peerId.isNotEmpty && pairing.endpoints.isNotEmpty) {
-          pairings[pairing.peerId] = pairing;
-        }
-      }
-      _cache = pairings;
-      return Map<String, DirectPairing>.of(pairings);
-    } catch (_) {
-      return <String, DirectPairing>{};
-    }
-  }
+ /// Async preload from SQLite. Call once at startup so the synchronous
+ /// [load()] returns DB-backed data without blocking. SQLite is the
+ /// single source of truth — there is no KV fallback that could cause
+ /// data desync between processes.
+ static Future<void> preloadFromDb() async {
+ if (_cache != null) return;
+ try {
+ final rows = await DirectChatSqlite.instance.loadAllPairings();
+ final pairings = <String, DirectPairing>{};
+ for (final row in rows) {
+ final peerId = (row['peer_id'] ?? '').toString();
+ if (peerId.isEmpty) continue;
+ final pairing = DirectPairing(
+ peerId: peerId,
+ endpoints: [
+ if ((row['lan_endpoint'] ?? '').toString().isNotEmpty)
+ (row['lan_endpoint'] ?? '').toString(),
+ if ((row['public_endpoint'] ?? '').toString().isNotEmpty)
+ (row['public_endpoint'] ?? '').toString(),
+ ],
+ fingerprint: (row['fingerprint'] ?? '').toString(),
+ displayName: (row['display_name'] ?? '').toString(),
+ accountId: (row['account_id'] ?? '').toString(),
+ avatar: (row['avatar'] ?? '').toString(),
+ updatedAt: DateTime.tryParse(
+ (row['updated_at'] ?? '').toString()) ??
+ DateTime.now(),
+ );
+ pairings[peerId] = pairing;
+ }
+ _cache = pairings;
+ } catch (e) {
+ debugPrint('Pairings SQLite preload failed: $e');
+ // No KV fallback — return empty cache. The migration in
+ // DirectChatSqlite._migratePairingsFromKV() runs before this and
+ // copies old KV data into SQLite, so the DB is authoritative.
+ _cache = <String, DirectPairing>{};
+ }
+ }
+
+ static Map<String, DirectPairing> load() {
+ final cached = _cache;
+ if (cached != null) return Map<String, DirectPairing>.of(cached);
+ // Cache not yet populated (preloadFromDb hasn't completed).
+ // Return empty rather than reading KV, which could desync from
+ // what other processes have written to SQLite. Callers that
+ // need guaranteed-fresh data should await preloadFromDb() first.
+ return <String, DirectPairing>{};
+ }
 
   /// Drop the cached pairing snapshot so the next read reloads from
   /// LocalConfig. Called when the Rust side self-heals an endpoint after a
@@ -755,42 +781,50 @@ class DirectPairingStore {
     return values.isEmpty ? null : values.first;
   }
 
-  static Future<void> save(DirectPairing pairing) async {
-    if (pairing.peerId.isEmpty ||
-        pairing.endpoints.isEmpty ||
-        !_validFingerprint(pairing.fingerprint)) {
-      throw const FormatException('Pairing requires an ID and direct endpoint');
-    }
-    final pairings = load()..[pairing.peerId] = pairing;
-    await bind.mainSetLocalOption(
-      key: storageKey,
-      value: jsonEncode(
-        pairings.map((key, value) => MapEntry(key, value.toJson())),
-      ),
-    );
-    _cache = Map<String, DirectPairing>.of(pairings);
-    revision.value++;
-    DotChatBackup.schedule();
-  }
+ static Future<void> save(DirectPairing pairing) async {
+ if (pairing.peerId.isEmpty ||
+ pairing.endpoints.isEmpty ||
+ !_validFingerprint(pairing.fingerprint)) {
+ throw const FormatException('Pairing requires an ID and direct endpoint');
+ }
+ // SQLite is the sole persistence layer — no KV write. This eliminates
+ // the whole-blob rewrite race that caused pairing data to desync
+ // between the LocalSystem service and the interactive session.
+ await DirectChatSqlite.instance.upsertPairing({
+ 'peer_id': pairing.peerId,
+ 'display_name': pairing.displayName,
+ 'lan_endpoint':
+ pairing.endpoints.isNotEmpty ? pairing.endpoints.first : '',
+ 'public_endpoint':
+ pairing.endpoints.length > 1 ? pairing.endpoints[1] : '',
+ 'fingerprint': pairing.fingerprint,
+ 'updated_at': pairing.updatedAt.toUtc().toIso8601String(),
+ 'account_id': pairing.accountId,
+ 'avatar': pairing.avatar,
+ 'conversation_id': pairing.peerId,
+ });
+ final pairings = load()..[pairing.peerId] = pairing;
+ _cache = Map<String, DirectPairing>.of(pairings);
+ revision.value++;
+ DotChatBackup.schedule();
+ }
 
-  static Future<void> removeAll(Iterable<String> peerIds) async {
-    final ids =
-        peerIds.map((id) => id.trim()).where((id) => id.isNotEmpty).toSet();
-    if (ids.isEmpty) return;
-    final pairings = load();
-    final previousLength = pairings.length;
-    pairings.removeWhere((peerId, _) => ids.contains(peerId));
-    if (pairings.length == previousLength) return;
-    await bind.mainSetLocalOption(
-      key: storageKey,
-      value: jsonEncode(
-        pairings.map((key, value) => MapEntry(key, value.toJson())),
-      ),
-    );
-    _cache = Map<String, DirectPairing>.of(pairings);
-    revision.value++;
-    DotChatBackup.schedule();
-  }
+ static Future<void> removeAll(Iterable<String> peerIds) async {
+ final ids =
+ peerIds.map((id) => id.trim()).where((id) => id.isNotEmpty).toSet();
+ if (ids.isEmpty) return;
+ final pairings = load();
+ final previousLength = pairings.length;
+ pairings.removeWhere((peerId, _) => ids.contains(peerId));
+ if (pairings.length == previousLength) return;
+ // Delete from SQLite (sole persistence layer).
+ for (final id in ids) {
+ await DirectChatSqlite.instance.deletePairing(id);
+ }
+ _cache = Map<String, DirectPairing>.of(pairings);
+ revision.value++;
+ DotChatBackup.schedule();
+ }
 
   static List<Map<String, dynamic>> exportContacts() => _snapshot()
       .values
@@ -846,16 +880,26 @@ class DirectPairingStore {
         changed = true;
       } catch (_) {}
     }
-    if (!changed) return;
-    await bind.mainSetLocalOption(
-      key: storageKey,
-      value: jsonEncode(
-        pairings.map((key, value) => MapEntry(key, value.toJson())),
-      ),
-    );
-    _cache = Map<String, DirectPairing>.of(pairings);
-    revision.value++;
-  }
+ if (!changed) return;
+ // Persist each changed pairing to SQLite (sole persistence layer).
+ for (final pairing in pairings.values) {
+ await DirectChatSqlite.instance.upsertPairing({
+ 'peer_id': pairing.peerId,
+ 'display_name': pairing.displayName,
+ 'lan_endpoint':
+ pairing.endpoints.isNotEmpty ? pairing.endpoints.first : '',
+ 'public_endpoint':
+ pairing.endpoints.length > 1 ? pairing.endpoints[1] : '',
+ 'fingerprint': pairing.fingerprint,
+ 'updated_at': pairing.updatedAt.toUtc().toIso8601String(),
+ 'account_id': pairing.accountId,
+ 'avatar': pairing.avatar,
+ 'conversation_id': pairing.peerId,
+ });
+ }
+ _cache = Map<String, DirectPairing>.of(pairings);
+ revision.value++;
+ }
 
   static bool acceptsCompanionSecret(String secret) {
     if (secret.isEmpty) return false;
@@ -1028,19 +1072,28 @@ class DirectPairingStore {
       secure: true,
       streamType: streamType,
     );
-    if (staleKey != null && staleKey != peerId) {
-      pairings.remove(staleKey);
-    }
-    pairings[peerId] = pairing;
-    await bind.mainSetLocalOption(
-      key: storageKey,
-      value: jsonEncode(
-        pairings.map((key, value) => MapEntry(key, value.toJson())),
-      ),
-    );
-    _cache = Map<String, DirectPairing>.of(pairings);
-    revision.value++;
-  }
+ if (staleKey != null && staleKey != peerId) {
+ pairings.remove(staleKey);
+ await DirectChatSqlite.instance.deletePairing(staleKey);
+ }
+ pairings[peerId] = pairing;
+ // Persist to SQLite (sole persistence layer).
+ await DirectChatSqlite.instance.upsertPairing({
+ 'peer_id': pairing.peerId,
+ 'display_name': pairing.displayName,
+ 'lan_endpoint':
+ pairing.endpoints.isNotEmpty ? pairing.endpoints.first : '',
+ 'public_endpoint':
+ pairing.endpoints.length > 1 ? pairing.endpoints[1] : '',
+ 'fingerprint': pairing.fingerprint,
+ 'updated_at': pairing.updatedAt.toUtc().toIso8601String(),
+ 'account_id': pairing.accountId,
+ 'avatar': pairing.avatar,
+ 'conversation_id': pairing.peerId,
+ });
+ _cache = Map<String, DirectPairing>.of(pairings);
+ revision.value++;
+ }
 
   static String? resolveEndpoint(String value) {
     final input = value.trim().replaceAll(' ', '');

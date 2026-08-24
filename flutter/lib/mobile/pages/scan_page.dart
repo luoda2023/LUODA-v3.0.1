@@ -12,6 +12,7 @@ import '../../common/direct_pairing.dart';
 import '../../common/formatter/id_formatter.dart';
 import '../../models/platform_model.dart';
 import '../widgets/dialog.dart';
+import 'home_page.dart';
 
 class ScanPage extends StatefulWidget {
   @override
@@ -337,21 +338,32 @@ class _ScanPageState extends State<ScanPage> {
             return;
           }
         }
-        await DirectPairingStore.save(pairing);
-        // LUODA: bind this phone to the person account advertised by the
-        // scanned QR so its own QR/contacts carry the same id and PC+phone
-        // conversations merge into one person row everywhere.
-        if (pairing.accountId.isNotEmpty) {
-          await DirectPairingStore.bindSelfDevice(accountId: pairing.accountId);
-        }
-        await bind.mainSetLocalOption(
-          key: 'direct-chat-always-on',
-          value: 'Y',
-        );
-        if (isAndroid) {
-          await gFFI.invokeMethod('set_direct_chat_service', true);
-        }
-        if (!mounted) return;
+ await DirectPairingStore.save(pairing);
+ // LUODA: bind this phone to the person account advertised by the
+ // scanned QR so its own QR/contacts carry the same id and PC+phone
+ // conversations merge into one person row everywhere.
+ if (pairing.accountId.isNotEmpty) {
+ await DirectPairingStore.bindSelfDevice(accountId: pairing.accountId);
+ }
+ await bind.mainSetLocalOption(
+ key: 'direct-chat-always-on',
+ value: 'Y',
+ );
+ if (isAndroid) {
+ await gFFI.invokeMethod('set_direct_chat_service', true);
+ }
+ // LUODA FIX: immediately dial the just-bound PC so it detects the
+ // incoming chat client and calls rememberBoundPhone(). Without this,
+ // the PC never learns about the binding until the next app resume or
+ // the 30-minute keep-alive timer — the user sees "binding succeeded"
+ // on the phone but the PC stays "not bound" with no file transfer
+ // assistant. syncPairingsNow reuses the home page's managed FFI
+ // session (it closes any stale session before creating a new one).
+ final homeState = HomePage.homeKey.currentState;
+ if (homeState != null) {
+ unawaited(homeState.syncPairingsNow());
+ }
+ if (!mounted) return;
         await showDialog<void>(
           context: context,
           builder: (dialogContext) => AlertDialog(
