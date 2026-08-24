@@ -543,12 +543,8 @@ class DirectPairingStore {
  if (peerId.isEmpty) continue;
  final pairing = DirectPairing(
  peerId: peerId,
- endpoints: [
- if ((row['lan_endpoint'] ?? '').toString().isNotEmpty)
- (row['lan_endpoint'] ?? '').toString(),
- if ((row['public_endpoint'] ?? '').toString().isNotEmpty)
- (row['public_endpoint'] ?? '').toString(),
- ],
+ lanEndpoint: (row['lan_endpoint'] ?? '').toString(),
+ publicEndpoint: (row['public_endpoint'] ?? '').toString(),
  fingerprint: (row['fingerprint'] ?? '').toString(),
  displayName: (row['display_name'] ?? '').toString(),
  accountId: (row['account_id'] ?? '').toString(),

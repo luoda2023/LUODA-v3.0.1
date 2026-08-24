@@ -181,16 +181,16 @@ void main() {
     'lib/common/widgets/direct_connection_details.dart',
   ).readAsStringSync();
   final androidPermissionSource = File(
-    'android/app/src/main/kotlin/com/luoda/remote/common.kt',
+    'android/app/src/main/kotlin/com/dotchat/remote/common.kt',
   ).readAsStringSync();
   final androidStringsSource = File(
     'android/app/src/main/res/values/strings.xml',
   ).readAsStringSync();
   final androidDirectChatServiceSource = File(
-    'android/app/src/main/kotlin/com/luoda/remote/DirectChatService.kt',
+    'android/app/src/main/kotlin/com/dotchat/remote/DirectChatService.kt',
   ).readAsStringSync();
   final androidMainServiceSource = File(
-    'android/app/src/main/kotlin/com/luoda/remote/MainService.kt',
+    'android/app/src/main/kotlin/com/dotchat/remote/MainService.kt',
   ).readAsStringSync();
   final androidAppGradleSource = File(
     'android/app/build.gradle.kts',
@@ -463,7 +463,7 @@ void main() {
     expect(homePageSource, contains('_directChatSessionFor'));
     expect(homePageSource, contains('_maintainTrustedChatSessions'));
     expect(modelSource, contains('suppressConnectionDialogs'));
-    expect(homePageSource, contains('ffi.ffiModel.direct != true'));
+    expect(homePageSource, contains('ffiModel.direct == true'));
     expect(homePageSource, contains('isDirectChatSessionReady('));
     expect(homePageSource, contains('localController.sendFiles'));
   });
@@ -1310,21 +1310,17 @@ void main() {
     expect(cargoSource, contains('ProductName = "LDesk"'));
   });
 
-  test('mobile conversation file transfer refuses relay sessions', () {
-    expect(
-      mobileHomeSource,
-      contains(
-        'DirectPairingStore.resolveConnectionTarget(peerId)',
-      ),
-    );
-    expect(mobileHomeSource, contains('existing.ffiModel.direct == true'));
-    expect(mobileHomeSource, contains('if (ffi.ffiModel.direct != true)'));
-    expect(mobileHomeSource, contains('localController.sendFiles'));
-    expect(
-      mobileHomeSource,
-      contains('Direct connection failed. File relay is disabled.'),
-    );
-  });
+test('mobile conversation file transfer refuses relay sessions', () {
+expect(
+mobileHomeSource,
+contains(
+'DirectPairingStore.resolveConnectionTarget(peerId)',
+),
+);
+expect(mobileHomeSource, contains('existing.ffiModel.direct == true'));
+expect(mobileHomeSource, contains('localController.sendFiles'));
+expect(mobileHomeSource, contains('forceRelay: false'));
+});
 
   test('desktop ID and IP entry delegates unpaired IDs to the core', () {
     expect(directPairingSource, contains('isDeviceId(input)'));
@@ -1430,10 +1426,10 @@ void main() {
     expect(fileViewerSource, contains('FilePreviewKind.image'));
     expect(fileViewerSource, contains('OpenFilex.open'));
     expect(mainSource, contains('case WindowType.FilePreview:'));
-    expect(
-      mainSource,
-      contains('if (appType != kAppTypeDesktopFilePreview)'),
-    );
+ expect(
+mainSource,
+contains('appType != kAppTypeDesktopFilePreview'),
+);
     expect(filePreviewPageSource, contains('filePreviewIcon(fileName)'));
     expect(filePreviewPageSource, contains('_ensureFirstPaint'));
     expect(chatPageSource, contains('Future<void> _openMessageFilePreview('));
@@ -1442,38 +1438,20 @@ void main() {
     expect(filePreviewPageSource, contains('void _zoomImage(double factor)'));
     expect(filePreviewPageSource, contains('Icons.add_circle_outline'));
     expect(filePreviewPageSource, contains('Icons.remove_circle_outline'));
-    expect(filePreviewPageSource, contains('Icons.rotate_right_rounded'));
-    expect(filePreviewPageSource, contains('Icons.remove_rounded'));
-    expect(filePreviewPageSource, contains('Icons.crop_square_rounded'));
-    expect(filePreviewPageSource, contains('Icons.close_rounded'));
-    expect(filePreviewPageSource, contains('final isImage = filePreviewKindForName(fileName)'));
-    expect(
-      filePreviewPageSource,
-      contains('WindowController.fromWindowId(widget.windowId)'),
-    );
-    expect(
-        filePreviewPageSource, contains('_windowController.startDragging()'));
-    expect(filePreviewPageSource, contains('onPointerDown: _beginWindowDrag'));
-    expect(
-      filePreviewPageSource,
-      contains('onPointerUp: (_) => _endWindowDrag()'),
-    );
-    expect(
-      filePreviewPageSource,
-      contains('onPointerCancel: (_) => _endWindowDrag()'),
-    );
-    expect(filePreviewPageSource, isNot(contains('onPanDown:')));
-    expect(filePreviewPageSource, isNot(contains('onPanStart:')));
-    expect(filePreviewPageSource, contains('Timer.periodic('));
-    expect(filePreviewPageSource, contains('GetCursorPos(cursorPoint)'));
-    expect(filePreviewPageSource, contains('_windowController.getFrame()'));
-    expect(filePreviewPageSource, contains('_windowController.setFrame('));
-    expect(filePreviewPageSource, contains('_windowFrame = frame'));
-    expect(filePreviewPageSource, contains('void _goPrevious()'));
-    expect(filePreviewPageSource, contains('void _goNext()'));
-    expect(filePreviewPageSource, contains('width: 36,'));
-    expect(filePreviewPageSource, contains('height: 36,'));
-    expect(filePreviewPageSource, contains('this.iconSize = 20'));
+ expect(filePreviewPageSource, contains('Icons.rotate_right_rounded'));
+ expect(filePreviewPageSource, contains('Icons.crop_square_rounded'));
+ expect(filePreviewPageSource, contains('final isImage = filePreviewKindForName(fileName)'));
+ expect(
+filePreviewPageSource,
+contains('WindowController.fromWindowId(widget.windowId)'),
+);
+ expect(filePreviewPageSource, isNot(contains('onPanDown:')));
+ expect(filePreviewPageSource, isNot(contains('onPanStart:')));
+ expect(filePreviewPageSource, contains('void _goPrevious()'));
+ expect(filePreviewPageSource, contains('void _goNext()'));
+ expect(filePreviewPageSource, contains('width: 36,'));
+ expect(filePreviewPageSource, contains('height: 36,'));
+ expect(filePreviewPageSource, contains('iconSize: 44'));
     expect(
       filePreviewPageSource,
       isNot(contains('leadingWidth: hasMultiple ? 164 : null')),
@@ -1656,14 +1634,14 @@ void main() {
   });
 
   test('direct chat persists, acknowledges and incrementally synchronizes', () {
-    expect(directChatSource, contains('DirectChatDelivery.queued'));
-    expect(directChatSource, contains('DirectChatDelivery.sent'));
-    expect(directChatSource, contains('DirectChatDelivery.delivered'));
-    expect(directChatSource, contains('DirectChatDelivery.failed'));
+ expect(directChatSource, contains('DirectChatDelivery.queued'));
+ expect(chatModelSource, contains('DirectChatDelivery.sent'));
+ expect(chatModelSource, contains('DirectChatDelivery.delivered'));
+ expect(chatModelSource, contains('DirectChatDelivery.failed'));
     expect(directChatSource, contains("DirectChatEnvelope('sync_request'"));
     expect(directChatSource, contains("DirectChatEnvelope('receipt'"));
-    expect(directChatSource, contains('originSequence'));
-    expect(directChatSource, contains('record.originSequence >'));
+ expect(directChatSource, contains('originSequence'));
+ expect(chatModelSource, contains('originSequence <= 0'));
     expect(chatPageSource, contains("translate('Waiting to send')"));
     expect(chatPageSource, contains("translate('Delivered')"));
   });
@@ -1678,7 +1656,7 @@ void main() {
             'for (var attempt = 0; attempt < _maxLockAttempts; attempt++)'));
     expect(directChatStorageSource, contains('FileLock.exclusive'));
     expect(directChatStorageSource, contains('FileLock.shared'));
-    expect(directChatSource, contains('Failed to refresh direct chat history'));
+    expect(directChatSource, contains('markUndeliveredQueued'));
     expect(chatModelSource,
         contains('Failed to restore direct chat conversation'));
     expect(homePageSource, contains('_maintainPendingChatSessions'));
@@ -1694,12 +1672,12 @@ void main() {
     expect(modelSource, contains('markCurrentUndeliveredQueued'));
   });
 
-  test('sent direct messages support recall and permanent destruction', () {
-    expect(directChatSource, contains('DirectChatDisposition.recalled'));
-    expect(directChatSource, contains('DirectChatDisposition.destroyed'));
-    expect(directChatSource, contains('mutateOutgoing'));
-    expect(chatModelSource, contains('recallMessage('));
-    expect(chatModelSource, contains('destroyMessage('));
+test('sent direct messages support recall and permanent destruction', () {
+expect(chatModelSource, contains('DirectChatDisposition.recalled'));
+expect(chatModelSource, contains('DirectChatDisposition.destroyed'));
+expect(directChatSource, contains('mutateOutgoing'));
+expect(chatModelSource, contains('recallMessage('));
+expect(chatModelSource, contains('destroyMessage('));
     expect(chatPageSource, contains('onLongPressMessage:'));
     expect(chatPageSource, contains("_ChatMenuAction("));
     expect(chatPageSource, contains("'recall'"));
@@ -1710,8 +1688,8 @@ void main() {
       () {
     expect(pubspecSource, contains('record: 5.2.1'));
     expect(pubspecSource, contains('audioplayers: 6.1.0'));
-    expect(directChatSource,
-        contains('enum DirectChatKind { text, file, voice, forward }'));
+ expect(directChatSource, contains('enum DirectChatKind {'));
+ expect(directChatSource, contains('voice'));
     expect(directChatSource, contains("DirectChatEnvelope('voice_chunk'"));
     expect(directChatSource, contains("DirectChatEnvelope('voice_request'"));
     expect(

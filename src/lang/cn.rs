@@ -1637,6 +1637,12 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Reading stopped", "朗读已停止"),
         ("Right-click any text message in chat to read it aloud", "右键点击聊天中的任意文本消息即可朗读"),
         ("minutes", "分钟"),
-        ("∞", "∞"),
-    ].iter().cloned().collect();
+ ("∞", "∞"),
+ ("Contact", "联系人"),
+ ("Image", "图片"),
+ ("Please check your network and try again", "请检查网络后重试"),
+ ("Failed to load VIP page", "加载VIP页面失败"),
+ ("Forward failed. Recipient is offline or unreachable.", "转发失败。对方离线或不可达。"),
+ ("Unable to toggle pin", "无法切换置顶"),
+ ].iter().cloned().collect();
 }

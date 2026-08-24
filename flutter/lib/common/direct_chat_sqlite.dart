@@ -24,6 +24,7 @@ import 'direct_chat.dart';
 import 'direct_chat_storage.dart' show DirectChatStorage;
 import 'direct_pairing.dart';
 import 'string_utils.dart';
+import '../models/platform_model.dart';
 
 /// Schema version — bumped when the table structure changes.
 /// v1: initial messages table
@@ -169,10 +170,26 @@ class DirectChatSqlite {
   DirectChatSqlite._();
   static final DirectChatSqlite instance = DirectChatSqlite._();
 
-  Database? _db;
-  String? _dbPath;
+ Database? _db;
+ String? _dbPath;
 
-  /// Cached fingerprint of the last-seen database state, used by
+ /// Test hook: overrides the database directory so tests use an isolated
+ /// temp path instead of the shared ProgramData location.
+ @visibleForTesting
+ static String? debugDbDirOverride;
+
+ /// Test hook: closes the database and resets cached state so the next
+ /// [_database()] call re-opens with a fresh path.
+ @visibleForTesting
+ Future<void> resetForTest() async {
+ await _db?.close();
+ _db = null;
+ _dbPath = null;
+ _lastSeenRowCount = -1;
+ _lastSeenMaxSentAt = '';
+ }
+
+ /// Cached fingerprint of the last-seen database state, used by
   /// [hasExternalChanges] to detect cross-process writes without reading
   /// every row. This replaces the old JSON-store mtime+signature poll.
  int _lastSeenRowCount = -1;
@@ -194,10 +211,15 @@ class DirectChatSqlite {
   /// `%PROGRAMDATA%\LUODA\chat` so both the LocalSystem service and the
   /// interactive user session read/write the same file (same rationale as
   /// the old JSON store).
-  Future<Directory> _dbDirectory() async {
-    if (!Platform.isWindows) {
-      return getApplicationSupportDirectory();
-    }
+Future<Directory> _dbDirectory() async {
+if (debugDbDirOverride != null) {
+final d = Directory(debugDbDirOverride!);
+await d.create(recursive: true);
+return d;
+}
+if (!Platform.isWindows) {
+return getApplicationSupportDirectory();
+}
     final programData = Platform.environment['PROGRAMDATA'];
     final base = (programData == null || programData.trim().isEmpty)
         ? r'C:\ProgramData'
@@ -1151,7 +1173,12 @@ static int _deliveryRank(DirectChatDelivery delivery) {
  /// One-time migration of meeting groups from KV store to SQLite.
  /// Idempotent: uses INSERT OR REPLACE, so re-running is safe.
  Future<void> _migrateMeetingsFromKV() async {
- final raw = bind.mainGetLocalOption(key: 'meeting_groups_v1');
+ String raw;
+ try {
+ raw = bind.mainGetLocalOption(key: 'meeting_groups_v1');
+ } catch (_) {
+ return; // FFI not available (e.g. in unit tests without native lib)
+ }
  if (raw.isEmpty) return;
  try {
  final decoded = jsonDecode(raw);
@@ -1205,7 +1232,12 @@ static int _deliveryRank(DirectChatDelivery delivery) {
 
  /// One-time migration of pairings from KV store to SQLite.
  Future<void> _migratePairingsFromKV() async {
- final raw = bind.mainGetLocalOption(key: 'direct-pairings-v1');
+ String raw;
+ try {
+ raw = bind.mainGetLocalOption(key: 'direct-pairings-v1');
+ } catch (_) {
+ return; // FFI not available (e.g. in unit tests without native lib)
+ }
  if (raw.isEmpty) return;
  try {
  final decoded = jsonDecode(raw);
@@ -1237,11 +1269,5 @@ static int _deliveryRank(DirectChatDelivery delivery) {
  } catch (e) {
  debugPrint('Pairings KV→SQLite migration failed: $e');
  }
- }
-
- Future<void> _setMeta(String key, String value) async {
- final db = await _database();
- await db.insert('meta', {'key': key, 'value': value},
- conflictAlgorithm: ConflictAlgorithm.replace);
  }
 }

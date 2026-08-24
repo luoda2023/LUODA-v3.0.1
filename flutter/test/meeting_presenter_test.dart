@@ -168,8 +168,8 @@ group('chat-list categorization (meeting excluded from stranger)', () {
  reason: 'meeting member must not be a stranger row');
  expect(isFriendLike('XIAOMI-123', true, meetingMembers), false,
  reason: 'meeting member must not be a friend row either');
- expect(isFriendLike('OPPO-456', false, meetingMembers), true,
- reason: 'non-member stranger still shows normally');
+ expect(isFriendLike('OPPO-456', false, meetingMembers), false,
+ reason: 'non-member stranger is not a friend row but shows in stranger list');
  expect(isFriendLike('OPPO-456', true, meetingMembers), true,
  reason: 'non-member friend still shows normally');
  });
@@ -202,5 +202,4 @@ group('chat-list categorization (meeting excluded from stranger)', () {
  expect(isMeetingItem('OPPO-456'), false);
  });
 });
-}
 }

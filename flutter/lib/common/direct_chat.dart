@@ -574,20 +574,25 @@ class DirectChatRepository {
 
   static final instance = DirectChatRepository._();
 
-  /// Test hook: isolates the repository from the real on-disk store.
-  @visibleForTesting
-  static DirectChatStorage? debugStorageOverride;
+/// Test hook: isolates the repository from the real on-disk store.
+@visibleForTesting
+static DirectChatStorage? debugStorageOverride;
+
+/// Test hook: overrides the SQLite database directory for isolation.
+@visibleForTesting
+static String? debugDbDirOverride;
 
   final ValueNotifier<int> revision = ValueNotifier<int>(0);
 
   DirectChatSqlite get _db => DirectChatSqlite.instance;
 
-  /// Test hook: clears all persisted state so each test starts fresh.
-  @visibleForTesting
-  Future<void> resetForTest() async {
-    // The SQLite store is created lazily; for tests we rely on a fresh
-    // database path. This is a no-op placeholder that keeps the API stable.
-  }
+/// Test hook: clears all persisted state so each test starts fresh.
+@visibleForTesting
+Future<void> resetForTest() async {
+// Point the SQLite store at the test's temp dir if an override is set.
+DirectChatSqlite.debugDbDirOverride = debugDbDirOverride;
+await _db.resetForTest();
+}
 
   Future<String> get deviceId => _db.deviceId;
 

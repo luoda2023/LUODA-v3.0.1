@@ -3,20 +3,26 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:luoda_flutter/common/direct_chat.dart';
 import 'package:luoda_flutter/common/direct_chat_storage.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
   late Directory tempDir;
 
-  setUp(() async {
-    tempDir = await Directory.systemTemp.createTemp('ldesk_purge_test');
-    DirectChatRepository.debugStorageOverride = _TempStorage(tempDir);
-    await DirectChatRepository.instance.resetForTest();
-  });
+setUp(() async {
+sqfliteFfiInit();
+databaseFactory = databaseFactoryFfi;
+tempDir = await Directory.systemTemp.createTemp('ldesk_purge_test');
+DirectChatRepository.debugStorageOverride = _TempStorage(tempDir);
+DirectChatRepository.debugDbDirOverride = tempDir.path;
+await DirectChatRepository.instance.resetForTest();
+});
 
-  tearDown(() async {
-    DirectChatRepository.debugStorageOverride = null;
-    await tempDir.delete(recursive: true);
-  });
+tearDown(() async {
+await DirectChatRepository.instance.resetForTest();
+DirectChatRepository.debugStorageOverride = null;
+DirectChatRepository.debugDbDirOverride = null;
+await tempDir.delete(recursive: true);
+});
 
   test('purgeExpired removes only self-destructed records', () async {
     final active = await DirectChatRepository.instance.createOutgoing(
@@ -95,13 +101,20 @@ class _TempStorage implements DirectChatStorage {
     await _file.writeAsString(value, flush: true);
   }
 
-  @override
-  Future<String> update(
-    Future<String> Function(String? current) transform,
-  ) async {
-    final current = await read();
-    final next = await transform(current);
-    if (next != current) await write(next);
-    return next;
-  }
+@override
+Future<String> update(
+Future<String> Function(String? current) transform,
+) async {
+final current = await read();
+final next = await transform(current);
+if (next != current) await write(next);
+return next;
+}
+
+@override
+Future<void> renameToBackup() async {
+if (await _file.exists()) {
+  await _file.rename('${_file.path}.bak');
+}
+}
 }
