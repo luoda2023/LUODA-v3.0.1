@@ -41,22 +41,22 @@ class RuntimeLogger {
     }
   }
 
-  Future<String> _resolveLogDirectory() async {
-    if (Platform.isWindows) {
-      final appData = Platform.environment['APPDATA'] ?? r'C:\LDesk';
-      return path.join(appData, 'LDesk', 'logs');
-    }
-    if (Platform.isMacOS) {
-      final home = Platform.environment['HOME'] ?? Directory.systemTemp.path;
-      return path.join(home, 'Library', 'Logs', 'LDesk');
-    }
-    if (Platform.isLinux) {
-      final home = Platform.environment['HOME'] ?? Directory.systemTemp.path;
-      return path.join(home, '.local', 'share', 'LDesk', 'logs');
-    }
-    final support = await getApplicationSupportDirectory();
-    return path.join(support.path, 'logs');
-  }
+ Future<String> _resolveLogDirectory() async {
+ if (Platform.isWindows) {
+ final appData = Platform.environment['APPDATA'] ?? r'C:\LUODA';
+ return path.join(appData, 'LUODA', 'logs');
+ }
+ if (Platform.isMacOS) {
+ final home = Platform.environment['HOME'] ?? Directory.systemTemp.path;
+ return path.join(home, 'Library', 'Logs', 'LUODA');
+ }
+ if (Platform.isLinux) {
+ final home = Platform.environment['HOME'] ?? Directory.systemTemp.path;
+ return path.join(home, '.local', 'share', 'LUODA', 'logs');
+ }
+ final support = await getApplicationSupportDirectory();
+ return path.join(support.path, 'logs');
+ }
 
   void installErrorHooks() {
     if (_hooksInstalled) return;

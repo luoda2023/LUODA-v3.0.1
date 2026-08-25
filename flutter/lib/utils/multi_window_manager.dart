@@ -158,19 +158,41 @@ class LUODAMultiWindowManager {
     );
   }
 
-  Future<int> newSessionWindow(
-    WindowType type,
-    String remoteId,
-    String msg,
-    List<int> windows,
-    bool withScreenRect,
-  ) async {
-    final windowController = await DesktopMultiWindow.createWindow(msg);
-    if (isWindows) {
-      windowController.setInitBackgroundColor(Colors.black);
-    }
-    final windowId = windowController.windowId;
-    if (!withScreenRect) {
+Future<int> newSessionWindow(
+  WindowType type,
+  String remoteId,
+  String msg,
+  List<int> windows,
+  bool withScreenRect,
+) async {
+ // Yield to the event loop before creating a new native window.
+ // On Windows, DesktopMultiWindow.createWindow is a synchronous FFI
+ // call that creates a new FlutterViewController — which runs a nested
+ // Win32 message pump during engine initialisation. If this runs inside
+ // a pointer-event or frame callback, the nested pump deadlocks against
+ // the in-flight frame, freezing the main window permanently.
+ //
+ // Schedule the create on the next idle cycle: first wait for the current
+ // frame to finish (addPostFrameCallback), then add a short timer delay
+ // so all pending WM_PAINT / WM_TIMER messages drain before we enter the
+ // nested pump.
+ final completer = Completer<int>();
+ WidgetsBinding.instance.addPostFrameCallback((_) {
+   Future<void>.delayed(const Duration(milliseconds: 300)).then((_) async {
+     try {
+       final wc = await DesktopMultiWindow.createWindow(msg);
+       completer.complete(wc.windowId);
+     } catch (e) {
+       completer.completeError(e);
+     }
+   });
+ });
+ final windowId = await completer.future;
+ final windowController = WindowController.fromWindowId(windowId);
+ if (isWindows) {
+ windowController.setInitBackgroundColor(Colors.black);
+ }
+ if (!withScreenRect) {
       windowController
         ..setFrame(const Offset(0, 0) &
             Size(1280 + windowId * 20, 720 + windowId * 20))

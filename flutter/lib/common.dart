@@ -456,20 +456,30 @@ class MyTheme {
     canvasColor: canvasLight,
     dialogBackgroundColor: surfaceLight,
     disabledColor: const Color(0xFF9AA7B8),
-    appBarTheme: const AppBarTheme(
-      backgroundColor: surfaceLight,
-      foregroundColor: textLight,
-      shadowColor: Colors.transparent,
-    ),
-    dialogTheme: DialogTheme(
-      elevation: 8,
-      backgroundColor: surfaceLight,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-        side: const BorderSide(color: borderLight),
-      ),
-    ),
-    dividerTheme: DividerThemeData(
+ appBarTheme: AppBarTheme(
+ backgroundColor: surfaceLight,
+ foregroundColor: textLight,
+ shadowColor: Colors.transparent,
+ // LUODA: edge-to-edge layout — transparent status bar so the
+ // AppBar background extends to the very top of the screen,
+ // with dark icons over the light surface (WeChat-style).
+ systemOverlayStyle: SystemUiOverlayStyle(
+ statusBarColor: Colors.transparent,
+ statusBarIconBrightness: Brightness.dark,
+ statusBarBrightness: Brightness.light,
+ systemNavigationBarColor: canvasLight,
+ systemNavigationBarIconBrightness: Brightness.dark,
+ ),
+ ),
+ dialogTheme: DialogTheme(
+ elevation: 8,
+ backgroundColor: surfaceLight,
+ shape: RoundedRectangleBorder(
+ borderRadius: BorderRadius.circular(8),
+ side: const BorderSide(color: borderLight),
+ ),
+ ),
+ dividerTheme: DividerThemeData(
       color: kWeChatDividerColor.withOpacity(0.5),
       thickness: 1,
       space: 1,
@@ -631,11 +641,21 @@ class MyTheme {
     canvasColor: canvasDark,
     dialogBackgroundColor: surfaceDark,
     disabledColor: const Color(0xFF697386),
-    appBarTheme: const AppBarTheme(
-      backgroundColor: surfaceDark,
-      foregroundColor: textDark,
-      shadowColor: Colors.transparent,
-    ),
+ appBarTheme: AppBarTheme(
+ backgroundColor: surfaceDark,
+ foregroundColor: textDark,
+ shadowColor: Colors.transparent,
+ // LUODA: edge-to-edge layout — transparent status bar so the
+ // AppBar background extends to the very top of the screen,
+ // with light icons over the dark surface (WeChat-style).
+ systemOverlayStyle: SystemUiOverlayStyle(
+ statusBarColor: Colors.transparent,
+ statusBarIconBrightness: Brightness.light,
+ statusBarBrightness: Brightness.dark,
+ systemNavigationBarColor: canvasDark,
+ systemNavigationBarIconBrightness: Brightness.light,
+ ),
+ ),
     dialogTheme: DialogTheme(
       elevation: 8,
       backgroundColor: surfaceDark,

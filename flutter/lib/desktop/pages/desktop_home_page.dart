@@ -4165,19 +4165,27 @@ bool _isMeetingItem(Object item) {
                 ),
               );
             }
-            final entry = row as MapEntry<MessageKey, MessageBody>;
-            final peerId = entry.key.peerId;
-            final user = entry.value.chatUser;
-            final name = (user.firstName ?? '').trim();
-            final contact = _findContact(peerId);
-            final displayName = peerId == kFileHelperId
-                ? translate('File Transfer Assistant')
-                : _resolveConversationDisplayName(
-                    peerId,
-                    contactName: _resolveContactDisplayName(contact),
-                    chatName: name,
-                    idFallback: peerId,
-                  );
+final entry = row as MapEntry<MessageKey, MessageBody>;
+ final peerId = entry.key.peerId;
+ final user = entry.value.chatUser;
+ final name = (user.firstName ?? '').trim();
+ final contact = _findContact(peerId);
+ // 会议群聊（meeting:xxx）直接用 MeetingGroup.title，与标题栏和
+ // _buildMergedChatRow 一致。否则列表会显示原始 ID
+ // "meeting:8299253b..."，而顶部标题栏显示真实群名 "123"。
+ final meetingTitle = peerId.startsWith('meeting:')
+ ? _meetingTitleForPeerId(peerId)
+ : '';
+ final displayName = peerId == kFileHelperId
+ ? translate('File Transfer Assistant')
+ : meetingTitle.isNotEmpty
+ ? meetingTitle
+ : _resolveConversationDisplayName(
+ peerId,
+ contactName: _resolveContactDisplayName(contact),
+ chatName: name,
+ idFallback: peerId,
+ );
             final selected = _selectedConversationPeerId == peerId;
             final isFriend = _directChatAccess.isFriend(peerId);
             final targetGroup = isFriend ? 'Strangers' : 'Friends';
@@ -5485,16 +5493,25 @@ bool _isMeetingItem(Object item) {
  final endpoint = DirectPairingStore.resolveConnectionTarget(requestedId);
  RuntimeLogger.instance.info('DIRECT',
  'peerId=$peerId endpoint=$endpoint pairing=${pairing?.peerId ?? "null"}');
+ // LUODA FIX: when no direct endpoint is known (no pairing record,
+ // stale endpoint, first-time connection), fall back to the peer ID
+ // itself. The Rust backend resolves the ID through the rendezvous
+ // server and establishes a relayed or punched connection. Without
+ // this fallback, _startDirectChat returned early and the PC could
+ // never dial the phone unless a direct IP:port pairing existed —
+ // which is why "messages won't send" after a fresh install or brand
+ // migration.
+ final dialTarget = endpoint ?? peerId;
  if (endpoint == null) {
-      if (activate) {
-        _showConversationNotice(
-          translate(
-              'Direct endpoint required. Scan the PC QR code or enter IP:port.'),
-          tone: _WorkspaceNoticeTone.warning,
-        );
-      }
-      return;
-    }
+ RuntimeLogger.instance.info('DIRECT',
+ 'no endpoint, falling back to ID relay for peerId=$peerId');
+ if (activate) {
+ _showConversationNotice(
+ translate('Connecting via relay server...'),
+ tone: _WorkspaceNoticeTone.info,
+ );
+ }
+ }
     if (activate) {
       unawaited(_releaseInactiveDirectChatSessions(peerId));
     }
@@ -5594,12 +5611,12 @@ final ffi = FFI(null);
         ),
         avatar: contact?.avatar ?? '',
       );
- ffi.start(endpoint,
+ ffi.start(dialTarget,
  isChat: true,
  forceRelay: false,
  password: DirectPairingStore.cachedChatPassword(peerId));
  RuntimeLogger.instance.info('DIRECT',
- 'ffi.start called peerId=$peerId endpoint=$endpoint isChat=true');
+ 'ffi.start called peerId=$peerId dialTarget=$dialTarget isChat=true');
  _directChatSessions[peerId] = ffi;
       _directChatAttemptedAt[peerId] = DateTime.now();
       if (mounted && activate) {
@@ -6993,14 +7010,19 @@ Future<void> _refreshDirectSessions() async {
       (_, attemptedAt) =>
           now.difference(attemptedAt) > const Duration(minutes: 5),
     );
-    try {
-      await connect(
-        context,
-        endpoint,
-        isFileTransfer: isFileTransfer,
-        isViewCamera: isViewCamera,
-        isTerminal: isTerminal,
-        isTcpTunneling: isTcpTunneling,
+ try {
+ // Yield before the blocking FFI window-creation call so the
+ // main isolate finishes its current frame/layout pass first.
+ // Without this, createWindow's internal Win32 message pump can
+ // deadlock against an in-flight frame build, freezing the window.
+ await Future<void>.delayed(const Duration(milliseconds: 200));
+ await connect(
+ context,
+ endpoint,
+ isFileTransfer: isFileTransfer,
+ isViewCamera: isViewCamera,
+ isTerminal: isTerminal,
+ isTcpTunneling: isTcpTunneling,
         forceRelay: false,
       );
     } on TimeoutException catch (error) {

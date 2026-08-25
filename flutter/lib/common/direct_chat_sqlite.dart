@@ -29,8 +29,10 @@ import '../models/platform_model.dart';
 /// Schema version — bumped when the table structure changes.
 /// v1: initial messages table
 /// v2: +meetings, meeting_members, pairings, contact_policies tables
-///     +location_lat/location_lng/location_name columns on messages
-const int _kDbVersion = 2;
+/// +location_lat/location_lng/location_name columns on messages
+/// v3: +companion/sync_secret columns on pairings (fix: companion flag
+///     was lost on save/reload, causing "文件传输助手" to never appear)
+const int _kDbVersion = 3;
 
 const String _kDbFileName = 'ldesk_chat.db';
 
@@ -135,7 +137,9 @@ CREATE TABLE IF NOT EXISTS pairings (
  conversation_id TEXT NOT NULL DEFAULT '',
  conn_mode TEXT NOT NULL DEFAULT '',
  conn_port INTEGER NOT NULL DEFAULT 0,
- is_bound_phone INTEGER NOT NULL DEFAULT 0
+ is_bound_phone INTEGER NOT NULL DEFAULT 0,
+ companion INTEGER NOT NULL DEFAULT 0,
+ sync_secret TEXT NOT NULL DEFAULT ''
 )''';
 
 // ── Contact policies table (v2) ──────────────────────────
@@ -161,6 +165,13 @@ const String _kAlterMessagesAddImageWidth =
  'ALTER TABLE messages ADD COLUMN image_width INTEGER NOT NULL DEFAULT 0';
 const String _kAlterMessagesAddImageHeight =
  'ALTER TABLE messages ADD COLUMN image_height INTEGER NOT NULL DEFAULT 0';
+
+// ── v3 ALTER TABLE for pairings (companion columns) ───────
+
+const String _kAlterPairingsAddCompanion =
+ 'ALTER TABLE pairings ADD COLUMN companion INTEGER NOT NULL DEFAULT 0';
+const String _kAlterPairingsAddSyncSecret =
+ 'ALTER TABLE pairings ADD COLUMN sync_secret TEXT NOT NULL DEFAULT \'\'';
 
 /// Drop-in replacement for [DirectChatStorage] backed by SQLite.
 ///
@@ -288,6 +299,10 @@ return getApplicationSupportDirectory();
  await _safeAlter(db, _kAlterMessagesAddLocationName);
  await _safeAlter(db, _kAlterMessagesAddImageWidth);
  await _safeAlter(db, _kAlterMessagesAddImageHeight);
+ }
+ if (oldVersion < 3) {
+ await _safeAlter(db, _kAlterPairingsAddCompanion);
+ await _safeAlter(db, _kAlterPairingsAddSyncSecret);
  }
  },
     );
@@ -1262,6 +1277,8 @@ static int _deliveryRank(DirectChatDelivery delivery) {
  'conn_mode': (item['conn_mode'] ?? '').toString(),
  'conn_port': int.tryParse('${item['conn_port']}') ?? 0,
  'is_bound_phone': 0,
+ 'companion': (item['companion'] == true) ? 1 : 0,
+ 'sync_secret': (item['sync_secret'] ?? '').toString(),
  }, conflictAlgorithm: ConflictAlgorithm.replace);
  }
  });

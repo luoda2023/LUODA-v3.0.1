@@ -139,11 +139,22 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
+kotlinOptions {
+	jvmTarget = "17"
+}
 
-    defaultConfig {
+// libluoda.so links against libc++_shared.so. When extractNativeLibs=false
+// (AGP 8.x default), the linker loads .so files directly from the APK and
+// frequently fails to resolve libc++_shared.so across the namespace boundary,
+// causing UnsatisfiedLinkError at app startup. Forcing legacy packaging
+// extracts all native libraries to the filesystem so dependencies resolve.
+packagingOptions {
+	jniLibs {
+		useLegacyPackaging = true
+	}
+}
+
+defaultConfig {
         applicationId = "com.dotchat.remote"
         minSdkVersion(23)
         targetSdkVersion(33)

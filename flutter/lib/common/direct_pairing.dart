@@ -552,16 +552,145 @@ class DirectPairingStore {
  updatedAt: DateTime.tryParse(
  (row['updated_at'] ?? '').toString()) ??
  DateTime.now(),
+ companion: (row['companion'] ?? 0) == 1,
+ syncSecret: (row['sync_secret'] ?? '').toString(),
  );
  pairings[peerId] = pairing;
  }
  _cache = pairings;
+ // LUODA FIX: Repair companion flags lost by older builds that
+ // wrote pairings to SQLite without the companion/sync_secret
+ // columns. If any pairing has a non-empty sync_secret stored in
+ // the old KV key but companion is false in SQLite, fix it in both
+ // the cache and SQLite. This is what makes "文件传输助手" reappear
+ // for users who already bound their phone before the fix.
+ await _repairCompanionFlags(pairings);
  } catch (e) {
  debugPrint('Pairings SQLite preload failed: $e');
  // No KV fallback — return empty cache. The migration in
  // DirectChatSqlite._migratePairingsFromKV() runs before this and
  // copies old KV data into SQLite, so the DB is authoritative.
  _cache = <String, DirectPairing>{};
+ }
+ }
+
+ /// Repair companion flags that older builds lost when writing
+ /// pairings to SQLite without the companion/sync_secret columns.
+ /// Strategy: read the old KV blob (direct-pairings-v1) which still
+ /// has the original companion boolean for each device, and if any
+ /// device is companion in KV but not in SQLite, fix both the cache
+ /// and the database row. Runs once per app start; idempotent.
+ static Future<void> _repairCompanionFlags(
+ Map<String, DirectPairing> cache) async {
+ if (cache.isEmpty) return;
+ try {
+ final raw =
+ bind.mainGetLocalOption(key: 'direct-pairings-v1');
+ if (raw.isEmpty) return;
+ final decoded = jsonDecode(raw);
+ // The KV blob may be either a List of pairing maps (old format)
+ // or a Map of peerId -> pairing map (newer format). Handle both.
+ final items = <Map<String, dynamic>>[];
+ if (decoded is List) {
+ for (final item in decoded) {
+ if (item is Map<String, dynamic>) items.add(item);
+ }
+ } else if (decoded is Map) {
+ for (final v in decoded.values) {
+ if (v is Map<String, dynamic>) items.add(v);
+ }
+ }
+ if (items.isEmpty) return;
+ var repaired = false;
+ for (final item in items) {
+ final pid = (item['peer_id'] ?? '').toString();
+ if (pid.isEmpty) continue;
+ final isCompanion = item['companion'] == true;
+ final syncSecret = (item['sync_secret'] ?? '').toString();
+ if (!isCompanion) continue;
+ final existing = cache[pid];
+ if (existing == null || existing.companion) continue;
+ // Repair: restore companion flag + sync secret from KV.
+ cache[pid] = DirectPairing(
+ peerId: existing.peerId,
+ lanEndpoint: existing.lanEndpoint,
+ publicEndpoint: existing.publicEndpoint,
+ fingerprint: existing.fingerprint,
+ displayName: existing.displayName,
+ accountId: existing.accountId,
+ avatar: existing.avatar,
+ updatedAt: existing.updatedAt,
+ companion: true,
+ syncSecret:
+ syncSecret.isNotEmpty ? syncSecret : existing.syncSecret,
+ );
+ await DirectChatSqlite.instance.upsertPairing({
+ 'peer_id': existing.peerId,
+ 'display_name': existing.displayName,
+ 'lan_endpoint': existing.endpoints.isNotEmpty
+ ? existing.endpoints.first
+ : '',
+ 'public_endpoint': existing.endpoints.length > 1
+ ? existing.endpoints[1]
+ : '',
+ 'fingerprint': existing.fingerprint,
+ 'updated_at': existing.updatedAt.toUtc().toIso8601String(),
+ 'account_id': existing.accountId,
+ 'avatar': existing.avatar,
+ 'conversation_id': existing.peerId,
+ 'companion': 1,
+ 'sync_secret': syncSecret.isNotEmpty
+ ? syncSecret
+ : existing.syncSecret,
+ });
+ repaired = true;
+ debugPrint('Repaired companion flag for $pid from KV');
+ }
+ // Fallback: if KV pairings blob was empty or already cleared by
+ // migration, check the sync_secret column directly. A non-empty
+ // sync_secret means the device was bound as a companion (the QR
+ // payload requires sync when role=companion). If companion is
+ // still false, fix it.
+ for (final entry in cache.entries) {
+ if (entry.value.companion) continue;
+ if (entry.value.syncSecret.isEmpty) continue;
+ final existing = entry.value;
+ cache[entry.key] = DirectPairing(
+ peerId: existing.peerId,
+ lanEndpoint: existing.lanEndpoint,
+ publicEndpoint: existing.publicEndpoint,
+ fingerprint: existing.fingerprint,
+ displayName: existing.displayName,
+ accountId: existing.accountId,
+ avatar: existing.avatar,
+ updatedAt: existing.updatedAt,
+ companion: true,
+ syncSecret: existing.syncSecret,
+ );
+ await DirectChatSqlite.instance.upsertPairing({
+ 'peer_id': existing.peerId,
+ 'display_name': existing.displayName,
+ 'lan_endpoint': existing.endpoints.isNotEmpty
+ ? existing.endpoints.first
+ : '',
+ 'public_endpoint': existing.endpoints.length > 1
+ ? existing.endpoints[1]
+ : '',
+ 'fingerprint': existing.fingerprint,
+ 'updated_at': existing.updatedAt.toUtc().toIso8601String(),
+ 'account_id': existing.accountId,
+ 'avatar': existing.avatar,
+ 'conversation_id': existing.peerId,
+ 'companion': 1,
+ 'sync_secret': existing.syncSecret,
+ });
+ repaired = true;
+ debugPrint(
+ 'Repaired companion flag for ${existing.peerId} via sync_secret');
+ }
+ if (repaired) revision.value++;
+ } catch (e) {
+ debugPrint('Companion flag repair failed: $e');
  }
  }
 
@@ -798,6 +927,8 @@ class DirectPairingStore {
  'account_id': pairing.accountId,
  'avatar': pairing.avatar,
  'conversation_id': pairing.peerId,
+ 'companion': pairing.companion ? 1 : 0,
+ 'sync_secret': pairing.syncSecret,
  });
  final pairings = load()..[pairing.peerId] = pairing;
  _cache = Map<String, DirectPairing>.of(pairings);
@@ -891,6 +1022,8 @@ class DirectPairingStore {
  'account_id': pairing.accountId,
  'avatar': pairing.avatar,
  'conversation_id': pairing.peerId,
+ 'companion': pairing.companion ? 1 : 0,
+ 'sync_secret': pairing.syncSecret,
  });
  }
  _cache = Map<String, DirectPairing>.of(pairings);
@@ -1086,6 +1219,8 @@ class DirectPairingStore {
  'account_id': pairing.accountId,
  'avatar': pairing.avatar,
  'conversation_id': pairing.peerId,
+ 'companion': pairing.companion ? 1 : 0,
+ 'sync_secret': pairing.syncSecret,
  });
  _cache = Map<String, DirectPairing>.of(pairings);
  revision.value++;

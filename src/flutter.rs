@@ -2195,10 +2195,18 @@ pub mod sessions {
             .cloned()
     }
 
-    #[inline]
-    pub fn get_session_by_peer_id(peer_id: String, conn_type: ConnType) -> Option<FlutterSession> {
-        SESSIONS.read().unwrap().get(&(peer_id, conn_type)).cloned()
-    }
+#[inline]
+pub fn get_session_by_peer_id(peer_id: String, conn_type: ConnType) -> Option<FlutterSession> {
+ SESSIONS.read().unwrap().get(&(peer_id, conn_type)).cloned()
+ }
+
+/// Remove a session entry by peer_id + conn_type (no-op if absent).
+#[inline]
+pub fn remove_session_by_peer_id(peer_id: String, conn_type: ConnType) -> Option<FlutterSession> {
+ #[cfg(not(any(target_os = "android", target_os = "ios")))]
+ update_session_count_to_server();
+ SESSIONS.write().unwrap().remove(&(peer_id, conn_type))
+}
 
     #[inline]
     pub fn remove_session_by_session_id(id: &SessionID) -> Option<FlutterSession> {

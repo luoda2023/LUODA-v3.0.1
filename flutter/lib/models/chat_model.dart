@@ -3194,9 +3194,16 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
  final ffi = parent.target;
  if (ffi == null || ffi.closed) return false;
  if (key.peerId == kFileHelperId) {
- final trace = StackTrace.current.toString();
- final frames = trace.split('\n').take(4).join(' | ');
- RuntimeLogger.instance.info('SEND_WIRE', 'filehelper wire from=$frames');
+ // File helper is a local-only conversation — messages are already
+ // persisted by _sendToFileHelper / _sendMessage (which early-returns
+ // before calling _transmitRecord). If this path is reached (e.g. via
+ // flushPendingOutgoing re-flushing queued records), the message has
+ // already been written to the local store, so just return true without
+ // attempting a network send that would fail and needlessly schedule
+ // a delivery watchdog.
+ RuntimeLogger.instance.info('SEND_WIRE',
+ 'filehelper local-only, skipping network send');
+ return true;
  }
  // ── Meeting group fan-out ──
  // A meeting conversation ID "meeting:<uuid>" is synthetic — it is not a

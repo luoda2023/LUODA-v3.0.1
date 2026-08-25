@@ -375,18 +375,22 @@ fn serve(mut stream: TcpStream, token: &str) {
             respond(&mut stream, 400, json!({"error": "invalid_chat_target"}));
             return;
         }
-        use hbb_common::rendezvous_proto::ConnType;
-        if let Some(session) =
-            crate::flutter::sessions::get_session_by_peer_id(peer_id.to_owned(), ConnType::CHAT)
-        {
-            let connected = session.connection_round_state.lock().unwrap().is_connected();
-            respond(
-                &mut stream,
-                200,
-                json!({"ok": true, "peer_id": peer_id, "connected": connected}),
-            );
-            return;
-        }
+ use hbb_common::rendezvous_proto::ConnType;
+ if let Some(session) =
+ crate::flutter::sessions::get_session_by_peer_id(peer_id.to_owned(), ConnType::CHAT)
+ {
+ let connected = session.connection_round_state.lock().unwrap().is_connected();
+ if connected {
+ respond(
+ &mut stream,
+ 200,
+ json!({"ok": true, "peer_id": peer_id, "connected": true}),
+ );
+ return;
+ }
+ // Session exists but is disconnected — remove it so we can create a fresh one.
+ let _ = crate::flutter::sessions::remove_session_by_peer_id(peer_id.to_owned(), ConnType::CHAT);
+ }
         let session_id = uuid::Uuid::new_v4();
         let session = match crate::flutter::session_add(
             &session_id,
@@ -478,12 +482,63 @@ fn serve(mut stream: TcpStream, token: &str) {
         respond(&mut stream, 200, json!({"ok": true, "peer_id": peer_id}));
         return;
     }
-    if method != "GET" {
-        respond(&mut stream, 405, json!({"error": "method_not_allowed"}));
-        return;
-    }
+ if method == "POST" && path == "/v1/inject-chat" {
+ // Simulate receiving a chat message from a remote peer.
+ // This pushes the message straight to the in-process Flutter UI
+ // exactly like the real `Some(misc::Union::ChatMessage(c))` handler in
+ // connection.rs, bypassing the need for the phone to actually type text.
+ let body = request
+ .split_once("\r\n\r\n")
+ .map(|(_, body)| body)
+ .unwrap_or_default();
+ let payload = match serde_json::from_str::<serde_json::Value>(body) {
+ Ok(payload) => payload,
+ Err(_) => {
+ respond(&mut stream, 400, json!({"error": "invalid_json"}));
+ return;
+ }
+ };
+ let peer_id = payload
+ .get("peer_id")
+ .and_then(serde_json::Value::as_str)
+ .unwrap_or_default()
+ .trim();
+ let text = payload
+ .get("text")
+ .and_then(serde_json::Value::as_str)
+ .unwrap_or_default();
+ if peer_id.is_empty() || text.trim().is_empty() {
+ respond(&mut stream, 400, json!({"error": "invalid_inject"}));
+ return;
+ }
+ record_chat_event(
+ "inject_chat",
+ &format!("peer={} text_len={}", peer_id, text.len()),
+ );
+ #[cfg(feature = "flutter")]
+ {
+ if crate::common::is_main() {
+ let event = serde_json::json!({
+ "name": "chat_client_mode",
+ "text": text.to_owned(),
+ "peer_id": peer_id.to_owned(),
+ })
+ .to_string();
+ crate::flutter::push_global_event(
+ crate::flutter::APP_TYPE_MAIN,
+ event,
+ );
+ }
+ }
+ respond(&mut stream, 200, json!({"ok": true, "peer_id": peer_id, "injected": true}));
+ return;
+ }
+ if method != "GET" {
+ respond(&mut stream, 405, json!({"error": "method_not_allowed"}));
+ return;
+ }
 
-    match path {
+ match path {
         "/v1/health" => respond(
             &mut stream,
             200,

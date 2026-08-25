@@ -270,7 +270,17 @@ void runMainApp(bool startService) async {
 }
 
 void runMobileApp() async {
-  await initEnv(kAppTypeMain);
+ await initEnv(kAppTypeMain);
+ // LUODA: Enable edge-to-edge layout (WeChat-style): the app's
+ // background extends to the very top of the screen, covering the
+ // area behind the system status bar. The AppBarTheme in common.dart
+ // sets a transparent status bar so icons (time, battery) are drawn
+ // over the app's own background color.
+ if (isAndroid || isIOS) {
+ await SystemChrome.setEnabledSystemUIMode(
+ SystemUiMode.edgeToEdge,
+ );
+ }
   // checkUpdate(); // disabled: no auto update
   if (isAndroid) androidChannelInit();
   if (isAndroid) platformFFI.syncAndroidServiceAppDirConfigPath();
