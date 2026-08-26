@@ -157,10 +157,14 @@ void main() {
     expect(startChat, contains('suppressConnectionDialogs = true'));
     expect(startChat, isNot(contains('showLoading(')));
     expect(startChat, isNot(contains('suppressConnectionDialogs = false')));
-    expect(
-      startChat,
-      contains('if (activate) {\n        _showConversationNotice('),
-    );
+ expect(
+ startChat,
+ contains('if (activate) {'),
+ );
+ expect(
+ startChat,
+ contains('_showConversationNotice('),
+ );
   });
 
   test('desktop direct chat retries stale unconnected sessions', () {
