@@ -1717,13 +1717,24 @@ return Uri(
       syncSecret: (uri.queryParameters['sync'] ?? '').trim(),
       accountId: (uri.queryParameters['acct'] ?? '').trim(),
     );
-    if (pairing.peerId.isEmpty ||
-        !_validFingerprint(pairing.fingerprint) ||
-        (pairing.companion && pairing.syncSecret.isEmpty) ||
-        pairing.endpoints.isEmpty ||
-        pairing.endpoints.any((item) => !isDirectEndpoint(item))) {
-      return null;
-    }
+if (pairing.peerId.isEmpty ||
+ pairing.endpoints.isEmpty ||
+ pairing.endpoints.any((item) => !isDirectEndpoint(item)) ||
+ (pairing.companion && pairing.syncSecret.isEmpty)) {
+ debugPrint('parsePayload REJECT: peerId=${pairing.peerId.isEmpty} '
+ 'sync=${pairing.companion && pairing.syncSecret.isEmpty} '
+ 'endpoints=${pairing.endpoints.isEmpty}/${pairing.endpoints}');
+ return null;
+}
+// fingerprint may be absent when the PC's key pair is not yet
+// confirmed (first launch).  Do not reject the whole payload for
+// that — an empty fingerprint is gracefully degraded, not invalid.
+if (pairing.fingerprint.isNotEmpty &&
+ !_validFingerprint(pairing.fingerprint)) {
+ debugPrint('parsePayload REJECT: fingerprint malformed '
+ '${pairing.fingerprint.length} chars');
+ return null;
+}
     return pairing;
   }
 

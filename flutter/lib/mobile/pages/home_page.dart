@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 import 'package:luoda_flutter/mobile/pages/bt_chat_page.dart';
 import 'package:luoda_flutter/mobile/pages/scan_page.dart';
 import 'package:luoda_flutter/mobile/pages/server_page.dart';
@@ -22,6 +23,7 @@ import '../../common/join_meeting_session.dart';
 import '../../common/system_announcement.dart';
 import '../../common/direct_pairing.dart';
 import '../../common/face_login.dart';
+import '../../common/wechat_ui_tokens.dart';
 import '../../common/widgets/chat_page.dart';
 import '../../common/widgets/direct_connection_details.dart';
 import '../../common/widgets/favorites_page.dart';
@@ -1224,17 +1226,26 @@ final ffi = FFI(const Uuid().v4obj());
       ),
     );
     if (action == null || !mounted) return;
-    if (action == 'file') {
-      await _sendDirectChatFiles();
-    } else {
-      final type = action == 'camera' ? FileType.media : FileType.image;
-      final picked =
-          await FilePicker.platform.pickFiles(type: type, allowMultiple: true);
-      final files = picked?.files.where((f) => f.path != null).toList() ?? [];
-      if (files.isEmpty) return;
-      await _sendPickedFiles(files);
-    }
-  }
+ if (action == 'file') {
+ await _sendDirectChatFiles();
+ } else {
+ final type = action == 'camera' ? FileType.media : FileType.image;
+ final picked =
+ await FilePicker.platform.pickFiles(type: type, allowMultiple: true);
+ final files = picked?.files.where((f) => f.path != null).toList() ?? [];
+ if (files.isEmpty || !mounted) return;
+ // 先预览，再发送：用户可在预览页确认或取消。
+ final shouldSend = await Navigator.of(context).push<bool>(
+ MaterialPageRoute<bool>(
+ fullscreenDialog: true,
+ builder: (_) => _ImagePreviewPage(files: files),
+ ),
+ );
+ if (shouldSend == true && mounted) {
+ await _sendPickedFiles(files);
+ }
+ }
+ }
 
   Future<void> _sendDirectChatFiles() async {
     final currentKey = gFFI.chatModel.currentKey;
@@ -1338,35 +1349,45 @@ final ffi = FFI(const Uuid().v4obj());
     );
   }
 
-  /// 拍照并直接发送（image_picker 调起系统相机）。
-  /// 对方离线时照片仍可发送：消息进入待发队列，连接建立后自动补发。
-  Future<void> _takePhoto() async {
-    XFile? shot;
-    try {
-      shot = await ImagePicker().pickImage(
-        source: ImageSource.camera,
-        imageQuality: 92,
-      );
-    } catch (e) {
-      debugPrint('_takePhoto failed: $e');
-      if (mounted) showToast(translate('Failed to take photo'));
-      return;
-    }
-    if (shot == null || !mounted) return;
-    try {
-      final length = await shot.length();
-      await _sendPickedFiles(<PlatformFile>[
-        PlatformFile(
-          name: shot.name,
-          size: length,
-          path: shot.path,
-        ),
-      ]);
-    } catch (e) {
-      debugPrint('_takePhoto send failed: $e');
-      if (mounted) showToast(translate('Failed to send photo'));
-    }
-  }
+/// 拍照并预览后发送（image_picker 调起系统相机）。
+/// 对方离线时照片仍可发送：消息进入待发队列，连接建立后自动补发。
+Future<void> _takePhoto() async {
+ XFile? shot;
+ try {
+ shot = await ImagePicker().pickImage(
+ source: ImageSource.camera,
+ imageQuality: 92,
+ );
+ } catch (e) {
+ debugPrint('_takePhoto failed: $e');
+ if (mounted) showToast(translate('Failed to take photo'));
+ return;
+ }
+ if (shot == null || !mounted) return;
+ try {
+ final length = await shot.length();
+ final files = <PlatformFile>[
+ PlatformFile(
+ name: shot.name,
+ size: length,
+ path: shot.path,
+ ),
+ ];
+ // 先预览，再发送。
+ final shouldSend = await Navigator.of(context).push<bool>(
+ MaterialPageRoute<bool>(
+ fullscreenDialog: true,
+ builder: (_) => _ImagePreviewPage(files: files),
+ ),
+ );
+ if (shouldSend == true && mounted) {
+ await _sendPickedFiles(files);
+ }
+ } catch (e) {
+ debugPrint('_takePhoto send failed: $e');
+ if (mounted) showToast(translate('Failed to send photo'));
+ }
+}
 
   /// 微信风格发送定位：先打开地图显示“我的位置”，用户确认/选点后发送。
   /// 对方离线时定位消息进入待发队列，连接建立后自动补发。
@@ -3736,12 +3757,198 @@ class WebHomePage extends StatelessWidget {
           break;
       }
     }
-    if (id != null) {
-      connect(context, id,
-          isFileTransfer: isFileTransfer,
-          isViewCamera: isViewCamera,
-          isTerminal: isTerminal,
-          password: password);
-    }
-  }
+ if (id != null) {
+ connect(context, id,
+ isFileTransfer: isFileTransfer,
+ isViewCamera: isViewCamera,
+ isTerminal: isTerminal,
+ password: password);
+ }
+ }
+}
+
+/// 图片预览页：从相册选择或拍照后，先预览再发送（微信风格）。
+/// 支持多图左右滑动、双指缩放、双击放大，底部有取消和发送按钮。
+class _ImagePreviewPage extends StatefulWidget {
+ const _ImagePreviewPage({required this.files});
+
+ final List<PlatformFile> files;
+
+ @override
+ State<_ImagePreviewPage> createState() => _ImagePreviewPageState();
+}
+
+class _ImagePreviewPageState extends State<_ImagePreviewPage> {
+ late final List<String> _paths;
+ int _currentIndex = 0;
+ final TransformationController _transformController =
+ TransformationController();
+
+ @override
+ void initState() {
+ super.initState();
+ _paths = widget.files
+ .where((f) => f.path != null && f.path!.isNotEmpty)
+ .map((f) => f.path!)
+ .toList(growable: false);
+ }
+
+ @override
+ void dispose() {
+ _transformController.dispose();
+ super.dispose();
+ }
+
+ void _resetTransform() {
+ _transformController.value = Matrix4.identity();
+ }
+
+ @override
+ Widget build(BuildContext context) {
+ if (_paths.isEmpty) {
+ return Scaffold(
+ backgroundColor: Colors.black,
+ appBar: AppBar(
+ backgroundColor: Colors.transparent,
+ elevation: 0,
+ automaticallyImplyLeading: false,
+ actions: <Widget>[
+ IconButton(
+ icon: const Icon(Icons.close, color: Colors.white),
+ onPressed: () => Navigator.of(context).pop(false),
+ ),
+ ],
+ ),
+ body: Center(
+ child: Text(
+ translate('Cannot preview this image'),
+ style: const TextStyle(color: Colors.white54),
+ ),
+ ),
+ );
+ }
+
+ final hasMultiple = _paths.length > 1;
+ return Scaffold(
+ backgroundColor: Colors.black,
+ body: SafeArea(
+ child: Column(
+ children: <Widget>[
+ // ── 顶部栏：返回 + 文件名 + 计数 ──
+ Container(
+ height: 48,
+ padding: const EdgeInsets.symmetric(horizontal: 4),
+ child: Row(
+ children: <Widget>[
+ IconButton(
+ icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
+ onPressed: () => Navigator.of(context).pop(false),
+ ),
+ Expanded(
+ child: Text(
+ hasMultiple
+ ? '${_currentIndex + 1} / ${_paths.length}'
+ : p.basename(_paths[_currentIndex]),
+ maxLines: 1,
+ overflow: TextOverflow.ellipsis,
+ style: const TextStyle(color: Colors.white, fontSize: 15),
+ ),
+ ),
+ ],
+ ),
+ ),
+ // ── 图片区域：可缩放、可滑动 ──
+ Expanded(
+ child: hasMultiple
+ ? PageView.builder(
+ itemCount: _paths.length,
+ onPageChanged: (i) {
+ setState(() {
+ _currentIndex = i;
+ _resetTransform();
+ });
+ },
+ itemBuilder: (_, i) => _buildImage(_paths[i]),
+ )
+ : _buildImage(_paths[_currentIndex]),
+ ),
+ // ── 底部操作栏：取消 + 发送 ──
+ Container(
+ padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+ child: Row(
+ children: <Widget>[
+ Expanded(
+ child: OutlinedButton(
+ style: OutlinedButton.styleFrom(
+ foregroundColor: Colors.white,
+ side: const BorderSide(color: Colors.white38),
+ padding:
+ const EdgeInsets.symmetric(vertical: 14),
+ shape: RoundedRectangleBorder(
+ borderRadius: BorderRadius.circular(10),
+ ),
+ ),
+ onPressed: () => Navigator.of(context).pop(false),
+ child: Text(translate('Cancel')),
+ ),
+ ),
+ const SizedBox(width: 16),
+ Expanded(
+ child: FilledButton(
+ style: FilledButton.styleFrom(
+ backgroundColor: kWeChatPrimaryColor,
+ padding:
+ const EdgeInsets.symmetric(vertical: 14),
+ shape: RoundedRectangleBorder(
+ borderRadius: BorderRadius.circular(10),
+ ),
+ ),
+ onPressed: () => Navigator.of(context).pop(true),
+ child: Text(translate('Send')),
+ ),
+ ),
+ ],
+ ),
+ ),
+ ],
+ ),
+ ),
+ );
+ }
+
+ Widget _buildImage(String path) {
+ return GestureDetector(
+ onDoubleTap: () {
+ final scale =
+ _transformController.value.getMaxScaleOnAxis();
+ _transformController.value = Matrix4.identity()
+ ..scale(scale > 1.5 ? 1.0 : 2.0);
+ },
+ child: InteractiveViewer(
+ transformationController: _transformController,
+ minScale: 0.5,
+ maxScale: 5.0,
+ boundaryMargin: const EdgeInsets.all(40),
+ child: Center(
+ child: Image.file(
+ File(path),
+ fit: BoxFit.contain,
+ errorBuilder: (_, __, ___) => Column(
+ mainAxisSize: MainAxisSize.min,
+ children: <Widget>[
+ const Icon(Icons.broken_image_outlined,
+ size: 64, color: Colors.white24),
+ const SizedBox(height: 12),
+ Text(
+ translate('Cannot preview this image'),
+ style: const TextStyle(
+ color: Colors.white38, fontSize: 14),
+ ),
+ ],
+ ),
+ ),
+ ),
+ ),
+ );
+ }
 }

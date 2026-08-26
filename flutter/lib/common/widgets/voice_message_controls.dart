@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:record/record.dart'
     if (dart.library.html) '../record_stub.dart';
 import 'package:uuid/uuid.dart';
@@ -10,6 +11,8 @@ import '../../common.dart';
 import '../../models/chat_model.dart';
 import '../direct_voice_storage.dart';
 
+/// 长按录音按钮。录音时，在按钮正下方弹出一个**小**卡片，显示录音时间
+/// 以及发送 / 取消按钮；不覆盖整个屏幕，也不显示难看的拼写红线。
 class VoiceMessageRecorderButton extends StatefulWidget {
   const VoiceMessageRecorderButton({
     super.key,
@@ -31,6 +34,7 @@ class _VoiceMessageRecorderButtonState
     extends State<VoiceMessageRecorderButton> {
   final AudioRecorder _recorder = AudioRecorder();
   final Stopwatch _elapsed = Stopwatch();
+  final GlobalKey _buttonKey = GlobalKey();
   Timer? _timer;
   String? _messageId;
   bool _recording = false;
@@ -52,95 +56,129 @@ class _VoiceMessageRecorderButtonState
     super.dispose();
   }
 
+  // ── Overlay ────────────────────────────────────────────────────────
+
   void _hideOverlay() {
     _overlayEntry?.remove();
     _overlayEntry = null;
     _overlaySetState = null;
   }
 
+  /// 在麦克风按钮正下方插入一个小卡片。
   void _showOverlay() {
     _hideOverlay();
-    final entry = OverlayEntry(builder: (_) => _buildRecordingOverlay());
+    final box =
+        _buttonKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null) return;
+    final offset = box.localToGlobal(Offset.zero);
+    final buttonSize = box.size;
+    final entry = OverlayEntry(
+      builder: (_) => _buildRecordingCard(
+        left: offset.dx,
+        top: offset.dy + buttonSize.height + 6,
+      ),
+    );
     _overlayEntry = entry;
     Overlay.of(context).insert(entry);
   }
 
-  Widget _buildRecordingOverlay() {
-    return Positioned.fill(
-      child: IgnorePointer(
-        child: Stack(
-          alignment: Alignment.center,
-          children: <Widget>[
-            Container(color: const Color(0xCC000000)),
-            StatefulBuilder(
-              builder: (context, setOverlayState) {
-                _overlaySetState = setOverlayState;
-                final seconds = _elapsed.elapsed.inSeconds;
-                final mm = (seconds ~/ 60).toString().padLeft(2, '0');
-                final ss = (seconds % 60).toString().padLeft(2, '0');
-                final cancelling = _cancelling;
-                return Container(
-                  width: 220,
-                  padding: const EdgeInsets.symmetric(
-                      vertical: 28, horizontal: 18),
-                  decoration: BoxDecoration(
-                    color: cancelling ? const Color(0xFFFA5151) : Colors.white,
-                    borderRadius: BorderRadius.circular(18),
-                    boxShadow: <BoxShadow>[
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.18),
-                        blurRadius: 24,
-                        offset: const Offset(0, 8),
-                      ),
-                    ],
+  Widget _buildRecordingCard({required double left, required double top}) {
+    final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
+    final bg = _cancelling
+        ? const Color(0xFFFA5151)
+        : dark
+            ? const Color(0xFF2B2D32)
+            : Colors.white;
+    final fg = _cancelling ? Colors.white : const Color(0xFF1A1A1A);
+    final sub = _cancelling ? Colors.white70 : const Color(0xFF7F7F7F);
+
+    return Positioned(
+      left: left,
+      top: top,
+      child: Material(
+        color: Colors.transparent,
+        child: StatefulBuilder(
+          builder: (context, setOverlayState) {
+            _overlaySetState = setOverlayState;
+            final seconds = _elapsed.elapsed.inSeconds;
+            final mm = (seconds ~/ 60).toString().padLeft(2, '0');
+            final ss = (seconds % 60).toString().padLeft(2, '0');
+
+            return Container(
+              width: 200,
+              padding: const EdgeInsets.symmetric(
+                  vertical: 12, horizontal: 14),
+              decoration: BoxDecoration(
+                color: bg,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: <BoxShadow>[
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.15),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
                   ),
-                  child: Column(
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Row(
                     mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
-                      Icon(
-                        cancelling
-                            ? Icons.keyboard_voice_rounded
-                            : Icons.mic_rounded,
-                        size: 46,
-                        color: cancelling
-                            ? Colors.white
-                            : const Color(0xFFFA5151),
+                      // 红色录音脉冲点
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 500),
+                        width: 8,
+                        height: 8,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFFA5151),
+                          shape: BoxShape.circle,
+                        ),
                       ),
-                      const SizedBox(height: 10),
+                      const SizedBox(width: 8),
                       Text(
                         '$mm:$ss',
                         style: TextStyle(
-                          fontSize: 32,
-                          fontWeight: FontWeight.w700,
-                          color: cancelling
-                              ? Colors.white
-                              : const Color(0xFF1A1A1A),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        cancelling
-                            ? translate('Release to cancel')
-                            : translate(
-                                'Release to send, slide up to cancel'),
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: cancelling
-                              ? Colors.white
-                              : const Color(0xFF7F7F7F),
+                          fontSize: 22,
+                          fontWeight: FontWeight.w600,
+                          color: fg,
+                          decoration: TextDecoration.none,
                         ),
                       ),
                     ],
                   ),
-                );
-              },
-            ),
-          ],
+                  const SizedBox(height: 10),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: <Widget>[
+                      _SmallIconButton(
+                        icon: Icons.close_rounded,
+                        color: _cancelling ? Colors.white : sub,
+                        onTap: _cancelRecording,
+                      ),
+                      const SizedBox(width: 14),
+                      _SmallIconButton(
+                        icon: Icons.send_rounded,
+                        color: _cancelling
+                            ? Colors.white
+                            : const Color(0xFF07C160),
+                        onTap: _stopAndSend,
+                        size: 32,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
         ),
       ),
     );
   }
+
+  // ── Recording lifecycle ────────────────────────────────────────────
 
   Future<void> _start() async {
     if (_busy) return;
@@ -148,7 +186,6 @@ class _VoiceMessageRecorderButtonState
     try {
       if (!await _recorder.hasPermission()) {
         showToast(translate('Microphone permission is required'));
-        _hideOverlay();
         return;
       }
       final messageId = const Uuid().v4();
@@ -162,9 +199,7 @@ class _VoiceMessageRecorderButtonState
         path: path,
       );
       _messageId = messageId;
-      _elapsed
-        ..reset()
-        ..start();
+      _elapsed..reset()..start();
       _timer = Timer.periodic(const Duration(seconds: 1), (_) {
         if (!mounted) return;
         if (_elapsed.elapsed >= _maxDuration) {
@@ -214,7 +249,6 @@ class _VoiceMessageRecorderButtonState
       _messageId = null;
       _elapsed.reset();
       _cancelling = false;
-      _pressOrigin = null;
       if (mounted) {
         setState(() {
           _recording = false;
@@ -252,6 +286,8 @@ class _VoiceMessageRecorderButtonState
     }
   }
 
+  // ── Pointer events (长按交互保持不变) ──────────────────────────────
+
   void _onPointerDown(PointerDownEvent event) {
     if (!widget.enabled || _busy) return;
     widget.onInteractionStart?.call();
@@ -287,8 +323,11 @@ class _VoiceMessageRecorderButtonState
   @override
   Widget build(BuildContext context) {
     return Tooltip(
-      message: translate('Record voice message'),
+      message: translate(_recording
+          ? 'Release to send, drag up to cancel'
+          : 'Record voice message'),
       child: SizedBox(
+        key: _buttonKey,
         width: 40,
         height: 36,
         child: Listener(
@@ -300,11 +339,45 @@ class _VoiceMessageRecorderButtonState
           child: Icon(
             Icons.mic_none_rounded,
             size: 22,
-            color: widget.enabled
-                ? null
-                : Theme.of(context).disabledColor,
+            color: _recording
+                ? const Color(0xFFFA5151)
+                : widget.enabled
+                    ? null
+                    : Theme.of(context).disabledColor,
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// 录音弹窗内使用的圆形小图标按钮。
+class _SmallIconButton extends StatelessWidget {
+  const _SmallIconButton({
+    required this.icon,
+    required this.color,
+    required this.onTap,
+    this.size = 28,
+  });
+
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(size / 2),
+      onTap: onTap,
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.12),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon, size: size * 0.55, color: color),
       ),
     );
   }

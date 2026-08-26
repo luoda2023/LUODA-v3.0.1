@@ -2478,13 +2478,31 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
           _activeCompanionSecrets[key.connId] = secret;
           _rememberCompanionDevice(key);
         }
-        final cursor = _parseCursor(envelope.data['cursor']);
-        final records = await DirectChatRepository.instance.afterCursor(cursor);
-        for (final record in records) {
-          _sendWire(
-            key,
-            DirectChatEnvelope.replicaMessage(record, secret).encode(),
-          );
+final cursor = _parseCursor(envelope.data['cursor']);
+final records = await DirectChatRepository.instance.afterCursor(cursor);
+for (final record in records) {
+// LUODA FIX: after a SQLite round-trip the transient inlineBytes
+// field is always ''. For small file/image records we re-read the
+// bytes from localPath so the companion can persist and preview
+// them without needing the original sender's filesystem path.
+var toSend = record;
+if (record.kind == DirectChatKind.file &&
+record.inlineBytes.isEmpty &&
+record.localPath.isNotEmpty &&
+canInlineDirectChatFile(record.fileSize)) {
+try {
+final bytes = await File(record.localPath).readAsBytes();
+if (bytes.length <= kMaxInlineChatFileBytes) {
+toSend = record.copyWith(
+inlineBytes: base64Encode(bytes),
+);
+}
+} catch (_) {}
+}
+_sendWire(
+key,
+DirectChatEnvelope.replicaMessage(toSend, secret).encode(),
+);
         }
         _sendWire(
           key,
@@ -2506,14 +2524,37 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
           );
         }
         return;
-      case 'replica_message':
-        final secret = (envelope.data['secret'] ?? '').toString();
-        if (!DirectPairingStore.acceptsCompanionSecret(secret)) return;
-        try {
-          final record = DirectChatRecord.fromJson(
-            Map<String, dynamic>.from(envelope.data['record'] as Map),
-          );
-          await DirectChatRepository.instance.upsert(record);
+case 'replica_message':
+final secret = (envelope.data['secret'] ?? '').toString();
+if (!DirectPairingStore.acceptsCompanionSecret(secret)) return;
+try {
+var record = DirectChatRecord.fromJson(
+Map<String, dynamic>.from(envelope.data['record'] as Map),
+);
+// LUODA FIX: persist inlined file/image bytes so preview works on
+// the companion side. This mirrors the 'message' receive path
+// (lines ~1480-1492). Without this, replica-synced file records
+// keep the sender's local_path (e.g. an Android cache path) which
+// does not exist on the receiver, so the image shows blank.
+final inline = envelope.data['inline_bytes'];
+if (inline is String &&
+inline.isNotEmpty &&
+record.kind == DirectChatKind.file) {
+try {
+final saved = await saveInlineChatFile(
+record.fileName,
+base64Decode(inline),
+);
+if (saved != null) record = record.copyWith(localPath: saved);
+} catch (_) {}
+} else if (record.kind == DirectChatKind.file &&
+record.localPath.isNotEmpty &&
+!File(record.localPath).existsSync()) {
+// The sender's local_path is meaningless on this device — clear
+// it so the UI shows a file card instead of a broken image.
+record = record.copyWith(localPath: '');
+}
+await DirectChatRepository.instance.upsert(record);
           if (record.kind == DirectChatKind.voice &&
               !await DirectVoiceStorage.instance.exists(record.id)) {
             _sendWire(

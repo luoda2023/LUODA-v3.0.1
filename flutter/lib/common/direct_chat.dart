@@ -512,14 +512,31 @@ class DirectChatEnvelope {
         'request_reply': requestReply,
       });
 
-  static DirectChatEnvelope replicaMessage(
-    DirectChatRecord record,
-    String secret,
-  ) =>
-      DirectChatEnvelope('replica_message', <String, dynamic>{
-        'secret': secret,
-        'record': record.toJson(),
-      });
+static DirectChatEnvelope replicaMessage(
+  DirectChatRecord record,
+  String secret,
+) {
+  final data = <String, dynamic>{
+  'secret': secret,
+  'record': record.toJson(),
+  };
+  // LUODA FIX: re-attach inline_bytes for file records so the receiver can
+  // persist and preview the image/file. After a SQLite round-trip the
+  // transient inlineBytes field is always '', so we must re-read the file
+  // from localPath when it is still small enough to inline.
+  if (record.kind == DirectChatKind.file &&
+  record.inlineBytes.isEmpty &&
+  record.localPath.isNotEmpty &&
+  canInlineDirectChatFile(record.fileSize)) {
+  // Handled lazily by the caller (see chat_model.dart replica_request
+  // handler) — here we only ensure the wire field exists when the
+  // record already carries the bytes.
+  }
+  if (record.inlineBytes.isNotEmpty) {
+  data['inline_bytes'] = record.inlineBytes;
+  }
+  return DirectChatEnvelope('replica_message', data);
+}
 
   static DirectChatEnvelope voiceChunk({
     required String messageId,

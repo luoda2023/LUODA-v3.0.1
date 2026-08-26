@@ -2584,7 +2584,12 @@ Map<String, List<String>>? _framePersonDevices;
  final hasConversation =
  user != null && userMatchesSelection && peerId.isNotEmpty;
  RuntimeLogger.instance.info('WSCOPE3',
- 'hasConv=$hasConversation user=${user?.id ?? "-"} match=$userMatchesSelection peerId=$peerId sel=$rawSelectedPeerId');
+ 'hasConv=$hasConversation user=${user?.id ?? "-"} match=$userMatchesSelection peerId=$peerId sel=$rawSelectedPeerId '
+ 'modelKey=${model.currentKey.peerId}:${model.currentKey.connId} '
+ 'msgsLen=${model.messages.length} '
+ 'isMain=${identical(model, gFFI.chatModel)} '
+ 'activeD=$_activeDirectChatPeerId '
+ 'curKeyMsgs=${model.messages[model.currentKey]?.chatMessages.length ?? -1}');
  final canStartDirectSession =
  DirectPairingStore.resolveConnectionTarget(peerId) != null;
               return ColoredBox(
@@ -3807,15 +3812,23 @@ final avatar = (headerPrimaryBody?.value.chatUser.profileImage ?? '').isNotEmpty
       );
       return;
     }
-    final registered = _directChatSessionFor(peerId);
-    final active = registered != null &&
-            !registered.closed &&
-            (registered.ffiModel.lastConnectionError ?? '').isEmpty
-        ? registered
-        : null;
-    final incoming =
-        active == null ? _incomingDirectChatClientFor(peerId) : null;
-    final model = active?.chatModel ?? gFFI.chatModel;
+final registered = _directChatSessionFor(peerId);
+// LUODA FIX: previously "active" only checked !closed && error.isEmpty,
+// which treated a session that is still connecting (pi not set) as
+// active.  That prevented _startDirectChat from being called, and the
+// workspace rendered the session's empty ChatModel — which has no
+// message body for this peer — as the contact-detail placeholder page
+// instead of the chat window.  Now we require peerInfoReady as well,
+// matching the isDirectChatSessionReady check used everywhere else.
+final active = registered != null &&
+ !registered.closed &&
+ registered.ffiModel.pi.isSet.isTrue &&
+ (registered.ffiModel.lastConnectionError ?? '').isEmpty
+ ? registered
+ : null;
+final incoming =
+ active == null ? _incomingDirectChatClientFor(peerId) : null;
+final model = active?.chatModel ?? gFFI.chatModel;
     // Use the same contact resolution as the conversation list rows so the
     // header title always matches the list name (recentPeers alone misses
     // LAN/address-book peers and fell back to stale chatUser.firstName).
@@ -3825,9 +3838,16 @@ final avatar = (headerPrimaryBody?.value.chatUser.profileImage ?? '').isNotEmpty
       _selectedConversationPeerId = peerId;
       _activeDirectChatPeerId = active == null ? null : peerId;
     });
-    model.changeCurrentKey(
-      MessageKey(peerId, incoming?.id ?? ChatModel.clientModeID),
-    );
+ // LUODA FIX: use the entry's own connId — the conversation list
+ // iterates gFFI.chatModel.messages.entries, so entry.key already
+ // points at the MessageKey that holds the chat history.  Forcing
+ // clientModeID(-1) discarded that key and created an empty body
+ // under MessageKey(peerId, -1), which the workspace rendered as
+ // the contact-detail placeholder ("Connect and chat" button)
+ // instead of the chat window — even though messages existed under
+ // the real connId.
+ final targetConnId = incoming?.id ?? entry.key.connId;
+ model.changeCurrentKey(MessageKey(peerId, targetConnId));
     // When _findContact misses, fall back to the chat model's existing display
     // name (set by a previous updatePeerIdentity or from the merged-chat-row
     // name), which already matches the list row. This prevents the header
@@ -5192,23 +5212,38 @@ final entry = row as MapEntry<MessageKey, MessageBody>;
     final connectTarget = pairingForEndpoint?.peerId ?? requestedId;
     final peerId = _conversationPeerId(requestedId);
     if (peerId.isEmpty) return;
-    final registered = _directChatSessionFor(peerId);
-    final active = registered != null &&
-            !registered.closed &&
-            (registered.ffiModel.lastConnectionError ?? '').isEmpty
-        ? registered
-        : null;
-    final incoming =
-        active == null ? _incomingDirectChatClientFor(peerId) : null;
-    setState(() {
-      _selectedContact = peer;
-      _selectedConversationPeerId = peerId;
-      _activeDirectChatPeerId = active == null ? null : peerId;
-    });
-    final model = active?.chatModel ?? gFFI.chatModel;
-    model.changeCurrentKey(
-      MessageKey(peerId, incoming?.id ?? ChatModel.clientModeID),
-    );
+ final registered = _directChatSessionFor(peerId);
+ // LUODA FIX: require peerInfoReady — a session that is still
+ // connecting (pi not set) must not be treated as active, otherwise
+ // _startDirectChat is never called and the workspace shows the
+ // contact-detail placeholder instead of the chat window.
+ final active = registered != null &&
+ !registered.closed &&
+ registered.ffiModel.pi.isSet.isTrue &&
+ (registered.ffiModel.lastConnectionError ?? '').isEmpty
+ ? registered
+ : null;
+ final incoming =
+ active == null ? _incomingDirectChatClientFor(peerId) : null;
+ setState(() {
+ _selectedContact = peer;
+ _selectedConversationPeerId = peerId;
+ _activeDirectChatPeerId = active == null ? null : peerId;
+ });
+ final model = active?.chatModel ?? gFFI.chatModel;
+ // LUODA FIX: prefer the existing message key's connId for the main
+ // chat model so the chat history is visible — forcing clientModeID
+ // creates an empty body and shows the contact-detail placeholder.
+ MessageKey? existingKey;
+ for (final entry in model.messages.entries) {
+ if (entry.key.peerId == peerId) {
+ existingKey = entry.key;
+ break;
+ }
+ }
+ model.changeCurrentKey(
+ MessageKey(peerId, incoming?.id ?? existingKey?.connId ?? ChatModel.clientModeID),
+ );
     model.updatePeerIdentity(
       peerId,
       displayName: normalizeDirectPeerName(

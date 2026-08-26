@@ -35,32 +35,47 @@ class _ScanPageState extends State<ScanPage> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(translate('Scan PC pairing QR')),
-        actions: [
-          _buildImagePickerButton(),
-          _buildFlashToggleButton(),
-          _buildCameraSwitchButton(),
-        ],
-      ),
-      body: Column(
-        children: [
-          ValueListenableBuilder<int>(
-            valueListenable: DirectPairingStore.revision,
-            builder: (context, _, __) {
-              final pc = DirectPairingStore.companionDevice();
-              if (pc == null) return const SizedBox.shrink();
-              return _buildBoundPcBanner(context, pc);
-            },
-          ),
-          Expanded(child: _buildQrView(context)),
-        ],
-      ),
-    );
-  }
+@override
+Widget build(BuildContext context) {
+// 全屏布局：摄像头预览延伸到状态栏下方，半透明遮罩覆盖整个
+// 屏幕而非仅 QRView 区域，避免上方 1/3 出现未覆盖的空白。
+return Scaffold(
+extendBodyBehindAppBar: true,
+appBar: AppBar(
+title: Text(translate('Scan PC pairing QR')),
+backgroundColor: Colors.black.withOpacity(0.4),
+elevation: 0,
+actions: [
+_buildImagePickerButton(),
+_buildFlashToggleButton(),
+_buildCameraSwitchButton(),
+],
+),
+body: Stack(
+children: [
+// 摄像头预览全屏铺底
+Positioned.fill(child: _buildQrView(context)),
+// 已绑定 PC 的横幅，叠在顶部状态栏/AppBar 下方
+Positioned(
+top: 0,
+left: 0,
+right: 0,
+child: SafeArea(
+bottom: false,
+child: ValueListenableBuilder<int>(
+valueListenable: DirectPairingStore.revision,
+builder: (context, _, __) {
+final pc = DirectPairingStore.companionDevice();
+if (pc == null) return const SizedBox.shrink();
+return _buildBoundPcBanner(context, pc);
+},
+),
+),
+),
+],
+),
+);
+}
 
   Widget _buildBoundPcBanner(BuildContext context, DirectPairing pc) {
     final name = pc.displayName.trim().isEmpty
