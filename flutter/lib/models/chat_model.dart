@@ -765,19 +765,74 @@ class ChatModel with ChangeNotifier {
       await DirectChatRepository.instance
           .markDelivery(record.id, DirectChatDelivery.delivered);
       final delivered = record.copyWith(delivery: DirectChatDelivery.delivered);
-      ensureFileHelperEntry();
-      insertMessage(fileHelperKey, _taggedChatMessage(delivered, me));
-      _scheduleSelfDestruct(fileHelperKey, delivered, me);
-      notifyListeners();
-      // LUODA: 把文件助手消息同步到已绑定的伴生设备（如手机<->PC），
-      // 让对端的文件助手会话也能收到。
-      unawaited(syncActiveCompanionSessions());
-    } catch (e, st) {
-      debugPrint('Failed to persist file-helper message: $e\n$st');
-    }
-  }
+ensureFileHelperEntry();
+insertMessage(fileHelperKey, _taggedChatMessage(delivered, me));
+_scheduleSelfDestruct(fileHelperKey, delivered, me);
+notifyListeners();
+// LUODA: 把文件助手消息同步到已绑定的伴生设备（如手机<->PC），
+// 让对端的文件助手会话也能收到。
+// syncActiveCompanionSessions 发送 replicaRequest 让对方来拉取，
+// 但如果 companion session 尚未建立（_activeCompanionSecrets 为空）
+// 该函数直接 return，消息就不会同步。这里额外直接推送一条
+// replicaMessage 给已绑定的 companion 设备，确保消息即时到达。
+unawaited(_pushFileHelperToCompanion(delivered));
+unawaited(syncActiveCompanionSessions());
+} catch (e, st) {
+ debugPrint('Failed to persist file-helper message: $e\n$st');
+ }
+}
 
-  void refreshLocalIdentity({bool notify = false}) {
+/// Push a file-helper record to the bound companion device via a direct
+/// replicaMessage envelope.  This complements syncActiveCompanionSessions
+/// (which sends a pull-based replicaRequest that does nothing when no
+/// inbound companion session is registered yet).  By pushing directly we
+/// ensure the message reaches the other side even on the first send after
+/// binding, before the companion has initiated a replica_request cycle.
+Future<void> _pushFileHelperToCompanion(DirectChatRecord record) async {
+ try {
+ final ffi = parent.target;
+ if (ffi == null || ffi.closed) return;
+ // Find the bound companion: PC uses boundPhone(), mobile uses
+ // companionDevice().
+ final boundPhone = DirectPairingStore.boundPhone();
+ var companionPeerId = (boundPhone['peerId'] ?? '').trim();
+ if (companionPeerId.isEmpty) {
+ companionPeerId =
+ DirectPairingStore.companionDevice()?.peerId.trim() ?? '';
+ }
+ final secret = await DirectPairingStore.getCompanionSyncSecret();
+ if (companionPeerId.isEmpty || secret.isEmpty) return;
+ // Find an active chat connection to the companion.
+ final client = ffi.serverModel.clients.firstWhereOrNull(
+ (c) =>
+ c.peerId.trim() == companionPeerId &&
+ c.authorized &&
+ c.isChat &&
+ !c.disconnected,
+ );
+ if (client == null) return; // no live connection — rely on pull sync
+ // Re-read file bytes for small file records (same logic as
+ // replica_request handler).
+ var toSend = record;
+ if (record.kind == DirectChatKind.file &&
+ record.inlineBytes.isEmpty &&
+ record.localPath.isNotEmpty &&
+ canInlineDirectChatFile(record.fileSize)) {
+ try {
+ final bytes = await File(record.localPath).readAsBytes();
+ if (bytes.length <= kMaxInlineChatFileBytes) {
+ toSend = record.copyWith(inlineBytes: base64Encode(bytes));
+ }
+ } catch (_) {}
+ }
+ _sendWire(
+ MessageKey(companionPeerId, client.id),
+ DirectChatEnvelope.replicaMessage(toSend, secret).encode(),
+ );
+ } catch (_) {}
+}
+
+void refreshLocalIdentity({bool notify = false}) {
     try {
       final profile = jsonDecode(
         bind.mainGetLocalOption(key: 'user_info'),

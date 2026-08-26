@@ -3899,14 +3899,22 @@ final model = active?.chatModel ?? gFFI.chatModel;
  _frameContactCache = null;
  _framePersonDevices = null;
  });
-        final entries = gFFI.chatModel.messages.entries.where((entry) {
-          final peerId = entry.key.peerId.trim();
-          if (peerId.isEmpty ||
-              peerId == gFFI.chatModel.me.id ||
-              peerId == kFileHelperId) {
-            return false;
-          }
-          if (query.isEmpty) return true;
+ // 绑定手机后，隐藏对方设备账号的 1:1 会话条目——
+ // 绑定后两端只通过"文件传输助手"互通，类似微信文件传输助手。
+ final boundPhonePeerId =
+ (DirectPairingStore.boundPhone()['peerId'] ?? '').trim();
+ final entries = gFFI.chatModel.messages.entries.where((entry) {
+ final peerId = entry.key.peerId.trim();
+ if (peerId.isEmpty ||
+ peerId == gFFI.chatModel.me.id ||
+ peerId == kFileHelperId) {
+ return false;
+ }
+ if (boundPhonePeerId.isNotEmpty &&
+ _conversationPeerId(peerId) == _conversationPeerId(boundPhonePeerId)) {
+ return false;
+ }
+ if (query.isEmpty) return true;
           final name = (entry.value.chatUser.firstName ?? '').toLowerCase();
           return peerId.toLowerCase().contains(query) ||
               name.contains(query) ||

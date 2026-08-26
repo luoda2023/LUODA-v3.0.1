@@ -1744,14 +1744,20 @@ if (pairing.fingerprint.isNotEmpty &&
     return '$host:$port';
   }
 
-  static Future<String> _getOrCreateCompanionSecret() async {
-    final current = bind.mainGetLocalOption(key: _companionSecretKey).trim();
-    if (current.isNotEmpty) return current;
-    final secret =
-        '${const Uuid().v4()}${const Uuid().v4()}'.replaceAll('-', '');
-    await bind.mainSetLocalOption(key: _companionSecretKey, value: secret);
-    return secret;
-  }
+static Future<String> _getOrCreateCompanionSecret() async {
+final current = bind.mainGetLocalOption(key: _companionSecretKey).trim();
+if (current.isNotEmpty) return current;
+final secret =
+'${const Uuid().v4()}${const Uuid().v4()}'.replaceAll('-', '');
+await bind.mainSetLocalOption(key: _companionSecretKey, value: secret);
+return secret;
+}
+
+/// Public accessor for the companion sync secret. Used by the file-helper
+/// send path to push replicaMessage envelopes directly to the bound
+/// companion device without waiting for an inbound replicaRequest.
+static Future<String> getCompanionSyncSecret() async =>
+_getOrCreateCompanionSecret();
 
   static bool _validFingerprint(String value) {
     final normalized = value.replaceAll(':', '').replaceAll(' ', '');

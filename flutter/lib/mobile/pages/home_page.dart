@@ -3433,15 +3433,19 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
           final query = _query.value.trim().toLowerCase();
           // 手机端"文件传输助手"只在扫码绑定 PC 后才出现（类似微信：绑定后
           // PC/手机两端才启用该内置会话），未绑定时手机端不显示。
-          final boundToPc = DirectPairingStore.companionDevice() != null;
-          if (boundToPc) model.ensureFileHelperEntry();
-          final entries = model.messages.entries.where((entry) {
-            if (entry.key.peerId.isEmpty) return false;
-            // ???? has its own pinned row; it must not also appear in
-            // the Friends/Strangers groups below.
-            if (entry.key.peerId == kFileHelperId) return false;
-            if (_isSelfEntry(entry.key)) return false;
-            if (query.isEmpty) return true;
+final boundToPc = DirectPairingStore.companionDevice() != null;
+if (boundToPc) model.ensureFileHelperEntry();
+// 绑定 PC 后，隐藏对方设备账号的 1:1 会话条目——
+// 绑定后两端只通过"文件传输助手"互通，类似微信文件传输助手。
+final companionPeerId =
+ boundToPc ? (DirectPairingStore.companionDevice()!.peerId.trim()) : '';
+final entries = model.messages.entries.where((entry) {
+if (entry.key.peerId.isEmpty) return false;
+if (entry.key.peerId == kFileHelperId) return false;
+if (_isSelfEntry(entry.key)) return false;
+if (companionPeerId.isNotEmpty &&
+ entry.key.peerId.trim() == companionPeerId) return false;
+if (query.isEmpty) return true;
             final user = entry.value.chatUser;
             return entry.key.peerId.toLowerCase().contains(query) ||
                 (user.firstName ?? '').toLowerCase().contains(query) ||
