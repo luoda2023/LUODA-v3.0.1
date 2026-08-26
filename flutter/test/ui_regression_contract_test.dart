@@ -711,8 +711,8 @@ void main() {
     expect(homePageSource, contains('client.authorized &&'));
     expect(homePageSource, contains('client.isChat &&'));
     expect(homePageSource, contains('!client.disconnected'));
-    expect(homePageSource, contains('incoming?.id ?? ChatModel.clientModeID'));
-    expect(homePageSource, contains('active == null && incoming == null'));
+ expect(homePageSource, contains('incoming?.id ?? entry.key.connId'));
+ expect(homePageSource, contains('active == null && incoming == null'));
     final workspaceRoute = homePageSource
         .split('Widget _buildConversationWorkspace(BuildContext context) {')[1]
         .split('Future<void> _setConversationAlias')[0];

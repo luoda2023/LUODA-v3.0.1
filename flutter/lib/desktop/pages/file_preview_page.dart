@@ -27,16 +27,17 @@ Future<bool> _setWindowTopMost(int windowId, bool topmost) async {
  if (!Platform.isWindows) return false;
  final controller = WindowController.fromWindowId(windowId);
  try {
- await controller.setAlwaysOnTop(topmost);
- // Verify the native call actually took effect.
- final actual = await controller.isAlwaysOnTop();
+ // setAlwaysOnTop / isAlwaysOnTop are present in our custom fork
+ // but may not exist in upstream window_manager, so call via
+ // dynamic to stay compile-safe across versions.
+ final dyn = controller as dynamic;
+ await dyn.setAlwaysOnTop(topmost);
+ final actual = await dyn.isAlwaysOnTop() as bool;
  RuntimeLogger.instance.info('PIN',
  'windowId=$windowId requested=$topmost actual=$actual ok=${actual == topmost}');
  if (actual != topmost) {
- // Retry once — the first SetWindowPos can be dropped if the
- // window hasn't finished initializing or lost foreground.
- await controller.setAlwaysOnTop(topmost);
- final retried = await controller.isAlwaysOnTop();
+ await dyn.setAlwaysOnTop(topmost);
+ final retried = await dyn.isAlwaysOnTop() as bool;
  RuntimeLogger.instance.info('PIN',
  'windowId=$windowId retry actual=$retried ok=${retried == topmost}');
  return retried == topmost;
@@ -194,7 +195,7 @@ Future<void> _syncWindowState() async {
 /// state was lost across rebuilds.
 Future<void> _restorePinState() async {
  try {
- final topmost = await _windowController.isAlwaysOnTop();
+ final topmost = await (_windowController as dynamic).isAlwaysOnTop() as bool;
  if (!mounted) return;
  if (_isPinned != topmost) {
  setState(() => _isPinned = topmost);

@@ -160,6 +160,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Failed to connect to relay server", "无法连接到中继服务器"),
         ("Failed to connect via rendezvous server", "无法通过注册服务器建立连接"),
         ("Failed to connect via relay server", "无法通过中继服务器建立连接"),
+ ("Connecting via relay server...", "正在通过中继服务器连接..."),
         ("Failed to make direct connection to remote desktop", "无法直接连接到远程桌面"),
         ("Set Password", "设置密码"),
         ("OS Password", "操作系统密码"),

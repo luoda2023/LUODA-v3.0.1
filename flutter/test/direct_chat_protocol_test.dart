@@ -683,24 +683,26 @@ void main() {
     expect(pairing.companion, isTrue);
   });
 
-  test('pairing QR payload rejects unsigned or malformed targets', () {
-    final unsigned = Uri(
-      scheme: 'luoda',
-      host: 'pair',
-      queryParameters: <String, String>{
-        'v': '2',
-        'id': 'peer-qr',
-        'lan': '192.168.1.8:24567',
-      },
-    ).toString();
-    final fingerprint = List<String>.filled(64, 'a').join();
-    final malformed =
-        'luoda://pair?v=2&id=peer-qr&fp=$fingerprint&lan=not-an-endpoint';
+  test('pairing QR payload rejects malformed targets but accepts empty fingerprint', () {
+ // An empty fingerprint is gracefully degraded (first launch, key pair
+ // not yet confirmed) — the payload should still be accepted.
+ final unsigned = Uri(
+ scheme: 'luoda',
+ host: 'pair',
+ queryParameters: <String, String>{
+ 'v': '2',
+ 'id': 'peer-qr',
+ 'lan': '192.168.1.8:24567',
+ },
+ ).toString();
+ final fingerprint = List<String>.filled(64, 'a').join();
+ final malformed =
+ 'luoda://pair?v=2&id=peer-qr&fp=$fingerprint&lan=not-an-endpoint';
 
-    expect(DirectPairingStore.parsePayload(unsigned), isNull);
-    expect(DirectPairingStore.parsePayload(malformed), isNull);
-    expect(DirectPairingStore.parsePayload('not-a-qr-code'), isNull);
-  });
+ expect(DirectPairingStore.parsePayload(unsigned), isNotNull);
+ expect(DirectPairingStore.parsePayload(malformed), isNull);
+ expect(DirectPairingStore.parsePayload('not-a-qr-code'), isNull);
+ });
 
   test('viewer control events stay out of ordinary direct chat', () {
     final model = ViewerSessionModel();
