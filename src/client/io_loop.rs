@@ -2140,17 +2140,26 @@ fn stop_voice_call(&mut self) {
                     self.handler.handle_test_delay(t, peer).await;
                 }
  Some(message::Union::AudioFrame(frame)) => {
+ // On mobile, Opus decoding happens in Dart (opus_dart) since the
+ // Rust Opus stub cannot decode. When a voice call is active, push
+ // raw Opus bytes to Flutter and skip the normal audio path.
  #[cfg(any(target_os = "android", target_os = "ios"))]
+ {
  if self.voice_call_active {
- // On mobile, Opus decoding happens in Dart (opus_dart) since
- // the Rust Opus stub cannot decode. Push raw Opus bytes to Flutter.
  self.handler.on_voice_call_audio_frame(&frame.data);
- continue;
+ } else if !self.handler.lc.read().unwrap().disable_audio.v {
+ self.audio_sender
+ .send(MediaData::AudioFrame(Box::new(frame)))
+ .ok();
  }
+ }
+ #[cfg(not(any(target_os = "android", target_os = "ios")))]
+ {
  if !self.handler.lc.read().unwrap().disable_audio.v {
  self.audio_sender
  .send(MediaData::AudioFrame(Box::new(frame)))
  .ok();
+ }
  }
  }
                 Some(message::Union::FileAction(action)) => match action.union {
