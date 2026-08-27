@@ -22,6 +22,8 @@ import 'package:window_manager/window_manager.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../consts.dart';
+import 'package:luoda_flutter/common/voice_call_audio.dart';
+import 'package:luoda_flutter/common/voice_call_quality.dart';
 import '../common.dart';
 import '../runtime_logger.dart';
 import '../common/direct_chat.dart';
@@ -84,6 +86,15 @@ class ChatModel with ChangeNotifier {
   RxBool isWindowFocus = true.obs;
   BlockableOverlayState _blockableOverlayState = BlockableOverlayState();
   final Rx<VoiceCallStatus> _voiceCallStatus = Rx(VoiceCallStatus.notStarted);
+ /// Mobile-only: manages Opus encode/decode and PCM capture/playback.
+ /// Null on desktop (desktop uses Rust cpal + magnum_opus path).
+ VoiceCallAudio? _voiceCallAudio;
+ /// Network quality monitor for active voice calls.
+ final VoiceCallQuality _voiceCallQuality = VoiceCallQuality();
+ /// Rx string for UI to show network quality status (empty = good).
+ final RxString _voiceCallQualityStatus = ''.obs;
+
+ RxString get voiceCallQualityStatus => _voiceCallQualityStatus;
 
   Rx<VoiceCallStatus> get voiceCallStatus => _voiceCallStatus;
 
@@ -4193,21 +4204,76 @@ String _notificationBody(DirectChatRecord record) {
     _voiceCallStatus.value = VoiceCallStatus.waitingForResponse;
   }
 
-  void onVoiceCallStarted() {
-    _voiceCallStatus.value = VoiceCallStatus.connected;
-    if (isAndroid) {
-      parent.target?.invokeMethod("on_voice_call_started");
-    }
-  }
+void onVoiceCallStarted() {
+ _voiceCallStatus.value = VoiceCallStatus.connected;
+ if (isAndroid || isIOS) {
+ _startMobileVoiceCallAudio();
+ parent.target?.invokeMethod("on_voice_call_started");
+ }
+ _startQualityMonitor();
+ }
 
-  void onVoiceCallClosed(String reason) {
-    _voiceCallStatus.value = VoiceCallStatus.notStarted;
-    if (isAndroid) {
-      // We can always invoke "on_voice_call_closed"
-      // no matter if the `_voiceCallStatus` was `VoiceCallStatus.notStarted` or not.
-      parent.target?.invokeMethod("on_voice_call_closed");
-    }
-  }
+ void onVoiceCallClosed(String reason) {
+ _voiceCallStatus.value = VoiceCallStatus.notStarted;
+ _voiceCallQuality.stop();
+ _voiceCallQualityStatus.value = '';
+ if (isAndroid || isIOS) {
+ _stopMobileVoiceCallAudio();
+ // We can always invoke "on_voice_call_closed"
+ // no matter if the `_voiceCallStatus` was `VoiceCallStatus.notStarted` or not.
+ parent.target?.invokeMethod("on_voice_call_closed");
+ }
+ }
+
+ /// Start network quality monitoring for active voice call.
+ void _startQualityMonitor() {
+ _voiceCallQuality.onBitrateChanged = (bps) {
+ _voiceCallAudio?.bitrate = bps;
+ };
+ _voiceCallQuality.onQualityStatus = (status) {
+ _voiceCallQualityStatus.value = status;
+ };
+ _voiceCallQuality.start(() {
+ // Read current delay from QualityMonitorModel
+ final ffi = parent.target;
+ if (ffi == null) return 0;
+ final delayStr = ffi.qualityMonitorModel.data.delay;
+ return int.tryParse(delayStr ?? '') ?? 0;
+ });
+ }
+
+ /// Start mobile-side audio capture and playback for voice call.
+ Future<void> _startMobileVoiceCallAudio() async {
+ if (_voiceCallAudio != null) return;
+ _voiceCallAudio = VoiceCallAudio();
+ await _voiceCallAudio!.init();
+ _voiceCallAudio!.onEncoded = (opus) {
+ // Send encoded Opus bytes to peer via Rust transport.
+ bind.sessionSendVoiceCallAudio(
+ sessionId: sessionId,
+ data: opus,
+ );
+ };
+ await _voiceCallAudio!.startCapture();
+ }
+
+ /// Stop and dispose mobile voice call audio.
+ Future<void> _stopMobileVoiceCallAudio() async {
+ await _voiceCallAudio?.stop();
+ _voiceCallAudio?.dispose();
+ _voiceCallAudio = null;
+ }
+
+ /// Handle incoming Opus audio frame from peer (mobile-only path).
+ void onVoiceCallAudioFrame(String b64) {
+ if (_voiceCallAudio == null || _voiceCallStatus.value != VoiceCallStatus.connected) return;
+ try {
+ final opus = base64Decode(b64);
+ _voiceCallAudio!.feedIncomingOpus(opus);
+ } catch (e) {
+ debugPrint('onVoiceCallAudioFrame: decode error: $e');
+ }
+ }
 
   void onVoiceCallIncoming() {
     if (isConnManager) {

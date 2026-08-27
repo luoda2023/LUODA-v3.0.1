@@ -1775,10 +1775,23 @@ pub fn save_image_quality(&self, value: String) {
         self.send(Data::NewVoiceCall);
     }
 
-    #[inline]
-    pub fn close_voice_call(&self) {
-        self.send(Data::CloseVoiceCall);
-    }
+ #[inline]
+ pub fn close_voice_call(&self) {
+ self.send(Data::CloseVoiceCall);
+ }
+
+ /// Send Opus-encoded audio data from the Flutter/Dart layer to the peer.
+ /// Used by mobile clients where Opus encoding happens in Dart (opus_dart)
+ /// instead of Rust (which has an Opus stub on Android/iOS).
+ /// The bytes are wrapped in a standard AudioFrame proto message so the
+ /// peer-side decoder (Rust magnum_opus or Dart opus_dart) can decode them.
+ pub fn send_voice_call_audio(&self, data: Vec<u8>) {
+ let mut frame = AudioFrame::new();
+ frame.data = data.into();
+ let mut msg = Message::new();
+ msg.set_audio_frame(frame);
+ self.send(Data::Message(msg));
+ }
 
     pub fn send_selected_session_id(&self, sid: String) {
         if let Ok(sid) = sid.parse::<u32>() {
@@ -1904,10 +1917,15 @@ pub trait InvokeUiSession: Send + Sync + Clone + 'static + Sized + Default {
     fn cancel_msgbox(&self, tag: &str);
     fn switch_back(&self, id: &str);
     fn portable_service_running(&self, running: bool);
-    fn on_voice_call_started(&self);
-    fn on_voice_call_closed(&self, reason: &str);
-    fn on_voice_call_waiting(&self);
-    fn on_voice_call_incoming(&self);
+ fn on_voice_call_started(&self);
+ fn on_voice_call_closed(&self, reason: &str);
+ fn on_voice_call_waiting(&self);
+ fn on_voice_call_incoming(&self);
+ /// Push an incoming voice-call audio frame (Opus bytes) to the Flutter UI.
+ /// Only used on mobile where Opus decoding happens in Dart (opus_dart),
+ /// since the Rust Opus stub cannot decode on Android/iOS.
+ #[cfg(any(target_os = "android", target_os = "ios"))]
+ fn on_voice_call_audio_frame(&self, data: &[u8]);
     fn get_rgba(&self, display: usize) -> *const u8;
     fn next_rgba(&self, display: usize);
     #[cfg(all(feature = "vram", feature = "flutter"))]

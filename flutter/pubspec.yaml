@@ -134,6 +134,11 @@ dependencies:
   pdfrx: ^1.0.101
   face_recognition_flutter: ^2.0.0
   sherpa_onnx: ^1.13.5
+# Voice call: Opus codec (Dart bindings + cross-platform native libopus)
+opus_dart: ^3.0.1
+opus_flutter: ^3.0.3
+# Voice call: real-time PCM stream playback (audioplayers can't stream PCM)
+flutter_sound: ^9.10.0
 
 dev_dependencies:
   icons_launcher: ^2.0.4

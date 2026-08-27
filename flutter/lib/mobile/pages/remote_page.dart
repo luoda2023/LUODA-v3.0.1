@@ -19,6 +19,7 @@ import '../../common.dart';
 import '../../common/widgets/overlay.dart';
 import '../../common/widgets/dialog.dart';
 import '../../common/widgets/remote_input.dart';
+import '../../common/widgets/voice_call_overlay.dart';
 import '../../models/input_model.dart';
 import '../../models/model.dart';
 import '../../models/platform_model.dart';
@@ -403,9 +404,9 @@ gFFI.ffiModel.waitForFirstImage.isTrue
                                   gFFI.canvasModel.updateViewStyle();
                                 });
                               }
-return Stack(
-children: [
-Container(
+ return Stack(
+ children: [
+ Container(
  color: MyTheme.canvasColor,
  child: inputModel.isPhysicalMouse.value
  ? getBodyForMobile()
@@ -414,7 +415,25 @@ Container(
  ffi: gFFI,
  ),
  ),
-// Floating toolbar — shown when peer info is set
+ // Voice call button — top-right when call is not active
+ if (gFFI.ffiModel.pi.isSet.isTrue && !isWebDesktop)
+ Positioned(
+ top: MediaQuery.of(context).padding.top + 8,
+ right: 12,
+ child: Obx(() {
+ final status = gFFI.chatModel.voiceCallStatus.value;
+ if (status == VoiceCallStatus.notStarted) {
+ return _VoiceCallButton(
+ icon: Icons.phone,
+ color: Colors.greenAccent,
+ onTap: () => bind.sessionRequestVoiceCall(
+ sessionId: gFFI.sessionId),
+ );
+ }
+ return const SizedBox.shrink();
+ }),
+ ),
+ // Floating toolbar — shown when peer info is set
 if (gFFI.ffiModel.pi.isSet.isTrue &&
 !keyboardIsVisible &&
 !_showGestureHelp &&
@@ -430,8 +449,10 @@ FloatingToolbar(
  onOpenChat: () {
  onPressedTextChat(widget.id);
  },
-),
-],
+ ),
+ // Voice call overlay — shown when call is active or waiting
+ VoiceCallOverlay(chatModel: gFFI.chatModel),
+ ],
 );
                             }),
                           ),
@@ -1525,8 +1546,43 @@ class FABLocation extends FloatingActionButtonLocation {
   FABLocation(this.location, this.offsetX, this.offsetY);
 
   @override
-  Offset getOffset(ScaffoldPrelayoutGeometry scaffoldGeometry) {
-    final offset = location.getOffset(scaffoldGeometry);
-    return Offset(offset.dx + offsetX, offset.dy + offsetY);
-  }
+ Offset getOffset(ScaffoldPrelayoutGeometry scaffoldGeometry) {
+ final offset = location.getOffset(scaffoldGeometry);
+ return Offset(offset.dx + offsetX, offset.dy + offsetY);
+ }
+}
+
+/// Floating voice-call button shown at the top-right of the mobile remote screen.
+class _VoiceCallButton extends StatelessWidget {
+ const _VoiceCallButton({
+ required this.icon,
+ required this.color,
+ required this.onTap,
+ });
+
+ final IconData icon;
+ final Color color;
+ final VoidCallback onTap;
+
+ @override
+ Widget build(BuildContext context) {
+ return GestureDetector(
+ onTap: onTap,
+ child: Container(
+ padding: const EdgeInsets.all(8),
+ decoration: BoxDecoration(
+ color: Colors.black.withOpacity(0.6),
+ shape: BoxShape.circle,
+ boxShadow: [
+ BoxShadow(
+ color: Colors.black.withOpacity(0.3),
+ blurRadius: 6,
+ offset: const Offset(0, 2),
+ ),
+ ],
+ ),
+ child: Icon(icon, color: color, size: 20),
+ ),
+ );
+ }
 }

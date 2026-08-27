@@ -1111,9 +1111,16 @@ impl InvokeUiSession for FlutterHandler {
         self.push_event::<&str>("on_voice_call_waiting", &[], &[]);
     }
 
-    fn on_voice_call_incoming(&self) {
-        self.push_event::<&str>("on_voice_call_incoming", &[], &[]);
-    }
+fn on_voice_call_incoming(&self) {
+ self.push_event::<&str>("on_voice_call_incoming", &[], &[]);
+ }
+
+ #[cfg(any(target_os = "android", target_os = "ios"))]
+ fn on_voice_call_audio_frame(&self, data: &[u8]) {
+ use hbb_common::base64::{engine::general_purpose::STANDARD, Engine as _};
+ let b64 = STANDARD.encode(data);
+ self.push_event("voice_call_audio_frame", &[("data", &b64)], &[]);
+ }
 
     #[inline]
     fn get_rgba(&self, _display: usize) -> *const u8 {

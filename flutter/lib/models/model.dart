@@ -499,9 +499,14 @@ class FfiModel with ChangeNotifier {
       } else if (name == 'on_voice_call_incoming') {
         // Voice call is requested by the peer.
         parent.target?.chatModel.onVoiceCallIncoming();
-      } else if (name == 'update_voice_call_state') {
-        parent.target?.serverModel.updateVoiceCallState(evt);
-      } else if (name == 'fingerprint') {
+} else if (name == 'update_voice_call_state') {
+ parent.target?.serverModel.updateVoiceCallState(evt);
+ } else if (name == 'voice_call_audio_frame') {
+ // Incoming Opus audio from peer (mobile-only path; desktop
+ // decodes in Rust via cpal/magnum_opus).
+ final b64 = evt['data']?.toString() ?? '';
+ parent.target?.chatModel.onVoiceCallAudioFrame(b64);
+ } else if (name == 'fingerprint') {
         final actual = (evt['fingerprint'] ?? '').toString();
         FingerprintState.ensure(peerId).value = actual;
         await _persistDiscoveredDirectPairing(peerId);

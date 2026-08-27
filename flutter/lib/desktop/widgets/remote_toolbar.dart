@@ -29,6 +29,7 @@ import './kb_layout_type_chooser.dart';
 import './viewer_collaboration_panel.dart';
 import 'package:luoda_flutter/utils/scale.dart';
 import 'package:luoda_flutter/common/widgets/custom_scale_base.dart';
+import 'package:luoda_flutter/common/widgets/voice_call_status_bar.dart';
 
 class ToolbarState {
   late RxBool _pin;
@@ -481,9 +482,11 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
     if (widget.ffi.connType == ConnType.defaultConn) {
       toolbarItems.add(_KeyboardMenu(id: widget.id, ffi: widget.ffi));
     }
-    if (!isWeb) {
-      toolbarItems.add(_VoiceCallMenu(id: widget.id, ffi: widget.ffi));
-    }
+if (!isWeb) {
+ toolbarItems.add(_VoiceCallMenu(id: widget.id, ffi: widget.ffi));
+ // Status bar showing call duration + network quality (desktop only).
+ toolbarItems.add(VoiceCallStatusBar(chatModel: widget.ffi.chatModel));
+ }
     if (!isWeb) toolbarItems.add(_RecordMenu());
     toolbarItems.add(_CloseMenu(id: widget.id, ffi: widget.ffi));
     return Container(
@@ -2600,37 +2603,45 @@ class _VoiceCallMenu extends StatelessWidget {
       ];
     }
 
-    return Obx(
-      () {
-        switch (ffi.chatModel.voiceCallStatus.value) {
-          case VoiceCallStatus.waitingForResponse:
-            return buildCallWaiting(context);
-          case VoiceCallStatus.connected:
-            return _IconSubmenuButton(
-              tooltip: translate('Voice call'),
-              label: translate('Voice call'),
-              svg: 'assets/voice_call.svg',
-              color: _ToolbarTheme.blueColor,
-              hoverColor: _ToolbarTheme.hoverBlueColor,
-              menuChildrenGetter: menuChildrenGetter,
-              ffi: ffi,
-            );
-          default:
-            return Offstage();
-        }
-      },
-    );
-  }
+ return Obx(
+ () {
+ switch (ffi.chatModel.voiceCallStatus.value) {
+ case VoiceCallStatus.waitingForResponse:
+ return buildCallWaiting(context);
+ case VoiceCallStatus.connected:
+ return _IconSubmenuButton(
+ tooltip: translate('Voice call'),
+ label: translate('Voice call'),
+ svg: 'assets/voice_call.svg',
+ color: _ToolbarTheme.blueColor,
+ hoverColor: _ToolbarTheme.hoverBlueColor,
+ menuChildrenGetter: menuChildrenGetter,
+ ffi: ffi,
+ );
+ default:
+ // Not in a call — show a "start call" button.
+ return _IconMenuButton(
+ assetName: "assets/voice_call.svg",
+ tooltip: translate("Voice call"),
+ onPressed: () =>
+ bind.sessionRequestVoiceCall(sessionId: ffi.sessionId),
+ color: _ToolbarTheme.blueColor,
+ hoverColor: _ToolbarTheme.hoverBlueColor,
+ );
+ }
+ },
+ );
+ }
 
-  Widget buildCallWaiting(BuildContext context) {
-    return _IconMenuButton(
-      assetName: "assets/call_wait.svg",
-      tooltip: translate("Waiting"),
-      onPressed: () => bind.sessionCloseVoiceCall(sessionId: ffi.sessionId),
-      color: _ToolbarTheme.redColor,
-      hoverColor: _ToolbarTheme.hoverRedColor,
-    );
-  }
+ Widget buildCallWaiting(BuildContext context) {
+ return _IconMenuButton(
+ assetName: "assets/call_wait.svg",
+ tooltip: translate("Waiting"),
+ onPressed: () => bind.sessionCloseVoiceCall(sessionId: ffi.sessionId),
+ color: _ToolbarTheme.redColor,
+ hoverColor: _ToolbarTheme.hoverRedColor,
+ );
+ }
 }
 
 class _RecordMenu extends StatelessWidget {

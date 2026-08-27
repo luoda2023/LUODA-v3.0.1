@@ -62,6 +62,8 @@ pub struct Remote<T: InvokeUiSession> {
     // Stop sending local audio to remote client.
     stop_voice_call_sender: Option<std::sync::mpsc::Sender<()>>,
     voice_call_request_timestamp: Option<NonZeroI64>,
+ #[cfg(any(target_os = "android", target_os = "ios"))]
+ voice_call_active: bool,
     read_jobs: Vec<fs::TransferJob>,
     write_jobs: Vec<fs::TransferJob>,
     remove_jobs: HashMap<i32, RemoveJob>,
@@ -120,8 +122,10 @@ impl<T: InvokeUiSession> Remote<T> {
             client_conn_id: 0,
             data_count: Arc::new(AtomicUsize::new(0)),
             video_format: CodecFormat::Unknown,
-            stop_voice_call_sender: None,
-            voice_call_request_timestamp: None,
+ stop_voice_call_sender: None,
+ voice_call_request_timestamp: None,
+ #[cfg(any(target_os = "android", target_os = "ios"))]
+ voice_call_active: false,
             elevation_requested: false,
             peer_info: Default::default(),
             video_threads: Default::default(),
@@ -468,12 +472,16 @@ impl<T: InvokeUiSession> Remote<T> {
         }
     }
 
-    fn stop_voice_call(&mut self) {
-        let voice_call_sender = std::mem::replace(&mut self.stop_voice_call_sender, None);
-        if let Some(stopper) = voice_call_sender {
-            let _ = stopper.send(());
-        }
-    }
+fn stop_voice_call(&mut self) {
+ let voice_call_sender = std::mem::replace(&mut self.stop_voice_call_sender, None);
+ if let Some(stopper) = voice_call_sender {
+ let _ = stopper.send(());
+ }
+ #[cfg(any(target_os = "android", target_os = "ios"))]
+ {
+ self.voice_call_active = false;
+ }
+ }
 
     // Start a voice call recorder, records audio and send to remote
     fn start_voice_call(&mut self) -> Option<std::sync::mpsc::Sender<()>> {
@@ -546,8 +554,12 @@ impl<T: InvokeUiSession> Remote<T> {
                         }
                     }
                 }
-            });
-            return Some(tx);
+ });
+ #[cfg(any(target_os = "android", target_os = "ios"))]
+ {
+ self.voice_call_active = true;
+ }
+ return Some(tx);
         }
         #[cfg(target_os = "ios")]
         {
@@ -1005,14 +1017,14 @@ impl<T: InvokeUiSession> Remote<T> {
                 allow_err!(peer.send(&msg).await);
                 self.handler.on_voice_call_waiting();
             }
-            Data::CloseVoiceCall => {
-                self.stop_voice_call();
-                let msg = new_voice_call_request(false);
-                self.handler
-                    .on_voice_call_closed("Closed manually by the peer");
-                allow_err!(peer.send(&msg).await);
-            }
-            Data::ResetDecoder(display) => match display {
+ Data::CloseVoiceCall => {
+ self.stop_voice_call();
+ let msg = new_voice_call_request(false);
+ self.handler
+ .on_voice_call_closed("Closed manually by the peer");
+ allow_err!(peer.send(&msg).await);
+ }
+ Data::ResetDecoder(display) => match display {
                 Some(display) => {
                     if let Some(v) = self.video_threads.get_mut(&display) {
                         v.video_sender.send(MediaData::Reset).ok();
@@ -2127,13 +2139,20 @@ impl<T: InvokeUiSession> Remote<T> {
                 Some(message::Union::TestDelay(t)) => {
                     self.handler.handle_test_delay(t, peer).await;
                 }
-                Some(message::Union::AudioFrame(frame)) => {
-                    if !self.handler.lc.read().unwrap().disable_audio.v {
-                        self.audio_sender
-                            .send(MediaData::AudioFrame(Box::new(frame)))
-                            .ok();
-                    }
-                }
+ Some(message::Union::AudioFrame(frame)) => {
+ #[cfg(any(target_os = "android", target_os = "ios"))]
+ if self.voice_call_active {
+ // On mobile, Opus decoding happens in Dart (opus_dart) since
+ // the Rust Opus stub cannot decode. Push raw Opus bytes to Flutter.
+ self.handler.on_voice_call_audio_frame(&frame.data);
+ continue;
+ }
+ if !self.handler.lc.read().unwrap().disable_audio.v {
+ self.audio_sender
+ .send(MediaData::AudioFrame(Box::new(frame)))
+ .ok();
+ }
+ }
                 Some(message::Union::FileAction(action)) => match action.union {
                     Some(file_action::Union::Send(_s)) => match _s.file_type.enum_value() {
                         #[cfg(target_os = "windows")]

@@ -1425,8 +1425,17 @@ pub extern "C" fn wire_session_request_voice_call(port_: i64, session_id: *mut w
 
 #[no_mangle]
 pub extern "C" fn wire_session_close_voice_call(port_: i64, session_id: *mut wire_uint_8_list) {
-    wire_session_close_voice_call_impl(port_, session_id)
-}
+ wire_session_close_voice_call_impl(port_, session_id)
+ }
+
+#[no_mangle]
+pub extern "C" fn wire_session_send_voice_call_audio(
+ port_: i64,
+ session_id: *mut wire_uint_8_list,
+ data: *mut wire_uint_8_list,
+) {
+ wire_session_send_voice_call_audio_impl(port_, session_id, data)
+ }
 
 #[no_mangle]
 pub extern "C" fn wire_session_get_conn_token(

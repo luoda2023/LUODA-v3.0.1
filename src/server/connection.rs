@@ -3740,12 +3740,12 @@ if !platform_additions.is_empty() {
                     Some(misc::Union::TogglePrivacyMode(t)) => {
                         self.toggle_privacy_mode(t).await;
                     }
-                    Some(misc::Union::ChatMessage(c)) => {
-                        #[cfg(not(any(target_os = "android", target_os = "ios")))]
-                        crate::debug_api::record_chat_event(
-                            "server_recv_chat",
-                            &format!("conn={} len={}", self.inner.id, c.text.len()),
-                        );
+ Some(misc::Union::ChatMessage(c)) => {
+ #[cfg(all(feature = "flutter", not(any(target_os = "android", target_os = "ios"))))]
+ crate::debug_api::record_chat_event(
+ "server_recv_chat",
+ &format!("conn={} len={}", self.inner.id, c.text.len()),
+ );
                         self.send_to_cm(ipc::Data::ChatMessage { text: c.text.clone() });
                         // LUODA: when the inbound chat connection is hosted by the
                         // main window process (its own direct server), push the

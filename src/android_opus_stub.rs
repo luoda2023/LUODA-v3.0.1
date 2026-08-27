@@ -114,15 +114,20 @@ pub mod android_opus_stub {
             Err(Error::Unimplemented)
         }
 
-        pub fn encode_vec_float(&mut self, _input: &[f32], max_size: usize) -> Result<Vec<u8>> {
-            // Return minimal opus-like packet for Android stub
-            let mut output = vec![0u8; max_size.min(2)];
-            if output.len() >= 2 {
-                output[0] = 0xF8;
-                output[1] = 0xFF;
-            }
-            Ok(output)
-        }
+ pub fn encode_vec_float(&mut self, input: &[f32], _max_size: usize) -> Result<Vec<u8>> {
+ // On Android/iOS, we don't have a real Opus encoder in Rust.
+ // Return raw PCM f32 bytes prefixed with a magic marker so the
+ // Dart-side decoder can detect "raw PCM mode" and play directly
+ // without Opus decoding.
+ let mut output = Vec::with_capacity(4 + input.len() * 4);
+ output.extend_from_slice(&[0x52, 0x41, 0x57, 0x31]); // "RAW1" magic
+ let mut bytes = vec![0u8; input.len() * 4];
+ bytes.copy_from_slice(unsafe {
+ std::slice::from_raw_parts(input.as_ptr() as *const u8, input.len() * 4)
+ });
+ output.extend_from_slice(&bytes);
+ Ok(output)
+ }
 
         pub fn set_bitrate(&mut self, _bitrate: i32) -> Result<()> {
             Ok(())

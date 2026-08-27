@@ -1,0 +1,93 @@
+import 'dart:typed_data';
+import 'package:opus_dart/opus_dart.dart';
+import 'package:opus_flutter/opus_flutter.dart';
+
+/// Opus codec wrapper for voice call audio on mobile.
+///
+/// Uses 48kHz mono with [Application.voip] for optimal speech quality
+/// at low bitrates. The encoder/decoder are recreated when the bitrate
+/// changes (opus_dart does not support runtime bitrate changes).
+class VoiceCallCodec {
+  static const int sampleRate = 48000;
+  static const int channels = 1;
+  static const int frameSizeMs = 20;
+  static const int samplesPerFrame = (sampleRate ~/ 1000) * frameSizeMs; // 960
+
+  SimpleOpusEncoder? _encoder;
+  SimpleOpusDecoder? _decoder;
+
+  int _bitrate = 24000; // default 24kbps for VoIP
+
+  bool _initialized = false;
+
+  /// Initialize opus library and create encoder/decoder.
+  Future<void> init() async {
+    if (_initialized) return;
+    await initOpus(await load());
+    _createEncoder();
+    _createDecoder();
+    _initialized = true;
+  }
+
+  void _createEncoder() {
+    _encoder?.destroy();
+    _encoder = SimpleOpusEncoder(
+      sampleRate: sampleRate,
+      channels: channels,
+      application: Application.voip,
+    );
+    _encoder!.bitrate = _bitrate;
+  }
+
+  void _createDecoder() {
+    _decoder?.destroy();
+    _decoder = SimpleOpusDecoder(
+      sampleRate: sampleRate,
+      channels: channels,
+    );
+  }
+
+  /// Change the encoder bitrate (recreates the encoder internally).
+  set bitrate(int bps) {
+    if (_bitrate == bps) return;
+    _bitrate = bps;
+    if (_initialized) {
+      _createEncoder();
+    }
+  }
+
+  int get bitrate => _bitrate;
+
+  /// Encode Float32 PCM to Opus bytes.
+  ///
+  /// [pcm] must contain exactly [samplesPerFrame] samples (960 for 20ms@48kHz).
+  Uint8List encode(Float32List pcm) {
+    if (!_initialized || _encoder == null) {
+      throw StateError('VoiceCallCodec not initialized');
+    }
+    return _encoder!.encodeFloat(input: pcm);
+  }
+
+  /// Decode Opus bytes to Float32 PCM.
+  ///
+  /// Returns null if [opus] is null (packet loss / DTX).
+  Float32List? decode(Uint8List? opus) {
+    if (!_initialized || _decoder == null) {
+      throw StateError('VoiceCallCodec not initialized');
+    }
+    if (opus == null) {
+      // PLC: decode with null input to generate comfort noise
+      return _decoder!.decodeFloat(input: null);
+    }
+    return _decoder!.decodeFloat(input: opus);
+  }
+
+  /// Release native resources.
+  void dispose() {
+    _encoder?.destroy();
+    _decoder?.destroy();
+    _encoder = null;
+    _decoder = null;
+    _initialized = false;
+  }
+}

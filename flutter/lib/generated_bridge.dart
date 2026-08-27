@@ -1040,10 +1040,15 @@ abstract class Luoda {
 
   FlutterRustBridgeTaskConstMeta get kSessionRequestVoiceCallConstMeta;
 
-  Future<void> sessionCloseVoiceCall(
-      {required UuidValue sessionId, dynamic hint});
+Future<void> sessionCloseVoiceCall(
+ {required UuidValue sessionId, dynamic hint});
 
-  FlutterRustBridgeTaskConstMeta get kSessionCloseVoiceCallConstMeta;
+ FlutterRustBridgeTaskConstMeta get kSessionCloseVoiceCallConstMeta;
+
+ Future<void> sessionSendVoiceCallAudio(
+ {required UuidValue sessionId, required Uint8List data, dynamic hint});
+
+ FlutterRustBridgeTaskConstMeta get kSessionSendVoiceCallAudioConstMeta;
 
   String? sessionGetConnToken({required UuidValue sessionId, dynamic hint});
 
@@ -5477,11 +5482,31 @@ FlutterRustBridgeTaskConstMeta get kMainGetHardwareIdConstMeta =>
     ));
   }
 
-  FlutterRustBridgeTaskConstMeta get kSessionCloseVoiceCallConstMeta =>
-      const FlutterRustBridgeTaskConstMeta(
-        debugName: "session_close_voice_call",
-        argNames: ["sessionId"],
-      );
+ FlutterRustBridgeTaskConstMeta get kSessionCloseVoiceCallConstMeta =>
+ const FlutterRustBridgeTaskConstMeta(
+ debugName: "session_close_voice_call",
+ argNames: ["sessionId"],
+ );
+
+ Future<void> sessionSendVoiceCallAudio(
+ {required UuidValue sessionId, required Uint8List data, dynamic hint}) {
+ var arg0 = _platform.api2wire_Uuid(sessionId);
+ var arg1 = _platform.api2wire_uint_8_list(data);
+ return _platform.executeNormal(FlutterRustBridgeTask(
+ callFfi: (port_) => _platform.inner
+ .wire_session_send_voice_call_audio(port_, arg0, arg1),
+ parseSuccessData: _wire2api_unit,
+ constMeta: kSessionSendVoiceCallAudioConstMeta,
+ argValues: [sessionId, data],
+ hint: hint,
+ ));
+ }
+
+ FlutterRustBridgeTaskConstMeta get kSessionSendVoiceCallAudioConstMeta =>
+ const FlutterRustBridgeTaskConstMeta(
+ debugName: "session_send_voice_call_audio",
+ argNames: ["sessionId", "data"],
+ );
 
   String? sessionGetConnToken({required UuidValue sessionId, dynamic hint}) {
     var arg0 = _platform.api2wire_Uuid(sessionId);
@@ -12061,8 +12086,33 @@ void wire_main_get_peer_option(
       ffi.NativeFunction<
           ffi.Void Function(ffi.Int64,
               ffi.Pointer<wire_uint_8_list>)>>('wire_session_close_voice_call');
-  late final _wire_session_close_voice_call = _wire_session_close_voice_callPtr
-      .asFunction<void Function(int, ffi.Pointer<wire_uint_8_list>)>();
+ late final _wire_session_close_voice_call = _wire_session_close_voice_callPtr
+ .asFunction<void Function(int, ffi.Pointer<wire_uint_8_list>)>();
+
+ void wire_session_send_voice_call_audio(
+ int port_,
+ ffi.Pointer<wire_uint_8_list> session_id,
+ ffi.Pointer<wire_uint_8_list> data,
+ ) {
+ return _wire_session_send_voice_call_audio(
+ port_,
+ session_id,
+ data,
+ );
+ }
+
+ late final _wire_session_send_voice_call_audioPtr = _lookup<
+ ffi.NativeFunction<
+ ffi.Void Function(
+ ffi.Int64,
+ ffi.Pointer<wire_uint_8_list>,
+ ffi.Pointer<wire_uint_8_list>)>('wire_session_send_voice_call_audio');
+ late final _wire_session_send_voice_call_audio =
+ _wire_session_send_voice_call_audioPtr.asFunction<
+ void Function(
+ int,
+ ffi.Pointer<wire_uint_8_list>,
+ ffi.Pointer<wire_uint_8_list>)>();
 
   WireSyncReturn wire_session_get_conn_token(
     ffi.Pointer<wire_uint_8_list> session_id,

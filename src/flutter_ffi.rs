@@ -2351,10 +2351,20 @@ pub fn session_request_voice_call(session_id: SessionID) {
 }
 
 pub fn session_close_voice_call(session_id: SessionID) {
-    if let Some(session) = sessions::get_session_by_session_id(&session_id) {
-        session.close_voice_call();
-    }
-}
+ if let Some(session) = sessions::get_session_by_session_id(&session_id) {
+ session.close_voice_call();
+ }
+ }
+
+/// Send Opus-encoded audio bytes from Dart to the peer via Rust transport.
+/// On mobile, Opus encoding is done in Dart (opus_dart) since the Rust
+/// side has an Opus stub on Android/iOS. The bytes are wrapped in a
+/// standard AudioFrame proto message and sent to the peer.
+pub fn session_send_voice_call_audio(session_id: SessionID, data: Vec<u8>) {
+ if let Some(session) = sessions::get_session_by_session_id(&session_id) {
+ session.send_voice_call_audio(data);
+ }
+ }
 
 pub fn session_get_conn_token(session_id: SessionID) -> SyncReturn<Option<String>> {
     if let Some(session) = sessions::get_session_by_session_id(&session_id) {

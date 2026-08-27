@@ -822,16 +822,50 @@ class ServerModel with ChangeNotifier {
     bind.cmHandleIncomingVoiceCall(id: client.id, accept: accept);
   }
 
-  showVoiceCallDialog(Client client) {
-    showClientDialog(
-      client,
-      'Voice call',
-      'Do you accept?',
-      'android_new_voice_call_tip',
-      () => handleVoiceCall(client, false),
-      () => handleVoiceCall(client, true),
-    );
-  }
+ showVoiceCallDialog(Client client) {
+ parent.target?.dialogManager.show((setState, close, context) {
+ cancel() {
+ handleVoiceCall(client, false);
+ close();
+ }
+
+ submit() {
+ handleVoiceCall(client, true);
+ close();
+ }
+
+ return CustomAlertDialog(
+ title: Row(
+ mainAxisAlignment: MainAxisAlignment.center,
+ children: [
+ const Icon(Icons.phone_in_talk, color: Colors.green),
+ const SizedBox(width: 8),
+ Text(translate('Voice call'), style: const TextStyle(fontSize: 18)),
+ ],
+ ),
+ content: Column(
+ mainAxisSize: MainAxisSize.min,
+ mainAxisAlignment: MainAxisAlignment.center,
+ children: [
+ ClientInfo(client),
+ const SizedBox(height: 16),
+ Text(
+ translate('android_new_voice_call_tip'),
+ textAlign: TextAlign.center,
+ style: Theme.of(globalKey.currentContext!).textTheme.bodyMedium,
+ ),
+ ],
+ ),
+ actions: [
+ dialogButton("Reject",
+ onPressed: cancel, isOutline: true),
+ dialogButton("Accept", onPressed: submit),
+ ],
+ onSubmit: submit,
+ onCancel: cancel,
+ );
+ }, tag: getLoginDialogTag(client.id));
+ }
 
   showClientDialog(Client client, String title, String contentTitle,
       String content, VoidCallback onCancel, VoidCallback onSubmit) {

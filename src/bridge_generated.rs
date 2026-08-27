@@ -3222,21 +3222,41 @@ fn wire_session_request_voice_call_impl(
     )
 }
 fn wire_session_close_voice_call_impl(
-    port_: MessagePort,
-    session_id: impl Wire2Api<uuid::Uuid> + UnwindSafe,
-) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap::<_, _, _, ()>(
-        WrapInfo {
-            debug_name: "session_close_voice_call",
-            port: Some(port_),
-            mode: FfiCallMode::Normal,
-        },
-        move || {
-            let api_session_id = session_id.wire2api();
-            move |task_callback| Ok(session_close_voice_call(api_session_id))
-        },
-    )
-}
+ port_: MessagePort,
+ session_id: impl Wire2Api<uuid::Uuid> + UnwindSafe,
+ ) {
+ FLUTTER_RUST_BRIDGE_HANDLER.wrap::<_, _, _, ()>(
+ WrapInfo {
+ debug_name: "session_close_voice_call",
+ port: Some(port_),
+ mode: FfiCallMode::Normal,
+ },
+ move || {
+ let api_session_id = session_id.wire2api();
+ move |task_callback| Ok(session_close_voice_call(api_session_id))
+ },
+ )
+ }
+fn wire_session_send_voice_call_audio_impl(
+ port_: MessagePort,
+ session_id: impl Wire2Api<uuid::Uuid> + UnwindSafe,
+ data: impl Wire2Api<Vec<u8>> + UnwindSafe,
+ ) {
+ FLUTTER_RUST_BRIDGE_HANDLER.wrap::<_, _, _, ()>(
+ WrapInfo {
+ debug_name: "session_send_voice_call_audio",
+ port: Some(port_),
+ mode: FfiCallMode::Normal,
+ },
+ move || {
+ let api_session_id = session_id.wire2api();
+ let api_data = data.wire2api();
+ move |task_callback| {
+ Ok(session_send_voice_call_audio(api_session_id, api_data))
+ }
+ },
+ )
+ }
 fn wire_session_get_conn_token_impl(
     session_id: impl Wire2Api<uuid::Uuid> + UnwindSafe,
 ) -> support::WireSyncReturn {
