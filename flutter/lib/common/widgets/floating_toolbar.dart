@@ -384,7 +384,7 @@ class _FloatingToolbarState extends State<FloatingToolbar> {
  tooltip: 'Restart remote device',
  onPressed: () {
  showRestartRemoteDevice(
- pi, '', widget.ffi.sessionId, widget.ffi.dialogManager);
+ pi, widget.ffi.id, widget.ffi.sessionId, widget.ffi.dialogManager);
  _onUserInteraction();
  },
  ),
@@ -394,7 +394,7 @@ class _FloatingToolbarState extends State<FloatingToolbar> {
  color: const Color(0xFFFFB372),
  onPressed: () {
  showShutdownRemoteDevice(
- pi, '', widget.ffi.sessionId, widget.ffi.dialogManager);
+ pi, widget.ffi.id, widget.ffi.sessionId, widget.ffi.dialogManager);
  _onUserInteraction();
  },
  ),

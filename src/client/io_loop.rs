@@ -263,10 +263,13 @@ impl<T: InvokeUiSession> Remote<T> {
                                     }
                                 }
                             } else {
-                                if self.handler.is_restarting_remote_device() {
-                                    log::info!("Restart remote device");
-                                    self.handler.msgbox("restarting", "Restarting remote device", "remote_restarting_tip", "");
-                                } else {
+ if self.handler.is_restarting_remote_device() {
+ log::info!("Restart remote device");
+ self.handler.msgbox("restarting", "Restarting remote device", "remote_restarting_tip", "");
+ } else if self.handler.is_shutting_down_remote_device() {
+ log::info!("Shutdown remote device");
+ self.handler.msgbox("shutting_down", "Shutting down remote device", "remote_shutdown_tip", "");
+ } else {
                                     log::info!("Reset by the peer");
                                     self.handler.msgbox("error", "Connection Error", "Reset by the peer", "");
                                 }

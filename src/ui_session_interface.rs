@@ -535,20 +535,21 @@ impl<T: InvokeUiSession> Session<T> {
         self.send(Data::Message(msg));
     }
 
-    pub fn save_image_quality(&self, value: String) {
-        let msg = self.lc.write().unwrap().save_image_quality(value.clone());
-        if let Some(msg) = msg {
-            self.send(Data::Message(msg));
-        }
-        if value != "custom" {
-            let last_auto_fps = self.lc.read().unwrap().last_auto_fps;
-            if last_auto_fps.unwrap_or(usize::MAX) >= 30 {
-                // non custom quality use 30 fps
-                let msg = self.lc.write().unwrap().set_custom_fps(30, false);
-                self.send(Data::Message(msg));
-            }
-        }
-    }
+pub fn save_image_quality(&self, value: String) {
+ let msg = self.lc.write().unwrap().save_image_quality(value.clone());
+ if let Some(msg) = msg {
+ self.send(Data::Message(msg));
+ }
+ // hd/ultra use custom quality values, so keep the user's fps like "custom"
+ if value != "custom" && value != "hd" && value != "ultra" {
+ let last_auto_fps = self.lc.read().unwrap().last_auto_fps;
+ if last_auto_fps.unwrap_or(usize::MAX) >= 30 {
+ // non custom quality use 30 fps
+ let msg = self.lc.write().unwrap().set_custom_fps(30, false);
+ self.send(Data::Message(msg));
+ }
+ }
+ }
 
     pub fn save_trackpad_speed(&self, trackpad_speed: i32) {
         self.lc.write().unwrap().save_trackpad_speed(trackpad_speed);
@@ -623,7 +624,7 @@ impl<T: InvokeUiSession> Session<T> {
 
  pub fn shutdown_remote_device(&self) {
  let mut lc = self.lc.write().unwrap();
- lc.restarting_remote_device = true;
+ lc.shutting_down_remote_device = true;
  let msg = lc.shutdown_remote_device();
  self.send(Data::Message(msg));
  }
@@ -718,8 +719,12 @@ impl<T: InvokeUiSession> Session<T> {
         self.lc.write().unwrap().save_config(config);
     }
 
-    pub fn is_restarting_remote_device(&self) -> bool {
-        self.lc.read().unwrap().restarting_remote_device
+ pub fn is_restarting_remote_device(&self) -> bool {
+ self.lc.read().unwrap().restarting_remote_device
+ }
+
+ pub fn is_shutting_down_remote_device(&self) -> bool {
+ self.lc.read().unwrap().shutting_down_remote_device
     }
 
     #[inline]

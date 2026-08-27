@@ -2196,6 +2196,7 @@ pub struct LoginConfigHandler {
     pub session_id: u64, // used for local <-> server communication
     pub supported_encoding: SupportedEncoding,
     pub restarting_remote_device: bool,
+ pub shutting_down_remote_device: bool,
     pub force_relay: bool,
     pub direct: Option<bool>,
     pub received: bool,
@@ -2325,6 +2326,7 @@ impl LoginConfigHandler {
         self.session_id = sid;
         self.supported_encoding = Default::default();
         self.restarting_remote_device = false;
+ self.shutting_down_remote_device = false;
         self.force_relay =
             config::option2bool("force-always-relay", &self.get_option("force-always-relay"))
                 || force_relay
@@ -2707,7 +2709,7 @@ impl LoginConfigHandler {
  if let Some(q) = self.get_image_quality_enum(&q, ignore_default) {
  msg.image_quality = q.into();
  } else if q == "hd" {
- // HD preset: 100% bitrate ratio
+ // HD preset: quality=100, resulting in codec ratio 2.0
  msg.custom_image_quality = 100 << 8;
  #[cfg(feature = "flutter")]
  if let Some(custom_fps) = self.options.get("custom-fps") {
@@ -2716,7 +2718,7 @@ impl LoginConfigHandler {
  *self.custom_fps.lock().unwrap() = Some(custom_fps as _);
  }
  } else if q == "ultra" {
- // Ultra HD preset: 200% bitrate ratio (direct/private only)
+ // Ultra HD preset: quality=200 (ratio 4.0), direct/private only; falls back to 100 on public servers
  let allow_more = !crate::using_public_server() || self.direct == Some(true);
  let quality = if allow_more { 200 } else { 100 };
  msg.custom_image_quality = quality << 8;
@@ -2921,7 +2923,7 @@ pub fn save_image_quality(&mut self, value: String) -> Option<Message> {
  msg_out.set_misc(misc);
  res = Some(msg_out);
  } else if value == "hd" {
- // HD preset: 100% bitrate ratio
+ // HD preset: quality=100, resulting in codec ratio 2.0
  let mut misc = Misc::new();
  misc.set_option(OptionMessage {
  custom_image_quality: 100 << 8,
@@ -2931,7 +2933,7 @@ pub fn save_image_quality(&mut self, value: String) -> Option<Message> {
  msg_out.set_misc(misc);
  res = Some(msg_out);
  } else if value == "ultra" {
- // Ultra HD preset: 200% bitrate ratio
+ // Ultra HD preset: quality=200 (ratio 4.0), direct/private only; falls back to 100 on public servers
  let allow_more = !crate::using_public_server() || self.direct == Some(true);
  let quality = if allow_more { 200 } else { 100 };
  let mut misc = Misc::new();

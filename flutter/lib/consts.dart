@@ -444,10 +444,10 @@ const kRemoteImageQualityLow = 'low';
 /// [kRemoteImageQualityCustom] Custom image quality.
 const kRemoteImageQualityCustom = 'custom';
 
-/// [kRemoteImageQualityHD] HD image quality (100% bitrate ratio).
+/// [kRemoteImageQualityHD] HD image quality (quality=100, codec ratio 2.0).
 const kRemoteImageQualityHD = 'hd';
 
-/// [kRemoteImageQualityUltraHD] Ultra HD image quality (200% bitrate ratio, direct/private only).
+/// [kRemoteImageQualityUltraHD] Ultra HD image quality (quality=200, codec ratio 4.0, direct/private only).
 const kRemoteImageQualityUltraHD = 'ultra';
 
 const kIgnoreDpi = true;
