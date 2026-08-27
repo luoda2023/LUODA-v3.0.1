@@ -181,16 +181,16 @@ void main() {
     'lib/common/widgets/direct_connection_details.dart',
   ).readAsStringSync();
   final androidPermissionSource = File(
-    'android/app/src/main/kotlin/com/dotchat/remote/common.kt',
+    'android/app/src/main/kotlin/com/dotchat/remote31/common.kt',
   ).readAsStringSync();
   final androidStringsSource = File(
     'android/app/src/main/res/values/strings.xml',
   ).readAsStringSync();
   final androidDirectChatServiceSource = File(
-    'android/app/src/main/kotlin/com/dotchat/remote/DirectChatService.kt',
+    'android/app/src/main/kotlin/com/dotchat/remote31/DirectChatService.kt',
   ).readAsStringSync();
   final androidMainServiceSource = File(
-    'android/app/src/main/kotlin/com/dotchat/remote/MainService.kt',
+    'android/app/src/main/kotlin/com/dotchat/remote31/MainService.kt',
   ).readAsStringSync();
   final androidAppGradleSource = File(
     'android/app/build.gradle.kts',

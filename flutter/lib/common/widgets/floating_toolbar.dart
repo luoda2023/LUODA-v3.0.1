@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/svg.dart';
 import 'package:get/get.dart';
 
-import '../common.dart';
+import '../../common.dart';
 import '../../consts.dart';
 import 'dialog.dart';
 import '../../models/input_model.dart';
