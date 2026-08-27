@@ -3497,7 +3497,7 @@ int versionCmp(String v1, String v2) {
 String getProductDisplayName() {
   try {
     final raw = bind.mainGetAppNameSync().trim();
-    if (raw.isEmpty || raw == 'LDesk' || raw == 'LUODA') return '点聊';
+    if (raw.isEmpty || raw == 'LDesk' || raw == 'LUODA' || raw == 'LUODA31') return '点聊';
     return raw;
   } catch (_) {
     // Sub-windows (e.g. file preview) run before platformFFI is
@@ -4495,11 +4495,12 @@ bool get isCustomClient {
       // The standard DotChat build reports its display name (DotChat);
       // that is NOT a custom-client signal. Only a custom.txt that sets a
       // non-standard internal APP_NAME makes this a custom client build.
-      if (appName.isNotEmpty &&
-          appName != 'LUODA' &&
-          appName != 'LDesk' &&
-          appName != 'DotChat' &&
-          appName != '\u70b9\u804a') {
+if (appName.isNotEmpty &&
+ appName != 'LUODA' &&
+ appName != 'LUODA31' &&
+ appName != 'LDesk' &&
+ appName != 'DotChat' &&
+ appName != '\u70b9\u804a') {
         result = true;
       }
     } catch (_) {

@@ -1661,14 +1661,16 @@ impl Connection {
             pi.hostname = DEVICE_NAME.lock().unwrap().clone();
             pi.platform = "Android".into();
         }
-        #[cfg(all(target_os = "macos", not(feature = "unix-file-copy-paste")))]
-        let mut platform_additions = serde_json::Map::new();
-        #[cfg(any(
-            target_os = "windows",
-            target_os = "linux",
-            all(target_os = "macos", feature = "unix-file-copy-paste")
-        ))]
-        let mut platform_additions = serde_json::Map::new();
+#[cfg(all(target_os = "macos", not(feature = "unix-file-copy-paste")))]
+let mut platform_additions = serde_json::Map::new();
+#[cfg(any(
+ target_os = "windows",
+ target_os = "linux",
+ all(target_os = "macos", feature = "unix-file-copy-paste")
+))]
+let mut platform_additions = serde_json::Map::new();
+#[cfg(target_os = "android")]
+let mut platform_additions = serde_json::Map::new();
         #[cfg(target_os = "linux")]
         {
             if crate::platform::current_is_wayland() {
@@ -1721,15 +1723,22 @@ impl Connection {
             platform_additions.insert("has_file_clipboard".into(), json!(has_file_clipboard));
         }
 
-        #[cfg(any(target_os = "windows", target_os = "linux"))]
-        {
-            platform_additions.insert("support_view_camera".into(), json!(true));
-        }
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+{
+ platform_additions.insert("support_view_camera".into(), json!(true));
+}
 
-        #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
-        if !platform_additions.is_empty() {
-            pi.platform_additions = serde_json::to_string(&platform_additions).unwrap_or("".into());
-        }
+// Advertise this device's stable hardware identifier so the peer can
+// de-duplicate device list entries when we reconnect from a new IP.
+platform_additions.insert(
+"hardware_id".into(),
+json!(crate::common::get_hwid_hex()),
+);
+
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
+if !platform_additions.is_empty() {
+ pi.platform_additions = serde_json::to_string(&platform_additions).unwrap_or("".into());
+}
 
         if self.port_forward_socket.is_some() {
             let mut msg_out = Message::new();

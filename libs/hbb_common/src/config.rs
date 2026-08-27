@@ -111,7 +111,7 @@ lazy_static::lazy_static! {
     static ref ONLINE: Mutex<HashMap<String, i64>> = Default::default();
     pub static ref PROD_RENDEZVOUS_SERVER: RwLock<String> = RwLock::new("".to_owned());
     pub static ref EXE_RENDEZVOUS_SERVER: RwLock<String> = Default::default();
-    pub static ref APP_NAME: RwLock<String> = RwLock::new("LUODA".to_owned());
+    pub static ref APP_NAME: RwLock<String> = RwLock::new("LUODA31".to_owned());
     static ref KEY_PAIR: Mutex<Option<KeyPair>> = Default::default();
     static ref USER_DEFAULT_CONFIG: RwLock<(UserDefaultConfig, Instant)> = RwLock::new((UserDefaultConfig::load(), Instant::now()));
     pub static ref NEW_STORED_PEER_CONFIG: Mutex<HashSet<String>> = Default::default();
@@ -1088,20 +1088,20 @@ impl Config {
         }
     }
 
-    fn get_auto_id() -> Option<String> {
-        #[cfg(any(target_os = "android", target_os = "ios"))]
-        {
-            return Some(rand::thread_rng().gen_range(100_000..1_000_000).to_string());
-        }
+fn get_auto_id() -> Option<String> {
+ #[cfg(any(target_os = "android", target_os = "ios"))]
+ {
+ return Some(rand::thread_rng().gen_range(31_000_000..32_000_000).to_string());
+ }
 
-        #[cfg(not(any(target_os = "android", target_os = "ios")))]
-        {
-            // Generate 6-digit random ID for desktop platforms
-            let id = rand::thread_rng().gen_range(100_000..1_000_000).to_string();
-            log::info!("Generated 6-digit id: {}", id);
-            Some(id)
-        }
-    }
+ #[cfg(not(any(target_os = "android", target_os = "ios")))]
+ {
+ // Generate 8-digit ID with 31 prefix for v3.1 isolation from v3.0
+ let id = rand::thread_rng().gen_range(31_000_000..32_000_000).to_string();
+ log::info!("Generated 8-digit id (v3.1): {}", id);
+ Some(id)
+ }
+ }
 
     pub fn get_auto_password(length: usize) -> String {
         Self::get_auto_password_with_chars(length, CHARS)
@@ -1246,16 +1246,16 @@ impl Config {
             .unwrap_or(false)
     }
 
-    pub fn get_id() -> String {
-        let mut id = CONFIG.read().unwrap().id.clone();
-        if id.is_empty() || id.len() > 6 {
-            if let Some(tmp) = Config::gen_id() {
-                id = tmp;
-                Config::set_id(&id);
-            }
-        }
-        id
-    }
+pub fn get_id() -> String {
+ let mut id = CONFIG.read().unwrap().id.clone();
+ if id.is_empty() || id.len() > 8 {
+ if let Some(tmp) = Config::gen_id() {
+ id = tmp;
+ Config::set_id(&id);
+ }
+ }
+ id
+ }
 
     pub fn get_id_or(b: String) -> String {
         let a = CONFIG.read().unwrap().id.clone();
@@ -1322,14 +1322,14 @@ impl Config {
         }
     }
 
-    pub fn update_id() {
-        // to-do: how about if one ip register a lot of ids?
-        let id = Self::get_id();
-        let mut rng = rand::thread_rng();
-        let new_id = rng.gen_range(100_000..1_000_000).to_string();
-        Config::set_id(&new_id);
-        log::info!("id updated from {} to {}", id, new_id);
-    }
+pub fn update_id() {
+ // to-do: how about if one ip register a lot of ids?
+ let id = Self::get_id();
+ let mut rng = rand::thread_rng();
+ let new_id = rng.gen_range(31_000_000..32_000_000).to_string();
+ Config::set_id(&new_id);
+ log::info!("id updated from {} to {}", id, new_id);
+ }
 
     pub fn set_permanent_password(password: &str) {
         if Self::is_disable_change_permanent_password() {

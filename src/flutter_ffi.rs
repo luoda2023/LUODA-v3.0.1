@@ -1990,7 +1990,17 @@ pub fn main_get_my_id() -> String {
 }
 
 pub fn main_get_uuid() -> String {
-    get_uuid()
+ get_uuid()
+}
+
+/// Returns a stable hardware-derived device identifier (SHA-256 of
+/// machine_uid). Unlike the 6-digit peer ID (random) or the public-key
+/// fingerprint (changes on reinstall), this is anchored to the physical
+/// machine and survives IP changes, app restarts, and key regeneration.
+/// Used by the Flutter side to de-duplicate device list entries when
+/// the same physical device reconnects from a new IP address.
+pub fn main_get_hardware_id() -> String {
+ crate::common::get_hwid_hex()
 }
 
 pub fn main_get_peer_option(id: String, key: String) -> String {

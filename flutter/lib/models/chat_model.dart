@@ -802,34 +802,104 @@ Future<void> _pushFileHelperToCompanion(DirectChatRecord record) async {
  }
  final secret = await DirectPairingStore.getCompanionSyncSecret();
  if (companionPeerId.isEmpty || secret.isEmpty) return;
- // Find an active chat connection to the companion.
- final client = ffi.serverModel.clients.firstWhereOrNull(
- (c) =>
- c.peerId.trim() == companionPeerId &&
- c.authorized &&
- c.isChat &&
- !c.disconnected,
- );
- if (client == null) return; // no live connection — rely on pull sync
- // Re-read file bytes for small file records (same logic as
- // replica_request handler).
- var toSend = record;
- if (record.kind == DirectChatKind.file &&
- record.inlineBytes.isEmpty &&
- record.localPath.isNotEmpty &&
- canInlineDirectChatFile(record.fileSize)) {
- try {
- final bytes = await File(record.localPath).readAsBytes();
- if (bytes.length <= kMaxInlineChatFileBytes) {
- toSend = record.copyWith(inlineBytes: base64Encode(bytes));
+
+ /// 尝试通过已有连接或新拨号推送消息；返回 true 表示已发出。
+ Future<bool> tryPush() async {
+   // Find an active chat connection to the companion.
+   final client = ffi.serverModel.clients.firstWhereOrNull(
+     (c) =>
+         c.peerId.trim() == companionPeerId &&
+         c.authorized &&
+         c.isChat &&
+         !c.disconnected,
+   );
+   if (client == null) return false; // no live connection yet
+
+   // Re-read file bytes for small file records (same logic as
+   // replica_request handler).
+   var toSend = record;
+   if (record.kind == DirectChatKind.file &&
+       record.inlineBytes.isEmpty &&
+       record.localPath.isNotEmpty &&
+       canInlineDirectChatFile(record.fileSize)) {
+     try {
+       final bytes = await File(record.localPath).readAsBytes();
+       if (bytes.length <= kMaxInlineChatFileBytes) {
+         toSend = record.copyWith(inlineBytes: base64Encode(bytes));
+       }
+     } catch (_) {}
+   }
+   return _sendWire(
+     MessageKey(companionPeerId, client.id),
+     DirectChatEnvelope.replicaMessage(toSend, secret).encode(),
+   );
  }
- } catch (_) {}
+
+ // 1) 先尝试通过已有连接直接推送。
+ if (await tryPush()) return;
+
+ // 2) 没有活跃连接时，通过 VPS 信令服务器发起 P2P 拨号。
+ //    VPS 只是联系服务器，拨号成功后 PC 与手机之间用直连地址
+ //    建立 P2P 连接，流量不经过服务器。拨号完成后重试推送。
+ final ensure = ensureChatConnection;
+ if (ensure != null) {
+   await ensure(companionPeerId, force: true);
+   if (await tryPush()) return;
  }
- _sendWire(
- MessageKey(companionPeerId, client.id),
- DirectChatEnvelope.replicaMessage(toSend, secret).encode(),
- );
+
+ // 3) 拨号后可能仍需要一小段时间连接才建立。启动看门狗定时重试，
+ //    与普通消息的 delivery watchdog 机制一致（10s 间隔，最多 36 次）。
+ _scheduleFileHelperPushWatchdog(companionPeerId, record, secret);
  } catch (_) {}
+}
+
+/// 文件助手推送看门狗：当即时拨号未能建立连接时，定时重试 P2P 拨号
+/// 并推送消息，直到成功或重试耗尽。
+Timer? _fileHelperPushTimer;
+final Set<String> _fileHelperPushing = {};
+
+void _scheduleFileHelperPushWatchdog(
+  String companionPeerId,
+  DirectChatRecord record,
+  String secret,
+) {
+ if (!_fileHelperPushing.add(record.id)) return; // already retrying
+ var retries = 0;
+ void retry() {
+   final ffi = parent.target;
+   if (ffi == null || ffi.closed) {
+     _fileHelperPushing.remove(record.id);
+     return;
+   }
+   final client = ffi.serverModel.clients.firstWhereOrNull(
+     (c) =>
+         c.peerId.trim() == companionPeerId &&
+         c.authorized &&
+         c.isChat &&
+         !c.disconnected,
+   );
+   if (client != null) {
+     // 连接已建立，立即推送。
+     _sendWire(
+       MessageKey(companionPeerId, client.id),
+       DirectChatEnvelope.replicaMessage(record, secret).encode(),
+     );
+     _fileHelperPushing.remove(record.id);
+     return;
+   }
+   retries++;
+   if (retries >= 36) {
+     _fileHelperPushing.remove(record.id);
+     return;
+   }
+   // 重新拨号（VPS 信令→P2P 直连）然后等下一轮检查。
+   ensureChatConnection?.call(companionPeerId, force: true);
+   _fileHelperPushTimer?.cancel();
+   _fileHelperPushTimer = Timer(const Duration(seconds: 10), retry);
+ }
+
+ _fileHelperPushTimer?.cancel();
+ _fileHelperPushTimer = Timer(const Duration(seconds: 10), retry);
 }
 
 void refreshLocalIdentity({bool notify = false}) {

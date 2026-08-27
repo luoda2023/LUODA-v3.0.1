@@ -2765,14 +2765,24 @@ fn wire_main_get_my_id_impl(port_: MessagePort) {
     )
 }
 fn wire_main_get_uuid_impl(port_: MessagePort) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap::<_, _, _, String>(
-        WrapInfo {
-            debug_name: "main_get_uuid",
-            port: Some(port_),
-            mode: FfiCallMode::Normal,
-        },
-        move || move |task_callback| Ok(main_get_uuid()),
-    )
+ FLUTTER_RUST_BRIDGE_HANDLER.wrap::<_, _, _, String>(
+ WrapInfo {
+ debug_name: "main_get_uuid",
+ port: Some(port_),
+ mode: FfiCallMode::Normal,
+ },
+ move || move |task_callback| Ok(main_get_uuid()),
+ )
+}
+fn wire_main_get_hardware_id_impl(port_: MessagePort) {
+ FLUTTER_RUST_BRIDGE_HANDLER.wrap::<_, _, _, String>(
+ WrapInfo {
+ debug_name: "main_get_hardware_id",
+ port: Some(port_),
+ mode: FfiCallMode::Normal,
+ },
+ move || move |task_callback| Ok(main_get_hardware_id()),
+ )
 }
 fn wire_main_get_peer_option_impl(
     port_: MessagePort,

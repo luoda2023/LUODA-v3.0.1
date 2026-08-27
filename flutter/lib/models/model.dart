@@ -1649,16 +1649,18 @@ class FfiModel with ChangeNotifier {
       setShowMyCursor(bind.sessionGetToggleOptionSync(
           sessionId: sessionId, arg: kOptionToggleShowMyCursor));
     }
-    if (connType == ConnType.defaultConn || connType == ConnType.viewCamera) {
-      final platformAdditions = evt['platform_additions'];
-      if (platformAdditions != null && platformAdditions != '') {
-        try {
-          _pi.platformAdditions = json.decode(platformAdditions);
-        } catch (e) {
-          debugPrint('Failed to decode platformAdditions $e');
-        }
-      }
-    }
+if (connType == ConnType.defaultConn ||
+ connType == ConnType.viewCamera ||
+ connType == ConnType.chat) {
+final platformAdditions = evt['platform_additions'];
+if (platformAdditions != null && platformAdditions != '') {
+try {
+_pi.platformAdditions = json.decode(platformAdditions);
+} catch (e) {
+debugPrint('Failed to decode platformAdditions $e');
+}
+}
+}
 
     _pi.isSet.value = true;
     _lastConnectionError = null;
@@ -1711,29 +1713,36 @@ class FfiModel with ChangeNotifier {
       return;
     }
 
-    final displayName = normalizeDirectPeerName(
-      _pi.displayName,
-      fallback: _pi.username.trim().isNotEmpty ? _pi.username : actualPeerId,
-    );
-    final conversationPeerId = ffi.connType == ConnType.chat
-        ? ffi.chatModel.currentKey.peerId.trim()
-        : '';
-    await DirectPairingStore.saveDiscovered(
-      peerId: actualPeerId,
-      endpoint: endpoint,
-      fingerprint: fingerprint,
-      displayName: displayName,
-      avatar: _pi.avatar,
-      accountId: conversationPeerId,
-      deviceName: _pi.hostname,
-      platform: _pi.platform,
-      secure: true,
-      streamType: 'TCP',
-    );
-    debugPrint(
-      '[DirectPairing] saved peer=$actualPeerId fingerprint=${fingerprint.length}',
-    );
-  }
+final displayName = normalizeDirectPeerName(
+_pi.displayName,
+fallback: _pi.username.trim().isNotEmpty ? _pi.username : actualPeerId,
+);
+final conversationPeerId = ffi.connType == ConnType.chat
+? ffi.chatModel.currentKey.peerId.trim()
+: '';
+// Extract the peer's stable hardware identifier from platform_additions.
+// This lets DirectPairingStore merge duplicate device entries when the
+// same physical device reconnects from a new IP address.
+final peerHardwareId =
+(_pi.platformAdditions['hardware_id'] ?? '').toString().trim();
+await DirectPairingStore.saveDiscovered(
+peerId: actualPeerId,
+endpoint: endpoint,
+fingerprint: fingerprint,
+displayName: displayName,
+avatar: _pi.avatar,
+accountId: conversationPeerId,
+deviceName: _pi.hostname,
+platform: _pi.platform,
+hardwareId: peerHardwareId,
+secure: true,
+streamType: 'TCP',
+);
+debugPrint(
+'[DirectPairing] saved peer=$actualPeerId '
+'fingerprint=${fingerprint.length} hwid=${peerHardwareId.isNotEmpty}',
+);
+}
 
   checkDesktopKeyboardMode() async {
     if (isInputSourceFlutter) {

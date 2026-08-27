@@ -894,9 +894,13 @@ abstract class Luoda {
 
   FlutterRustBridgeTaskConstMeta get kMainGetMyIdConstMeta;
 
-  Future<String> mainGetUuid({dynamic hint});
+ Future<String> mainGetUuid({dynamic hint});
 
-  FlutterRustBridgeTaskConstMeta get kMainGetUuidConstMeta;
+ FlutterRustBridgeTaskConstMeta get kMainGetUuidConstMeta;
+
+ Future<String> mainGetHardwareId({dynamic hint});
+
+ FlutterRustBridgeTaskConstMeta get kMainGetHardwareIdConstMeta;
 
   Future<String> mainGetPeerOption(
       {required String id, required String key, dynamic hint});
@@ -4884,21 +4888,38 @@ class LuodaImpl implements Luoda {
         argNames: [],
       );
 
-  Future<String> mainGetUuid({dynamic hint}) {
-    return _platform.executeNormal(FlutterRustBridgeTask(
-      callFfi: (port_) => _platform.inner.wire_main_get_uuid(port_),
-      parseSuccessData: _wire2api_String,
-      constMeta: kMainGetUuidConstMeta,
-      argValues: [],
-      hint: hint,
-    ));
-  }
+Future<String> mainGetUuid({dynamic hint}) {
+ return _platform.executeNormal(FlutterRustBridgeTask(
+ callFfi: (port_) => _platform.inner.wire_main_get_uuid(port_),
+ parseSuccessData: _wire2api_String,
+ constMeta: kMainGetUuidConstMeta,
+ argValues: [],
+ hint: hint,
+ ));
+}
 
-  FlutterRustBridgeTaskConstMeta get kMainGetUuidConstMeta =>
-      const FlutterRustBridgeTaskConstMeta(
-        debugName: "main_get_uuid",
-        argNames: [],
-      );
+FlutterRustBridgeTaskConstMeta get kMainGetUuidConstMeta =>
+ const FlutterRustBridgeTaskConstMeta(
+ debugName: "main_get_uuid",
+ argNames: [],
+ );
+
+Future<String> mainGetHardwareId({dynamic hint}) {
+ return _platform.executeNormal(FlutterRustBridgeTask(
+ callFfi: (port_) => _platform.inner.wire_main_get_hardware_id(port_),
+ parseSuccessData: _wire2api_String,
+ constMeta: kMainGetHardwareIdConstMeta,
+ argValues: [],
+ hint: hint,
+ ));
+}
+
+FlutterRustBridgeTaskConstMeta get kMainGetHardwareIdConstMeta =>
+ const FlutterRustBridgeTaskConstMeta(
+ debugName: "main_get_hardware_id",
+ argNames: [],
+ );
+
 
   Future<String> mainGetPeerOption(
       {required String id, required String key, dynamic hint}) {
@@ -11458,21 +11479,35 @@ class LuodaWire implements FlutterRustBridgeWireBase {
   late final _wire_main_get_my_id =
       _wire_main_get_my_idPtr.asFunction<void Function(int)>();
 
-  void wire_main_get_uuid(
-    int port_,
-  ) {
-    return _wire_main_get_uuid(
-      port_,
-    );
-  }
+void wire_main_get_uuid(
+ int port_,
+ ) {
+ return _wire_main_get_uuid(
+ port_,
+ );
+}
 
-  late final _wire_main_get_uuidPtr =
-      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
-          'wire_main_get_uuid');
-  late final _wire_main_get_uuid =
-      _wire_main_get_uuidPtr.asFunction<void Function(int)>();
+late final _wire_main_get_uuidPtr =
+ _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+ 'wire_main_get_uuid');
+late final _wire_main_get_uuid =
+ _wire_main_get_uuidPtr.asFunction<void Function(int)>();
 
-  void wire_main_get_peer_option(
+void wire_main_get_hardware_id(
+ int port_,
+ ) {
+ return _wire_main_get_hardware_id(
+ port_,
+ );
+}
+
+late final _wire_main_get_hardware_idPtr =
+ _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+ 'wire_main_get_hardware_id');
+late final _wire_main_get_hardware_id =
+ _wire_main_get_hardware_idPtr.asFunction<void Function(int)>();
+
+void wire_main_get_peer_option(
     int port_,
     ffi.Pointer<wire_uint_8_list> id,
     ffi.Pointer<wire_uint_8_list> key,

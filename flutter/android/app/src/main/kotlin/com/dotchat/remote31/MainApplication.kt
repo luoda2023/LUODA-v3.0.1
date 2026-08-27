@@ -1,4 +1,4 @@
-package com.dotchat.remote
+package com.dotchat.remote31
 
 import android.app.Application
 import android.util.Log

@@ -831,19 +831,26 @@ impl RendezvousMediator {
             )
             .await;
         }
-        let relay_server = self.get_relay_server(ph.relay_server);
-        // LUODA: a punching peer whose address is not on a private LAN can never
-        // reach our direct listener (most routers have no port forwarding / UPnP).
-        // Always relay for such remote peers, otherwise the initiator wastes its
-        // whole direct-attempt timeout and the relay handshake times out.
-        let peer_is_remote = !crate::common::is_lan_ip(&peer_addr.ip().to_string());
-        // for ensure, websocket go relay directly
-        if ph.nat_type.enum_value() == Ok(NatType::SYMMETRIC)
-            || Config::get_nat_type() == NatType::SYMMETRIC as i32
-            || relay
-            || peer_is_remote
-            || (config::is_disable_tcp_listen() && ph.udp_port <= 0)
-        {
+ let relay_server = self.get_relay_server(ph.relay_server);
+ // LUODA 3.1.1: Previously, any peer whose address was not on a private
+ // LAN was forced through the relay server. This caused two problems:
+ //  1. All cross-network traffic (including chat messages) went through the
+ // VPS relay port (23117), so messages were silently lost when the relay
+ // server was unavailable or misconfigured.
+ //  2. The VPS became a traffic bottleneck instead of a pure address book.
+ //
+ // Now we attempt P2P hole punching for remote peers too, falling back to
+ // relay only when punching genuinely fails. The initiator's connect()
+ // function (client.rs:1075) already handles relay fallback when the direct
+ // TCP/UDP attempt times out, so removing this early-out does not break
+ // connectivity for peers behind symmetric NAT or hard firewalls.
+ //
+ // for ensure, websocket go relay directly
+ if ph.nat_type.enum_value() == Ok(NatType::SYMMETRIC)
+ || Config::get_nat_type() == NatType::SYMMETRIC as i32
+ || relay
+ || (config::is_disable_tcp_listen() && ph.udp_port <= 0)
+ {
             let uuid = Uuid::new_v4().to_string();
             return self
                 .create_relay(

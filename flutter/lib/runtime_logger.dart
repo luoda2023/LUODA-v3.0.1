@@ -43,16 +43,16 @@ class RuntimeLogger {
 
  Future<String> _resolveLogDirectory() async {
  if (Platform.isWindows) {
- final appData = Platform.environment['APPDATA'] ?? r'C:\LUODA';
- return path.join(appData, 'LUODA', 'logs');
+ final appData = Platform.environment['APPDATA'] ?? r'C:\LUODA31';
+ return path.join(appData, 'LUODA31', 'logs');
  }
  if (Platform.isMacOS) {
  final home = Platform.environment['HOME'] ?? Directory.systemTemp.path;
- return path.join(home, 'Library', 'Logs', 'LUODA');
+ return path.join(home, 'Library', 'Logs', 'LUODA31');
  }
  if (Platform.isLinux) {
  final home = Platform.environment['HOME'] ?? Directory.systemTemp.path;
- return path.join(home, '.local', 'share', 'LUODA', 'logs');
+ return path.join(home, '.local', 'share', 'LUODA31', 'logs');
  }
  final support = await getApplicationSupportDirectory();
  return path.join(support.path, 'logs');

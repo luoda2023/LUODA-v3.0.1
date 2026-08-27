@@ -124,7 +124,7 @@ protobuf {
 }
 
 android {
-    namespace = "com.dotchat.remote"
+    namespace = "com.dotchat.remote31"
     compileSdkVersion(35)
 
     sourceSets {
@@ -155,7 +155,7 @@ packagingOptions {
 }
 
 defaultConfig {
-        applicationId = "com.dotchat.remote"
+        applicationId = "com.dotchat.remote31"
         minSdkVersion(23)
         targetSdkVersion(33)
         versionCode = flutterVersionCode.toInt()

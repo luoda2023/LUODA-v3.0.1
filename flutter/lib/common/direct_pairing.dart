@@ -65,36 +65,42 @@ class DirectEndpointObservation {
 }
 
 class DirectPairing {
-  const DirectPairing({
-    required this.peerId,
-    required this.displayName,
-    required this.lanEndpoint,
-    required this.publicEndpoint,
-    required this.fingerprint,
-    required this.updatedAt,
-    this.companion = false,
-    this.syncSecret = '',
-    this.avatar = '',
-    this.ddnsEndpoint = '',
-    this.accountId = '',
-    this.deviceName = '',
-    this.platform = '',
-    this.endpointHistory = const <DirectEndpointObservation>[],
-  });
+ const DirectPairing({
+ required this.peerId,
+ required this.displayName,
+ required this.lanEndpoint,
+ required this.publicEndpoint,
+ required this.fingerprint,
+ required this.updatedAt,
+ this.companion = false,
+ this.syncSecret = '',
+ this.avatar = '',
+ this.ddnsEndpoint = '',
+ this.accountId = '',
+ this.deviceName = '',
+ this.platform = '',
+ this.hardwareId = '',
+ this.endpointHistory = const <DirectEndpointObservation>[],
+ });
 
-  final String peerId;
-  final String displayName;
-  final String lanEndpoint;
-  final String publicEndpoint;
-  final String fingerprint;
-  final DateTime updatedAt;
-  final bool companion;
-  final String syncSecret;
-  final String avatar;
-  final String accountId;
-  final String deviceName;
-  final String platform;
-  final List<DirectEndpointObservation> endpointHistory;
+ final String peerId;
+ final String displayName;
+ final String lanEndpoint;
+ final String publicEndpoint;
+ final String fingerprint;
+ final DateTime updatedAt;
+ final bool companion;
+ final String syncSecret;
+ final String avatar;
+ final String accountId;
+ final String deviceName;
+ final String platform;
+ /// Stable hardware-derived device identifier (SHA-256 of machine_uid).
+ /// Survives IP changes, app restarts, and key regeneration. Used to
+ /// de-duplicate device list entries when the same physical device
+ /// reconnects from a new IP address.
+ final String hardwareId;
+ final List<DirectEndpointObservation> endpointHistory;
 
   /// DDNS domain:port, e.g. my-pc.example.com:21116
   /// When set, the client resolves the domain via DNS AAAA (IPv6) first,
@@ -253,25 +259,27 @@ class DirectPairing {
     String? ddnsEndpoint,
     String? accountId,
     String? deviceName,
-    String? platform,
-    List<DirectEndpointObservation>? endpointHistory,
-  }) =>
-      DirectPairing(
-        peerId: peerId,
-        displayName: displayName ?? this.displayName,
-        lanEndpoint: lanEndpoint ?? this.lanEndpoint,
-        publicEndpoint: publicEndpoint ?? this.publicEndpoint,
-        fingerprint: fingerprint,
-        updatedAt: updatedAt ?? this.updatedAt,
-        companion: companion ?? this.companion,
-        syncSecret: syncSecret ?? this.syncSecret,
-        avatar: avatar ?? this.avatar,
-        ddnsEndpoint: ddnsEndpoint ?? this.ddnsEndpoint,
-        accountId: accountId ?? this.accountId,
-        deviceName: deviceName ?? this.deviceName,
-        platform: platform ?? this.platform,
-        endpointHistory: endpointHistory ?? this.endpointHistory,
-      );
+ String? platform,
+ String? hardwareId,
+ List<DirectEndpointObservation>? endpointHistory,
+ }) =>
+ DirectPairing(
+ peerId: peerId,
+ displayName: displayName ?? this.displayName,
+ lanEndpoint: lanEndpoint ?? this.lanEndpoint,
+ publicEndpoint: publicEndpoint ?? this.publicEndpoint,
+ fingerprint: fingerprint,
+ updatedAt: updatedAt ?? this.updatedAt,
+ companion: companion ?? this.companion,
+ syncSecret: syncSecret ?? this.syncSecret,
+ avatar: avatar ?? this.avatar,
+ ddnsEndpoint: ddnsEndpoint ?? this.ddnsEndpoint,
+ accountId: accountId ?? this.accountId,
+ deviceName: deviceName ?? this.deviceName,
+ platform: platform ?? this.platform,
+ hardwareId: hardwareId ?? this.hardwareId,
+ endpointHistory: endpointHistory ?? this.endpointHistory,
+ );
 
   Map<String, dynamic> toJson({
     bool includeSecret = true,
@@ -288,9 +296,10 @@ class DirectPairing {
         if (ddnsEndpoint.isNotEmpty) 'ddns_endpoint': ddnsEndpoint,
         if (avatar.isNotEmpty) 'avatar': avatar,
         if (includeSecret && syncSecret.isNotEmpty) 'sync_secret': syncSecret,
-        if (accountId.isNotEmpty) 'account_id': accountId,
-        if (deviceName.isNotEmpty) 'device_name': deviceName,
-        if (platform.isNotEmpty) 'platform': platform,
+ if (accountId.isNotEmpty) 'account_id': accountId,
+ if (deviceName.isNotEmpty) 'device_name': deviceName,
+ if (platform.isNotEmpty) 'platform': platform,
+ if (hardwareId.isNotEmpty) 'hardware_id': hardwareId,
         if (includeHistory && endpointHistory.isNotEmpty)
           'endpoint_history':
               endpointHistory.map((entry) => entry.toJson()).toList(),
@@ -312,6 +321,7 @@ class DirectPairing {
       accountId: (json['account_id'] ?? '').toString().trim(),
       deviceName: (json['device_name'] ?? '').toString().trim(),
       platform: (json['platform'] ?? '').toString().trim(),
+ hardwareId: (json['hardware_id'] ?? '').toString().trim(),
       endpointHistory:
           ((json['endpoint_history'] as List<dynamic>?) ?? const <dynamic>[])
               .map((value) => DirectEndpointObservation.fromJson(
@@ -554,6 +564,7 @@ class DirectPairingStore {
  DateTime.now(),
  companion: (row['companion'] ?? 0) == 1,
  syncSecret: (row['sync_secret'] ?? '').toString(),
+ hardwareId: (row['hardware_id'] ?? '').toString(),
  );
  pairings[peerId] = pairing;
  }
@@ -565,6 +576,12 @@ class DirectPairingStore {
  // the cache and SQLite. This is what makes "文件传输助手" reappear
  // for users who already bound their phone before the fix.
  await _repairCompanionFlags(pairings);
+ // LUODA FIX: De-duplicate pairings that share the same hardwareId.
+ // When a device reconnected from a new IP or got a new random peer ID,
+ // older builds created a separate pairing entry. Now that hardwareId
+ // is available, merge those duplicates into the most recently updated
+ // entry so the device list shows one row per physical device.
+ await _deduplicateByHardwareId(pairings);
  } catch (e) {
  debugPrint('Pairings SQLite preload failed: $e');
  // No KV fallback — return empty cache. The migration in
@@ -642,6 +659,7 @@ class DirectPairingStore {
  'sync_secret': syncSecret.isNotEmpty
  ? syncSecret
  : existing.syncSecret,
+ 'hardware_id': existing.hardwareId,
  });
  repaired = true;
  debugPrint('Repaired companion flag for $pid from KV');
@@ -683,6 +701,7 @@ class DirectPairingStore {
  'conversation_id': existing.peerId,
  'companion': 1,
  'sync_secret': existing.syncSecret,
+ 'hardware_id': existing.hardwareId,
  });
  repaired = true;
  debugPrint(
@@ -692,6 +711,101 @@ class DirectPairingStore {
  } catch (e) {
  debugPrint('Companion flag repair failed: $e');
  }
+ }
+
+ /// Merge pairings that share the same non-empty hardwareId into a
+ /// single entry (the most recently updated one), removing the older
+ /// duplicates from both the cache and SQLite. This cleans up entries
+ /// created by older builds before hardwareId-based dedup existed.
+ static Future<void> _deduplicateByHardwareId(
+ Map<String, DirectPairing> cache) async {
+ if (cache.length < 2) return;
+ // Group peerIds by hardwareId.
+ final byHwid = <String, List<String>>{};
+ for (final entry in cache.entries) {
+ final hwid = entry.value.hardwareId.trim();
+ if (hwid.isEmpty) continue;
+ byHwid.putIfAbsent(hwid, () => []).add(entry.key);
+ }
+ var changed = false;
+ for (final entry in byHwid.entries) {
+ if (entry.value.length < 2) continue;
+ // Sort by updatedAt descending; keep the newest.
+ final sorted = entry.value.toList()
+ ..sort((a, b) =>
+ cache[b]!.updatedAt.compareTo(cache[a]!.updatedAt));
+ final keepKey = sorted.first;
+ final keep = cache[keepKey]!;
+ for (final staleKey in sorted.skip(1)) {
+ final stale = cache[staleKey]!;
+ cache.remove(staleKey);
+ await DirectChatSqlite.instance.deletePairing(staleKey);
+ // Merge useful fields from the stale entry into the kept one.
+ final merged = DirectPairing(
+ peerId: keep.peerId,
+ displayName: keep.displayName.isNotEmpty
+ ? keep.displayName
+ : stale.displayName,
+ lanEndpoint: keep.lanEndpoint.isNotEmpty
+ ? keep.lanEndpoint
+ : stale.lanEndpoint,
+ publicEndpoint: keep.publicEndpoint.isNotEmpty
+ ? keep.publicEndpoint
+ : stale.publicEndpoint,
+ fingerprint: keep.fingerprint.isNotEmpty
+ ? keep.fingerprint
+ : stale.fingerprint,
+ updatedAt: keep.updatedAt.isAfter(stale.updatedAt)
+ ? keep.updatedAt
+ : stale.updatedAt,
+ companion: keep.companion || stale.companion,
+ syncSecret: keep.syncSecret.isNotEmpty
+ ? keep.syncSecret
+ : stale.syncSecret,
+ avatar: keep.avatar.isNotEmpty ? keep.avatar : stale.avatar,
+ ddnsEndpoint: keep.ddnsEndpoint.isNotEmpty
+ ? keep.ddnsEndpoint
+ : stale.ddnsEndpoint,
+ accountId: keep.accountId.isNotEmpty
+ ? keep.accountId
+ : stale.accountId,
+ deviceName: keep.deviceName.isNotEmpty
+ ? keep.deviceName
+ : stale.deviceName,
+ platform: keep.platform.isNotEmpty
+ ? keep.platform
+ : stale.platform,
+ hardwareId: keep.hardwareId,
+ endpointHistory: keep.endpointHistory.isNotEmpty
+ ? keep.endpointHistory
+ : stale.endpointHistory,
+ );
+ cache[keepKey] = merged;
+ await DirectChatSqlite.instance.upsertPairing({
+ 'peer_id': merged.peerId,
+ 'display_name': merged.displayName,
+ 'lan_endpoint': merged.endpoints.isNotEmpty
+ ? merged.endpoints.first
+ : '',
+ 'public_endpoint': merged.endpoints.length > 1
+ ? merged.endpoints[1]
+ : '',
+ 'fingerprint': merged.fingerprint,
+ 'updated_at': merged.updatedAt.toUtc().toIso8601String(),
+ 'account_id': merged.accountId,
+ 'avatar': merged.avatar,
+ 'conversation_id': merged.peerId,
+ 'companion': merged.companion ? 1 : 0,
+ 'sync_secret': merged.syncSecret,
+ 'hardware_id': merged.hardwareId,
+ });
+ changed = true;
+ debugPrint(
+ 'Deduplicated pairing $staleKey → $keepKey (hwid match)',
+ );
+ }
+ }
+ if (changed) revision.value++;
  }
 
  static Map<String, DirectPairing> load() {
@@ -851,37 +965,39 @@ class DirectPairingStore {
   /// phone scans a PC QR payload whose `acct` names the person's canonical id:
   /// the phone then advertises that same id in its own QR / contacts so any
   /// peer merges this phone into the same conversation as the PC.
-  static Future<void> bindSelfDevice({required String accountId}) async {
-    final normalized = accountId.trim();
-    if (normalized.isEmpty) return;
-    final myId = (await bind.mainGetMyId()).trim();
-    if (myId.isEmpty || normalized == myId) return;
-    final current = find(myId);
-    if (current != null && current.accountId == normalized) return;
-    final fingerprint = (await bind.mainGetFingerprint()).trim();
-    if (!_validFingerprint(fingerprint)) return;
-    final port = bind.mainGetOptionSync(key: 'direct-access-port').trim();
-    final lan = _withPort(bind.mainGetOptionSync(key: 'lan-ip').trim(), port);
-    final pub = bind.mainGetOptionSync(key: 'upnp-status') == 'ok'
-        ? _withPort(bind.mainGetOptionSync(key: 'public-ip').trim(), port)
-        : '';
-    final pairing = DirectPairing(
-      peerId: myId,
-      displayName: current?.displayName ?? '',
-      lanEndpoint: lan,
-      publicEndpoint: pub,
-      fingerprint: fingerprint,
-      updatedAt: DateTime.now().toUtc(),
-      companion: false,
-      syncSecret: '',
-      avatar: current?.avatar ?? '',
-      ddnsEndpoint: current?.ddnsEndpoint ?? '',
-      accountId: normalized,
-      deviceName: current?.deviceName ?? '',
-      platform: current?.platform ?? 'mobile',
-    );
-    await save(pairing);
-  }
+ static Future<void> bindSelfDevice({required String accountId}) async {
+ final normalized = accountId.trim();
+ if (normalized.isEmpty) return;
+ final myId = (await bind.mainGetMyId()).trim();
+ if (myId.isEmpty || normalized == myId) return;
+ final current = find(myId);
+ if (current != null && current.accountId == normalized) return;
+ final fingerprint = (await bind.mainGetFingerprint()).trim();
+ if (!_validFingerprint(fingerprint)) return;
+ final hwid = (await bind.mainGetHardwareId()).trim();
+ final port = bind.mainGetOptionSync(key: 'direct-access-port').trim();
+ final lan = _withPort(bind.mainGetOptionSync(key: 'lan-ip').trim(), port);
+ final pub = bind.mainGetOptionSync(key: 'upnp-status') == 'ok'
+ ? _withPort(bind.mainGetOptionSync(key: 'public-ip').trim(), port)
+ : '';
+ final pairing = DirectPairing(
+ peerId: myId,
+ displayName: current?.displayName ?? '',
+ lanEndpoint: lan,
+ publicEndpoint: pub,
+ fingerprint: fingerprint,
+ updatedAt: DateTime.now().toUtc(),
+ companion: false,
+ syncSecret: '',
+ avatar: current?.avatar ?? '',
+ ddnsEndpoint: current?.ddnsEndpoint ?? '',
+ accountId: normalized,
+ deviceName: current?.deviceName ?? '',
+ platform: current?.platform ?? 'mobile',
+ hardwareId: hwid,
+ );
+ await save(pairing);
+ }
 
   /// The person id this device advertises in its pairing QR: the bound
   /// account id when set, otherwise its own peer id.
@@ -929,6 +1045,7 @@ class DirectPairingStore {
  'conversation_id': pairing.peerId,
  'companion': pairing.companion ? 1 : 0,
  'sync_secret': pairing.syncSecret,
+ 'hardware_id': pairing.hardwareId,
  });
  final pairings = load()..[pairing.peerId] = pairing;
  _cache = Map<String, DirectPairing>.of(pairings);
@@ -997,10 +1114,13 @@ class DirectPairingStore {
           deviceName: incoming.deviceName.isNotEmpty
               ? incoming.deviceName
               : current?.deviceName ?? '',
-          platform: incoming.platform.isNotEmpty
-              ? incoming.platform
-              : current?.platform ?? '',
-          endpointHistory: incoming.endpointHistory.isNotEmpty
+ platform: incoming.platform.isNotEmpty
+ ? incoming.platform
+ : current?.platform ?? '',
+ hardwareId: incoming.hardwareId.isNotEmpty
+ ? incoming.hardwareId
+ : current?.hardwareId ?? '',
+ endpointHistory: incoming.endpointHistory.isNotEmpty
               ? incoming.endpointHistory
               : current?.endpointHistory ?? const <DirectEndpointObservation>[],
         );
@@ -1024,6 +1144,7 @@ class DirectPairingStore {
  'conversation_id': pairing.peerId,
  'companion': pairing.companion ? 1 : 0,
  'sync_secret': pairing.syncSecret,
+ 'hardware_id': pairing.hardwareId,
  });
  }
  _cache = Map<String, DirectPairing>.of(pairings);
@@ -1051,106 +1172,141 @@ class DirectPairingStore {
         displayName.trim().isEmpty ? current.displayName : displayName.trim();
     final nextAvatar = avatar.trim().isEmpty ? current.avatar : avatar.trim();
     if (nextName == current.displayName && nextAvatar == current.avatar) return;
-    await save(DirectPairing(
-      peerId: current.peerId,
-      displayName: nextName,
-      lanEndpoint: current.lanEndpoint,
-      publicEndpoint: current.publicEndpoint,
-      fingerprint: current.fingerprint,
-      updatedAt: DateTime.now().toUtc(),
-      companion: current.companion,
-      syncSecret: current.syncSecret,
-      avatar: nextAvatar,
-      ddnsEndpoint: current.ddnsEndpoint,
-      accountId: current.accountId,
-      deviceName: current.deviceName,
-      platform: current.platform,
-      endpointHistory: current.endpointHistory,
+ await save(DirectPairing(
+ peerId: current.peerId,
+ displayName: nextName,
+ lanEndpoint: current.lanEndpoint,
+ publicEndpoint: current.publicEndpoint,
+ fingerprint: current.fingerprint,
+ updatedAt: DateTime.now().toUtc(),
+ companion: current.companion,
+ syncSecret: current.syncSecret,
+ avatar: nextAvatar,
+ ddnsEndpoint: current.ddnsEndpoint,
+ accountId: current.accountId,
+ deviceName: current.deviceName,
+ platform: current.platform,
+ hardwareId: current.hardwareId,
+ endpointHistory: current.endpointHistory,
     ));
   }
 
-  /// After a direct connection reveals the real device id, try to migrate a
-  /// stale pairing to the new id:
-  /// 1. the conversation id (accountId) is itself an existing stale pairing;
-  /// 2. any existing pairing has an identical fingerprint (same device, new id).
-  /// Returns (migrated pairing, stale key to remove); (null, null) when no
-  /// same-device pairing can be confirmed.
-  @visibleForTesting
-  static (DirectPairing?, String?) migrateStalePairingValue(
-    Map<String, DirectPairing> pairings, {
-    required String peerId,
-    required String accountId,
-    required String fingerprint,
-  }) {
-    final normalizedAccountId = accountId.trim();
-    final normalizedFingerprint = _normalizeFingerprint(fingerprint);
-    DirectPairing? stale;
-    String? staleKey;
-    if (normalizedAccountId.isNotEmpty &&
-        normalizedAccountId != peerId &&
-        pairings[normalizedAccountId] != null) {
-      final candidate = pairings[normalizedAccountId]!;
-      if (_sameDeviceForMerge(candidate, normalizedFingerprint)) {
-        stale = candidate;
-        staleKey = normalizedAccountId;
-      }
-    }
-    if (stale == null && normalizedFingerprint.isNotEmpty) {
-      for (final entry in pairings.entries) {
-        if (entry.key == peerId) continue;
-        final candidateFingerprint =
-            _normalizeFingerprint(entry.value.fingerprint);
-        if (candidateFingerprint.isNotEmpty &&
-            candidateFingerprint == normalizedFingerprint) {
-          stale = entry.value;
-          staleKey = entry.key;
-          break;
-        }
-      }
-    }
-    if (stale == null || staleKey == null) return (null, null);
-    // Keep the user's manually set name/avatar/endpoint history, and keep the
-    // old id as the conversation binding so existing chats keep working.
-    return (
-      DirectPairing(
-        peerId: peerId,
-        displayName: stale.displayName,
-        lanEndpoint: stale.lanEndpoint,
-        publicEndpoint: stale.publicEndpoint,
-        fingerprint: fingerprint,
-        updatedAt: DateTime.now().toUtc(),
-        companion: stale.companion,
-        syncSecret: stale.syncSecret,
-        avatar: stale.avatar,
-        ddnsEndpoint: stale.ddnsEndpoint,
-        accountId: stale.accountId.isNotEmpty ? stale.accountId : staleKey,
-        deviceName: stale.deviceName,
-        platform: stale.platform,
-        endpointHistory: stale.endpointHistory,
-      ),
-      staleKey,
+/// After a direct connection reveals the real device id, try to migrate a
+/// stale pairing to the new id:
+/// 1. the conversation id (accountId) is itself an existing stale pairing;
+/// 2. any existing pairing has an identical fingerprint (same device, new id);
+/// 3. any existing pairing has an identical hardwareId (same physical machine,
+/// new IP — the key fix for the "device duplicates on IP change" bug).
+/// Returns (migrated pairing, stale key to remove); (null, null) when no
+/// same-device pairing can be confirmed.
+@visibleForTesting
+static (DirectPairing?, String?) migrateStalePairingValue(
+Map<String, DirectPairing> pairings, {
+required String peerId,
+required String accountId,
+required String fingerprint,
+String hardwareId = '',
+}) {
+final normalizedAccountId = accountId.trim();
+final normalizedFingerprint = _normalizeFingerprint(fingerprint);
+final normalizedHwid = hardwareId.trim();
+DirectPairing? stale;
+String? staleKey;
+// Strategy 1: accountId matches an existing pairing.
+if (normalizedAccountId.isNotEmpty &&
+normalizedAccountId != peerId &&
+pairings[normalizedAccountId] != null) {
+final candidate = pairings[normalizedAccountId]!;
+if (_sameDeviceForMerge(candidate, normalizedFingerprint,
+hardwareId: normalizedHwid)) {
+stale = candidate;
+staleKey = normalizedAccountId;
+}
+}
+// Strategy 2: fingerprint matches an existing pairing.
+if (stale == null && normalizedFingerprint.isNotEmpty) {
+for (final entry in pairings.entries) {
+if (entry.key == peerId) continue;
+final candidateFingerprint =
+_normalizeFingerprint(entry.value.fingerprint);
+if (candidateFingerprint.isNotEmpty &&
+candidateFingerprint == normalizedFingerprint) {
+stale = entry.value;
+staleKey = entry.key;
+break;
+}
+}
+}
+// Strategy 3: hardwareId matches an existing pairing. This catches the
+// case where fingerprint is empty or changed (key regenerated) but it's
+// the same physical machine — the primary cause of duplicate device
+// entries when a device reconnects from a new IP.
+if (stale == null && normalizedHwid.isNotEmpty) {
+for (final entry in pairings.entries) {
+if (entry.key == peerId) continue;
+final candidateHwid = entry.value.hardwareId.trim();
+if (candidateHwid.isNotEmpty &&
+candidateHwid == normalizedHwid) {
+stale = entry.value;
+staleKey = entry.key;
+break;
+}
+}
+}
+if (stale == null || staleKey == null) return (null, null);
+// Keep the user's manually set name/avatar/endpoint history, and keep the
+// old id as the conversation binding so existing chats keep working.
+return (
+DirectPairing(
+peerId: peerId,
+displayName: stale.displayName,
+lanEndpoint: stale.lanEndpoint,
+publicEndpoint: stale.publicEndpoint,
+fingerprint: fingerprint.isNotEmpty ? fingerprint : stale.fingerprint,
+updatedAt: DateTime.now().toUtc(),
+companion: stale.companion,
+syncSecret: stale.syncSecret,
+avatar: stale.avatar,
+ddnsEndpoint: stale.ddnsEndpoint,
+accountId: stale.accountId.isNotEmpty ? stale.accountId : staleKey,
+deviceName: stale.deviceName,
+platform: stale.platform,
+hardwareId: normalizedHwid.isNotEmpty ? normalizedHwid : stale.hardwareId,
+endpointHistory: stale.endpointHistory,
+),
+staleKey,
     );
   }
 
-  static bool _sameDeviceForMerge(
-    DirectPairing candidate,
-    String normalizedFingerprint,
-  ) {
-    return candidate.fingerprint.trim().isEmpty ||
-        _normalizeFingerprint(candidate.fingerprint) == normalizedFingerprint;
-  }
+ static bool _sameDeviceForMerge(
+ DirectPairing candidate,
+ String normalizedFingerprint, {
+ String hardwareId = '',
+ }) {
+ final normalizedHwid = hardwareId.trim();
+ // If both have a hardwareId and they match, it's definitely the same device.
+ if (normalizedHwid.isNotEmpty &&
+ candidate.hardwareId.trim().isNotEmpty &&
+ candidate.hardwareId.trim() == normalizedHwid) {
+ return true;
+ }
+ // Fallback: fingerprint match, or candidate has no fingerprint yet.
+ return candidate.fingerprint.trim().isEmpty ||
+ _normalizeFingerprint(candidate.fingerprint) == normalizedFingerprint;
+ }
 
   static String _normalizeFingerprint(String value) =>
       value.toLowerCase().replaceAll(':', '').replaceAll(' ', '').trim();
 
-  static Future<void> saveDiscovered({
-    required String peerId,
-    required String endpoint,
-    required String fingerprint,
-    required String displayName,
-    required String avatar,
-    String accountId = '',
-    String deviceName = '',
+ static Future<void> saveDiscovered({
+ required String peerId,
+ required String endpoint,
+ required String fingerprint,
+ required String displayName,
+ required String avatar,
+ String accountId = '',
+ String deviceName = '',
+ String hardwareId = '',
     String platform = '',
     bool secure = false,
     String streamType = 'TCP',
@@ -1162,39 +1318,44 @@ class DirectPairingStore {
         !_validFingerprint(fingerprint)) {
       return;
     }
-    final pairings = load();
-    final normalizedAccountId = accountId.trim();
-    final (migrated, staleKey) = migrateStalePairingValue(
-      pairings,
-      peerId: peerId,
-      accountId: normalizedAccountId,
-      fingerprint: fingerprint,
-    );
-    final base = migrated ?? pairings[peerId];
-    final isPrivate = isPrivateEndpoint(normalizedEndpoint);
-    final pairing = DirectPairing(
-      peerId: peerId,
-      displayName:
-          displayName.isEmpty ? base?.displayName ?? peerId : displayName,
-      lanEndpoint: isPrivate ? normalizedEndpoint : base?.lanEndpoint ?? '',
-      publicEndpoint:
-          isPrivate ? base?.publicEndpoint ?? '' : normalizedEndpoint,
-      fingerprint: fingerprint,
-      updatedAt: DateTime.now().toUtc(),
-      companion: base?.companion ?? false,
-      syncSecret: base?.syncSecret ?? '',
-      avatar: avatar.isEmpty ? base?.avatar ?? '' : avatar,
-      ddnsEndpoint: base?.ddnsEndpoint ?? '',
-      accountId: base?.accountId.isNotEmpty == true
-          ? base!.accountId
-          : normalizedAccountId,
-      deviceName: deviceName.trim().isEmpty
-          ? base?.deviceName ?? ''
-          : deviceName.trim(),
-      platform:
-          platform.trim().isEmpty ? base?.platform ?? '' : platform.trim(),
-      endpointHistory:
-          base?.endpointHistory ?? const <DirectEndpointObservation>[],
+ final pairings = load();
+ final normalizedAccountId = accountId.trim();
+ final normalizedHwid = hardwareId.trim();
+ final (migrated, staleKey) = migrateStalePairingValue(
+ pairings,
+ peerId: peerId,
+ accountId: normalizedAccountId,
+ fingerprint: fingerprint,
+ hardwareId: normalizedHwid,
+ );
+ final base = migrated ?? pairings[peerId];
+ final isPrivate = isPrivateEndpoint(normalizedEndpoint);
+ final pairing = DirectPairing(
+ peerId: peerId,
+ displayName:
+ displayName.isEmpty ? base?.displayName ?? peerId : displayName,
+ lanEndpoint: isPrivate ? normalizedEndpoint : base?.lanEndpoint ?? '',
+ publicEndpoint:
+ isPrivate ? base?.publicEndpoint ?? '' : normalizedEndpoint,
+ fingerprint: fingerprint,
+ updatedAt: DateTime.now().toUtc(),
+ companion: base?.companion ?? false,
+ syncSecret: base?.syncSecret ?? '',
+ avatar: avatar.isEmpty ? base?.avatar ?? '' : avatar,
+ ddnsEndpoint: base?.ddnsEndpoint ?? '',
+ accountId: base?.accountId.isNotEmpty == true
+ ? base!.accountId
+ : normalizedAccountId,
+ deviceName: deviceName.trim().isEmpty
+ ? base?.deviceName ?? ''
+ : deviceName.trim(),
+ platform:
+ platform.trim().isEmpty ? base?.platform ?? '' : platform.trim(),
+ hardwareId: normalizedHwid.isNotEmpty
+ ? normalizedHwid
+ : base?.hardwareId ?? '',
+ endpointHistory:
+ base?.endpointHistory ?? const <DirectEndpointObservation>[],
     ).recordVerifiedEndpoint(
       endpoint: normalizedEndpoint,
       observedAt: DateTime.now().toUtc(),
@@ -1221,12 +1382,13 @@ class DirectPairingStore {
  'conversation_id': pairing.peerId,
  'companion': pairing.companion ? 1 : 0,
  'sync_secret': pairing.syncSecret,
+ 'hardware_id': pairing.hardwareId,
  });
  _cache = Map<String, DirectPairing>.of(pairings);
  revision.value++;
  }
 
-  static String? resolveEndpoint(String value) {
+ static String? resolveEndpoint(String value) {
     final input = value.trim().replaceAll(' ', '');
     final extracted = extractDirectEndpoint(input);
     if (extracted.isNotEmpty) return extracted;

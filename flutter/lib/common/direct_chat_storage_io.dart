@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 
 class DirectChatStorage {
-  static const _fileName = 'ldesk_direct_chat_v1.json';
+  static const _fileName = 'ldesk31_direct_chat_v1.json';
   static const _maxLockAttempts = 12;
 
   Future<File> _file() async {
@@ -28,8 +28,8 @@ class DirectChatStorage {
     final base = (programData == null || programData.trim().isEmpty)
         ? r'C:\ProgramData'
         : programData.trim();
-    final shared = Directory('$base${Platform.pathSeparator}LUODA'
-        '${Platform.pathSeparator}chat');
+final shared = Directory('$base${Platform.pathSeparator}LUODA31'
+ '${Platform.pathSeparator}chat');
     await shared.create(recursive: true);
     final sharedFile =
         File('${shared.path}${Platform.pathSeparator}$_fileName');
@@ -48,7 +48,7 @@ class DirectChatStorage {
     } catch (_) {}
     final systemRoot = Platform.environment['SystemRoot'] ?? r'C:\Windows';
     candidates.add('$systemRoot\\System32\\config\\systemprofile'
-        '\\AppData\\Roaming\\LDesk\\LDesk\\$_fileName');
+        '\\AppData\\Roaming\\LUODA31\\LUODA31\\$_fileName');
 
     final lockFile = File('${sharedFile.path}.lock');
     Object? lastError;

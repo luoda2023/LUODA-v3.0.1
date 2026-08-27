@@ -7157,11 +7157,11 @@ Future<void> _refreshDirectSessions() async {
               if (expanded) ...[
                 const SizedBox(width: 10),
                 Expanded(
-                  child: Text(
-                    'LUODA',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
+child: Text(
+ getProductDisplayName(),
+ style: Theme.of(context).textTheme.titleMedium?.copyWith(
+ fontWeight: FontWeight.w700,
+ ),
                   ),
                 ),
               ],

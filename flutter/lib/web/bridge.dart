@@ -1225,9 +1225,13 @@ class Luoda {
     return Future.value('');
   }
 
-  Future<String> mainGetFingerprint({dynamic hint}) {
-    return Future.value('');
-  }
+Future<String> mainGetFingerprint({dynamic hint}) {
+ return Future.value('');
+}
+
+Future<String> mainGetHardwareId({dynamic hint}) {
+ return Future.value('');
+}
 
   Future<String> cmGetClientsState({dynamic hint}) {
     throw UnimplementedError("cmGetClientsState");
@@ -1670,10 +1674,11 @@ class Luoda {
     return false;
   }
 
-  bool isCustomClient({dynamic hint}) {
-    // is_custom_client() checks if app name is not "LUODA"
-    return mainGetAppNameSync(hint: hint) != "LUODA";
-  }
+bool isCustomClient({dynamic hint}) {
+ // is_custom_client() checks if app name is not a standard build (LUODA/LUODA31)
+ final name = mainGetAppNameSync(hint: hint);
+ return name != "LUODA" && name != "LUODA31";
+ }
 
   bool isDisableSettings({dynamic hint}) {
     // Checks HARD_SETTINGS["disable-settings"] == "Y"

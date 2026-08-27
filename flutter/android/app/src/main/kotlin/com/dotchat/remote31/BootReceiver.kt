@@ -1,4 +1,4 @@
-package com.dotchat.remote
+package com.dotchat.remote31
 
 import android.Manifest.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
 import android.Manifest.permission.SYSTEM_ALERT_WINDOW
@@ -12,7 +12,7 @@ import com.hjq.permissions.XXPermissions
 import ffi.FFI
 import io.flutter.embedding.android.FlutterActivity
 
-const val DEBUG_BOOT_COMPLETED = "com.dotchat.remote.DEBUG_BOOT_COMPLETED"
+const val DEBUG_BOOT_COMPLETED = "com.dotchat.remote31.DEBUG_BOOT_COMPLETED"
 
 class BootReceiver : BroadcastReceiver() {
     private val logTag = "tagBootReceiver"

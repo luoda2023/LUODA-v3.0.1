@@ -2,23 +2,25 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:luoda_flutter/common/direct_pairing.dart';
 
 DirectPairing _pairing({
-  required String peerId,
-  String displayName = '',
-  String lanEndpoint = '192.168.31.10:21118',
-  String fingerprint = 'AA:BB:CC',
-  String accountId = '',
-  String avatar = '',
+required String peerId,
+ String displayName = '',
+ String lanEndpoint = '192.168.31.10:21118',
+ String fingerprint = 'AA:BB:CC',
+ String accountId = '',
+ String avatar = '',
+ String hardwareId = '',
 }) =>
-    DirectPairing(
-      peerId: peerId,
-      displayName: displayName,
-      lanEndpoint: lanEndpoint,
-      publicEndpoint: '',
-      fingerprint: fingerprint,
-      updatedAt: DateTime.utc(2026, 8, 8),
-      accountId: accountId,
-      avatar: avatar,
-    );
+DirectPairing(
+ peerId: peerId,
+ displayName: displayName,
+ lanEndpoint: lanEndpoint,
+ publicEndpoint: '',
+ fingerprint: fingerprint,
+ updatedAt: DateTime.utc(2026, 8, 8),
+ accountId: accountId,
+ avatar: avatar,
+ hardwareId: hardwareId,
+);
 
 final _t1 = DateTime.utc(2026, 8, 1);
 final _t2 = DateTime.utc(2026, 8, 10);
@@ -153,26 +155,76 @@ void main() {
       expect(staleKey, isNull);
     });
 
-    test('keeps an existing account binding on the migrated pairing', () {
-      final pairings = <String, DirectPairing>{
-        '777777': _pairing(
-          peerId: '777777',
-          displayName: 'B',
-          fingerprint: '11:22:33:44',
-          accountId: 'old-account',
-        ),
-      };
-      final (migrated, staleKey) =
-          DirectPairingStore.migrateStalePairingValue(
-        pairings,
-        peerId: '888888',
-        accountId: '',
-        fingerprint: '11:22:33:44',
-      );
-      expect(staleKey, '777777');
-      expect(migrated!.accountId, 'old-account');
-    });
-  });
+test('keeps an existing account binding on the migrated pairing', () {
+ final pairings = <String, DirectPairing>{
+ '777777': _pairing(
+ peerId: '777777',
+ displayName: 'B',
+ fingerprint: '11:22:33:44',
+ accountId: 'old-account',
+ ),
+ };
+ final (migrated, staleKey) =
+ DirectPairingStore.migrateStalePairingValue(
+ pairings,
+ peerId: '888888',
+ accountId: '',
+ fingerprint: '11:22:33:44',
+ );
+ expect(staleKey, '777777');
+ expect(migrated!.accountId, 'old-account');
+});
+
+test('migrates by hardwareId when fingerprint differs (IP change)', () {
+ // Scenario: the same physical device reconnects from a new IP,
+ // got a new peer ID, and its fingerprint changed (key regenerated).
+ // The hardwareId is the stable anchor that identifies it as the
+ // same machine.
+ final pairings = <String, DirectPairing>{
+ '100200': _pairing(
+ peerId: '100200',
+ displayName: '我的电脑',
+ fingerprint: 'aa:bb:cc',
+ hardwareId: 'hwid-abc123',
+ ),
+ };
+ final (migrated, staleKey) =
+ DirectPairingStore.migrateStalePairingValue(
+ pairings,
+ peerId: '300400',
+ accountId: '',
+ fingerprint: 'de:ad:be:ef',
+ hardwareId: 'hwid-abc123',
+ );
+ expect(staleKey, '100200');
+ expect(migrated, isNotNull);
+ expect(migrated!.peerId, '300400');
+ expect(migrated.displayName, '我的电脑');
+ expect(migrated.hardwareId, 'hwid-abc123');
+ // The new fingerprint should override the stale one.
+ expect(migrated.fingerprint, 'de:ad:be:ef');
+});
+
+test('does not migrate by hardwareId when it is empty', () {
+ final pairings = <String, DirectPairing>{
+ '100200': _pairing(
+ peerId: '100200',
+ fingerprint: 'aa:bb:cc',
+ hardwareId: '',
+ ),
+ };
+ final (migrated, staleKey) =
+ DirectPairingStore.migrateStalePairingValue(
+ pairings,
+ peerId: '300400',
+ accountId: '',
+ fingerprint: 'de:ad:be:ef',
+ hardwareId: '',
+ );
+ expect(migrated, isNull);
+ expect(staleKey, isNull);
+});
+});
 
 
   group('DirectPairing legacy shared-port fallback', () {

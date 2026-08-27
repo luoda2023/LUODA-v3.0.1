@@ -32,9 +32,9 @@ import '../models/platform_model.dart';
 /// +location_lat/location_lng/location_name columns on messages
 /// v3: +companion/sync_secret columns on pairings (fix: companion flag
 ///     was lost on save/reload, causing "文件传输助手" to never appear)
-const int _kDbVersion = 3;
+const int _kDbVersion = 4;
 
-const String _kDbFileName = 'ldesk_chat.db';
+const String _kDbFileName = 'ldesk31_chat.db';
 
 /// SQL to create the [messages] table.
 const String _kCreateMessagesTable = '''
@@ -139,7 +139,8 @@ CREATE TABLE IF NOT EXISTS pairings (
  conn_port INTEGER NOT NULL DEFAULT 0,
  is_bound_phone INTEGER NOT NULL DEFAULT 0,
  companion INTEGER NOT NULL DEFAULT 0,
- sync_secret TEXT NOT NULL DEFAULT ''
+ sync_secret TEXT NOT NULL DEFAULT '',
+ hardware_id TEXT NOT NULL DEFAULT ''
 )''';
 
 // ── Contact policies table (v2) ──────────────────────────
@@ -172,6 +173,11 @@ const String _kAlterPairingsAddCompanion =
  'ALTER TABLE pairings ADD COLUMN companion INTEGER NOT NULL DEFAULT 0';
 const String _kAlterPairingsAddSyncSecret =
  'ALTER TABLE pairings ADD COLUMN sync_secret TEXT NOT NULL DEFAULT \'\'';
+
+// ── v4 ALTER TABLE for pairings (hardware_id column) ────
+
+const String _kAlterPairingsAddHardwareId =
+ 'ALTER TABLE pairings ADD COLUMN hardware_id TEXT NOT NULL DEFAULT \'\'';
 
 /// Drop-in replacement for [DirectChatStorage] backed by SQLite.
 ///
@@ -236,7 +242,7 @@ return getApplicationSupportDirectory();
         ? r'C:\ProgramData'
         : programData.trim();
     final shared =
-        Directory('$base${Platform.pathSeparator}LUODA${Platform.pathSeparator}chat');
+        Directory('$base${Platform.pathSeparator}LUODA31${Platform.pathSeparator}chat');
     await shared.create(recursive: true);
     return shared;
   }
@@ -284,6 +290,9 @@ return getApplicationSupportDirectory();
  await _safeAlter(db, _kAlterMessagesAddLocationName);
  await _safeAlter(db, _kAlterMessagesAddImageWidth);
  await _safeAlter(db, _kAlterMessagesAddImageHeight);
+ // v4: hardware_id column on pairings (included in fresh CREATE TABLE
+ // for new installs, but _safeAlter is idempotent so it's safe here too).
+ await _safeAlter(db, _kAlterPairingsAddHardwareId);
  },
  onUpgrade: (db, oldVersion, newVersion) async {
  if (oldVersion < 2) {
@@ -303,6 +312,10 @@ return getApplicationSupportDirectory();
  if (oldVersion < 3) {
  await _safeAlter(db, _kAlterPairingsAddCompanion);
  await _safeAlter(db, _kAlterPairingsAddSyncSecret);
+ }
+ if (oldVersion < 4) {
+ // v4: add hardware_id column for stable device identification.
+ await _safeAlter(db, _kAlterPairingsAddHardwareId);
  }
  },
     );

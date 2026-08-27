@@ -106,17 +106,17 @@ pub mod runtime_logger {
 
     impl RuntimeLog {
         fn new() -> Self {
-            let base = if cfg!(target_os = "windows") {
-                std::env::var("APPDATA").map(|p| PathBuf::from(p).join("LUODA").join("logs"))
-                    .unwrap_or_else(|_| PathBuf::from("C:\\LUODA\\logs"))
-            } else if cfg!(target_os = "macos") {
-                PathBuf::from(std::env::var("HOME").unwrap_or_default())
-                    .join("Library").join("Logs").join("LUODA")
-            } else {
-                PathBuf::from(std::env::var("HOME").unwrap_or_default())
-                    .join(".config").join("luoda").join("logs")
-            };
-            let log_file = base.join("luoda_runtime.log");
+let base = if cfg!(target_os = "windows") {
+ std::env::var("APPDATA").map(|p| PathBuf::from(p).join("LUODA31").join("logs"))
+ .unwrap_or_else(|_| PathBuf::from("C:\\LUODA31\\logs"))
+ } else if cfg!(target_os = "macos") {
+ PathBuf::from(std::env::var("HOME").unwrap_or_default())
+ .join("Library").join("Logs").join("LUODA31")
+ } else {
+ PathBuf::from(std::env::var("HOME").unwrap_or_default())
+ .join(".config").join("luoda31").join("logs")
+ };
+            let log_file = base.join("luoda31_runtime.log");
             let _ = create_dir_all(&base);
             if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&log_file) {
                 let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();

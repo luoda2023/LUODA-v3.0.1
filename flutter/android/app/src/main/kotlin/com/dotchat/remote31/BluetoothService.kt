@@ -1,4 +1,4 @@
-package com.dotchat.remote
+package com.dotchat.remote31
 
 /**
  * Classic Bluetooth (RFCOMM) chat / file-transfer bridge.

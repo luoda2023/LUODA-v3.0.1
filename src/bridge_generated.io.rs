@@ -1227,7 +1227,12 @@ pub extern "C" fn wire_main_get_my_id(port_: i64) {
 
 #[no_mangle]
 pub extern "C" fn wire_main_get_uuid(port_: i64) {
-    wire_main_get_uuid_impl(port_)
+ wire_main_get_uuid_impl(port_)
+}
+
+#[no_mangle]
+pub extern "C" fn wire_main_get_hardware_id(port_: i64) {
+ wire_main_get_hardware_id_impl(port_)
 }
 
 #[no_mangle]

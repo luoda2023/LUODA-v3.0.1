@@ -138,10 +138,10 @@ fn get_share_dir() -> ResultType<PathBuf> {
 
 #[inline]
 fn get_plugins_dir() -> ResultType<PathBuf> {
-    Ok(get_share_dir()?
-        .join("LUODA")
-        .join(PLUGIN_SOURCE_LOCAL_DIR))
-}
+ Ok(get_share_dir()?
+ .join("LUODA31")
+ .join(PLUGIN_SOURCE_LOCAL_DIR))
+ }
 
 #[inline]
 fn get_plugin_dir(id: &str) -> ResultType<PathBuf> {

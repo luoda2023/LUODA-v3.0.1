@@ -1028,25 +1028,26 @@ users see in window titles, tray tooltips and dialogs. */
 pub fn get_display_name() -> String {
     let configured = hbb_common::config::APP_NAME.read().unwrap().clone();
     match configured.as_str() {
-        "LUODA" | "LDesk" => "点聊".to_owned(),
+        "LUODA" | "LUODA31" | "LDesk" => "点聊".to_owned(),
         _ => configured,
     }
 }
 
 #[inline]
 pub fn get_app_name() -> String {
-    let configured = hbb_common::config::APP_NAME.read().unwrap().clone();
-    if configured == "LUODA" {
-        DEFAULT_PRODUCT_DISPLAY_NAME.to_owned()
-    } else {
-        configured
-    }
-}
+ let configured = hbb_common::config::APP_NAME.read().unwrap().clone();
+ if configured == "LUODA" || configured == "LUODA31" {
+ DEFAULT_PRODUCT_DISPLAY_NAME.to_owned()
+ } else {
+ configured
+ }
+ }
 
 #[inline]
 pub fn is_luoda() -> bool {
-    hbb_common::config::APP_NAME.read().unwrap().eq("LUODA")
-}
+ let app_name = hbb_common::config::APP_NAME.read().unwrap();
+ app_name.eq("LUODA") || app_name.eq("LUODA31")
+ }
 
 #[inline]
 pub fn is_serverless_direct_only() -> bool {
@@ -2017,13 +2018,24 @@ pub fn is_empty_uni_link(arg: &str) -> bool {
 }
 
 pub fn get_hwid() -> Bytes {
-    use hbb_common::sha2::{Digest, Sha256};
+ use hbb_common::sha2::{Digest, Sha256};
 
-    let uuid = hbb_common::get_uuid();
-    let mut hasher = Sha256::new();
-    hasher.update(&uuid);
-    Bytes::from(hasher.finalize().to_vec())
-}
+ let uuid = hbb_common::get_uuid();
+ let mut hasher = Sha256::new();
+ hasher.update(&uuid);
+ Bytes::from(hasher.finalize().to_vec())
+ }
+
+/// Hex-encoded SHA-256 of machine_uid — a stable hardware device
+/// identifier suitable for cross-device comparison. Same value on the
+/// same machine regardless of IP, restarts, or key regeneration.
+pub fn get_hwid_hex() -> String {
+ use hbb_common::sha2::{Digest, Sha256};
+ let uuid = hbb_common::get_uuid();
+ let mut hasher = Sha256::new();
+ hasher.update(&uuid);
+ hex::encode(hasher.finalize())
+ }
 
 #[inline]
 pub fn get_builtin_option(key: &str) -> String {

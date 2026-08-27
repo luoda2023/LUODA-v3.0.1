@@ -1,4 +1,4 @@
-package com.dotchat.remote
+package com.dotchat.remote31
 
 /**
  * Handle remote input and dispatch android gesture
