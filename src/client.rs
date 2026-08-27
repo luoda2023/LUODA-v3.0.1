@@ -3963,8 +3963,25 @@ pub async fn handle_hash(
     interface: &impl Interface,
     peer: &mut Stream,
 ) {
-    lc.write().unwrap().hash = hash.clone();
-    // Take care of password application order
+ // If the peer's salt changed since last connection, any remembered
+ // H1 password is stale (it was computed with the old salt). Clear it
+ // so we fall through to preset / config / manual entry instead of
+ // sending an H1 that can never validate, which the server treats as
+ // "Wrong Password" and closes the connection.
+ {
+ let mut lc_w = lc.write().unwrap();
+ let salt_changed = !lc_w.hash.salt.is_empty() && lc_w.hash.salt != hash.salt;
+ if salt_changed {
+ lc_w.password.clear();
+ if !lc_w.config.password.is_empty() {
+ lc_w.config.password.clear();
+ }
+ lc_w.password_source = Default::default();
+ }
+ lc_w.hash = hash.clone();
+ }
+ // Take care of password application order
+
 
     // switch_uuid
     let uuid = lc.write().unwrap().switch_uuid.take();
@@ -4281,8 +4298,8 @@ pub enum Data {
     RecordScreen(bool),
     ElevateDirect,
     ElevateWithLogon(String, String),
-    NewVoiceCall,
-    CloseVoiceCall,
+ NewVoiceCall,
+ CloseVoiceCall,
     ResetDecoder(Option<usize>),
     RenameFile((i32, String, String, bool)),
     TakeScreenshot((i32, String)),
