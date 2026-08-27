@@ -1616,10 +1616,18 @@ pub extern "C" fn wire_session_send_mouse(
 
 #[no_mangle]
 pub extern "C" fn wire_session_restart_remote_device(
-    port_: i64,
-    session_id: *mut wire_uint_8_list,
+port_: i64,
+session_id: *mut wire_uint_8_list,
 ) {
-    wire_session_restart_remote_device_impl(port_, session_id)
+wire_session_restart_remote_device_impl(port_, session_id)
+}
+
+#[no_mangle]
+pub extern "C" fn wire_session_shutdown_remote_device(
+port_: i64,
+session_id: *mut wire_uint_8_list,
+) {
+wire_session_shutdown_remote_device_impl(port_, session_id)
 }
 
 #[no_mangle]

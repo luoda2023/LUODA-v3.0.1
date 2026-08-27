@@ -444,6 +444,12 @@ const kRemoteImageQualityLow = 'low';
 /// [kRemoteImageQualityCustom] Custom image quality.
 const kRemoteImageQualityCustom = 'custom';
 
+/// [kRemoteImageQualityHD] HD image quality (100% bitrate ratio).
+const kRemoteImageQualityHD = 'hd';
+
+/// [kRemoteImageQualityUltraHD] Ultra HD image quality (200% bitrate ratio, direct/private only).
+const kRemoteImageQualityUltraHD = 'ultra';
+
 const kIgnoreDpi = true;
 
 const Set<PointerDeviceKind> kTouchBasedDeviceKinds = {

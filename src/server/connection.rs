@@ -3789,22 +3789,37 @@ if !platform_additions.is_empty() {
                             Some(Instant::now().into()),
                         );
                     }
-                    Some(misc::Union::RestartRemoteDevice(_)) => {
-                        #[cfg(not(any(target_os = "android", target_os = "ios")))]
-                        if self.restart {
-                            // force_reboot, not work on linux vm and macos 14
-                            #[cfg(any(target_os = "linux", target_os = "windows"))]
-                            match system_shutdown::force_reboot() {
-                                Ok(_) => log::info!("Restart by the peer"),
-                                Err(e) => log::error!("Failed to restart: {}", e),
-                            }
-                            #[cfg(any(target_os = "linux", target_os = "macos"))]
-                            match system_shutdown::reboot() {
-                                Ok(_) => log::info!("Restart by the peer"),
-                                Err(e) => log::error!("Failed to restart: {}", e),
-                            }
-                        }
-                    }
+ Some(misc::Union::RestartRemoteDevice(_)) => {
+ #[cfg(not(any(target_os = "android", target_os = "ios")))]
+ if self.restart {
+ // force_reboot, not work on linux vm and macos 14
+ #[cfg(any(target_os = "linux", target_os = "windows"))]
+ match system_shutdown::force_reboot() {
+ Ok(_) => log::info!("Restart by the peer"),
+ Err(e) => log::error!("Failed to restart: {}", e),
+ }
+ #[cfg(any(target_os = "linux", target_os = "macos"))]
+ match system_shutdown::reboot() {
+ Ok(_) => log::info!("Restart by the peer"),
+ Err(e) => log::error!("Failed to restart: {}", e),
+ }
+ }
+ }
+ Some(misc::Union::ShutdownRemoteDevice(_)) => {
+ #[cfg(not(any(target_os = "android", target_os = "ios")))]
+ if self.restart {
+ #[cfg(any(target_os = "linux", target_os = "windows"))]
+ match system_shutdown::force_shutdown() {
+ Ok(_) => log::info!("Shutdown by the peer"),
+ Err(e) => log::error!("Failed to shutdown: {}", e),
+ }
+ #[cfg(any(target_os = "linux", target_os = "macos"))]
+ match system_shutdown::shutdown() {
+ Ok(_) => log::info!("Shutdown by the peer"),
+ Err(e) => log::error!("Failed to shutdown: {}", e),
+ }
+ }
+ }
                     #[cfg(windows)]
                     Some(misc::Union::ElevationRequest(r)) => match r.union {
                         Some(elevation_request::Union::Direct(_)) => {

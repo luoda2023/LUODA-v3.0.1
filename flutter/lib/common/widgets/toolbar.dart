@@ -178,32 +178,42 @@ Future<List<TRadioMenu<String>>> toolbarImageQuality(
     await bind.sessionSetImageQuality(sessionId: ffi.sessionId, value: value);
   }
 
-  return [
-    TRadioMenu<String>(
-        child: Text(translate('Good image quality')),
-        value: kRemoteImageQualityBest,
-        groupValue: groupValue,
-        onChanged: onChanged),
-    TRadioMenu<String>(
-        child: Text(translate('Balanced')),
-        value: kRemoteImageQualityBalanced,
-        groupValue: groupValue,
-        onChanged: onChanged),
-    TRadioMenu<String>(
-        child: Text(translate('Optimize reaction time')),
-        value: kRemoteImageQualityLow,
-        groupValue: groupValue,
-        onChanged: onChanged),
-    TRadioMenu<String>(
-      child: Text(translate('Custom')),
-      value: kRemoteImageQualityCustom,
-      groupValue: groupValue,
-      onChanged: (value) {
-        onChanged(value);
-        customImageQualityDialog(ffi.sessionId, id, ffi);
-      },
-    ),
-  ];
+ return [
+ TRadioMenu<String>(
+ child: Text(translate('Good image quality')),
+ value: kRemoteImageQualityBest,
+ groupValue: groupValue,
+ onChanged: onChanged),
+ TRadioMenu<String>(
+ child: Text(translate('Balanced')),
+ value: kRemoteImageQualityBalanced,
+ groupValue: groupValue,
+ onChanged: onChanged),
+ TRadioMenu<String>(
+ child: Text(translate('Optimize reaction time')),
+ value: kRemoteImageQualityLow,
+ groupValue: groupValue,
+ onChanged: onChanged),
+ TRadioMenu<String>(
+ child: Text(translate('HD')),
+ value: kRemoteImageQualityHD,
+ groupValue: groupValue,
+ onChanged: onChanged),
+ TRadioMenu<String>(
+ child: Text(translate('Ultra HD')),
+ value: kRemoteImageQualityUltraHD,
+ groupValue: groupValue,
+ onChanged: onChanged),
+ TRadioMenu<String>(
+ child: Text(translate('Custom')),
+ value: kRemoteImageQualityCustom,
+ groupValue: groupValue,
+ onChanged: (value) {
+ onChanged(value);
+ customImageQualityDialog(ffi.sessionId, id, ffi);
+ },
+ ),
+ ];
 }
 
 Future<List<TRadioMenu<String>>> toolbarCodec(

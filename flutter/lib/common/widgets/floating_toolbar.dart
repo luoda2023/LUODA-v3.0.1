@@ -5,6 +5,7 @@ import 'package:flutter_svg/svg.dart';
 import 'package:get/get.dart';
 
 import '../common.dart';
+import '../../consts.dart';
 import 'dialog.dart';
 import '../../models/input_model.dart';
 import '../../models/model.dart';
@@ -348,6 +349,10 @@ class _FloatingToolbarState extends State<FloatingToolbar> {
  }
 
  List<Widget> _buildDesktopButtons() {
+ final pi = widget.ffi.ffiModel.pi;
+ final canRestart = pi.platform == kPeerPlatformLinux ||
+ pi.platform == kPeerPlatformWindows ||
+ pi.platform == kPeerPlatformMacOS;
  return [
  _buildButton(
  icon: Icons.keyboard_rounded,
@@ -373,6 +378,27 @@ class _FloatingToolbarState extends State<FloatingToolbar> {
  _onUserInteraction();
  },
  ),
+ if (canRestart) ...[
+ _buildButton(
+ icon: Icons.restart_alt_rounded,
+ tooltip: 'Restart remote device',
+ onPressed: () {
+ showRestartRemoteDevice(
+ pi, '', widget.ffi.sessionId, widget.ffi.dialogManager);
+ _onUserInteraction();
+ },
+ ),
+ _buildButton(
+ icon: Icons.power_settings_new_rounded,
+ tooltip: 'Shutdown remote device',
+ color: const Color(0xFFFFB372),
+ onPressed: () {
+ showShutdownRemoteDevice(
+ pi, '', widget.ffi.sessionId, widget.ffi.dialogManager);
+ _onUserInteraction();
+ },
+ ),
+ ],
  _buildButton(
  icon: Icons.close_rounded,
  tooltip: 'Exit',

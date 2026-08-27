@@ -2703,32 +2703,55 @@ impl LoginConfigHandler {
                 return None;
             }
         }
-        let q = self.image_quality.clone();
-        if let Some(q) = self.get_image_quality_enum(&q, ignore_default) {
-            msg.image_quality = q.into();
-        } else if q == "custom" {
-            let config = self.load_config();
-            let allow_more = !crate::using_public_server() || self.direct == Some(true);
-            let quality = if config.custom_image_quality.is_empty() {
-                50
-            } else {
-                let mut quality = config.custom_image_quality[0];
-                if !allow_more && quality > 100 {
-                    quality = 50;
-                }
-                quality
-            };
-            msg.custom_image_quality = quality << 8;
-            #[cfg(feature = "flutter")]
-            if let Some(custom_fps) = self.options.get("custom-fps") {
-                let mut custom_fps = custom_fps.parse().unwrap_or(30);
-                if !allow_more && custom_fps > 30 {
-                    custom_fps = 30;
-                }
-                msg.custom_fps = custom_fps;
-                *self.custom_fps.lock().unwrap() = Some(custom_fps as _);
-            }
-        }
+ let q = self.image_quality.clone();
+ if let Some(q) = self.get_image_quality_enum(&q, ignore_default) {
+ msg.image_quality = q.into();
+ } else if q == "hd" {
+ // HD preset: 100% bitrate ratio
+ msg.custom_image_quality = 100 << 8;
+ #[cfg(feature = "flutter")]
+ if let Some(custom_fps) = self.options.get("custom-fps") {
+ let custom_fps = custom_fps.parse().unwrap_or(60);
+ msg.custom_fps = custom_fps;
+ *self.custom_fps.lock().unwrap() = Some(custom_fps as _);
+ }
+ } else if q == "ultra" {
+ // Ultra HD preset: 200% bitrate ratio (direct/private only)
+ let allow_more = !crate::using_public_server() || self.direct == Some(true);
+ let quality = if allow_more { 200 } else { 100 };
+ msg.custom_image_quality = quality << 8;
+ #[cfg(feature = "flutter")]
+ if let Some(custom_fps) = self.options.get("custom-fps") {
+ let mut custom_fps = custom_fps.parse().unwrap_or(60);
+ if !allow_more && custom_fps > 30 {
+ custom_fps = 30;
+ }
+ msg.custom_fps = custom_fps;
+ *self.custom_fps.lock().unwrap() = Some(custom_fps as _);
+ }
+ } else if q == "custom" {
+ let config = self.load_config();
+ let allow_more = !crate::using_public_server() || self.direct == Some(true);
+ let quality = if config.custom_image_quality.is_empty() {
+ 50
+ } else {
+ let mut quality = config.custom_image_quality[0];
+ if !allow_more && quality > 100 {
+ quality = 50;
+ }
+ quality
+ };
+ msg.custom_image_quality = quality << 8;
+ #[cfg(feature = "flutter")]
+ if let Some(custom_fps) = self.options.get("custom-fps") {
+ let mut custom_fps = custom_fps.parse().unwrap_or(30);
+ if !allow_more && custom_fps > 30 {
+ custom_fps = 30;
+ }
+ msg.custom_fps = custom_fps;
+ *self.custom_fps.lock().unwrap() = Some(custom_fps as _);
+ }
+ }
         let view_only = self.get_toggle_option("view-only");
         if view_only {
             msg.disable_keyboard = BoolOption::Yes.into();
@@ -2886,23 +2909,45 @@ impl LoginConfigHandler {
     /// # Arguments
     ///
     /// * `value` - The image quality.
-    pub fn save_image_quality(&mut self, value: String) -> Option<Message> {
-        let mut res = None;
-        if let Some(q) = self.get_image_quality_enum(&value, false) {
-            let mut misc = Misc::new();
-            misc.set_option(OptionMessage {
-                image_quality: q.into(),
-                ..Default::default()
-            });
-            let mut msg_out = Message::new();
-            msg_out.set_misc(misc);
-            res = Some(msg_out);
-        }
-        let mut config = self.load_config();
-        config.image_quality = value;
-        self.save_config(config);
-        res
-    }
+pub fn save_image_quality(&mut self, value: String) -> Option<Message> {
+ let mut res = None;
+ if let Some(q) = self.get_image_quality_enum(&value, false) {
+ let mut misc = Misc::new();
+ misc.set_option(OptionMessage {
+ image_quality: q.into(),
+ ..Default::default()
+ });
+ let mut msg_out = Message::new();
+ msg_out.set_misc(misc);
+ res = Some(msg_out);
+ } else if value == "hd" {
+ // HD preset: 100% bitrate ratio
+ let mut misc = Misc::new();
+ misc.set_option(OptionMessage {
+ custom_image_quality: 100 << 8,
+ ..Default::default()
+ });
+ let mut msg_out = Message::new();
+ msg_out.set_misc(misc);
+ res = Some(msg_out);
+ } else if value == "ultra" {
+ // Ultra HD preset: 200% bitrate ratio
+ let allow_more = !crate::using_public_server() || self.direct == Some(true);
+ let quality = if allow_more { 200 } else { 100 };
+ let mut misc = Misc::new();
+ misc.set_option(OptionMessage {
+ custom_image_quality: quality << 8,
+ ..Default::default()
+ });
+ let mut msg_out = Message::new();
+ msg_out.set_misc(misc);
+ res = Some(msg_out);
+ }
+ let mut config = self.load_config();
+ config.image_quality = value;
+ self.save_config(config);
+ res
+ }
 
     pub fn save_trackpad_speed(&mut self, speed: i32) {
         let mut config = self.load_config();
@@ -3261,13 +3306,21 @@ impl LoginConfigHandler {
         msg_out
     }
 
-    pub fn restart_remote_device(&self) -> Message {
-        let mut misc = Misc::new();
-        misc.set_restart_remote_device(true);
-        let mut msg_out = Message::new();
-        msg_out.set_misc(misc);
-        msg_out
-    }
+ pub fn restart_remote_device(&self) -> Message {
+ let mut misc = Misc::new();
+ misc.set_restart_remote_device(true);
+ let mut msg_out = Message::new();
+ msg_out.set_misc(misc);
+ msg_out
+ }
+
+ pub fn shutdown_remote_device(&self) -> Message {
+ let mut misc = Misc::new();
+ misc.set_shutdown_remote_device(true);
+ let mut msg_out = Message::new();
+ msg_out.set_misc(misc);
+ msg_out
+ }
 
     pub fn get_conn_token(&self) -> Option<String> {
         if self.password.is_empty() {

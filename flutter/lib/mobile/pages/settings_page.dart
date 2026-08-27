@@ -2792,15 +2792,17 @@ class __DisplayPageState extends State<_DisplayPage> {
                     },
             ),
             _getPopupDialogRadioEntry(
-              title: translate('Default Image Quality'),
-              list: [
-                _RadioEntry(
-                    translate('Good image quality'), kRemoteImageQualityBest),
-                _RadioEntry(translate('Balanced'), kRemoteImageQualityBalanced),
-                _RadioEntry(
-                    translate('Optimize reaction time'), kRemoteImageQualityLow),
-                _RadioEntry(translate('Custom'), kRemoteImageQualityCustom),
-              ],
+ title: translate('Default Image Quality'),
+ list: [
+ _RadioEntry(
+ translate('Good image quality'), kRemoteImageQualityBest),
+ _RadioEntry(translate('Balanced'), kRemoteImageQualityBalanced),
+ _RadioEntry(
+ translate('Optimize reaction time'), kRemoteImageQualityLow),
+ _RadioEntry(translate('HD'), kRemoteImageQualityHD),
+ _RadioEntry(translate('Ultra HD'), kRemoteImageQualityUltraHD),
+ _RadioEntry(translate('Custom'), kRemoteImageQualityCustom),
+ ],
               getter: () {
                 final v =
                     bind.mainGetUserDefaultOption(key: kOptionImageQuality);

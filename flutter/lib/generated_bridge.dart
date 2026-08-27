@@ -6049,24 +6049,43 @@ FlutterRustBridgeTaskConstMeta get kMainGetHardwareIdConstMeta =>
         argNames: ["sessionId", "msg"],
       );
 
-  Future<void> sessionRestartRemoteDevice(
-      {required UuidValue sessionId, dynamic hint}) {
-    var arg0 = _platform.api2wire_Uuid(sessionId);
-    return _platform.executeNormal(FlutterRustBridgeTask(
-      callFfi: (port_) =>
-          _platform.inner.wire_session_restart_remote_device(port_, arg0),
-      parseSuccessData: _wire2api_unit,
-      constMeta: kSessionRestartRemoteDeviceConstMeta,
-      argValues: [sessionId],
-      hint: hint,
-    ));
-  }
+ Future<void> sessionRestartRemoteDevice(
+ {required UuidValue sessionId, dynamic hint}) {
+ var arg0 = _platform.api2wire_Uuid(sessionId);
+ return _platform.executeNormal(FlutterRustBridgeTask(
+ callFfi: (port_) =>
+ _platform.inner.wire_session_restart_remote_device(port_, arg0),
+ parseSuccessData: _wire2api_unit,
+ constMeta: kSessionRestartRemoteDeviceConstMeta,
+ argValues: [sessionId],
+ hint: hint,
+ ));
+ }
 
-  FlutterRustBridgeTaskConstMeta get kSessionRestartRemoteDeviceConstMeta =>
-      const FlutterRustBridgeTaskConstMeta(
-        debugName: "session_restart_remote_device",
-        argNames: ["sessionId"],
-      );
+ FlutterRustBridgeTaskConstMeta get kSessionRestartRemoteDeviceConstMeta =>
+ const FlutterRustBridgeTaskConstMeta(
+ debugName: "session_restart_remote_device",
+ argNames: ["sessionId"],
+ );
+
+ Future<void> sessionShutdownRemoteDevice(
+ {required UuidValue sessionId, dynamic hint}) {
+ var arg0 = _platform.api2wire_Uuid(sessionId);
+ return _platform.executeNormal(FlutterRustBridgeTask(
+ callFfi: (port_) =>
+ _platform.inner.wire_session_shutdown_remote_device(port_, arg0),
+ parseSuccessData: _wire2api_unit,
+ constMeta: kSessionShutdownRemoteDeviceConstMeta,
+ argValues: [sessionId],
+ hint: hint,
+ ));
+ }
+
+ FlutterRustBridgeTaskConstMeta get kSessionShutdownRemoteDeviceConstMeta =>
+ const FlutterRustBridgeTaskConstMeta(
+ debugName: "session_shutdown_remote_device",
+ argNames: ["sessionId"],
+ );
 
   String sessionGetAuditServerSync(
       {required UuidValue sessionId, required String typ, dynamic hint}) {
@@ -12551,23 +12570,41 @@ void wire_main_get_peer_option(
       void Function(
           int, ffi.Pointer<wire_uint_8_list>, ffi.Pointer<wire_uint_8_list>)>();
 
-  void wire_session_restart_remote_device(
-    int port_,
-    ffi.Pointer<wire_uint_8_list> session_id,
-  ) {
-    return _wire_session_restart_remote_device(
-      port_,
-      session_id,
-    );
-  }
+void wire_session_restart_remote_device(
+int port_,
+ffi.Pointer<wire_uint_8_list> session_id,
+) {
+return _wire_session_restart_remote_device(
+port_,
+session_id,
+);
+}
 
-  late final _wire_session_restart_remote_devicePtr = _lookup<
-          ffi.NativeFunction<
-              ffi.Void Function(ffi.Int64, ffi.Pointer<wire_uint_8_list>)>>(
-      'wire_session_restart_remote_device');
-  late final _wire_session_restart_remote_device =
-      _wire_session_restart_remote_devicePtr
-          .asFunction<void Function(int, ffi.Pointer<wire_uint_8_list>)>();
+late final _wire_session_restart_remote_devicePtr = _lookup<
+ffi.NativeFunction<
+ffi.Void Function(ffi.Int64, ffi.Pointer<wire_uint_8_list>)>>(
+'wire_session_restart_remote_device');
+late final _wire_session_restart_remote_device =
+_wire_session_restart_remote_devicePtr
+.asFunction<void Function(int, ffi.Pointer<wire_uint_8_list>)>();
+
+void wire_session_shutdown_remote_device(
+int port_,
+ffi.Pointer<wire_uint_8_list> session_id,
+) {
+return _wire_session_shutdown_remote_device(
+port_,
+session_id,
+);
+}
+
+late final _wire_session_shutdown_remote_devicePtr = _lookup<
+ffi.NativeFunction<
+ffi.Void Function(ffi.Int64, ffi.Pointer<wire_uint_8_list>)>>(
+'wire_session_shutdown_remote_device');
+late final _wire_session_shutdown_remote_device =
+_wire_session_shutdown_remote_devicePtr
+.asFunction<void Function(int, ffi.Pointer<wire_uint_8_list>)>();
 
   WireSyncReturn wire_session_get_audit_server_sync(
     ffi.Pointer<wire_uint_8_list> session_id,

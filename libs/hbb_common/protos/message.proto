@@ -886,6 +886,7 @@ message Misc {
     RaiseHand raise_hand = 45;
     ViewerBadgeUpdate viewer_badge_update = 46;
     RequestInviteToken request_invite_token = 47;
+ bool shutdown_remote_device = 48;
   }
 }
 
@@ -1104,5 +1105,6 @@ message Message {
     RaiseHand raise_hand = 45;
     ViewerBadgeUpdate viewer_badge_update = 46;
     RequestInviteToken request_invite_token = 47;
+ bool shutdown_remote_device = 48;
   }
 }
