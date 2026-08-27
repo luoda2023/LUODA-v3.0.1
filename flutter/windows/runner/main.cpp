@@ -143,12 +143,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   {
     return EXIT_FAILURE;
   }
-  std::vector<std::string> command_line_arguments =
-      GetCommandLineArguments();
-  // Remove possible trailing whitespace from command line arguments
-  for (auto& argument : command_line_arguments) {
-    argument.erase(argument.find_last_not_of(" \n\r\t"));
-  }
+ std::vector<std::string> command_line_arguments =
+ std::move(early_args);
+ // Remove possible trailing whitespace from command line arguments
+ for (auto& argument : command_line_arguments) {
+ argument.erase(argument.find_last_not_of(" \n\r\t"));
+ }
 
   int args_len = 0;
   char** c_args = luoda_core_main(&args_len);
