@@ -74,18 +74,57 @@ const std::vector<std::string> parameters_white_list = {"--install", "--cm"};
 
 const wchar_t* getWindowClassName();
 
+// Named mutex for single-instance enforcement.  This is the earliest,
+// most reliable guard: it runs before any DLL is loaded, before any
+// Rust initialisation, and before any Flutter window is created.
+// If the mutex already exists, another instance owns the main UI
+// profile.  We activate that instance's window (or just exit) and
+// never create a second process / tray icon.
+static const wchar_t* kSingleInstanceMutexName = L"Luoda_SingleInstance_Mutex_v1";
+
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
-                      _In_ wchar_t *command_line, _In_ int show_command)
+ _In_ wchar_t *command_line, _In_ int show_command)
 {
-  // Immediately detach from any inherited console window so the app
-  // never shows a terminal when launched from cmd/PowerShell/scripts.
-  ::FreeConsole();
-  // Redirect the C runtime standard streams to NUL so that std::cout/
-  // std::cerr never attempt to attach a new console.
-  { FILE* fNul = nullptr; freopen_s(&fNul, "NUL", "w", stdout); }
-  { FILE* fNul = nullptr; freopen_s(&fNul, "NUL", "w", stderr); }
-  // Aggressively hide any console windows already visible.
-  HideAllConHostWindows();
+ // Immediately detach from any inherited console window so the app
+ // never shows a terminal when launched from cmd/PowerShell/scripts.
+ ::FreeConsole();
+ // Redirect the C runtime standard streams to NUL so that std::cout/
+ // std::cerr never attempt to attach a new console.
+ { FILE* fNul = nullptr; freopen_s(&fNul, "NUL", "w", stdout); }
+ { FILE* fNul = nullptr; freopen_s(&fNul, "NUL", "w", stderr); }
+ // Aggressively hide any console windows already visible.
+ HideAllConHostWindows();
+
+ // --- Single-instance mutex (earliest possible guard) ---
+ // Only check the mutex for a bare double-click launch (no args).
+ // Any args (--connect, --tray, --cm, ...) skip this and fall through
+ // to the FindWindowW logic below, which dispatches args to the
+ // existing window or starts a fresh instance as needed.
+ std::vector<std::string> early_args = GetCommandLineArguments();
+ for (auto& a : early_args) {
+ a.erase(a.find_last_not_of(" \n\r\t"));
+ }
+ if (early_args.empty()) {
+ HANDLE hMutex = ::CreateMutexW(nullptr, FALSE, kSingleInstanceMutexName);
+ if (hMutex && ::GetLastError() == ERROR_ALREADY_EXISTS) {
+ // Another instance is running.  Find its main window and bring
+ // it to the foreground instead of starting a second process.
+ std::wstring app_name = L"\u70B9\u804A";
+ HWND hwnd = ::FindWindowW(L"FLUTTER_RUNNER_WIN32_WINDOW", app_name.c_str());
+ if (hwnd) {
+ ::ShowWindow(hwnd, SW_SHOW);
+ ::ShowWindow(hwnd, SW_RESTORE);
+ ::SetForegroundWindow(hwnd);
+ }
+ if (hMutex) ::CloseHandle(hMutex);
+ return EXIT_FAILURE;
+ // NOTE: the first real instance keeps its own mutex handle alive
+ // for the whole process lifetime (see below).
+ }
+ // Keep the mutex handle alive for the process lifetime on first launch.
+ // Do not close it — closing would release the mutex and allow a second
+ // instance to grab it.
+ }
 
   HINSTANCE hInstance = LoadLibraryA("luoda.dll");
   if (!hInstance)
