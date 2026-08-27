@@ -815,16 +815,10 @@ class ConnectionPageState extends State<ConnectionPage>
     if (id.isEmpty) return;
     if (_connectionMode == _ConnectionMode.chat) {
       await _startDirectChat(id);
-    } else if (_connectionMode == _ConnectionMode.remote) {
-      final endpoint = DirectPairingStore.resolveConnectionTarget(id);
-      if (endpoint == null) {
-        showToast(translate(
-          'Direct endpoint required. Scan the PC QR code or enter IP:port.',
-        ));
-        return;
-      }
-      connect(context, endpoint, forceRelay: false);
-    } else {
+ } else if (_connectionMode == _ConnectionMode.remote) {
+ final endpoint = DirectPairingStore.resolveConnectionTarget(id);
+ connect(context, endpoint ?? id, forceRelay: false);
+ } else {
       await _openJoinViewer(initialEndpoint: id);
     }
   }
@@ -969,13 +963,7 @@ class ConnectionPageState extends State<ConnectionPage>
     final pairing = DirectPairingStore.find(id) ??
         DirectPairingStore.findByEndpoint(id) ??
         DirectPairingStore.findForConversation(id);
-    final endpoint = DirectPairingStore.resolveConnectionTarget(id);
-    if (endpoint == null) {
-      showToast(translate(
-        'Direct endpoint required. Scan the PC QR code or enter IP:port.',
-      ));
-      return;
-    }
+ final endpoint = DirectPairingStore.resolveConnectionTarget(id);
     // 统一到 canonical 会话：同一账号的 PC/手机/不同 IP 都归入同一会话，
     // 保证用 IP、旧 ID 或别名打开时能复用已授权的入站聊天连接。
     final peerId = DirectPairingStore.canonicalConversationId(id);
@@ -1033,7 +1021,7 @@ class ConnectionPageState extends State<ConnectionPage>
       );
     }
     gFFI.suppressConnectionDialogs = true;
-    gFFI.start(endpoint, isChat: true, forceRelay: false);
+    gFFI.start(endpoint ?? id, isChat: true, forceRelay: false);
     // 连接建立后跳转到点聊页面，用户才能输入和发送消息。
     HomePage.homeKey.currentState?.selectChatPage();
   }
