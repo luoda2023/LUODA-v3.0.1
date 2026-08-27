@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:luoda_flutter/common/shared_state.dart';
 import 'package:luoda_flutter/common/widgets/toolbar.dart';
+import 'package:luoda_flutter/common/widgets/floating_toolbar.dart';
 import 'package:luoda_flutter/consts.dart';
 import 'package:luoda_flutter/mobile/widgets/floating_mouse.dart';
 import 'package:luoda_flutter/mobile/widgets/floating_mouse_widgets.dart';
@@ -351,60 +352,29 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     });
   }
 
-  Widget _bottomWidget() => _showGestureHelp
-      ? getGestureHelp()
-      : (_showBar && gFFI.ffiModel.pi.displays.isNotEmpty
-          ? getBottomAppBar()
-          : Offstage());
+ Widget _bottomWidget() => _showGestureHelp
+ ? getGestureHelp()
+ : Offstage();
 
-  @override
-  Widget build(BuildContext context) {
-    final keyboardIsVisible =
-        keyboardVisibilityController.isVisible && _showEdit;
-    final showActionButton = !_showBar || keyboardIsVisible || _showGestureHelp;
+@override
+Widget build(BuildContext context) {
+final keyboardIsVisible =
+keyboardVisibilityController.isVisible && _showEdit;
 
-    return WillPopScope(
-      onWillPop: () async {
-        clientClose(sessionId, gFFI);
-        return false;
-      },
-      child: Scaffold(
-          // workaround for https://github.com/luoda/luoda/issues/3131
-          floatingActionButtonLocation: keyboardIsVisible
-              ? FABLocation(FloatingActionButtonLocation.endFloat, 0, -35)
-              : null,
-          floatingActionButton: !showActionButton
-              ? null
-              : FloatingActionButton(
-                  mini: !keyboardIsVisible,
-                  child: Icon(
-                    (keyboardIsVisible || _showGestureHelp)
-                        ? Icons.expand_more
-                        : Icons.expand_less,
-                    color: Colors.white,
-                  ),
-                  backgroundColor: MyTheme.accent,
-                  onPressed: () {
-                    setState(() {
-                      if (keyboardIsVisible) {
-                        _showEdit = false;
-                        gFFI.invokeMethod("enable_soft_keyboard", false);
-                        _mobileFocusNode.unfocus();
-                        _physicalFocusNode.requestFocus();
-                      } else if (_showGestureHelp) {
-                        _showGestureHelp = false;
-                      } else {
-                        _showBar = !_showBar;
-                      }
-                    });
-                  }),
-          bottomNavigationBar: Obx(() => Stack(
-                alignment: Alignment.bottomCenter,
-                children: [
-                  gFFI.ffiModel.pi.isSet.isTrue &&
-                          gFFI.ffiModel.waitForFirstImage.isTrue
-                      ? emptyOverlay(MyTheme.canvasColor)
-                      : () {
+return WillPopScope(
+onWillPop: () async {
+clientClose(sessionId, gFFI);
+return false;
+},
+child: Scaffold(
+// FloatingToolbar replaces the old bottom app bar + FAB.
+bottomNavigationBar: Obx(() => Stack(
+alignment: Alignment.bottomCenter,
+children: [
+gFFI.ffiModel.pi.isSet.isTrue &&
+gFFI.ffiModel.waitForFirstImage.isTrue
+? emptyOverlay(MyTheme.canvasColor)
+: () {
                           gFFI.ffiModel.tryShowAndroidActionsOverlay();
                           return Offstage();
                         }(),
@@ -433,15 +403,36 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
                                   gFFI.canvasModel.updateViewStyle();
                                 });
                               }
-                              return Container(
-                                color: MyTheme.canvasColor,
-                                child: inputModel.isPhysicalMouse.value
-                                    ? getBodyForMobile()
-                                    : RawTouchGestureDetectorRegion(
-                                        child: getBodyForMobile(),
-                                        ffi: gFFI,
-                                      ),
-                              );
+return Stack(
+children: [
+Container(
+ color: MyTheme.canvasColor,
+ child: inputModel.isPhysicalMouse.value
+ ? getBodyForMobile()
+ : RawTouchGestureDetectorRegion(
+ child: getBodyForMobile(),
+ ffi: gFFI,
+ ),
+ ),
+// Floating toolbar — shown when peer info is set
+if (gFFI.ffiModel.pi.isSet.isTrue &&
+!keyboardIsVisible &&
+!_showGestureHelp &&
+!isWebDesktop)
+FloatingToolbar(
+ ffi: gFFI,
+ onHide: () {},
+ onOpenKeyboard: openKeyboard,
+ onOpenDisplay: () {
+ showOptions(context, widget.id,
+ gFFI.dialogManager);
+ },
+ onOpenChat: () {
+ onPressedTextChat(widget.id);
+ },
+),
+],
+);
                             }),
                           ),
                   );

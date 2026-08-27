@@ -1200,19 +1200,22 @@ class OverlayDialogManager {
     showMobileActionsOverlay(ffi: ffi);
   }
 
-  void showMobileActionsOverlay({FFI? ffi}) {
-    if (_mobileActionsOverlayEntry != null) return;
-    final overlayState = _overlayKeyState.state;
-    if (overlayState == null) return;
+ void showMobileActionsOverlay({FFI? ffi}) {
+ // On mobile, the FloatingToolbar is embedded directly in the remote page.
+ // On desktop, we still use the old DraggableMobileActions OverlayEntry.
+ if (!isDesktop) return;
+ if (_mobileActionsOverlayEntry != null) return;
+ final overlayState = _overlayKeyState.state;
+ if (overlayState == null) return;
 
-    final overlay = makeMobileActionsOverlayEntry(
-      () => hideMobileActionsOverlay(),
-      ffi: ffi,
-    );
-    overlayState.insert(overlay);
-    _mobileActionsOverlayEntry = overlay;
-    setMobileActionsOverlayVisible(true);
-  }
+ final overlay = makeMobileActionsOverlayEntry(
+ () => hideMobileActionsOverlay(),
+ ffi: ffi,
+ );
+ overlayState.insert(overlay);
+ _mobileActionsOverlayEntry = overlay;
+ setMobileActionsOverlayVisible(true);
+ }
 
   void hideMobileActionsOverlay({store = true}) {
     if (_mobileActionsOverlayEntry != null) {
