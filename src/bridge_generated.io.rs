@@ -1227,12 +1227,12 @@ pub extern "C" fn wire_main_get_my_id(port_: i64) {
 
 #[no_mangle]
 pub extern "C" fn wire_main_get_uuid(port_: i64) {
- wire_main_get_uuid_impl(port_)
+    wire_main_get_uuid_impl(port_)
 }
 
 #[no_mangle]
 pub extern "C" fn wire_main_get_hardware_id(port_: i64) {
- wire_main_get_hardware_id_impl(port_)
+    wire_main_get_hardware_id_impl(port_)
 }
 
 #[no_mangle]
@@ -1333,6 +1333,11 @@ pub extern "C" fn wire_main_load_fav_peers(port_: i64) {
 }
 
 #[no_mangle]
+pub extern "C" fn wire_push_direct_pairings_changed(port_: i64) {
+    wire_push_direct_pairings_changed_impl(port_)
+}
+
+#[no_mangle]
 pub extern "C" fn wire_main_load_lan_peers(port_: i64) {
     wire_main_load_lan_peers_impl(port_)
 }
@@ -1425,17 +1430,17 @@ pub extern "C" fn wire_session_request_voice_call(port_: i64, session_id: *mut w
 
 #[no_mangle]
 pub extern "C" fn wire_session_close_voice_call(port_: i64, session_id: *mut wire_uint_8_list) {
- wire_session_close_voice_call_impl(port_, session_id)
- }
+    wire_session_close_voice_call_impl(port_, session_id)
+}
 
 #[no_mangle]
 pub extern "C" fn wire_session_send_voice_call_audio(
- port_: i64,
- session_id: *mut wire_uint_8_list,
- data: *mut wire_uint_8_list,
+    port_: i64,
+    session_id: *mut wire_uint_8_list,
+    data: *mut wire_uint_8_list,
 ) {
- wire_session_send_voice_call_audio_impl(port_, session_id, data)
- }
+    wire_session_send_voice_call_audio_impl(port_, session_id, data)
+}
 
 #[no_mangle]
 pub extern "C" fn wire_session_get_conn_token(
@@ -1625,18 +1630,18 @@ pub extern "C" fn wire_session_send_mouse(
 
 #[no_mangle]
 pub extern "C" fn wire_session_restart_remote_device(
-port_: i64,
-session_id: *mut wire_uint_8_list,
+    port_: i64,
+    session_id: *mut wire_uint_8_list,
 ) {
-wire_session_restart_remote_device_impl(port_, session_id)
+    wire_session_restart_remote_device_impl(port_, session_id)
 }
 
 #[no_mangle]
 pub extern "C" fn wire_session_shutdown_remote_device(
-port_: i64,
-session_id: *mut wire_uint_8_list,
+    port_: i64,
+    session_id: *mut wire_uint_8_list,
 ) {
-wire_session_shutdown_remote_device_impl(port_, session_id)
+    wire_session_shutdown_remote_device_impl(port_, session_id)
 }
 
 #[no_mangle]

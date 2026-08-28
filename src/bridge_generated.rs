@@ -2765,24 +2765,24 @@ fn wire_main_get_my_id_impl(port_: MessagePort) {
     )
 }
 fn wire_main_get_uuid_impl(port_: MessagePort) {
- FLUTTER_RUST_BRIDGE_HANDLER.wrap::<_, _, _, String>(
- WrapInfo {
- debug_name: "main_get_uuid",
- port: Some(port_),
- mode: FfiCallMode::Normal,
- },
- move || move |task_callback| Ok(main_get_uuid()),
- )
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap::<_, _, _, String>(
+        WrapInfo {
+            debug_name: "main_get_uuid",
+            port: Some(port_),
+            mode: FfiCallMode::Normal,
+        },
+        move || move |task_callback| Ok(main_get_uuid()),
+    )
 }
 fn wire_main_get_hardware_id_impl(port_: MessagePort) {
- FLUTTER_RUST_BRIDGE_HANDLER.wrap::<_, _, _, String>(
- WrapInfo {
- debug_name: "main_get_hardware_id",
- port: Some(port_),
- mode: FfiCallMode::Normal,
- },
- move || move |task_callback| Ok(main_get_hardware_id()),
- )
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap::<_, _, _, String>(
+        WrapInfo {
+            debug_name: "main_get_hardware_id",
+            port: Some(port_),
+            mode: FfiCallMode::Normal,
+        },
+        move || move |task_callback| Ok(main_get_hardware_id()),
+    )
 }
 fn wire_main_get_peer_option_impl(
     port_: MessagePort,
@@ -2995,6 +2995,16 @@ fn wire_main_load_fav_peers_impl(port_: MessagePort) {
             mode: FfiCallMode::Normal,
         },
         move || move |task_callback| Ok(main_load_fav_peers()),
+    )
+}
+fn wire_push_direct_pairings_changed_impl(port_: MessagePort) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap::<_, _, _, ()>(
+        WrapInfo {
+            debug_name: "push_direct_pairings_changed",
+            port: Some(port_),
+            mode: FfiCallMode::Normal,
+        },
+        move || move |task_callback| Ok(push_direct_pairings_changed()),
     )
 }
 fn wire_main_load_lan_peers_impl(port_: MessagePort) {
@@ -3222,41 +3232,39 @@ fn wire_session_request_voice_call_impl(
     )
 }
 fn wire_session_close_voice_call_impl(
- port_: MessagePort,
- session_id: impl Wire2Api<uuid::Uuid> + UnwindSafe,
- ) {
- FLUTTER_RUST_BRIDGE_HANDLER.wrap::<_, _, _, ()>(
- WrapInfo {
- debug_name: "session_close_voice_call",
- port: Some(port_),
- mode: FfiCallMode::Normal,
- },
- move || {
- let api_session_id = session_id.wire2api();
- move |task_callback| Ok(session_close_voice_call(api_session_id))
- },
- )
- }
+    port_: MessagePort,
+    session_id: impl Wire2Api<uuid::Uuid> + UnwindSafe,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap::<_, _, _, ()>(
+        WrapInfo {
+            debug_name: "session_close_voice_call",
+            port: Some(port_),
+            mode: FfiCallMode::Normal,
+        },
+        move || {
+            let api_session_id = session_id.wire2api();
+            move |task_callback| Ok(session_close_voice_call(api_session_id))
+        },
+    )
+}
 fn wire_session_send_voice_call_audio_impl(
- port_: MessagePort,
- session_id: impl Wire2Api<uuid::Uuid> + UnwindSafe,
- data: impl Wire2Api<Vec<u8>> + UnwindSafe,
- ) {
- FLUTTER_RUST_BRIDGE_HANDLER.wrap::<_, _, _, ()>(
- WrapInfo {
- debug_name: "session_send_voice_call_audio",
- port: Some(port_),
- mode: FfiCallMode::Normal,
- },
- move || {
- let api_session_id = session_id.wire2api();
- let api_data = data.wire2api();
- move |task_callback| {
- Ok(session_send_voice_call_audio(api_session_id, api_data))
- }
- },
- )
- }
+    port_: MessagePort,
+    session_id: impl Wire2Api<uuid::Uuid> + UnwindSafe,
+    data: impl Wire2Api<Vec<u8>> + UnwindSafe,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap::<_, _, _, ()>(
+        WrapInfo {
+            debug_name: "session_send_voice_call_audio",
+            port: Some(port_),
+            mode: FfiCallMode::Normal,
+        },
+        move || {
+            let api_session_id = session_id.wire2api();
+            let api_data = data.wire2api();
+            move |task_callback| Ok(session_send_voice_call_audio(api_session_id, api_data))
+        },
+    )
+}
 fn wire_session_get_conn_token_impl(
     session_id: impl Wire2Api<uuid::Uuid> + UnwindSafe,
 ) -> support::WireSyncReturn {
@@ -3669,36 +3677,36 @@ fn wire_session_send_mouse_impl(
     )
 }
 fn wire_session_restart_remote_device_impl(
-port_: MessagePort,
-session_id: impl Wire2Api<uuid::Uuid> + UnwindSafe,
+    port_: MessagePort,
+    session_id: impl Wire2Api<uuid::Uuid> + UnwindSafe,
 ) {
-FLUTTER_RUST_BRIDGE_HANDLER.wrap::<_, _, _, ()>(
-WrapInfo {
-debug_name: "session_restart_remote_device",
-port: Some(port_),
-mode: FfiCallMode::Normal,
-},
-move || {
-let api_session_id = session_id.wire2api();
-move |task_callback| Ok(session_restart_remote_device(api_session_id))
-},
-)
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap::<_, _, _, ()>(
+        WrapInfo {
+            debug_name: "session_restart_remote_device",
+            port: Some(port_),
+            mode: FfiCallMode::Normal,
+        },
+        move || {
+            let api_session_id = session_id.wire2api();
+            move |task_callback| Ok(session_restart_remote_device(api_session_id))
+        },
+    )
 }
 fn wire_session_shutdown_remote_device_impl(
-port_: MessagePort,
-session_id: impl Wire2Api<uuid::Uuid> + UnwindSafe,
+    port_: MessagePort,
+    session_id: impl Wire2Api<uuid::Uuid> + UnwindSafe,
 ) {
-FLUTTER_RUST_BRIDGE_HANDLER.wrap::<_, _, _, ()>(
-WrapInfo {
-debug_name: "session_shutdown_remote_device",
-port: Some(port_),
-mode: FfiCallMode::Normal,
-},
-move || {
-let api_session_id = session_id.wire2api();
-move |task_callback| Ok(session_shutdown_remote_device(api_session_id))
-},
-)
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap::<_, _, _, ()>(
+        WrapInfo {
+            debug_name: "session_shutdown_remote_device",
+            port: Some(port_),
+            mode: FfiCallMode::Normal,
+        },
+        move || {
+            let api_session_id = session_id.wire2api();
+            move |task_callback| Ok(session_shutdown_remote_device(api_session_id))
+        },
+    )
 }
 fn wire_session_get_audit_server_sync_impl(
     session_id: impl Wire2Api<uuid::Uuid> + UnwindSafe,

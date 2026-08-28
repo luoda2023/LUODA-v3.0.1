@@ -433,6 +433,11 @@ abstract class Luoda {
 
   FlutterRustBridgeTaskConstMeta get kSessionPrepareViewerConstMeta;
 
+  /// Viewer -> host: announce the caller as a viewer using an invite token
+  /// (12-char Crockford short-code or full token). The Flutter layer is
+  /// responsible for generating a fresh `viewer_id` (UUID v4). Returns
+  /// nothing; the result comes back asynchronously via the
+  /// `INVITE_TOKEN` / `VIEWER_LIST` events surfaced by io_loop.
   Future<void> sessionJoinAsViewer(
       {required UuidValue sessionId,
       required String token,
@@ -894,13 +899,19 @@ abstract class Luoda {
 
   FlutterRustBridgeTaskConstMeta get kMainGetMyIdConstMeta;
 
- Future<String> mainGetUuid({dynamic hint});
+  Future<String> mainGetUuid({dynamic hint});
 
- FlutterRustBridgeTaskConstMeta get kMainGetUuidConstMeta;
+  FlutterRustBridgeTaskConstMeta get kMainGetUuidConstMeta;
 
- Future<String> mainGetHardwareId({dynamic hint});
+  /// Returns a stable hardware-derived device identifier (SHA-256 of
+  /// machine_uid). Unlike the 6-digit peer ID (random) or the public-key
+  /// fingerprint (changes on reinstall), this is anchored to the physical
+  /// machine and survives IP changes, app restarts, and key regeneration.
+  /// Used by the Flutter side to de-duplicate device list entries when
+  /// the same physical device reconnects from a new IP address.
+  Future<String> mainGetHardwareId({dynamic hint});
 
- FlutterRustBridgeTaskConstMeta get kMainGetHardwareIdConstMeta;
+  FlutterRustBridgeTaskConstMeta get kMainGetHardwareIdConstMeta;
 
   Future<String> mainGetPeerOption(
       {required String id, required String key, dynamic hint});
@@ -972,6 +983,10 @@ abstract class Luoda {
 
   FlutterRustBridgeTaskConstMeta get kMainLoadFavPeersConstMeta;
 
+  Future<void> pushDirectPairingsChanged({dynamic hint});
+
+  FlutterRustBridgeTaskConstMeta get kPushDirectPairingsChangedConstMeta;
+
   Future<void> mainLoadLanPeers({dynamic hint});
 
   FlutterRustBridgeTaskConstMeta get kMainLoadLanPeersConstMeta;
@@ -1040,15 +1055,19 @@ abstract class Luoda {
 
   FlutterRustBridgeTaskConstMeta get kSessionRequestVoiceCallConstMeta;
 
-Future<void> sessionCloseVoiceCall(
- {required UuidValue sessionId, dynamic hint});
+  Future<void> sessionCloseVoiceCall(
+      {required UuidValue sessionId, dynamic hint});
 
- FlutterRustBridgeTaskConstMeta get kSessionCloseVoiceCallConstMeta;
+  FlutterRustBridgeTaskConstMeta get kSessionCloseVoiceCallConstMeta;
 
- Future<void> sessionSendVoiceCallAudio(
- {required UuidValue sessionId, required Uint8List data, dynamic hint});
+  /// Send Opus-encoded audio bytes from Dart to the peer via Rust transport.
+  /// On mobile, Opus encoding is done in Dart (opus_dart) since the Rust
+  /// side has an Opus stub on Android/iOS. The bytes are wrapped in a
+  /// standard AudioFrame proto message and sent to the peer.
+  Future<void> sessionSendVoiceCallAudio(
+      {required UuidValue sessionId, required Uint8List data, dynamic hint});
 
- FlutterRustBridgeTaskConstMeta get kSessionSendVoiceCallAudioConstMeta;
+  FlutterRustBridgeTaskConstMeta get kSessionSendVoiceCallAudioConstMeta;
 
   String? sessionGetConnToken({required UuidValue sessionId, dynamic hint});
 
@@ -1223,6 +1242,11 @@ Future<void> sessionCloseVoiceCall(
       {required UuidValue sessionId, dynamic hint});
 
   FlutterRustBridgeTaskConstMeta get kSessionRestartRemoteDeviceConstMeta;
+
+  Future<void> sessionShutdownRemoteDevice(
+      {required UuidValue sessionId, dynamic hint});
+
+  FlutterRustBridgeTaskConstMeta get kSessionShutdownRemoteDeviceConstMeta;
 
   String sessionGetAuditServerSync(
       {required UuidValue sessionId, required String typ, dynamic hint});
@@ -1728,6 +1752,10 @@ Future<void> sessionCloseVoiceCall(
 
   FlutterRustBridgeTaskConstMeta get kMainGetBuildinOptionConstMeta;
 
+  String getSettingsTabConfig({dynamic hint});
+
+  FlutterRustBridgeTaskConstMeta get kGetSettingsTabConfigConstMeta;
+
   Future<void> mainCheckHwcodec({dynamic hint});
 
   FlutterRustBridgeTaskConstMeta get kMainCheckHwcodecConstMeta;
@@ -1789,10 +1817,6 @@ Future<void> sessionCloseVoiceCall(
       dynamic hint});
 
   FlutterRustBridgeTaskConstMeta get kSessionGetCommonConstMeta;
-
-  String getSettingsTabConfig({dynamic hint});
-
-  FlutterRustBridgeTaskConstMeta get kGetSettingsTabConfigConstMeta;
 }
 
 @freezed
@@ -3205,8 +3229,8 @@ class LuodaImpl implements Luoda {
 
   FlutterRustBridgeTaskConstMeta get kSessionSendChatConstMeta =>
       const FlutterRustBridgeTaskConstMeta(
-        debugName: 'session_send_chat',
-        argNames: ['sessionId', 'text'],
+        debugName: "session_send_chat",
+        argNames: ["sessionId", "text"],
       );
 
   Future<void> sessionSendChatToViewer(
@@ -3229,8 +3253,8 @@ class LuodaImpl implements Luoda {
 
   FlutterRustBridgeTaskConstMeta get kSessionSendChatToViewerConstMeta =>
       const FlutterRustBridgeTaskConstMeta(
-        debugName: 'session_send_chat_to_viewer',
-        argNames: ['sessionId', 'toViewerId', 'text'],
+        debugName: "session_send_chat_to_viewer",
+        argNames: ["sessionId", "toViewerId", "text"],
       );
 
   Future<void> sessionKickViewer(
@@ -3253,8 +3277,8 @@ class LuodaImpl implements Luoda {
 
   FlutterRustBridgeTaskConstMeta get kSessionKickViewerConstMeta =>
       const FlutterRustBridgeTaskConstMeta(
-        debugName: 'session_kick_viewer',
-        argNames: ['sessionId', 'viewerId', 'reason'],
+        debugName: "session_kick_viewer",
+        argNames: ["sessionId", "viewerId", "reason"],
       );
 
   Future<void> sessionPromoteViewer(
@@ -3273,8 +3297,8 @@ class LuodaImpl implements Luoda {
 
   FlutterRustBridgeTaskConstMeta get kSessionPromoteViewerConstMeta =>
       const FlutterRustBridgeTaskConstMeta(
-        debugName: 'session_promote_viewer',
-        argNames: ['sessionId', 'viewerId'],
+        debugName: "session_promote_viewer",
+        argNames: ["sessionId", "viewerId"],
       );
 
   Future<void> sessionRaiseHand(
@@ -3297,8 +3321,8 @@ class LuodaImpl implements Luoda {
 
   FlutterRustBridgeTaskConstMeta get kSessionRaiseHandConstMeta =>
       const FlutterRustBridgeTaskConstMeta(
-        debugName: 'session_raise_hand',
-        argNames: ['sessionId', 'viewerId', 'raised'],
+        debugName: "session_raise_hand",
+        argNames: ["sessionId", "viewerId", "raised"],
       );
 
   Future<void> sessionRequestInviteToken(
@@ -3321,8 +3345,8 @@ class LuodaImpl implements Luoda {
 
   FlutterRustBridgeTaskConstMeta get kSessionRequestInviteTokenConstMeta =>
       const FlutterRustBridgeTaskConstMeta(
-        debugName: 'session_request_invite_token',
-        argNames: ['sessionId', 'ttlMinutes', 'oneShot'],
+        debugName: "session_request_invite_token",
+        argNames: ["sessionId", "ttlMinutes", "oneShot"],
       );
 
   Future<void> sessionPrepareViewer(
@@ -3347,8 +3371,8 @@ class LuodaImpl implements Luoda {
 
   FlutterRustBridgeTaskConstMeta get kSessionPrepareViewerConstMeta =>
       const FlutterRustBridgeTaskConstMeta(
-        debugName: 'session_prepare_viewer',
-        argNames: ['sessionId', 'token', 'viewerId', 'displayName'],
+        debugName: "session_prepare_viewer",
+        argNames: ["sessionId", "token", "viewerId", "displayName"],
       );
 
   Future<void> sessionJoinAsViewer(
@@ -3373,9 +3397,10 @@ class LuodaImpl implements Luoda {
 
   FlutterRustBridgeTaskConstMeta get kSessionJoinAsViewerConstMeta =>
       const FlutterRustBridgeTaskConstMeta(
-        debugName: 'session_join_as_viewer',
-        argNames: ['sessionId', 'token', 'viewerId', 'displayName'],
+        debugName: "session_join_as_viewer",
+        argNames: ["sessionId", "token", "viewerId", "displayName"],
       );
+
   Future<void> sessionOpenTerminal(
       {required UuidValue sessionId,
       required int terminalId,
@@ -4893,38 +4918,37 @@ class LuodaImpl implements Luoda {
         argNames: [],
       );
 
-Future<String> mainGetUuid({dynamic hint}) {
- return _platform.executeNormal(FlutterRustBridgeTask(
- callFfi: (port_) => _platform.inner.wire_main_get_uuid(port_),
- parseSuccessData: _wire2api_String,
- constMeta: kMainGetUuidConstMeta,
- argValues: [],
- hint: hint,
- ));
-}
+  Future<String> mainGetUuid({dynamic hint}) {
+    return _platform.executeNormal(FlutterRustBridgeTask(
+      callFfi: (port_) => _platform.inner.wire_main_get_uuid(port_),
+      parseSuccessData: _wire2api_String,
+      constMeta: kMainGetUuidConstMeta,
+      argValues: [],
+      hint: hint,
+    ));
+  }
 
-FlutterRustBridgeTaskConstMeta get kMainGetUuidConstMeta =>
- const FlutterRustBridgeTaskConstMeta(
- debugName: "main_get_uuid",
- argNames: [],
- );
+  FlutterRustBridgeTaskConstMeta get kMainGetUuidConstMeta =>
+      const FlutterRustBridgeTaskConstMeta(
+        debugName: "main_get_uuid",
+        argNames: [],
+      );
 
-Future<String> mainGetHardwareId({dynamic hint}) {
- return _platform.executeNormal(FlutterRustBridgeTask(
- callFfi: (port_) => _platform.inner.wire_main_get_hardware_id(port_),
- parseSuccessData: _wire2api_String,
- constMeta: kMainGetHardwareIdConstMeta,
- argValues: [],
- hint: hint,
- ));
-}
+  Future<String> mainGetHardwareId({dynamic hint}) {
+    return _platform.executeNormal(FlutterRustBridgeTask(
+      callFfi: (port_) => _platform.inner.wire_main_get_hardware_id(port_),
+      parseSuccessData: _wire2api_String,
+      constMeta: kMainGetHardwareIdConstMeta,
+      argValues: [],
+      hint: hint,
+    ));
+  }
 
-FlutterRustBridgeTaskConstMeta get kMainGetHardwareIdConstMeta =>
- const FlutterRustBridgeTaskConstMeta(
- debugName: "main_get_hardware_id",
- argNames: [],
- );
-
+  FlutterRustBridgeTaskConstMeta get kMainGetHardwareIdConstMeta =>
+      const FlutterRustBridgeTaskConstMeta(
+        debugName: "main_get_hardware_id",
+        argNames: [],
+      );
 
   Future<String> mainGetPeerOption(
       {required String id, required String key, dynamic hint}) {
@@ -5194,6 +5218,23 @@ FlutterRustBridgeTaskConstMeta get kMainGetHardwareIdConstMeta =>
   FlutterRustBridgeTaskConstMeta get kMainLoadFavPeersConstMeta =>
       const FlutterRustBridgeTaskConstMeta(
         debugName: "main_load_fav_peers",
+        argNames: [],
+      );
+
+  Future<void> pushDirectPairingsChanged({dynamic hint}) {
+    return _platform.executeNormal(FlutterRustBridgeTask(
+      callFfi: (port_) =>
+          _platform.inner.wire_push_direct_pairings_changed(port_),
+      parseSuccessData: _wire2api_unit,
+      constMeta: kPushDirectPairingsChangedConstMeta,
+      argValues: [],
+      hint: hint,
+    ));
+  }
+
+  FlutterRustBridgeTaskConstMeta get kPushDirectPairingsChangedConstMeta =>
+      const FlutterRustBridgeTaskConstMeta(
+        debugName: "push_direct_pairings_changed",
         argNames: [],
       );
 
@@ -5482,31 +5523,31 @@ FlutterRustBridgeTaskConstMeta get kMainGetHardwareIdConstMeta =>
     ));
   }
 
- FlutterRustBridgeTaskConstMeta get kSessionCloseVoiceCallConstMeta =>
- const FlutterRustBridgeTaskConstMeta(
- debugName: "session_close_voice_call",
- argNames: ["sessionId"],
- );
+  FlutterRustBridgeTaskConstMeta get kSessionCloseVoiceCallConstMeta =>
+      const FlutterRustBridgeTaskConstMeta(
+        debugName: "session_close_voice_call",
+        argNames: ["sessionId"],
+      );
 
- Future<void> sessionSendVoiceCallAudio(
- {required UuidValue sessionId, required Uint8List data, dynamic hint}) {
- var arg0 = _platform.api2wire_Uuid(sessionId);
- var arg1 = _platform.api2wire_uint_8_list(data);
- return _platform.executeNormal(FlutterRustBridgeTask(
- callFfi: (port_) => _platform.inner
- .wire_session_send_voice_call_audio(port_, arg0, arg1),
- parseSuccessData: _wire2api_unit,
- constMeta: kSessionSendVoiceCallAudioConstMeta,
- argValues: [sessionId, data],
- hint: hint,
- ));
- }
+  Future<void> sessionSendVoiceCallAudio(
+      {required UuidValue sessionId, required Uint8List data, dynamic hint}) {
+    var arg0 = _platform.api2wire_Uuid(sessionId);
+    var arg1 = _platform.api2wire_uint_8_list(data);
+    return _platform.executeNormal(FlutterRustBridgeTask(
+      callFfi: (port_) =>
+          _platform.inner.wire_session_send_voice_call_audio(port_, arg0, arg1),
+      parseSuccessData: _wire2api_unit,
+      constMeta: kSessionSendVoiceCallAudioConstMeta,
+      argValues: [sessionId, data],
+      hint: hint,
+    ));
+  }
 
- FlutterRustBridgeTaskConstMeta get kSessionSendVoiceCallAudioConstMeta =>
- const FlutterRustBridgeTaskConstMeta(
- debugName: "session_send_voice_call_audio",
- argNames: ["sessionId", "data"],
- );
+  FlutterRustBridgeTaskConstMeta get kSessionSendVoiceCallAudioConstMeta =>
+      const FlutterRustBridgeTaskConstMeta(
+        debugName: "session_send_voice_call_audio",
+        argNames: ["sessionId", "data"],
+      );
 
   String? sessionGetConnToken({required UuidValue sessionId, dynamic hint}) {
     var arg0 = _platform.api2wire_Uuid(sessionId);
@@ -6074,43 +6115,43 @@ FlutterRustBridgeTaskConstMeta get kMainGetHardwareIdConstMeta =>
         argNames: ["sessionId", "msg"],
       );
 
- Future<void> sessionRestartRemoteDevice(
- {required UuidValue sessionId, dynamic hint}) {
- var arg0 = _platform.api2wire_Uuid(sessionId);
- return _platform.executeNormal(FlutterRustBridgeTask(
- callFfi: (port_) =>
- _platform.inner.wire_session_restart_remote_device(port_, arg0),
- parseSuccessData: _wire2api_unit,
- constMeta: kSessionRestartRemoteDeviceConstMeta,
- argValues: [sessionId],
- hint: hint,
- ));
- }
+  Future<void> sessionRestartRemoteDevice(
+      {required UuidValue sessionId, dynamic hint}) {
+    var arg0 = _platform.api2wire_Uuid(sessionId);
+    return _platform.executeNormal(FlutterRustBridgeTask(
+      callFfi: (port_) =>
+          _platform.inner.wire_session_restart_remote_device(port_, arg0),
+      parseSuccessData: _wire2api_unit,
+      constMeta: kSessionRestartRemoteDeviceConstMeta,
+      argValues: [sessionId],
+      hint: hint,
+    ));
+  }
 
- FlutterRustBridgeTaskConstMeta get kSessionRestartRemoteDeviceConstMeta =>
- const FlutterRustBridgeTaskConstMeta(
- debugName: "session_restart_remote_device",
- argNames: ["sessionId"],
- );
+  FlutterRustBridgeTaskConstMeta get kSessionRestartRemoteDeviceConstMeta =>
+      const FlutterRustBridgeTaskConstMeta(
+        debugName: "session_restart_remote_device",
+        argNames: ["sessionId"],
+      );
 
- Future<void> sessionShutdownRemoteDevice(
- {required UuidValue sessionId, dynamic hint}) {
- var arg0 = _platform.api2wire_Uuid(sessionId);
- return _platform.executeNormal(FlutterRustBridgeTask(
- callFfi: (port_) =>
- _platform.inner.wire_session_shutdown_remote_device(port_, arg0),
- parseSuccessData: _wire2api_unit,
- constMeta: kSessionShutdownRemoteDeviceConstMeta,
- argValues: [sessionId],
- hint: hint,
- ));
- }
+  Future<void> sessionShutdownRemoteDevice(
+      {required UuidValue sessionId, dynamic hint}) {
+    var arg0 = _platform.api2wire_Uuid(sessionId);
+    return _platform.executeNormal(FlutterRustBridgeTask(
+      callFfi: (port_) =>
+          _platform.inner.wire_session_shutdown_remote_device(port_, arg0),
+      parseSuccessData: _wire2api_unit,
+      constMeta: kSessionShutdownRemoteDeviceConstMeta,
+      argValues: [sessionId],
+      hint: hint,
+    ));
+  }
 
- FlutterRustBridgeTaskConstMeta get kSessionShutdownRemoteDeviceConstMeta =>
- const FlutterRustBridgeTaskConstMeta(
- debugName: "session_shutdown_remote_device",
- argNames: ["sessionId"],
- );
+  FlutterRustBridgeTaskConstMeta get kSessionShutdownRemoteDeviceConstMeta =>
+      const FlutterRustBridgeTaskConstMeta(
+        debugName: "session_shutdown_remote_device",
+        argNames: ["sessionId"],
+      );
 
   String sessionGetAuditServerSync(
       {required UuidValue sessionId, required String typ, dynamic hint}) {
@@ -9949,7 +9990,12 @@ class LuodaWire implements FlutterRustBridgeWireBase {
     ffi.Pointer<wire_uint_8_list> viewer_id,
     ffi.Pointer<wire_uint_8_list> reason,
   ) {
-    return _wire_session_kick_viewer(port_, session_id, viewer_id, reason);
+    return _wire_session_kick_viewer(
+      port_,
+      session_id,
+      viewer_id,
+      reason,
+    );
   }
 
   late final _wire_session_kick_viewerPtr = _lookup<
@@ -9969,7 +10015,11 @@ class LuodaWire implements FlutterRustBridgeWireBase {
     ffi.Pointer<wire_uint_8_list> session_id,
     ffi.Pointer<wire_uint_8_list> viewer_id,
   ) {
-    return _wire_session_promote_viewer(port_, session_id, viewer_id);
+    return _wire_session_promote_viewer(
+      port_,
+      session_id,
+      viewer_id,
+    );
   }
 
   late final _wire_session_promote_viewerPtr = _lookup<
@@ -9987,7 +10037,12 @@ class LuodaWire implements FlutterRustBridgeWireBase {
     ffi.Pointer<wire_uint_8_list> viewer_id,
     bool raised,
   ) {
-    return _wire_session_raise_hand(port_, session_id, viewer_id, raised);
+    return _wire_session_raise_hand(
+      port_,
+      session_id,
+      viewer_id,
+      raised,
+    );
   }
 
   late final _wire_session_raise_handPtr = _lookup<
@@ -10008,7 +10063,11 @@ class LuodaWire implements FlutterRustBridgeWireBase {
     bool one_shot,
   ) {
     return _wire_session_request_invite_token(
-        port_, session_id, ttl_minutes, one_shot);
+      port_,
+      session_id,
+      ttl_minutes,
+      one_shot,
+    );
   }
 
   late final _wire_session_request_invite_tokenPtr = _lookup<
@@ -10027,7 +10086,12 @@ class LuodaWire implements FlutterRustBridgeWireBase {
     ffi.Pointer<wire_uint_8_list> display_name,
   ) {
     return _wire_session_prepare_viewer(
-        port_, session_id, token, viewer_id, display_name);
+      port_,
+      session_id,
+      token,
+      viewer_id,
+      display_name,
+    );
   }
 
   late final _wire_session_prepare_viewerPtr = _lookup<
@@ -10055,7 +10119,12 @@ class LuodaWire implements FlutterRustBridgeWireBase {
     ffi.Pointer<wire_uint_8_list> display_name,
   ) {
     return _wire_session_join_as_viewer(
-        port_, session_id, token, viewer_id, display_name);
+      port_,
+      session_id,
+      token,
+      viewer_id,
+      display_name,
+    );
   }
 
   late final _wire_session_join_as_viewerPtr = _lookup<
@@ -10074,6 +10143,7 @@ class LuodaWire implements FlutterRustBridgeWireBase {
               ffi.Pointer<wire_uint_8_list>,
               ffi.Pointer<wire_uint_8_list>,
               ffi.Pointer<wire_uint_8_list>)>();
+
   void wire_session_open_terminal(
     int port_,
     ffi.Pointer<wire_uint_8_list> session_id,
@@ -11523,35 +11593,35 @@ class LuodaWire implements FlutterRustBridgeWireBase {
   late final _wire_main_get_my_id =
       _wire_main_get_my_idPtr.asFunction<void Function(int)>();
 
-void wire_main_get_uuid(
- int port_,
- ) {
- return _wire_main_get_uuid(
- port_,
- );
-}
+  void wire_main_get_uuid(
+    int port_,
+  ) {
+    return _wire_main_get_uuid(
+      port_,
+    );
+  }
 
-late final _wire_main_get_uuidPtr =
- _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
- 'wire_main_get_uuid');
-late final _wire_main_get_uuid =
- _wire_main_get_uuidPtr.asFunction<void Function(int)>();
+  late final _wire_main_get_uuidPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+          'wire_main_get_uuid');
+  late final _wire_main_get_uuid =
+      _wire_main_get_uuidPtr.asFunction<void Function(int)>();
 
-void wire_main_get_hardware_id(
- int port_,
- ) {
- return _wire_main_get_hardware_id(
- port_,
- );
-}
+  void wire_main_get_hardware_id(
+    int port_,
+  ) {
+    return _wire_main_get_hardware_id(
+      port_,
+    );
+  }
 
-late final _wire_main_get_hardware_idPtr =
- _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
- 'wire_main_get_hardware_id');
-late final _wire_main_get_hardware_id =
- _wire_main_get_hardware_idPtr.asFunction<void Function(int)>();
+  late final _wire_main_get_hardware_idPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+          'wire_main_get_hardware_id');
+  late final _wire_main_get_hardware_id =
+      _wire_main_get_hardware_idPtr.asFunction<void Function(int)>();
 
-void wire_main_get_peer_option(
+  void wire_main_get_peer_option(
     int port_,
     ffi.Pointer<wire_uint_8_list> id,
     ffi.Pointer<wire_uint_8_list> key,
@@ -11817,6 +11887,20 @@ void wire_main_get_peer_option(
           'wire_main_load_fav_peers');
   late final _wire_main_load_fav_peers =
       _wire_main_load_fav_peersPtr.asFunction<void Function(int)>();
+
+  void wire_push_direct_pairings_changed(
+    int port_,
+  ) {
+    return _wire_push_direct_pairings_changed(
+      port_,
+    );
+  }
+
+  late final _wire_push_direct_pairings_changedPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+          'wire_push_direct_pairings_changed');
+  late final _wire_push_direct_pairings_changed =
+      _wire_push_direct_pairings_changedPtr.asFunction<void Function(int)>();
 
   void wire_main_load_lan_peers(
     int port_,
@@ -12086,33 +12170,30 @@ void wire_main_get_peer_option(
       ffi.NativeFunction<
           ffi.Void Function(ffi.Int64,
               ffi.Pointer<wire_uint_8_list>)>>('wire_session_close_voice_call');
- late final _wire_session_close_voice_call = _wire_session_close_voice_callPtr
- .asFunction<void Function(int, ffi.Pointer<wire_uint_8_list>)>();
+  late final _wire_session_close_voice_call = _wire_session_close_voice_callPtr
+      .asFunction<void Function(int, ffi.Pointer<wire_uint_8_list>)>();
 
- void wire_session_send_voice_call_audio(
- int port_,
- ffi.Pointer<wire_uint_8_list> session_id,
- ffi.Pointer<wire_uint_8_list> data,
- ) {
- return _wire_session_send_voice_call_audio(
- port_,
- session_id,
- data,
- );
- }
+  void wire_session_send_voice_call_audio(
+    int port_,
+    ffi.Pointer<wire_uint_8_list> session_id,
+    ffi.Pointer<wire_uint_8_list> data,
+  ) {
+    return _wire_session_send_voice_call_audio(
+      port_,
+      session_id,
+      data,
+    );
+  }
 
- late final _wire_session_send_voice_call_audioPtr = _lookup<
- ffi.NativeFunction<
- ffi.Void Function(
- ffi.Int64,
- ffi.Pointer<wire_uint_8_list>,
- ffi.Pointer<wire_uint_8_list>)>('wire_session_send_voice_call_audio');
- late final _wire_session_send_voice_call_audio =
- _wire_session_send_voice_call_audioPtr.asFunction<
- void Function(
- int,
- ffi.Pointer<wire_uint_8_list>,
- ffi.Pointer<wire_uint_8_list>)>();
+  late final _wire_session_send_voice_call_audioPtr = _lookup<
+          ffi.NativeFunction<
+              ffi.Void Function(ffi.Int64, ffi.Pointer<wire_uint_8_list>,
+                  ffi.Pointer<wire_uint_8_list>)>>(
+      'wire_session_send_voice_call_audio');
+  late final _wire_session_send_voice_call_audio =
+      _wire_session_send_voice_call_audioPtr.asFunction<
+          void Function(int, ffi.Pointer<wire_uint_8_list>,
+              ffi.Pointer<wire_uint_8_list>)>();
 
   WireSyncReturn wire_session_get_conn_token(
     ffi.Pointer<wire_uint_8_list> session_id,
@@ -12620,41 +12701,41 @@ void wire_main_get_peer_option(
       void Function(
           int, ffi.Pointer<wire_uint_8_list>, ffi.Pointer<wire_uint_8_list>)>();
 
-void wire_session_restart_remote_device(
-int port_,
-ffi.Pointer<wire_uint_8_list> session_id,
-) {
-return _wire_session_restart_remote_device(
-port_,
-session_id,
-);
-}
+  void wire_session_restart_remote_device(
+    int port_,
+    ffi.Pointer<wire_uint_8_list> session_id,
+  ) {
+    return _wire_session_restart_remote_device(
+      port_,
+      session_id,
+    );
+  }
 
-late final _wire_session_restart_remote_devicePtr = _lookup<
-ffi.NativeFunction<
-ffi.Void Function(ffi.Int64, ffi.Pointer<wire_uint_8_list>)>>(
-'wire_session_restart_remote_device');
-late final _wire_session_restart_remote_device =
-_wire_session_restart_remote_devicePtr
-.asFunction<void Function(int, ffi.Pointer<wire_uint_8_list>)>();
+  late final _wire_session_restart_remote_devicePtr = _lookup<
+          ffi.NativeFunction<
+              ffi.Void Function(ffi.Int64, ffi.Pointer<wire_uint_8_list>)>>(
+      'wire_session_restart_remote_device');
+  late final _wire_session_restart_remote_device =
+      _wire_session_restart_remote_devicePtr
+          .asFunction<void Function(int, ffi.Pointer<wire_uint_8_list>)>();
 
-void wire_session_shutdown_remote_device(
-int port_,
-ffi.Pointer<wire_uint_8_list> session_id,
-) {
-return _wire_session_shutdown_remote_device(
-port_,
-session_id,
-);
-}
+  void wire_session_shutdown_remote_device(
+    int port_,
+    ffi.Pointer<wire_uint_8_list> session_id,
+  ) {
+    return _wire_session_shutdown_remote_device(
+      port_,
+      session_id,
+    );
+  }
 
-late final _wire_session_shutdown_remote_devicePtr = _lookup<
-ffi.NativeFunction<
-ffi.Void Function(ffi.Int64, ffi.Pointer<wire_uint_8_list>)>>(
-'wire_session_shutdown_remote_device');
-late final _wire_session_shutdown_remote_device =
-_wire_session_shutdown_remote_devicePtr
-.asFunction<void Function(int, ffi.Pointer<wire_uint_8_list>)>();
+  late final _wire_session_shutdown_remote_devicePtr = _lookup<
+          ffi.NativeFunction<
+              ffi.Void Function(ffi.Int64, ffi.Pointer<wire_uint_8_list>)>>(
+      'wire_session_shutdown_remote_device');
+  late final _wire_session_shutdown_remote_device =
+      _wire_session_shutdown_remote_devicePtr
+          .asFunction<void Function(int, ffi.Pointer<wire_uint_8_list>)>();
 
   WireSyncReturn wire_session_get_audit_server_sync(
     ffi.Pointer<wire_uint_8_list> session_id,
@@ -14804,6 +14885,8 @@ const int VIDEO_QUEUE_SIZE = 120;
 const int AUDIO_BUFFER_MS = 3000;
 
 const int CLIPBOARD_INTERVAL = 333;
+
+const int PORT_MAPPING_LEASE_SECONDS = 3600;
 
 const int ERR_SUCCESS = 0;
 

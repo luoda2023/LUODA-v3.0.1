@@ -1198,12 +1198,14 @@ static int _deliveryRank(DirectChatDelivery delivery) {
 
  // ── KV → SQLite migration helpers ─────────────────────────
 
- /// One-time migration of meeting groups from KV store to SQLite.
- /// Idempotent: uses INSERT OR REPLACE, so re-running is safe.
- Future<void> _migrateMeetingsFromKV() async {
- String raw;
- try {
- raw = bind.mainGetLocalOption(key: 'meeting_groups_v1');
+  /// One-time migration of meeting groups from KV store to SQLite.
+  /// Idempotent: uses INSERT OR REPLACE, so re-running is safe.
+  Future<void> _migrateMeetingsFromKV() async {
+    final migrated = await _getMeta('meetings_migrated_v2');
+    if (migrated == '1') return;
+    String raw;
+    try {
+      raw = bind.mainGetLocalOption(key: 'meeting_groups_v1');
  } catch (_) {
  return; // FFI not available (e.g. in unit tests without native lib)
  }
@@ -1258,11 +1260,13 @@ static int _deliveryRank(DirectChatDelivery delivery) {
  }
  }
 
- /// One-time migration of pairings from KV store to SQLite.
- Future<void> _migratePairingsFromKV() async {
- String raw;
- try {
- raw = bind.mainGetLocalOption(key: 'direct-pairings-v1');
+  /// One-time migration of pairings from KV store to SQLite.
+  Future<void> _migratePairingsFromKV() async {
+    final migrated = await _getMeta('pairings_migrated_v2');
+    if (migrated == '1') return;
+    String raw;
+    try {
+      raw = bind.mainGetLocalOption(key: 'direct-pairings-v1');
  } catch (_) {
  return; // FFI not available (e.g. in unit tests without native lib)
  }

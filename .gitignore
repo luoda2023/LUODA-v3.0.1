@@ -44,3 +44,11 @@ Releases/
 *.etl
 LUODA-Win64-*.zip
 capture_input*.etl
+
+# Local dependency build artifacts
+flutter/packages/pdfrx/android/.cxx/
+flutter/packages/pdfrx/android/.lib/
+flutter/packages/pdfrx/darwin/pdfium/build/
+Release-3.1.1/
+*.png
+

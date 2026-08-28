@@ -2644,7 +2644,7 @@ expect(chatModelSource, contains('destroyMessage('));
 
   test('Android SDK levels support the direct voice recorder', () {
     expect(androidAppGradleSource, contains('compileSdkVersion(35)'));
-    expect(androidAppGradleSource, contains('minSdkVersion(23)'));
+    expect(androidAppGradleSource, contains('minSdkVersion(24)'));
   });
 
   test('local identity and always-on messaging settings remain available', () {

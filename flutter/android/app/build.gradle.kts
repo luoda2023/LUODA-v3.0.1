@@ -156,7 +156,7 @@ packagingOptions {
 
 defaultConfig {
         applicationId = "com.dotchat.remote31"
-        minSdkVersion(23)
+        minSdkVersion(24)
         targetSdkVersion(33)
         versionCode = flutterVersionCode.toInt()
         versionName = flutterVersionName

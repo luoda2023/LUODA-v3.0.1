@@ -51,7 +51,7 @@ add_definitions(-DUNICODE -D_UNICODE)
 # of modifying this function.
 function(APPLY_STANDARD_SETTINGS TARGET)
   target_compile_features(${TARGET} PUBLIC cxx_std_17)
-  target_compile_options(${TARGET} PRIVATE /W4 /WX /wd"4100")
+  target_compile_options(${TARGET} PRIVATE /W4 /WX /utf-8 /wd"4100")
   target_compile_options(${TARGET} PRIVATE /EHsc)
   # Disable VC140_1
   target_compile_options(${TARGET} PRIVATE /d2FH4-)

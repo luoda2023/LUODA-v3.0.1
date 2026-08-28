@@ -24,7 +24,7 @@ bool _initialized = false;
 /// Initialize opus library and create encoder/decoder.
 Future<void> init() async {
 if (_initialized) return;
-await initOpus(await load());
+initOpus(await load());
 _createEncoder();
 _createDecoder();
 _initialized = true;

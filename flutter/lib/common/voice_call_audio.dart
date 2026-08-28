@@ -41,6 +41,8 @@ class VoiceCallAudio {
         sampleRate: VoiceCallCodec.sampleRate,
         numChannels: VoiceCallCodec.channels,
         codec: Codec.pcmFloat32,
+        interleaved: false,
+        bufferSize: 1024,
       );
       _playing = true;
     }
