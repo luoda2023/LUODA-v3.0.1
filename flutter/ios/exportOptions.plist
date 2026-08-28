@@ -8,7 +8,7 @@
  <string>HZF9JMC8YN</string>
  <key>provisioningProfiles</key>
  <dict>
- <key>com.luoda.remote</key>
+ <key>com.dotchat.remote31</key>
  <string>luoda-ios-prod-app-store</string>
  </dict>
  </dict>

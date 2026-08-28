@@ -72,10 +72,10 @@ fn main() {
 
     );
 
-    let matches = App::new("luoda")
-        .version(crate::VERSION)
-        .author("LUODA <info@dicad.cn>")
-        .about("LUODA command line tool")
+let matches = App::new("luoda31")
+.version(crate::VERSION)
+.author("LUODA <info@dicad.cn>")
+.about("LUODA 3.1 command line tool")
         .args_from_usage(&args)
         .get_matches();
 

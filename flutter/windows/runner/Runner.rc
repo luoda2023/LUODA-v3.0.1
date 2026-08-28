@@ -92,9 +92,9 @@ BEGIN
             VALUE "CompanyName", "DotChat" "\0"
             VALUE "FileDescription", "DotChat Direct Chat and Remote Assistance" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "luoda" "\0"
+            VALUE "InternalName", "luoda31" "\0"
             VALUE "LegalCopyright", "Copyright © 2026 DotChat. All rights reserved." "\0"
-            VALUE "OriginalFilename", "luoda.exe" "\0"
+            VALUE "OriginalFilename", "luoda31.exe" "\0"
             VALUE "ProductName", "DotChat" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
