@@ -368,6 +368,10 @@ jobs:
           fi
         shell: bash
 
+      - name: Resolve Flutter dependencies
+        working-directory: flutter
+        run: flutter pub get
+
       - name: Validate shared chat and UI contracts
         timeout-minutes: 10
         run: |

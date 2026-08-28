@@ -187,6 +187,10 @@ jobs:
           SODIUM_LIB_DIR: C:\\\\vcpkg\\\\installed\\\\x64-windows-static\\\\lib
           CXXFLAGS: -include cstdint
 
+      - name: Resolve Flutter dependencies
+        working-directory: flutter
+        run: flutter pub get
+
       - name: Validate shared chat and UI contracts
         timeout-minutes: 25
         run: |

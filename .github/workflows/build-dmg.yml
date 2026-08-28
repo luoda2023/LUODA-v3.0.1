@@ -217,6 +217,10 @@ jobs:
           CXXFLAGS="-I${VCPKG_INCLUDE} -I${BREW_INCLUDE} -include cstdint" \
           cargo build --release --features flutter
 
+      - name: Resolve Flutter dependencies
+        working-directory: flutter
+        run: flutter pub get
+
       - name: Validate shared chat and UI contracts
         timeout-minutes: 10
         run: |

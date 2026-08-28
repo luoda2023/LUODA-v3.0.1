@@ -217,6 +217,11 @@ jobs:
           VCPKG_DEFAULT_TRIPLET: x64-windows-static
           CXXFLAGS: -include cstdint
           SODIUM_LIB_DIR: C:\vcpkg\installed\x64-windows-static\lib
+
+      - name: Resolve Flutter dependencies
+        working-directory: flutter
+        run: flutter pub get
+
       - name: Validate shared chat and UI contracts
         if: matrix.arch == 'x64'
         timeout-minutes: 5
