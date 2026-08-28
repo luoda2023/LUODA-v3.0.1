@@ -749,14 +749,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.0"
-  flutter_sound:
-    dependency: "direct main"
-    description:
-      name: flutter_sound
-      sha256: 27c08dc887492673f17c46073fbbb780a0843034196ff24ae3982cdbd3e331a3
-      url: "https://pub.dev"
-    source: hosted
-    version: "9.10.0"
   flutter_test:
     dependency: "direct dev"
     description: flutter
@@ -1151,22 +1143,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "4.7.0"
-  opus_dart:
-    dependency: "direct main"
-    description:
-      name: opus_dart
-      sha256: e8ab4774409997af33cbfdfe91a186854ed6458b2fec66b0e52f4434b1af2f7c
-      url: "https://pub.dev"
-    source: hosted
-    version: "3.0.1"
-  opus_flutter:
-    dependency: "direct main"
-    description:
-      name: opus_flutter
-      sha256: 86edfdab1220d64bd7daa3e9bda1785cc0c8c793629e89f34a2a87bdfce57e25
-      url: "https://pub.dev"
-    source: hosted
-    version: "3.0.3"
   package_config:
     dependency: transitive
     description:
