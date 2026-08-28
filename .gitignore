@@ -52,3 +52,5 @@ flutter/packages/pdfrx/darwin/pdfium/build/
 Release-3.1.1/
 *.png
 
+!**/CMakeLists.txt
+
