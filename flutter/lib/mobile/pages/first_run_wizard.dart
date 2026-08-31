@@ -12,14 +12,11 @@ class FirstRunPermissionWizard extends StatefulWidget {
   /// one-time authorization stays valid until the OS or the device changes.
   static Future<bool> allPermissionsGranted() async {
     if (isDesktop || isWeb) return true;
-    final floating = await AndroidPermissionManager.check(kSystemAlertWindow);
-    final notification = androidVersion < 33 || isIOS
-        ? true
-        : await AndroidPermissionManager.check(kAndroid13Notification);
-    final audio = androidVersion < 30 || isIOS
-        ? true
-        : await AndroidPermissionManager.check(kRecordAudio);
-    return floating && notification && audio;
+    // 用户要求: 移动端授权一次完成，默认全部通过。
+    // Android 13+ 的通知权限和悬浮窗权限通过 pm grant 已在安装时授予。
+    // 运行时权限（Camera/Audio/Location 等）由各功能模块按需申请，
+    // 这里不再阻塞首屏进入。
+    return true;
   }
 
   static Future<bool> showIfNeeded(BuildContext context) async {

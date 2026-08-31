@@ -72,3 +72,11 @@ agent_memory/remove_dot.py
 agent_memory/rm_status.py
 agent_memory/screen_now.png
 ui.xml
+# local scratch
+_apk*.ps1
+_rebuild*.ps1
+_*.py
+_rm*.py
+_sp*.py
+_ui.xml
+_view*.xml
