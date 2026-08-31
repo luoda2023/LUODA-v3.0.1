@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
@@ -471,7 +471,7 @@ class MyTheme {
  systemNavigationBarIconBrightness: Brightness.dark,
  ),
  ),
- dialogTheme: DialogTheme(
+ dialogTheme: DialogThemeData(
  elevation: 8,
  backgroundColor: surfaceLight,
  shape: RoundedRectangleBorder(
@@ -541,7 +541,7 @@ class MyTheme {
       ),
     ),
     cardColor: surfaceLight,
-    cardTheme: CardTheme(
+    cardTheme: CardThemeData(
       color: surfaceLight,
       elevation: 0,
       margin: EdgeInsets.zero,
@@ -552,7 +552,7 @@ class MyTheme {
     ),
     hintColor: mutedLight,
     visualDensity: VisualDensity.adaptivePlatformDensity,
-    tabBarTheme: const TabBarTheme(labelColor: textLight),
+    tabBarTheme: const TabBarThemeData(labelColor: textLight),
     tooltipTheme: tooltipTheme(),
     splashColor: (isDesktop || isWebDesktop) ? Colors.transparent : null,
     highlightColor: (isDesktop || isWebDesktop) ? Colors.transparent : null,
@@ -656,7 +656,7 @@ class MyTheme {
  systemNavigationBarIconBrightness: Brightness.light,
  ),
  ),
-    dialogTheme: DialogTheme(
+    dialogTheme: DialogThemeData(
       elevation: 8,
       backgroundColor: surfaceDark,
       shape: RoundedRectangleBorder(
@@ -726,7 +726,7 @@ class MyTheme {
       ),
     ),
     cardColor: surfaceDark,
-    cardTheme: CardTheme(
+    cardTheme: CardThemeData(
       color: surfaceDark,
       elevation: 0,
       margin: EdgeInsets.zero,
@@ -737,7 +737,7 @@ class MyTheme {
     ),
     hintColor: mutedDark,
     visualDensity: VisualDensity.adaptivePlatformDensity,
-    tabBarTheme: const TabBarTheme(labelColor: textDark),
+    tabBarTheme: const TabBarThemeData(labelColor: textDark),
     tooltipTheme: tooltipTheme(),
     splashColor: (isDesktop || isWebDesktop) ? Colors.transparent : null,
     highlightColor: (isDesktop || isWebDesktop) ? Colors.transparent : null,
@@ -2362,7 +2362,38 @@ Future<Offset?> _adjustRestoreMainWindowOffset(
       if (!isVisible) {
         return null;
       }
-      return Offset(left, top);
+    }
+  }
+
+  // LUODA FIX: also reject obviously-bogus saved coordinates (e.g. from a
+  // previous run on an LDesk / remote-desktop session whose display origin
+  // was at large negative numbers). window_size.getScreenList() may still
+  // report those screens as visible (the secondary monitor is technically
+  // present even if LDesk has torn it down), which lets the saved
+  // (-25600, -25600) position slip through and the main window ends up
+  // far off-screen. Treat any position whose top-left is more than two
+  // screens away from any real visible frame as out of bounds.
+  if (isDesktop || isWebDesktop) {
+    final screens = await window_size.getScreenList();
+    if (screens.isNotEmpty) {
+      bool nearARealScreen = false;
+      for (final screen in screens) {
+        // screen.frame is the entire monitor (origin-inclusive), so a
+        // saved position that is only on-screen on a torn-down monitor
+        // (negative coords in the remote session) will not be near any
+        // current visible frame.
+        final right = screen.frame.left + screen.frame.width;
+        final bottom = screen.frame.top + screen.frame.height;
+        final inX = left >= (screen.frame.left - 50) && left < right;
+        final inY = top >= (screen.frame.top - 50) && top < bottom;
+        if (inX && inY) {
+          nearARealScreen = true;
+          break;
+        }
+      }
+      if (!nearARealScreen) {
+        return null;
+      }
     }
   }
 
@@ -4907,3 +4938,6 @@ Widget avatarWithPlatformBadge({
     ],
   );
 }
+
+
+

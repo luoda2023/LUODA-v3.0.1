@@ -64,121 +64,119 @@ class _VoiceMessageRecorderButtonState
     _overlaySetState = null;
   }
 
-  /// 在麦克风按钮正下方插入一个小卡片。
+  /// 在屏幕中央插入微信风格全屏录音浮层。
   void _showOverlay() {
     _hideOverlay();
-    final box =
-        _buttonKey.currentContext?.findRenderObject() as RenderBox?;
-    if (box == null) return;
-    final offset = box.localToGlobal(Offset.zero);
-    final buttonSize = box.size;
     final entry = OverlayEntry(
-      builder: (_) => _buildRecordingCard(
-        left: offset.dx,
-        top: offset.dy + buttonSize.height + 6,
-      ),
+      builder: (_) => _buildRecordingCard(left: 0, top: 0),
     );
     _overlayEntry = entry;
     Overlay.of(context).insert(entry);
   }
 
   Widget _buildRecordingCard({required double left, required double top}) {
-    final theme = Theme.of(context);
-    final dark = theme.brightness == Brightness.dark;
-    final bg = _cancelling
-        ? const Color(0xFFFA5151)
-        : dark
-            ? const Color(0xFF2B2D32)
-            : Colors.white;
-    final fg = _cancelling ? Colors.white : const Color(0xFF1A1A1A);
-    final sub = _cancelling ? Colors.white70 : const Color(0xFF7F7F7F);
+    // 微信风格录音浮层：全屏半透明深色背景 + 中央大圆点 + 计时 + 提示语。
+    return Material(
+      color: Colors.transparent,
+      child: StatefulBuilder(
+        builder: (context, setOverlayState) {
+          _overlaySetState = setOverlayState;
+          final seconds = _elapsed.elapsed.inSeconds;
+          final mm = (seconds ~/ 60).toString().padLeft(2, '0');
+          final ss = (seconds % 60).toString().padLeft(2, '0');
+          final hint = _cancelling
+              ? translate('Release to cancel')
+              : translate('Release to send, swipe up to cancel');
 
-    return Positioned(
-      left: left,
-      top: top,
-      child: Material(
-        color: Colors.transparent,
-        child: StatefulBuilder(
-          builder: (context, setOverlayState) {
-            _overlaySetState = setOverlayState;
-            final seconds = _elapsed.elapsed.inSeconds;
-            final mm = (seconds ~/ 60).toString().padLeft(2, '0');
-            final ss = (seconds % 60).toString().padLeft(2, '0');
-
-            return Container(
-              width: 200,
-              padding: const EdgeInsets.symmetric(
-                  vertical: 12, horizontal: 14),
-              decoration: BoxDecoration(
-                color: bg,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: <BoxShadow>[
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.15),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
+          return Stack(
+            children: <Widget>[
+              // 全屏半透明背景
+              Positioned.fill(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {},
+                  child: Container(
+                    color: Colors.black.withOpacity(_cancelling ? 0.55 : 0.35),
                   ),
-                ],
+                ),
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Row(
+              // 中央浮层
+              Center(
+                child: Container(
+                  width: 160,
+                  padding: const EdgeInsets.symmetric(
+                      vertical: 22, horizontal: 16),
+                  decoration: BoxDecoration(
+                    color: _cancelling
+                        ? const Color(0xFFFA5151)
+                        : const Color(0xFF2B2D32),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
-                      // 红色录音脉冲点
-                      AnimatedContainer(
-                        duration: const Duration(milliseconds: 500),
-                        width: 8,
-                        height: 8,
-                        decoration: const BoxDecoration(
-                          color: Color(0xFFFA5151),
-                          shape: BoxShape.circle,
+                      SizedBox(
+                        width: 86,
+                        height: 86,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: <Widget>[
+                            Container(
+                              width: 56,
+                              height: 56,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFA5151),
+                                shape: BoxShape.circle,
+                                boxShadow: <BoxShadow>[
+                                  BoxShadow(
+                                    color: const Color(0xFFFA5151)
+                                        .withOpacity(0.4),
+                                    blurRadius: 18,
+                                    spreadRadius: 4,
+                                  ),
+                                ],
+                              ),
+                              child: const Icon(
+                                Icons.mic_rounded,
+                                color: Colors.white,
+                                size: 28,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(height: 14),
                       Text(
-                        '$mm:$ss',
-                        style: TextStyle(
-                          fontSize: 22,
+                        mm + ":" + ss,
+                        style: const TextStyle(
+                          fontSize: 26,
                           fontWeight: FontWeight.w600,
-                          color: fg,
+                          color: Colors.white,
+                          decoration: TextDecoration.none,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        hint,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.white.withOpacity(0.85),
                           decoration: TextDecoration.none,
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 10),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: <Widget>[
-                      _SmallIconButton(
-                        icon: Icons.close_rounded,
-                        color: _cancelling ? Colors.white : sub,
-                        onTap: _cancelRecording,
-                      ),
-                      const SizedBox(width: 14),
-                      _SmallIconButton(
-                        icon: Icons.send_rounded,
-                        color: _cancelling
-                            ? Colors.white
-                            : const Color(0xFF07C160),
-                        onTap: _stopAndSend,
-                        size: 32,
-                      ),
-                    ],
-                  ),
-                ],
+                ),
               ),
-            );
-          },
-        ),
+            ],
+          );
+        },
       ),
     );
   }
 
-  // ── Recording lifecycle ────────────────────────────────────────────
+    // ── Recording lifecycle ────────────────────────────────────────────
 
   Future<void> _start() async {
     if (_busy) return;

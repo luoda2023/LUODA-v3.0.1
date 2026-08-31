@@ -60,8 +60,10 @@ Future<String?> resolveReceivedFilePath(String fileName, int fileSize) async {
   } catch (_) {}
   try {
     final ext = await ExternalPath.getExternalStorageDirectories();
-    for (final directory in ext) {
-      dirs.add(Directory(directory));
+    if (ext != null) {
+      for (final directory in ext) {
+        dirs.add(Directory(directory));
+      }
     }
   } catch (_) {}
   // Transfer-subsystem files land in the peer home dir: `~` on desktop,
@@ -77,10 +79,12 @@ Future<String?> resolveReceivedFilePath(String fileName, int fileSize) async {
   } catch (_) {}
   // The "DotChat" folder used by the Rust core as the Android receive root.
   try {
-    final ext = await ExternalPath.getExternalStorageDirectories();
-    for (final directory in ext) {
-      final dotChat = Directory('$directory${Platform.pathSeparator}DotChat');
-      if (await dotChat.exists() && !dirs.contains(dotChat)) dirs.add(dotChat);
+    final ext2 = await ExternalPath.getExternalStorageDirectories();
+    if (ext2 != null) {
+      for (final directory in ext2) {
+        final dotChat = Directory('$directory${Platform.pathSeparator}DotChat');
+        if (await dotChat.exists() && !dirs.contains(dotChat)) dirs.add(dotChat);
+      }
     }
   } catch (_) {}
 

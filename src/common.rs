@@ -56,7 +56,7 @@ pub type NotifyMessageBox = fn(String, String, String, String) -> dyn Future<Out
 
 // the executable name of the portable version
 pub const PORTABLE_APPNAME_RUNTIME_ENV_KEY: &str = "LUODA_APPNAME";
-pub const DEFAULT_PRODUCT_DISPLAY_NAME: &str = "点聊";
+pub const DEFAULT_PRODUCT_DISPLAY_NAME: &str = "LUODA";
 
 pub const PLATFORM_WINDOWS: &str = "Windows";
 pub const PLATFORM_LINUX: &str = "Linux";

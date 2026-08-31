@@ -484,23 +484,20 @@ class _LocalContactsViewState extends State<LocalContactsView> {
           // clear of the online dot at the bottom-right.
           topRight: true,
         ),
-        Positioned(
-          right: -1,
-          bottom: -1,
-          child: Container(
-            width: 13,
-            height: 13,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: online
-                  ? const Color(0xFF2BB673)
-                  : dark
-                      ? const Color(0xFF6B7280)
-                      : const Color(0xFFC6CBD4),
-              border: Border.all(color: theme.colorScheme.surface, width: 2),
+        if (online)
+          Positioned(
+            right: -1,
+            bottom: -1,
+            child: Container(
+              width: 13,
+              height: 13,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0xFF2BB673),
+                border: Border.all(color: theme.colorScheme.surface, width: 2),
+              ),
             ),
           ),
-        ),
       ],
     );
   }

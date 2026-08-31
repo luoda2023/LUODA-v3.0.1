@@ -297,7 +297,7 @@ void _goPrevious() {
 	final srcFile = File(srcPath);
 	if (!await srcFile.exists()) return;
 	final name = srcPath.split(Platform.pathSeparator).last;
-	final saveName = await FilePicker.platform.saveFile(
+	final saveName = await FilePicker.saveFile(
  dialogTitle: translate('Save as'),
  fileName: name,
  );

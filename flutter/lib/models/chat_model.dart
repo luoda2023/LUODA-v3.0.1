@@ -3964,22 +3964,50 @@ String _notificationBody(DirectChatRecord record) {
     return DirectChatRepository.instance.mediaForConversation(peerId);
   }
 
+  // Cached pinned set so the conversation list can sort synchronously.
+  Set<String> _pinnedIds = {};
+  bool _pinnedLoaded = false;
+
+  /// Synchronous pinned check (used by list sort / row render).
+  bool isPinnedSync(String peerId) {
+    _ensurePinnedLoaded();
+    return _pinnedIds.contains(peerId);
+  }
+
+  void _ensurePinnedLoaded() {
+    if (_pinnedLoaded) return;
+    _pinnedLoaded = true;
+    unawaited(_refreshPinnedIds());
+  }
+
+  Future<void> _refreshPinnedIds() async {
+    final ids = await _loadPinnedConversations();
+    _pinnedIds = ids;
+    notifyListeners();
+  }
+
   /// Pin or unpin a conversation.
   Future<void> pinConversation(String peerId, bool pinned) async {
     if (peerId.isEmpty) return;
-    final pinnedIds = await _loadPinnedConversations();
+    await _ensurePinnedLoadedAsync();
     if (pinned) {
-      pinnedIds.add(peerId);
+      _pinnedIds.add(peerId);
     } else {
-      pinnedIds.remove(peerId);
+      _pinnedIds.remove(peerId);
     }
     try {
       bind.mainSetLocalOption(
         key: 'pinned_conversations',
-        value: jsonEncode(pinnedIds.toList()),
+        value: jsonEncode(_pinnedIds.toList()),
       );
     } catch (_) {}
     notifyListeners();
+  }
+
+  Future<void> _ensurePinnedLoadedAsync() async {
+    if (_pinnedLoaded) return;
+    _pinnedLoaded = true;
+    _pinnedIds = await _loadPinnedConversations();
   }
 
   /// Get list of pinned conversation peer IDs.
@@ -4081,6 +4109,25 @@ String _notificationBody(DirectChatRecord record) {
     try {
       await bind.mainSetLocalOption(key: key, value: value);
     } catch (_) {}
+  }
+
+  // ─── Chat background ─────────────────────────────────────
+
+  /// 当前聊天窗口背景（default / mobile / desktop）。
+  String get chatBackgroundKey {
+    try {
+      return bind.mainGetLocalOption(key: 'chat_background');
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /// 设置聊天窗口背景并通知界面刷新。
+  Future<void> setChatBackground(String key) async {
+    try {
+      await bind.mainSetLocalOption(key: 'chat_background', value: key);
+    } catch (_) {}
+    notifyListeners();
   }
 
   // ─── Multi-select ────────────────────────────────────────

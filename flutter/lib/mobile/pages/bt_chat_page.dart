@@ -265,7 +265,7 @@ class _BluetoothChatPageState extends State<BluetoothChatPage> {
   }
 
   Future<void> _attachFile() async {
-    final picked = await FilePicker.platform.pickFiles(allowMultiple: true);
+    final picked = await FilePicker.pickFiles(allowMultiple: true);
     final files = picked?.files.where((f) => f.path != null).toList() ??
         const <PlatformFile>[];
     if (files.isEmpty || !mounted) return;

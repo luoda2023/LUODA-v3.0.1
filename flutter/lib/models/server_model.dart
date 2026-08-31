@@ -523,35 +523,18 @@ class ServerModel with ChangeNotifier {
   /// starts the service manually from the Assist page when needed (no dialog
   /// until they actually tap start).
   Future<void> maybeAutoStartService() async {
-    debugPrint('maybeAutoStartService enter android=$isAndroid isStart=$_isStart');
+    // LUODA: screen-share service is NEVER auto-started anymore. The system
+    // MediaProjection consent dialog (start recording / cast) must not pop
+    // by itself. Remote assist only starts when the user taps Start on the
+    // assist / share page (a single system-granted authorization is required).
+    debugPrint('maybeAutoStartService disabled (no auto screen share)');
     if (!isAndroid || _isStart) return;
-    // Opt-in only. Absent value (fresh install) defaults to OFF — no dialog.
-    final autoStartScreenShare =
-        bind.mainGetLocalOption(key: kOptionAutoStartScreenShare);
-    debugPrint('maybeAutoStartService autoStartScreenShare=$autoStartScreenShare');
-    if (autoStartScreenShare != 'Y') return;
-    // Ask the native side for the current state; if the service is already
-    // running, its on_state_changed(media) event restarts the model state.
-    await gFFI.invokeMethod("check_service");
-    await Future<void>.delayed(const Duration(milliseconds: 400));
-    debugPrint('maybeAutoStartService after check_service isStart=$_isStart mediaOk=$_mediaOk');
-    if (_isStart) return;
-    await checkRequestNotificationPermission();
-    if (bind.mainGetLocalOption(key: kOptionDisableFloatingWindow) != 'Y') {
-      await checkFloatingWindowPermission();
+    if (bind.mainGetLocalOption(key: kOptionAutoStartScreenShare) == 'Y') {
+      // Clean up any stale opt-in from older builds so it can never nag again.
+      unawaited(bind.mainSetLocalOption(key: kOptionAutoStartScreenShare, value: ''));
     }
-    if (_fileOk &&
-        !await AndroidPermissionManager.check(kManageExternalStorage)) {
-      await AndroidPermissionManager.request(kManageExternalStorage);
-    }
-    debugPrint('maybeAutoStartService calling startService isStart=$_isStart');
-    if (!_isStart) {
-      await startService();
-    }
-    debugPrint('maybeAutoStartService done isStart=$_isStart');
   }
 
-  /// Stop the screen sharing service.
   Future<void> stopService() async {
     _isStart = false;
     closeAll();

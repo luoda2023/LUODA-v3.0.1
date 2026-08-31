@@ -259,6 +259,7 @@ class ChatPage extends StatelessWidget implements PageShape {
   final VoidCallback? onSendImage;
   final VoidCallback? onTakePhoto;
   final VoidCallback? onSendLocation;
+  final VoidCallback? onVoiceCall;
   final VoidCallback? onScreenshot;
   final PasteImageCallback? onPasteImage;
   final ForwardMessagesCallback? onForwardMessages;
@@ -287,6 +288,7 @@ class ChatPage extends StatelessWidget implements PageShape {
     this.onSendImage,
     this.onTakePhoto,
     this.onSendLocation,
+    this.onVoiceCall,
     this.onScreenshot,
     this.onPasteImage,
     this.onForwardMessages,
@@ -2431,15 +2433,33 @@ List<ChatMessage> _selectedMessagesForForward() {
     return ChangeNotifierProvider.value(
       value: chatModel,
       child: Container(
-        color: type == ChatPageType.desktopHome
-            ? Theme.of(context).brightness == Brightness.dark
-                ? kWeChatCanvasColorDark
-                : kWeChatCanvasColor
-            : type == ChatPageType.mobileMain
-                ? Theme.of(context).brightness == Brightness.dark
-                    ? kWeChatCanvasColorDark
-                    : const Color(0xFFEDEDED)
-                : Theme.of(context).scaffoldBackgroundColor,
+        // 聊天窗口背景：默认按端（手机 BG.jpg / PC BG2.jpg），
+        // 用户可在 ⋯ 菜单“聊天背景”里选择 default / mobile / desktop。
+        decoration: BoxDecoration(
+          image: chatModel.chatBackgroundKey == 'default'
+              ? null
+              : DecorationImage(
+                  image: AssetImage(
+                    chatModel.chatBackgroundKey == 'mobile'
+                        ? 'assets/bg_chat_mobile.jpg'
+                        : chatModel.chatBackgroundKey == 'desktop'
+                            ? 'assets/bg_chat_desktop.jpg'
+                            : type == ChatPageType.desktopHome
+                                ? 'assets/bg_chat_desktop.jpg'
+                                : 'assets/bg_chat_mobile.jpg',
+                  ),
+                  fit: BoxFit.cover,
+                ),
+          color: type == ChatPageType.desktopHome
+              ? Theme.of(context).brightness == Brightness.dark
+                  ? kWeChatCanvasColorDark
+                  : kWeChatCanvasColor
+              : type == ChatPageType.mobileMain
+                  ? Theme.of(context).brightness == Brightness.dark
+                      ? kWeChatCanvasColorDark
+                      : const Color(0xFFEDEDED)
+                  : Theme.of(context).scaffoldBackgroundColor,
+        ),
         child: Consumer<ChatModel>(
           builder: (context, chatModel, child) {
             final currentKey = chatModel.currentKey;
@@ -3877,6 +3897,7 @@ List<ChatMessage> _selectedMessagesForForward() {
                   if (!isDesktopHome) {
                     return Column(
                       children: <Widget>[
+                        _buildEncryptionBanner(context, dark: dark),
                         loadOlderBar,
                         meetingCountdownBar,
                         Expanded(
@@ -3905,6 +3926,7 @@ List<ChatMessage> _selectedMessagesForForward() {
                           onSendImage: onSendImage,
                           onTakePhoto: onTakePhoto,
                           onSendLocation: onSendLocation,
+                          onVoiceCall: onVoiceCall,
                         ),
                       ],
                     );
@@ -4086,6 +4108,40 @@ List<ChatMessage> _selectedMessagesForForward() {
   ///
   /// This version uses a pure white card with a soft shadow, dark text, and
   /// an explanatory subtitle — impossible to miss on any theme.
+  /// 微信风格加密提示条：此对话中的信息已 E2EE 加密（手机端聊天窗口顶部）。
+  Widget _buildEncryptionBanner(BuildContext context, {required bool dark}) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      color: dark ? const Color(0xFF16291E) : const Color(0xFFE9F7EE),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: <Widget>[
+          Icon(
+            Icons.lock_rounded,
+            size: 13,
+            color: dark ? const Color(0xFF4CAF50) : const Color(0xFF07C160),
+          ),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              translate('This conversation is E2EE encrypted - no one else '
+                  'can read or view these messages.'),
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 11.5,
+                height: 1.3,
+                color: dark
+                    ? const Color(0xFF7EC98E)
+                    : const Color(0xFF1A7F37),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildMessageArea({
     required BuildContext context,
     required bool dark,
@@ -4255,6 +4311,7 @@ class _MobileChatComposer extends StatefulWidget {
     this.onSendImage,
     this.onTakePhoto,
     this.onSendLocation,
+    this.onVoiceCall,
   });
 
   final ChatModel chatModel;
@@ -4265,6 +4322,7 @@ class _MobileChatComposer extends StatefulWidget {
   final VoidCallback? onSendImage;
   final VoidCallback? onTakePhoto;
   final VoidCallback? onSendLocation;
+  final VoidCallback? onVoiceCall;
 
   @override
   State<_MobileChatComposer> createState() => _MobileChatComposerState();
@@ -4544,6 +4602,12 @@ void _send() {
           translate('Location'),
           () => _runTool(widget.onSendLocation!),
         ),
+      if (widget.onVoiceCall != null)
+        (
+          Icons.phone_in_talk_outlined,
+          translate('Voice call'),
+          () => _runTool(widget.onVoiceCall!),
+        ),
       if (widget.onRemoteAssist != null)
         (
           widget.chatModel.currentKey.peerId.startsWith('meeting:')
@@ -4751,12 +4815,6 @@ void _send() {
       children: <Widget>[
         if (_showEmojiPanel) _buildEmojiPanel(),
         if (_showMorePanel) _buildMorePanel(),
-        if (AiConfig.current.profiles.isNotEmpty)
-          _AiModelSelector(
-            dark: Theme.of(context).brightness == Brightness.dark,
-            chatModel: widget.chatModel,
-            onOpen: closePanels,
-          ),
         _buildInputBar(),
       ],
     );

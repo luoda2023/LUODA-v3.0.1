@@ -529,6 +529,15 @@ Map<String, List<String>>? _framePersonDevices;
       constraints: const BoxConstraints.tightFor(width: 176),
       items: <PopupMenuEntry<String>>[
         PopupMenuItem<String>(
+          value: 'pin',
+          height: 36,
+          child: menuText(
+            gFFI.chatModel.isPinnedSync(id)
+                ? translate('Unpin')
+                : translate('Pin'),
+          ),
+        ),
+        PopupMenuItem<String>(
           value: 'select',
           height: 36,
           child: menuText(translate('Select')),
@@ -596,6 +605,12 @@ Map<String, List<String>>? _framePersonDevices;
       ],
     );
     switch (action) {
+      case 'pin':
+        await gFFI.chatModel.pinConversation(
+          id,
+          !gFFI.chatModel.isPinnedSync(id),
+        );
+        break;
       case 'select':
         _toggleManagedEntry(id);
         break;
@@ -855,25 +870,34 @@ Map<String, List<String>>? _framePersonDevices;
       DesktopRailDestination(
         id: 'chat',
         label: translate('Messages'),
-        icon: Icons.chat_bubble_outline_rounded,
-        selectedIcon: Icons.chat_bubble_rounded,
+        icon: Icons.forum_rounded,
+        selectedIcon: Icons.forum_rounded,
+        iconAssetPath: 'assets/chat.svg',
+        selectedIconAssetPath: 'assets/chat.svg',
       ),
       DesktopRailDestination(
         id: 'recent',
         label: translate('Recent sessions'),
-        icon: Icons.history_rounded,
+        icon: Icons.schedule_rounded,
+        selectedIcon: Icons.schedule_rounded,
+        iconAssetPath: 'assets/history.svg',
+        selectedIconAssetPath: 'assets/history.svg',
       ),
       DesktopRailDestination(
         id: 'favorites',
         label: translate('Favorites'),
-        icon: Icons.star_outline_rounded,
-        selectedIcon: Icons.star_rounded,
+        icon: Icons.bookmark_rounded,
+        selectedIcon: Icons.bookmark_rounded,
+        iconAssetPath: 'assets/star.svg',
+        selectedIconAssetPath: 'assets/star.svg',
       ),
       DesktopRailDestination(
         id: 'meetings',
         label: translate('Meetings'),
         icon: Icons.groups_outlined,
         selectedIcon: Icons.groups_rounded,
+        iconAssetPath: 'assets/groups.svg',
+        selectedIconAssetPath: 'assets/groups.svg',
       ),
       DesktopRailDestination(
         id: 'discovered',
@@ -883,8 +907,8 @@ Map<String, List<String>>? _framePersonDevices;
       DesktopRailDestination(
         id: 'contacts',
         label: translate('Contacts'),
-        icon: Icons.contacts_outlined,
-        selectedIcon: Icons.contacts_rounded,
+        icon: Icons.people_alt_rounded,
+        selectedIcon: Icons.people_alt_rounded,
       ),
       DesktopRailDestination(
         id: 'vip',
@@ -2710,7 +2734,6 @@ Map<String, List<String>>? _framePersonDevices;
         ? MeetingGroupStore.find(peerId.substring('meeting:'.length))
         : null;
     final meetingMemberCount = (meetingGroup?.members?.length ?? 0) + 1;
-    final status = _directDeliveryStatus(peerId, contact: _selectedContact);
     final routeLabel = peerId.isEmpty ? '' : directConnectionRouteLabel(peerId);
 // Avatar source: the main model's primary body for this peer (same source
 // the conversation list uses in _buildMergedChatRow), NOT the session model's
@@ -2775,24 +2798,6 @@ final avatar = (headerPrimaryBody?.value.chatUser.profileImage ?? '').isNotEmpty
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: <Widget>[                              Row(
                                 children: <Widget>[
-                                  if (peerId.isNotEmpty) ...<Widget>[
-                                    Container(
-                                      width: 10,
-                                      height: 10,
-                                      decoration: BoxDecoration(
-                                        color: status.$2,
-                                        shape: BoxShape.circle,
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: status.$2.withOpacity(0.4),
-                                            blurRadius: 4,
-                                            spreadRadius: 1,
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                  ],
                                   Flexible(
                                     child: Text(
                                       title,
@@ -3986,7 +3991,20 @@ final model = active?.chatModel ?? gFFI.chatModel;
         unified.addAll(
           meetingEntries.where((m) => !chatKeys.contains(m.conversationId)),
         );
+        String peerIdOf(Object item) {
+          if (item is MapEntry<MessageKey, MessageBody>) {
+            return item.key.peerId;
+          }
+          if (item is _ChatPersonGroup && item.conversations.isNotEmpty) {
+            return item.conversations.first.key.peerId;
+          }
+          return '';
+        }
+
         unified.sort((a, b) {
+          final aPinned = gFFI.chatModel.isPinnedSync(peerIdOf(a));
+          final bPinned = gFFI.chatModel.isPinnedSync(peerIdOf(b));
+          if (aPinned != bPinned) return aPinned ? -1 : 1;
           final ta = a is MapEntry<MessageKey, MessageBody>
               ? _conversationTime(a as MapEntry<MessageKey, MessageBody>)
               : a is _ChatPersonGroup
@@ -6024,7 +6042,7 @@ Future<void> _refreshDirectSessions() async {
   }
 
   Future<void> _sendFilesFromConversation(String peerId) async {
-    final picked = await FilePicker.platform.pickFiles(allowMultiple: true);
+    final picked = await FilePicker.pickFiles(allowMultiple: true);
     final files = picked?.files.where((file) => file.path != null).toList() ??
         <PlatformFile>[];
     if (files.isEmpty || !mounted) return;
@@ -6208,7 +6226,7 @@ Future<void> _refreshDirectSessions() async {
   }
 
   Future<void> _pickImagesForConversation(String peerId) async {
-    final picked = await FilePicker.platform.pickFiles(
+    final picked = await FilePicker.pickFiles(
       type: FileType.image,
       allowMultiple: true,
     );

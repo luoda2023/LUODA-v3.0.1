@@ -499,7 +499,7 @@ class _GeneralState extends State<_General> {
   }
 
   Future<void> _chooseRailBackground() async {
-    final result = await FilePicker.platform.pickFiles(
+    final result = await FilePicker.pickFiles(
       type: FileType.image,
       withData: true,
     );
@@ -890,7 +890,6 @@ class _GeneralState extends State<_General> {
                                     initialDirectory = user_dir;
                                   }
                                   String? selectedDirectory = await FilePicker
-                                      .platform
                                       .getDirectoryPath(
                                           initialDirectory: initialDirectory);
                                   if (selectedDirectory != null) {
@@ -1618,7 +1617,7 @@ class _GeneralState extends State<_General> {
   Future<void> _pickCustomSound() async {
     try {
       final result =
-          await FilePicker.platform.pickFiles(type: FileType.audio);
+          await FilePicker.pickFiles(type: FileType.audio);
       final srcPath = result?.files.single.path;
       if (srcPath == null || srcPath.isEmpty) return;
       await bind.mainSetOption(key: kOptionMessageSoundPath, value: srcPath);

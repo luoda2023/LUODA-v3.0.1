@@ -1,6 +1,6 @@
-pub const VERSION: &str = "3.1.1";
+pub const VERSION: &str = "3.1.17";
 #[allow(dead_code)]
-pub const BUILD_DATE: &str = "2026-05-25 15:10";
+pub const BUILD_DATE: &str = "2026-08-31 14:30";
 
 /// LUODA 3.x 协议最低版本要求。任何低于此版本的客户端/服务端将被拒绝连接，
 /// 实现新版与老版（1.x/2.x）的完全协议级分离。

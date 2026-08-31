@@ -67,10 +67,10 @@ pub fn core_main() -> Option<Vec<String>> {
                 );
             }
             if config::Config::get_option(keys::OPTION_APPROVE_MODE).is_empty() {
-                log::info!("core_main: setting default approve-mode=password");
+                log::info!("core_main: setting default approve-mode=click");
                 config::Config::set_option(
                     keys::OPTION_APPROVE_MODE.to_string(),
-                    "password".to_string(),
+                    "click".to_string(),
                 );
             }
             if config::Config::get_option(keys::OPTION_ENABLE_KEYBOARD).is_empty() {

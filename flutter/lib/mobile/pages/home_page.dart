@@ -25,6 +25,7 @@ import '../../common/direct_pairing.dart';
 import '../../common/face_login.dart';
 import '../../common/wechat_ui_tokens.dart';
 import '../../common/widgets/chat_page.dart';
+import '../../common/widgets/friend_picker_dialog.dart';
 import '../../common/widgets/direct_connection_details.dart';
 import '../../common/widgets/favorites_page.dart';
 import '../../common/widgets/location_picker_page.dart';
@@ -532,6 +533,7 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
         onSendImage: _pickImageOrFile,
         onTakePhoto: _takePhoto,
         onSendLocation: _sendLocation,
+        onVoiceCall: _startVoiceCallFromChat,
       );
       await Navigator.of(context).push<void>(
         MaterialPageRoute<void>(
@@ -582,6 +584,21 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           mainAxisSize: MainAxisSize.min,
                           children: <Widget>[
                             if (!isMeetingChat) ...<Widget>[
+                              // 微信风格：小圆形头像（Botchat 默认头像）。
+                              ClipOval(
+                                child: SizedBox(
+                                  width: 26,
+                                  height: 26,
+                                  child: Image.asset(
+                                    'assets/avatar.png',
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) =>
+                                        const Icon(Icons.person_rounded,
+                                            size: 20),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
                               _buildChatOnlineDot(currentKey.peerId),
                               const SizedBox(width: 6),
                             ],
@@ -658,11 +675,9 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         ),
                     ],
                     IconButton(
-                      icon: const Icon(Icons.search_rounded),
-                      tooltip: translate('Search Messages'),
-                      onPressed: () {
-                        gFFI.chatModel.openChatSearch();
-                      },
+                      icon: const Icon(Icons.phone_in_talk_rounded),
+                      tooltip: translate('Voice call'),
+                      onPressed: () => _startVoiceCallFromChat(),
                     ),
                     PopupMenuButton<String>(
                       tooltip: translate('More'),
@@ -689,6 +704,15 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             context,
                             conversationId: peerId,
                           );
+                        } else if (action == 'pin') {
+                          gFFI.chatModel.pinConversation(
+                              peerId, !gFFI.chatModel.isPinnedSync(peerId));
+                        } else if (action == 'clear') {
+                          _showClearChatDialog(context, peerId);
+                        } else if (action == 'recommend') {
+                          _recommendContact(context, peerId);
+                        } else if (action == 'background') {
+                          _showChatBackgroundPicker(context);
                         }
                       },
                       itemBuilder: (context) {
@@ -719,6 +743,46 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                 ],
                               ),
                             ),
+                          PopupMenuItem(
+                            value: 'recommend',
+                            child: Row(
+                              children: <Widget>[
+                                const Icon(Icons.person_add_alt_1_rounded,
+                                    size: 18),
+                                const SizedBox(width: 10),
+                                Text(translate('Recommend to contacts')),
+                              ],
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: 'background',
+                            child: Row(
+                              children: <Widget>[
+                                const Icon(Icons.wallpaper_rounded, size: 18),
+                                const SizedBox(width: 10),
+                                Text(translate('Chat background')),
+                              ],
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: 'pin',
+                            child: Row(
+                              children: <Widget>[
+                                Icon(
+                                  gFFI.chatModel.isPinnedSync(peerId)
+                                      ? Icons.push_pin_rounded
+                                      : Icons.push_pin_outlined,
+                                  size: 18,
+                                ),
+                                const SizedBox(width: 10),
+                                Text(
+                                  gFFI.chatModel.isPinnedSync(peerId)
+                                      ? translate('Unpin')
+                                      : translate('Pin'),
+                                ),
+                              ],
+                            ),
+                          ),
                           PopupMenuItem(
                             value: 'mute',
                             child: Row(
@@ -768,6 +832,17 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                       ? translate('Unblock')
                                       : translate('Block'),
                                 ),
+                              ],
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: 'clear',
+                            child: Row(
+                              children: <Widget>[
+                                const Icon(Icons.delete_sweep_outlined,
+                                    size: 18),
+                                const SizedBox(width: 10),
+                                Text(translate('Clear chat history')),
                               ],
                             ),
                           ),
@@ -826,11 +901,15 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // device registers with the rendezvous server right away instead of
       // waiting for the user to open the manual toggle.
       if (isAndroid) {
-        unawaited(FirstRunPermissionWizard.showIfNeeded(context).then((done) {
-          if (done) {
-            unawaited(gFFI.serverModel.maybeAutoStartService());
-          }
-        }));
+        // LUODA: "let others control my phone" defaults to always-allowed.
+        // Force approve-mode=click on every launch so a remote peer can
+        // connect and control this device without a per-session password or
+        // a manual "accept" tap (only used when no access password is set).
+        unawaited(bind.mainSetOption(key: kOptionApproveMode, value: 'click'));
+        // LUODA: no auto screen-share service at launch, so the system
+        // MediaProjection consent dialog never pops by itself. Remote
+        // assist is only started when the user taps Start explicitly.
+        unawaited(FirstRunPermissionWizard.showIfNeeded(context));
       }
     });
     _directPairingSyncTimer = Timer.periodic(
@@ -921,6 +1000,151 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
       return;
     }
     connect(context, endpoint, forceRelay: false);
+  }
+
+  /// 聊天窗口 ⋯ 菜单“推荐给联系人”：选一位好友，把当前会话的名片发给他。
+  Future<void> _recommendContact(
+      BuildContext dialogContext, String peerId) async {
+    final peers = gFFI.recentPeersModel.peers
+        .where((p) =>
+            p.id.trim().isNotEmpty &&
+            !p.id.trim().startsWith('meeting:') &&
+            p.id.trim() != peerId)
+        .toList();
+    if (peers.isEmpty) {
+      showToast(translate('No contacts to recommend to'));
+      return;
+    }
+    final picked = await showFriendPickerDialog(
+      dialogContext,
+      peers: peers,
+      title: translate('Recommend to contacts'),
+      maxSelections: 1,
+    );
+    if (picked == null || picked.isEmpty) return;
+    final target = picked.first;
+    final currentName = _resolveConversationName(
+      peerId,
+      idFallback: peerId,
+    );
+    final card = DirectChatContact(
+      peerId: peerId,
+      name: currentName,
+    );
+    gFFI.chatModel.changeCurrentKey(MessageKey(target.id, 0));
+    gFFI.chatModel.sendText(card.encode());
+    gFFI.chatModel.changeCurrentKey(MessageKey(peerId, 0));
+    showToast(translate('Sent'));
+  }
+
+  /// 聊天窗口 ⋯ 菜单“聊天背景”：选择聊天窗口背景（默认 / 手机 BG / PC BG2）。
+  Future<void> _showChatBackgroundPicker(
+      BuildContext dialogContext) async {
+    final theme = Theme.of(dialogContext);
+    final current = gFFI.chatModel.chatBackgroundKey;
+    final selected = await showModalBottomSheet<String>(
+      context: dialogContext,
+      backgroundColor: theme.colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
+              child: Text(
+                translate('Chat background'),
+                style: const TextStyle(
+                    fontSize: 15, fontWeight: FontWeight.w600),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.check_circle_rounded,
+                  color: Color(0xFF07C160)),
+              title: Text(translate('Default')),
+              trailing: current == null || current == 'default'
+                  ? const Icon(Icons.check, size: 18)
+                  : null,
+              onTap: () => Navigator.of(ctx).pop('default'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.image_outlined),
+              title: Text(translate('Botchat BG')),
+              trailing: current == 'mobile'
+                  ? const Icon(Icons.check, size: 18)
+                  : null,
+              onTap: () => Navigator.of(ctx).pop('mobile'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.image_outlined),
+              title: Text(translate('Botchat BG 2')),
+              trailing: current == 'desktop'
+                  ? const Icon(Icons.check, size: 18)
+                  : null,
+              onTap: () => Navigator.of(ctx).pop('desktop'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (selected != null) {
+      gFFI.chatModel.setChatBackground(selected);
+      showToast(translate('Background updated'));
+    }
+  }
+
+  /// 聊天窗口 ⋯ 菜单“清空聊天记录”。
+  Future<void> _showClearChatDialog(
+      BuildContext dialogContext, String peerId) async {
+    final theme = Theme.of(dialogContext);
+    final confirmed = await showDialog<bool>(
+      context: dialogContext,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: theme.colorScheme.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Text(translate('Clear chat history')),
+        content: Text(
+            translate('Delete all messages in this conversation?')),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(translate('Cancel')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(
+              translate('Clear'),
+              style: const TextStyle(color: Colors.redAccent),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      final ok = await gFFI.chatModel.clearConversation();
+      showToast(translate(
+          ok ? 'Chat history cleared' : 'Failed to clear chat history'));
+    }
+  }
+
+  /// 聊天窗口 "+" 面板“语音通话”：优先在已建立的远程会话上直接发起语音；
+  /// 若没有活动会话，则先建立远程连接（与“远程桌面”一致），
+  /// 会话建立后远程页会自动出现语音通话按钮。
+  void _startVoiceCallFromChat() {
+    final peerId = gFFI.chatModel.currentKey.peerId.trim();
+    if (peerId.isEmpty) return;
+    // 已有活动远程会话：直接请求语音。
+    if (gFFI.sessionId != 0 && gFFI.ffiModel.pi.isSet.isTrue) {
+      bind.sessionRequestVoiceCall(sessionId: gFFI.sessionId);
+      return;
+    }
+    // 无会话：先建立远程连接。
+    _startRemoteFromChat();
+    showToast(translate(
+      'Remote session connecting... Tap the voice button once connected.',
+    ));
   }
 
   void connectByInput(String value) {
@@ -1231,7 +1455,7 @@ final ffi = FFI(const Uuid().v4obj());
  } else {
  final type = action == 'camera' ? FileType.media : FileType.image;
  final picked =
- await FilePicker.platform.pickFiles(type: type, allowMultiple: true);
+ await FilePicker.pickFiles(type: type, allowMultiple: true);
  final files = picked?.files.where((f) => f.path != null).toList() ?? [];
  if (files.isEmpty || !mounted) return;
  // 先预览，再发送：用户可在预览页确认或取消。
@@ -1253,7 +1477,7 @@ final ffi = FFI(const Uuid().v4obj());
     // 不再要求已连接：小文件/图片走消息队列，对方离线时自动排队补发。
     if (peerId.isEmpty) return;
 
-    final picked = await FilePicker.platform.pickFiles(allowMultiple: true);
+    final picked = await FilePicker.pickFiles(allowMultiple: true);
     final files = picked?.files.where((file) => file.path != null).toList() ??
         <PlatformFile>[];
     if (files.isEmpty || !mounted) return;
@@ -3197,11 +3421,16 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
   }) {
     final theme = Theme.of(context);
     final fileIcon = _fileIconForEntry(entry);
+    final isPinned = gFFI.chatModel.isPinnedSync(entry.key.peerId);
     // Material ancestor is required for InkWell's grey tap highlight to
     // actually render — the chat list sits on a bare ColoredBox, so without
     // this wrapper the WeChat-style press feedback never appears.
     return Material(
-      color: Colors.transparent,
+      color: isPinned
+          ? (theme.brightness == Brightness.dark
+              ? const Color(0xFF22252C)
+              : const Color(0xFFF2F3F5))
+          : Colors.transparent,
       child: InkWell(
         onTap: () => widget.onOpenConversation(entry.key),
         highlightColor: Theme.of(context).brightness == Brightness.dark
@@ -3329,12 +3558,21 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
     final theme = Theme.of(context);
     final isFriend = access.isFriend(peerId);
     final isBlocked = gFFI.chatSettingsModel.isBlocked(peerId);
+    final isPinned = gFFI.chatModel.isPinnedSync(peerId);
     final action = await showModalBottomSheet<String>(
       context: context,
       builder: (sheetContext) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
+            ListTile(
+              leading: const Icon(Icons.push_pin_outlined),
+              title: Text(translate(isPinned ? 'Unpin' : 'Pin')),
+              onTap: () => Navigator.pop(
+                sheetContext,
+                isPinned ? 'unpin' : 'pin',
+              ),
+            ),
             ListTile(
               leading: Icon(
                 isFriend
@@ -3372,6 +3610,12 @@ class _MobileMessagesPageState extends State<_MobileMessagesPage>
       ),
     );
     switch (action) {
+      case 'pin':
+        await gFFI.chatModel.pinConversation(peerId, true);
+        break;
+      case 'unpin':
+        await gFFI.chatModel.pinConversation(peerId, false);
+        break;
       case 'friend':
         if (isBlocked) await gFFI.chatSettingsModel.toggleBlock(peerId);
         await access.setPeerPolicy(peerId, 'allow');
@@ -3452,7 +3696,13 @@ if (query.isEmpty) return true;
                 _messagePreview(entry).toLowerCase().contains(query);
           }).toList(growable: false)
             ..sort(
-              (a, b) => _latestMessageTime(b).compareTo(_latestMessageTime(a)),
+              (a, b) {
+                final aPinned = model.isPinnedSync(a.key.peerId);
+                final bPinned = model.isPinnedSync(b.key.peerId);
+                if (aPinned != bPinned) return aPinned ? -1 : 1;
+                return _latestMessageTime(b)
+                    .compareTo(_latestMessageTime(a));
+              },
             );
           // 会议群聊（meeting:xxx）只归入“会议”分组，不能混进好友/陌生
           // 分组（否则同一会议会在两处重复显示）。

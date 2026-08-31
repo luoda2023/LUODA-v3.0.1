@@ -122,7 +122,6 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
   var _messageSoundName = "";
   var _messageSoundVolume = 80;
   var _messageVibrationDuration = 'short';
-  var _autoStartScreenShare = false;
   var _ttsEnabled = false;
   var _ttsContinuousRead = false;
   var _ttsVoiceId = 0;
@@ -212,8 +211,6 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
         _messageVibrationDuration != 'long') {
       _messageVibrationDuration = 'short';
     }
-    _autoStartScreenShare =
-        bind.mainGetLocalOption(key: kOptionAutoStartScreenShare) == 'Y';
   }
 
   @override
@@ -1366,30 +1363,6 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
               ),
           ],
         ),
-        if (isAndroid)
-          SettingsSection(
-            title: Text(translate('Screen sharing (remote assist)')),
-            tiles: [
-              SettingsTile.switchTile(
-                leading: const Icon(Icons.screen_share_outlined),
-                title: Text(translate('Auto-start screen sharing')),
-                description: Text(translate(
-                    'Auto start the share service on app launch (shows the system record/project dialog)')),
-                initialValue: _autoStartScreenShare,
-                onToggle: (value) async {
-                  await bind.mainSetLocalOption(
-                      key: kOptionAutoStartScreenShare,
-                      value: value ? 'Y' : '');
-                  if (mounted) {
-                    setState(() => _autoStartScreenShare = value);
-                  }
-                  showToast(value
-                      ? translate('Screen sharing will auto start on next launch')
-                      : translate('Screen sharing will not auto start'));
-                },
-              ),
-            ],
-          ),
         if (!kLocalProfileOnly && !bind.isDisableAccount())
           SettingsSection(
             title: Text(translate('Account')),
@@ -1977,7 +1950,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
               const SizedBox(height: 8),
               TextButton.icon(
                 onPressed: () async {
-                  final result = await FilePicker.platform.pickFiles(
+                  final result = await FilePicker.pickFiles(
                     type: FileType.image,
                     withData: true,
                   );
@@ -2484,7 +2457,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
   }
 
   Future<void> _pickCustomSound() async {
-    final result = await FilePicker.platform.pickFiles(type: FileType.audio);
+    final result = await FilePicker.pickFiles(type: FileType.audio);
     final file = result?.files.single;
     final srcPath = file?.path;
     if (srcPath == null || srcPath.isEmpty) return;

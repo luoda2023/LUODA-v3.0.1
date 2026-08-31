@@ -1,4 +1,4 @@
-﻿#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use crate::keyboard::input_source::{change_input_source, get_cur_session_input_source};
 #[cfg(target_os = "linux")]
 use crate::platform::linux::is_x11;
@@ -593,8 +593,8 @@ fn initialize(app_dir: &str, custom_client_config: &str) {
                 config::Config::set_option(keys::OPTION_ACCESS_MODE.to_string(), "full".to_string());
             }
             if config::Config::get_option(keys::OPTION_APPROVE_MODE).is_empty() {
-                log::info!("Setting default approve-mode=password");
-                config::Config::set_option(keys::OPTION_APPROVE_MODE.to_string(), "password".to_string());
+                log::info!("Setting default approve-mode=click");
+                config::Config::set_option(keys::OPTION_APPROVE_MODE.to_string(), "click".to_string());
             }
             if config::Config::get_option(keys::OPTION_ENABLE_KEYBOARD).is_empty() {
                 log::info!("Setting default enable-keyboard=Y");

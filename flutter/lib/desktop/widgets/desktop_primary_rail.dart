@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../common.dart';
 import '../../common/wechat_ui_tokens.dart';
@@ -56,6 +57,8 @@ class DesktopRailDestination {
     required this.icon,
     this.selectedIcon,
     this.badge,
+    this.iconAssetPath,
+    this.selectedIconAssetPath,
   });
 
   final String id;
@@ -63,6 +66,9 @@ class DesktopRailDestination {
   final IconData icon;
   final IconData? selectedIcon;
   final int? badge;
+  // When provided the rail renders this asset (SVG/PNG) instead of [icon].
+  final String? iconAssetPath;
+  final String? selectedIconAssetPath;
 }
 
 class DesktopPrimaryRail extends StatelessWidget {
@@ -248,12 +254,10 @@ class _RailButton extends StatelessWidget {
               alignment: Alignment.center,
               clipBehavior: Clip.none,
               children: <Widget>[
-                Icon(
-                  selected
-                      ? destination.selectedIcon ?? destination.icon
-                      : destination.icon,
-                  size: 22,
-                  color: foreground,
+                _buildRailIcon(
+                  destination: destination,
+                  selected: selected,
+                  foreground: foreground,
                 ),
                 if (badgeLabel != null)
                   // 文字气泡（如“未绑定”）：右对齐贴 rail 右缘，不超左边界。
@@ -312,4 +316,38 @@ class _RailButton extends StatelessWidget {
       ),
     );
   }
+}
+
+
+/// Renders the rail icon. Prefers an asset (SVG/PNG) when [DesktopRailDestination.iconAssetPath]
+/// is supplied, otherwise falls back to the Material [IconData] so existing
+/// destinations keep working.
+Widget _buildRailIcon({
+  required DesktopRailDestination destination,
+  required bool selected,
+  required Color foreground,
+}) {
+  final assetPath =
+      selected ? (destination.selectedIconAssetPath ?? destination.iconAssetPath) : destination.iconAssetPath;
+  if (assetPath != null && assetPath.isNotEmpty) {
+    if (assetPath.toLowerCase().endsWith('.svg')) {
+      return SvgPicture.asset(
+        assetPath,
+        width: 22,
+        height: 22,
+        colorFilter: ColorFilter.mode(foreground, BlendMode.srcIn),
+      );
+    }
+    return Image.asset(
+      assetPath,
+      width: 28,
+      height: 28,
+      color: foreground,
+    );
+  }
+  return Icon(
+    selected ? destination.selectedIcon ?? destination.icon : destination.icon,
+    size: 28,
+    color: foreground,
+  );
 }

@@ -762,6 +762,15 @@ Future<bool> hasExternalChanges() async {
     return result;
   }
 
+  /// Force a re-run of the JSON→SQLite migration after a restore wrote
+  /// new records into the legacy JSON store (the first-run migration may
+  /// already have passed before the restore landed).
+  Future<void> reimportJsonStore() async {
+    final db = await _database();
+    await db.insert('meta', {'key': 'json_migrated', 'value': ''},
+        conflictAlgorithm: ConflictAlgorithm.replace);
+    await _migrateFromJsonStore();
+  }
   Future<Map<String, DirectChatRecord>> latestConversations() async {
     final db = await _database();
     final rows = await db.rawQuery('''

@@ -620,18 +620,19 @@ class _PdfTextRenderBox extends RenderBox
           : null;
 
   // #295 _PdfTextRenderBox misses SelectionHandler.getSelection/contentLength introduced on Flutter master
-  // Because SelectedContentRange is not available in stable channel, we can't implement the following methods so far...
-  // @override
-  // SelectedContentRange? getSelection() {
-  //   if (_selectedRanges.ranges.isEmpty) return null;
-  //   return SelectedContentRange(
-  //     startOffset: _selectedRanges.ranges.first.start,
-  //     endOffset: _selectedRanges.ranges.last.end,
-  //   );
-  // }
+  // SelectedContentRange is now available in Flutter 3.47 stable, so these
+  // two required SelectionHandler members are implemented below.
+  @override
+  SelectedContentRange? getSelection() {
+    if (_selectedRanges.ranges.isEmpty) return null;
+    return SelectedContentRange(
+      startOffset: _selectedRanges.ranges.first.start,
+      endOffset: _selectedRanges.ranges.last.end,
+    );
+  }
 
-  // @override
-  // int get contentLength => _selectedRanges.pageText.fullText.length;
+  @override
+  int get contentLength => _selectedRanges.pageText.fullText.length;
 
   LayerLink? _startHandle;
   LayerLink? _endHandle;
@@ -756,3 +757,4 @@ extension _PdfTextRangeListExt on List<PdfTextRange> {
     }
   }
 }
+

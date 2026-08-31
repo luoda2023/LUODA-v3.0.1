@@ -137,6 +137,7 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        isCoreLibraryDesugaringEnabled = true
     }
 
 kotlinOptions {
@@ -182,7 +183,7 @@ defaultConfig {
             // 见官方：https://github.com/rustdesk/rustdesk/blob/master/flutter/android/app/build.gradle
             signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
-            isShrinkResources = true
+            isShrinkResources = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules"
@@ -234,6 +235,7 @@ flutter {
 }
 
 dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
     implementation("com.google.protobuf:protobuf-javalite:3.20.1")
     implementation("androidx.media:media:1.6.0")
     implementation("com.github.getActivity:XXPermissions:18.5")

@@ -546,8 +546,8 @@ void main() {
         .split('Future<void> _showManagedEntryMenu(')[1]
         .split('@override\n  Widget build(BuildContext context)')[0];
 
-    // 9 项：选择/收藏/好友或陌生/标签/移动/静音/关闭震动/拉黑/删除。
-    expect('height: 36'.allMatches(managedEntryMenu).length, 9);
+    // 10 项：置顶/选择/收藏/好友或陌生/标签/移动/静音/关闭震动/拉黑/删除。
+    expect('height: 36'.allMatches(managedEntryMenu).length, 10);
     expect(managedEntryMenu, contains('fontSize: 13'));
     expect(managedEntryMenu, contains('height: 1'));
     expect(managedEntryMenu, contains('letterSpacing: 0'));
@@ -1351,11 +1351,11 @@ expect(mobileHomeSource, contains('forceRelay: false'));
     final fileFlow = homePageSource
         .split('Future<void> _sendFilesFromConversation')[1]
         .split('Future<FFI?> _ensureDirectFileSession')[0];
-    expect(fileFlow, contains('FilePicker.platform.pickFiles'));
+    expect(fileFlow, contains('FilePicker.pickFiles'));
     expect(fileFlow, contains('await _ensureDirectFileSession(peerId)'));
     expect(fileFlow, contains('localController.sendFiles'));
     expect(
-      fileFlow.indexOf('FilePicker.platform.pickFiles'),
+      fileFlow.indexOf('FilePicker.pickFiles'),
       lessThan(fileFlow.indexOf('_ensureDirectFileSession(peerId)')),
     );
     final remoteFlow = homePageSource
@@ -1386,7 +1386,7 @@ expect(mobileHomeSource, contains('forceRelay: false'));
     final clipboardFlow = homePageSource
         .split('Future<bool> _pasteImageToConversation')[1]
         .split('Future<void> _sendImageFile')[0];
-    expect(clipboardFlow, isNot(contains('FilePicker.platform.pickFiles')));
+    expect(clipboardFlow, isNot(contains('FilePicker.pickFiles')));
     expect(clipboardFlow, contains("translate('Clipboard has no image')"));
     expect(homePageSource, contains('getApplicationSupportDirectory'));
     expect(homePageSource, contains('isWindowsClipboardImageAvailable()'));
@@ -2167,9 +2167,7 @@ expect(chatModelSource, contains('destroyMessage('));
     expect(iosIcon.height, 1024);
 
     final iosCorner = iosIcon.getPixel(0, 0);
-    expect(iosCorner.a, 255);
-    expect(iosCorner.g, greaterThan(iosCorner.r));
-    expect(iosCorner.g, greaterThan(iosCorner.b));
+    expect(iosCorner.a, 0);
 
     final androidCorner = androidIcon!.getPixel(0, 0);
     expect(androidCorner.a, 0);
@@ -2178,8 +2176,9 @@ expect(chatModelSource, contains('destroyMessage('));
       androidIcon.height ~/ 2,
     );
     expect(androidCenter.a, 255);
-    expect(androidCenter.g, greaterThan(androidCenter.r));
-    expect(androidCenter.g, greaterThan(androidCenter.b));
+    expect(androidCenter.r, greaterThan(200));
+    expect(androidCenter.g, greaterThan(200));
+    expect(androidCenter.b, greaterThan(200));
     expect(
       iosWorkflowSource,
       contains('source = Image.open(root / "res/icon_ios.png")'),

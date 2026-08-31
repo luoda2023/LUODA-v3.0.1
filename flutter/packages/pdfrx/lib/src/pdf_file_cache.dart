@@ -421,9 +421,9 @@ Future<PdfDocument> pdfDocumentFromUri(
               headers: headers,
             );
           }
-          final readEnd = min(p + size, (blockId + 1) * cache.blockSize);
+          final readEnd = min(p + size, (blockId + 1) * cache!.blockSize);
           final sizeToRead = readEnd - p;
-          await cache.read(buffer, bufferPosition, p, sizeToRead);
+          await cache!.read(buffer, bufferPosition, p, sizeToRead);
           p += sizeToRead;
           bufferPosition += sizeToRead;
           size -= sizeToRead;
@@ -539,3 +539,4 @@ Future<_DownloadResult> _downloadBlock(
 
   return _DownloadResult(fileSize!, isFullDownload, false);
 }
+

@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:luoda_flutter/common.dart';
 import 'package:luoda_flutter/common/direct_chat.dart';
+import 'package:luoda_flutter/common/direct_chat_sqlite.dart';
 import 'package:luoda_flutter/common/direct_chat_storage.dart';
 import 'package:luoda_flutter/common/direct_pairing.dart';
 import 'package:luoda_flutter/models/platform_model.dart';
@@ -134,6 +135,10 @@ class DotChatBackup {
         final current = await storage.read();
         if (current == null || current.trim().isEmpty) {
           await storage.write(jsonEncode(chat));
+          // Ensure the just-restored JSON is re-imported into SQLite even if
+          // the first-run migration already ran on an empty store.
+          await DirectChatSqlite.instance.reimportJsonStore();
+          DirectChatRepository.instance.revision.value++;
           restored = true;
         }
       }

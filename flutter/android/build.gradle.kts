@@ -1,6 +1,4 @@
 plugins {
-    id("com.android.application") version "8.1.0" apply false
-    id("org.jetbrains.kotlin.android") version "1.8.22" apply false
 }
 
 rootProject.buildDir = file("../build")
@@ -28,7 +26,7 @@ subprojects {
         configurations.configureEach {
             resolutionStrategy.eachDependency {
                 if (requested.group == "com.android.tools.build" && requested.name == "gradle") {
-                    useVersion("8.1.0")
+                    useVersion("8.11.1")
                 }
             }
         }
@@ -50,3 +48,5 @@ subprojects {
         }
     }
 }
+
+

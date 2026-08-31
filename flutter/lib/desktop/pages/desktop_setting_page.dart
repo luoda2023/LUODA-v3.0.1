@@ -747,7 +747,7 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
                 const SizedBox(height: 10),
                 TextButton.icon(
                   onPressed: () async {
-                    final result = await FilePicker.platform.pickFiles(
+                    final result = await FilePicker.pickFiles(
                       type: FileType.image,
                       withData: true,
                     );

@@ -1,4 +1,4 @@
-# Rust build artifacts
+﻿# Rust build artifacts
 target/
 _archive/
 artifacts/
@@ -54,3 +54,21 @@ Release-3.1.1/
 
 !**/CMakeLists.txt
 
+
+# Build outputs (do not commit)
+flutter/android/build/
+flutter/android/.gradle/
+flutter/android/app/build/
+flutter/android/app/src/main/jniLibs/
+*.hprof
+vcpkg_installed/
+test_results/
+res/.icon_backup*/
+.mipmap-anydpi-v26.bak
+# agent scratch / icons
+agent_memory/_icon_build/
+agent_memory/fix_icon.py
+agent_memory/remove_dot.py
+agent_memory/rm_status.py
+agent_memory/screen_now.png
+ui.xml

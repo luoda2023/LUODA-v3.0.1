@@ -237,6 +237,15 @@ bool Win32Window::CreateAndShow(const std::wstring& title,
     return false;
   }
 
+  // Apply custom icon to the window so it appears in the title bar and
+  // taskbar thumbnail.  Window class hIcon is only used as a fallback
+  // before CreateWindow; the running window must receive WM_SETICON.
+  HICON title_icon = LoadCustomIcon();
+  if (title_icon != nullptr) {
+    SendMessage(window, WM_SETICON, ICON_BIG, (LPARAM)title_icon);
+    SendMessage(window, WM_SETICON, ICON_SMALL, (LPARAM)title_icon);
+  }
+
   if (!showOnTaskBar) {
     // hide from taskbar
     HRESULT hr;

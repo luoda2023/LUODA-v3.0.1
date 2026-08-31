@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#00000000</color>
+    <!-- LUODA FIX: use brand green as icon background fallback so any launcher
+         that ignores the foreground drawable still renders a green tile
+         instead of an empty/white tile. -->
+    <color name="ic_launcher_background">#FF1A8E1A</color>
 </resources>
