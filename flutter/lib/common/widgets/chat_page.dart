@@ -2436,20 +2436,20 @@ List<ChatMessage> _selectedMessagesForForward() {
         // 聊天窗口背景：默认按端（手机 BG.jpg / PC BG2.jpg），
         // 用户可在 ⋯ 菜单“聊天背景”里选择 default / mobile / desktop。
         decoration: BoxDecoration(
-          image: chatModel.chatBackgroundKey == 'default'
-              ? null
-              : DecorationImage(
-                  image: AssetImage(
-                    chatModel.chatBackgroundKey == 'mobile'
-                        ? 'assets/bg_chat_mobile.jpg'
-                        : chatModel.chatBackgroundKey == 'desktop'
-                            ? 'assets/bg_chat_desktop.jpg'
-                            : type == ChatPageType.desktopHome
-                                ? 'assets/bg_chat_desktop.jpg'
-                                : 'assets/bg_chat_mobile.jpg',
-                  ),
-                  fit: BoxFit.cover,
-                ),
+          // 默认状态即使用对应端聊天背景图：手机端 BG.jpg、PC 端 BG2.jpg。
+          // 用户仍可在 ⋯ 菜单“聊天背景”里切换 mobile / desktop。
+          image: DecorationImage(
+            image: AssetImage(
+              chatModel.chatBackgroundKey == 'mobile'
+                  ? 'assets/bg_chat_mobile.jpg'
+                  : chatModel.chatBackgroundKey == 'desktop'
+                      ? 'assets/bg_chat_desktop.jpg'
+                      : type == ChatPageType.desktopHome
+                          ? 'assets/bg_chat_desktop.jpg'
+                          : 'assets/bg_chat_mobile.jpg',
+            ),
+            fit: BoxFit.cover,
+          ),
           color: type == ChatPageType.desktopHome
               ? Theme.of(context).brightness == Brightness.dark
                   ? kWeChatCanvasColorDark
