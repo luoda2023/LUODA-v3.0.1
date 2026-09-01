@@ -39,12 +39,8 @@ class ChatNotifier {
         onDidReceiveNotificationResponse: _onNotificationTap,
       );
       _ready = true;
-      if (isAndroid) {
-        await _plugin
-            .resolvePlatformSpecificImplementation<
-                AndroidFlutterLocalNotificationsPlugin>()
-            ?.requestNotificationsPermission();
-      }
+      // 用户要求：启动时不再自动弹出通知授权系统窗。通知权限由
+      // 用户在需要时（如收到首条消息后）通过系统设置或一键授权授予。
     } catch (e) {
       debugPrint('ChatNotifier init failed: $e');
     }

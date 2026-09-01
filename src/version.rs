@@ -1,4 +1,4 @@
-pub const VERSION: &str = "3.1.17";
+pub const VERSION: &str = "3.1.20";
 #[allow(dead_code)]
 pub const BUILD_DATE: &str = "2026-08-31 14:30";
 

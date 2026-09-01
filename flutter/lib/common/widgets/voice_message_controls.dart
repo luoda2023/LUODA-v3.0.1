@@ -19,11 +19,15 @@ class VoiceMessageRecorderButton extends StatefulWidget {
     required this.chatModel,
     required this.enabled,
     this.onInteractionStart,
+    this.bigMode = false,
   });
 
   final ChatModel chatModel;
   final bool enabled;
   final VoidCallback? onInteractionStart;
+
+  /// 微信“按住 说话”大按钮模式：显示一个圆角大按钮，按住录音/松开发送。
+  final bool bigMode;
 
   @override
   State<VoiceMessageRecorderButton> createState() =>
@@ -320,6 +324,72 @@ class _VoiceMessageRecorderButtonState
 
   @override
   Widget build(BuildContext context) {
+    if (widget.bigMode) {
+      // 微信“按住 说话”大按钮。
+      return Tooltip(
+        message: translate(_recording
+            ? 'Release to send, drag up to cancel'
+            : 'Record voice message'),
+        child: Listener(
+          key: _buttonKey,
+          behavior: HitTestBehavior.opaque,
+          onPointerDown: _onPointerDown,
+          onPointerMove: _onPointerMove,
+          onPointerUp: _onPointerUp,
+          onPointerCancel: _onPointerCancel,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            width: double.infinity,
+            height: 44,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: _recording
+                  ? const Color(0xFF2B2D32)
+                  : Theme.of(context).brightness == Brightness.dark
+                      ? const Color(0xFF3A3D43)
+                      : const Color(0xFFF7F7F7),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: _recording
+                    ? const Color(0xFFFA5151)
+                    : Theme.of(context).brightness == Brightness.dark
+                        ? const Color(0xFF4A4D53)
+                        : const Color(0xFFE2E2E2),
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Icon(
+                  Icons.mic_rounded,
+                  size: 20,
+                  color: _recording
+                      ? const Color(0xFFFA5151)
+                      : Theme.of(context).brightness == Brightness.dark
+                          ? const Color(0xFFCCCCCC)
+                          : const Color(0xFF555555),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  translate(_recording
+                      ? 'Release to send, drag up to cancel'
+                      : 'Hold to talk'),
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                    color: _recording
+                        ? const Color(0xFFFA5151)
+                        : Theme.of(context).brightness == Brightness.dark
+                            ? const Color(0xFFCCCCCC)
+                            : const Color(0xFF333333),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     return Tooltip(
       message: translate(_recording
           ? 'Release to send, drag up to cancel'
@@ -492,7 +562,7 @@ class _VoiceMessageBubbleState extends State<VoiceMessageBubble> {
               Expanded(
                 child: Text(
                   _available
-                      ? '$seconds s'
+                      ? '${seconds}″'
                       : translate('Download voice message'),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,

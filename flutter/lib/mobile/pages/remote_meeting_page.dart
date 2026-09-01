@@ -6,7 +6,6 @@ import '../../models/peer_model.dart';
 import '../../common/widgets/friend_picker_dialog.dart';
 import '../../common/widgets/meeting_group_panel.dart' as panel;
 import 'home_page.dart';
-import 'server_page.dart';
 
 /// DotChat ?????????????? / ???? / ?????????
 /// ??????????????????
@@ -205,18 +204,6 @@ class _RemoteMeetingPageState extends State<RemoteMeetingPage> {
               onTap: () {
                 Navigator.of(sheetContext).pop();
                 _connectDialog();
-              },
-            ),
-            _sheetItem(
-              sheetContext,
-              icon: Icons.settings_suggest_outlined,
-              title: translate('Service settings'),
-              subtitle: translate('Manage this device\'s assist service'),
-              onTap: () {
-                Navigator.of(sheetContext).pop();
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(builder: (_) => ServerPage()),
-                );
               },
             ),
             const SizedBox(height: 12),

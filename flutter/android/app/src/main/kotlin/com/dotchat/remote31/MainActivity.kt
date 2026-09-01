@@ -559,12 +559,9 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    override fun onStop() {
+        override fun onStop() {
         super.onStop()
-        val disableFloatingWindow = FFI.getLocalOption("disable-floating-window") == "Y"
-        if (!disableFloatingWindow && MainService.isReady) {
-            startService(Intent(this, FloatingWindowService::class.java))
-        }
+        // floating ball removed per user request
     }
 
     override fun onStart() {

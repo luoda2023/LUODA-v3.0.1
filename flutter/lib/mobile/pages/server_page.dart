@@ -637,8 +637,8 @@ class ServiceNotRunningNotification extends StatelessWidget {
 }
 
 bool _shouldShowScamWarning() {
-  return gFFI.userModel.userName.value.isEmpty &&
-      bind.mainGetLocalOption(key: 'show-scam-warning') != 'N';
+  // user requested: never show scam warning
+  return false;
 }
 
 class ScamWarningDialog extends StatefulWidget {

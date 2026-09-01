@@ -460,10 +460,8 @@ class ServerModel with ChangeNotifier {
         stopService();
       }
     } else {
-      await checkRequestNotificationPermission();
-      if (bind.mainGetLocalOption(key: kOptionDisableFloatingWindow) != 'Y') {
-        await checkFloatingWindowPermission();
-      }
+      // 用户要求：一键授权默认全部通过，启动远程协助前不再逐个弹系统窗。
+      // 通知/悬浮窗/存储权限交由首次授权向导一次完成（向导已默认全部通过）。
       if (_fileOk &&
           !await AndroidPermissionManager.check(kManageExternalStorage)) {
         await AndroidPermissionManager.request(kManageExternalStorage);

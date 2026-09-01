@@ -3956,6 +3956,7 @@ List<ChatMessage> _selectedMessagesForForward() {
                         onScreenshot: onScreenshot,
                         onPasteImage: onPasteImage,
                         onSendPendingImage: onSendPendingImage,
+                        onVoiceCall: onVoiceCall,
                       ),
                     ],
                   );
@@ -4833,6 +4834,7 @@ class _DesktopChatComposer extends StatefulWidget {
     this.onScreenshot,
     this.onPasteImage,
     this.onSendPendingImage,
+    this.onVoiceCall,
   });
 
   final ChatModel chatModel;
@@ -4844,6 +4846,7 @@ class _DesktopChatComposer extends StatefulWidget {
   final VoidCallback? onSendImage;
   final VoidCallback? onScreenshot;
   final PasteImageCallback? onPasteImage;
+  final VoidCallback? onVoiceCall;
 
   /// 发送输入框内“待发送图片”的回调（PC 端由 desktop_home_page 提供）。
   final Future<void> Function(String path)? onSendPendingImage;
@@ -4865,6 +4868,9 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
   bool _showEmojiPicker = false;
   bool _inputExpanded = false;
 
+  /// 微信风格“按住说话”模式：true 时输入框区域显示按住说话大按钮。
+  bool _voiceMode = false;
+
   /// 截图/粘贴待发送的图片路径：显示在输入框顶部，点“发送”才真正发出。
   String? _pendingImagePath;
 
@@ -4875,6 +4881,7 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
   VoidCallback? get onRemoteAssist => widget.onRemoteAssist;
   VoidCallback? get onSendImage => widget.onSendImage;
   VoidCallback? get onScreenshot => widget.onScreenshot;
+  VoidCallback? get onVoiceCall => widget.onVoiceCall;
   PasteImageCallback? get onPasteImage => widget.onPasteImage;
 
   void _insertEmoji(String emoji) {
@@ -4938,6 +4945,19 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
       if (mounted) {
         showToast(translate('Failed to send image'));
       }
+    }
+  }
+
+  void _toggleVoiceMode() {
+    setState(() {
+      _voiceMode = !_voiceMode;
+      _showEmojiPicker = false;
+      _atOverlayVisible = false;
+    });
+    if (_voiceMode) {
+      chatModel.inputNode.unfocus();
+    } else {
+      chatModel.inputNode.requestFocus();
     }
   }
 
@@ -5370,7 +5390,20 @@ void _send() {
             Expanded(
               child: Stack(
                 children: [
-                  Positioned.fill(
+                  if (_voiceMode)
+                    Positioned.fill(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                        child: VoiceMessageRecorderButton(
+                          chatModel: chatModel,
+                          enabled: enabled,
+                          bigMode: true,
+                          onInteractionStart: _closeTransientPanels,
+                        ),
+                      ),
+                    )
+                  else
+                    Positioned.fill(
                     child: Focus(
                       onKeyEvent: _handleComposerKeyEvent,
                       child: Scrollbar(
@@ -5409,6 +5442,32 @@ void _send() {
                                 const EdgeInsets.fromLTRB(14, 10, 52, 8),
                             border: InputBorder.none,
                           ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: 4,
+                    right: 44,
+                    child: Tooltip(
+                      message: translate(_voiceMode
+                          ? 'Switch to keyboard'
+                          : 'Record voice message'),
+                      child: IconButton(
+                        onPressed: _toggleVoiceMode,
+                        constraints: const BoxConstraints.tightFor(
+                            width: 32, height: 32),
+                        padding: EdgeInsets.zero,
+                        splashRadius: 17,
+                        splashColor: Colors.transparent,
+                        icon: Icon(
+                          _voiceMode
+                              ? Icons.keyboard_alt_outlined
+                              : Icons.mic_none_rounded,
+                          size: 21,
+                          color: _voiceMode
+                              ? kWeChatPrimaryColor
+                              : muted,
                         ),
                       ),
                     ),
@@ -5499,6 +5558,13 @@ void _send() {
                         enabled: enabled,
                         onPressed: () => _runToolAction(onRemoteAssist!),
                       ),
+                    if (onVoiceCall != null)
+                      _ComposerToolButton(
+                        icon: Icons.phone_in_talk_outlined,
+                        tooltip: translate('Voice call'),
+                        enabled: enabled,
+                        onPressed: () => _runToolAction(onVoiceCall!),
+                      ),
                     _ComposerToolButton(
                       icon: Icons.star_rounded,
                       tooltip: translate('Favorites'),
@@ -5525,11 +5591,6 @@ void _send() {
                         _showEmojiPicker = !_showEmojiPicker;
                         _atOverlayVisible = false;
                       }),
-                    ),
-                    VoiceMessageRecorderButton(
-                      chatModel: chatModel,
-                      enabled: enabled,
-                      onInteractionStart: _closeTransientPanels,
                     ),
                     if (AiConfig.current.profiles.isNotEmpty)
                       _AiModelSelector(

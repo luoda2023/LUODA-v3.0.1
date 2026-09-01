@@ -224,13 +224,14 @@ class _RailButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final foreground = imageBackground
-        ? selected
+    // 选中：绿色；未选中：统一灰色（无论有无背景图，风格统一）。
+    final foreground = selected
+        ? (imageBackground
             ? kDesktopRailSelectedForeground
-            : Colors.white.withOpacity(0.88)
-        : selected
-            ? theme.colorScheme.primary
-            : theme.colorScheme.onSurface.withOpacity(0.58);
+            : theme.colorScheme.primary)
+        : (imageBackground
+            ? Colors.white.withOpacity(0.75)
+            : theme.colorScheme.onSurface.withOpacity(0.58));
     return Tooltip(
       message: translate(destination.label),
       waitDuration: const Duration(milliseconds: 350),
@@ -333,21 +334,21 @@ Widget _buildRailIcon({
     if (assetPath.toLowerCase().endsWith('.svg')) {
       return SvgPicture.asset(
         assetPath,
-        width: 22,
-        height: 22,
+        width: 30,
+        height: 30,
         colorFilter: ColorFilter.mode(foreground, BlendMode.srcIn),
       );
     }
     return Image.asset(
       assetPath,
-      width: 28,
-      height: 28,
+      width: 30,
+      height: 30,
       color: foreground,
     );
   }
   return Icon(
     selected ? destination.selectedIcon ?? destination.icon : destination.icon,
-    size: 28,
+    size: 30,
     color: foreground,
   );
 }

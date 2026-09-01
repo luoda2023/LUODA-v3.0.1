@@ -2670,6 +2670,8 @@ Map<String, List<String>>? _framePersonDevices;
                               composerController: _composerController,
                               onSendPendingImage: (path) =>
                                   _sendStagedImage(peerId, path),
+                              onVoiceCall: () =>
+                                  _startVoiceCallFromChat(peerId),
                             )
                           : _buildEmptyConversation(
                               context,
@@ -2936,6 +2938,14 @@ final avatar = (headerPrimaryBody?.value.chatUser.profileImage ?? '').isNotEmpty
                 icon: Icons.desktop_windows_outlined,
                 onPressed: canStartDirectSession
                     ? () => _connectDirect(context, peerId)
+                    : null,
+              ),
+              _conversationActionButton(
+                context,
+                tooltip: translate('Voice call'),
+                icon: Icons.phone_in_talk_outlined,
+                onPressed: canStartDirectSession
+                    ? () => _startVoiceCallFromChat(peerId)
                     : null,
               ),
             ],
@@ -6779,6 +6789,27 @@ Future<void> _refreshDirectSessions() async {
     } else {
       bind.cmCloseVoiceCall(id: caller.id);
     }
+  }
+
+  /// 聊天窗口“语音通话”入口：优先在已建立的远程会话上直接发起语音；
+  /// 若没有活动会话，则先建立远端连接，会话建立后可在远程工具栏发起语音。
+  void _startVoiceCallFromChat(String peerId) {
+    final id = peerId.trim();
+    if (id.isEmpty) return;
+    // 优先使用已建立的直连会话的 sessionId。
+    final existing = _directChatSessionFor(id);
+    if (existing != null &&
+        !existing.closed &&
+        existing.ffiModel.pi.isSet.isTrue &&
+        (existing.ffiModel.lastConnectionError ?? '').isEmpty) {
+      bind.sessionRequestVoiceCall(sessionId: existing.sessionId);
+      return;
+    }
+    // 没有活动会话：先建立远端连接，会话建立后在远程工具栏点“语音通话”。
+    _connectDirect(context, id);
+    showToast(translate(
+      'Remote session connecting... Tap the voice button once connected.',
+    ));
   }
 
   Future<void> _showPairingQrDialog(BuildContext context) async {
