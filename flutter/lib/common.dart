@@ -3283,7 +3283,24 @@ class WakelockManager {
     }
     if (!_enabled) {
       _enabled = true;
-      WakelockPlus.enable();
+      // LUODA FIX (release/R8): wakelock_plus pigeon channel can be
+      // unavailable on Android release builds (R8 strips/renames the
+      // generated handler), which throws PlatformException from
+      // WakelockPlusApi.toggle. That unhandled exception used to bubble up
+      // inside RemotePage.initState / ViewCameraPage.initState and tear down
+      // the session event loop ("Exit session event loop"), so a remote
+      // session could never be established on release APKs.
+      // Keep-awake is a convenience feature only — swallow the error.
+      // Note: WakelockPlus.enable() returns a Future whose PlatformException
+      // (R8-stripped pigeon channel on release) surfaces asynchronously, so a
+      // plain try/catch does NOT catch it. Guard via catchError instead.
+      try {
+        WakelockPlus.enable().catchError((Object e) {
+          debugPrint('WakelockManager.enable failed (non-fatal): $e');
+        });
+      } catch (e) {
+        debugPrint('WakelockManager.enable threw (non-fatal): $e');
+      }
     }
   }
 
@@ -3295,8 +3312,14 @@ class WakelockManager {
       }
     }
     if (_enabled) {
-      WakelockPlus.disable();
       _enabled = false;
+      try {
+        WakelockPlus.disable().catchError((Object e) {
+          debugPrint('WakelockManager.disable failed (non-fatal): $e');
+        });
+      } catch (e) {
+        debugPrint('WakelockManager.disable threw (non-fatal): $e');
+      }
     }
   }
 }

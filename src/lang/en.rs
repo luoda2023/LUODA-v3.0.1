@@ -294,6 +294,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("confirm_clear_Wayland_screen_selection_tip", "Are you sure you want to clear the Wayland screen selection?"),
         ("android_new_voice_call_tip", "A new voice call request was received. If you accept, the audio will switch to voice communication."),
 ("Voice call", "Voice call"),
+("Video call", "Video call"),
 ("End voice call", "End voice call"),
 ("Calling...", "Calling..."),
 ("fair_network_voice_call_tip", "Network quality is fair. The call may be choppy."),

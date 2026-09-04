@@ -2672,6 +2672,8 @@ Map<String, List<String>>? _framePersonDevices;
                                   _sendStagedImage(peerId, path),
                               onVoiceCall: () =>
                                   _startVoiceCallFromChat(peerId),
+                              onVideoCall: () =>
+                                  _startVideoCallFromChat(peerId),
                             )
                           : _buildEmptyConversation(
                               context,
@@ -6796,6 +6798,12 @@ Future<void> _refreshDirectSessions() async {
   void _startVoiceCallFromChat(String peerId) {
     final id = peerId.trim();
     if (id.isEmpty) return;
+    // 会议群聊：与“进入演示/观看”一致，加入会议实时会话后即可通话。
+    if (id.startsWith('meeting:')) {
+      final group = MeetingGroupStore.find(id.substring('meeting:'.length));
+      if (group != null) _joinGroupSession(context, group);
+      return;
+    }
     // 优先使用已建立的直连会话的 sessionId。
     final existing = _directChatSessionFor(id);
     if (existing != null &&
@@ -6810,6 +6818,20 @@ Future<void> _refreshDirectSessions() async {
     showToast(translate(
       'Remote session connecting... Tap the voice button once connected.',
     ));
+  }
+
+  /// 聊天窗口“视频电话”入口：以查看对方摄像头（isViewCamera）方式
+  /// 建立直连——对端接受后即进入视频通话画面。
+  /// 会议群聊：“视频电话”即进入实时会议画面（演示人=演示，成员=观看）。
+  void _startVideoCallFromChat(String peerId) {
+    final id = peerId.trim();
+    if (id.isEmpty) return;
+    if (id.startsWith('meeting:')) {
+      final group = MeetingGroupStore.find(id.substring('meeting:'.length));
+      if (group != null) _joinGroupSession(context, group);
+      return;
+    }
+    _connectDirect(context, id, isViewCamera: true);
   }
 
   Future<void> _showPairingQrDialog(BuildContext context) async {

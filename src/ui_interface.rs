@@ -1445,7 +1445,14 @@ pub async fn change_id_shared(id: String, old_id: String) -> String {
 }
 
 pub async fn change_id_shared_(id: String, old_id: String) -> &'static str {
-    if !hbb_common::is_valid_custom_id(&id) {
+    // 允许两种合法 ID：
+    // 1. 用户自定义 ID（字母开头，6-16 位）；
+    // 2. 自动/稳定生成的纯数字 ID（6-8 位，与自动 ID 的 31xxxxxx 格式一致，
+    //    用于手机重装后恢复同一设备 ID，保证绑定关系不丢失）。
+    let is_digit_id = id.len() >= 6
+        && id.len() <= 8
+        && id.chars().all(|c| c.is_ascii_digit());
+    if !hbb_common::is_valid_custom_id(&id) && !is_digit_id {
         log::debug!(
             "debugging invalid id: \"{id}\", len: {}, base64: \"{}\"",
             id.len(),

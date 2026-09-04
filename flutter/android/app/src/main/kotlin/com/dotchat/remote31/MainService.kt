@@ -147,25 +147,38 @@ class MainService : Service() {
                     val peerId = jsonObject["peer_id"] as String
                     val inVoiceCall = jsonObject["in_voice_call"] as Boolean
                     val incomingVoiceCall = jsonObject["incoming_voice_call"] as Boolean
-                    if (!inVoiceCall) {
-                        if (incomingVoiceCall) {
-                            voiceCallRequestNotification(id, "Voice Call Request", username, peerId)
-                        } else {
+                    // Mobile voice media is captured/encoded by Dart
+                    // VoiceCallAudio (opus_dart), NOT by the Rust AUDIO_RAW
+                    // path. Running both would double-capture the mic (echo /
+                    // noise). So during ringing and during an active call we
+                    // keep the Rust audio capture stopped; when the call ends
+                    // and screen recording (remote assist) is still active we
+                    // resume playback capture so the controller can hear the
+                    // device audio again.
+                    if (inVoiceCall) {
+                        // Active call: ensure Rust audio capture stays off.
+                        audioRecordHandle.forceStopCapture()
+                        // In-call UI/notification is driven from Dart (VoiceCallPage);
+                        // nothing else needed here.
+                    } else if (incomingVoiceCall) {
+                        voiceCallRequestNotification(id, translate("Voice Call Request"), username, peerId)
+                        // Ringing: stop any playback capture so the ringtone /
+                        // media audio is not pushed to the caller before they
+                        // even accept ("noise before answering").
+                        audioRecordHandle.forceStopCapture()
+                    } else {
+                        // Call ended / declined: if we are still screen
+                        // recording (remote assist), resume playback capture.
+                        if (isStart) {
                             if (!audioRecordHandle.switchOutVoiceCall(mediaProjection)) {
                                 Log.e(logTag, "switchOutVoiceCall fail")
                                 MainActivity.flutterMethodChannel?.invokeMethod("msgbox", mapOf(
                                     "type" to "custom-nook-nocancel-hasclose-error",
-                                    "title" to "Voice call",
-                                    "text" to "Failed to switch out voice call."))
+                                    "title" to translate("Voice call"),
+                                    "text" to translate("Failed to switch out voice call.")))
                             }
-                        }
-                    } else {
-                        if (!audioRecordHandle.switchToVoiceCall(mediaProjection)) {
-                            Log.e(logTag, "switchToVoiceCall fail")
-                            MainActivity.flutterMethodChannel?.invokeMethod("msgbox", mapOf(
-                                "type" to "custom-nook-nocancel-hasclose-error",
-                                "title" to "Voice call",
-                                "text" to "Failed to switch to voice call."))
+                        } else {
+                            audioRecordHandle.forceStopCapture()
                         }
                     }
                 } catch (e: JSONException) {

@@ -67,6 +67,10 @@ class _ViewCameraPageState extends State<ViewCameraPage>
   final _blockableOverlayState = BlockableOverlayState();
 
   final keyboardVisibilityController = KeyboardVisibilityController();
+  StreamSubscription<bool>? _piSub;
+  StreamSubscription<VoiceCallStatus>? _voiceCallSub;
+  VoiceCallStatus _lastVoiceCallStatus = VoiceCallStatus.notStarted;
+  bool _voiceCallFromChat = false;
   final FocusNode _mobileFocusNode = FocusNode();
   final FocusNode _physicalFocusNode = FocusNode();
   var _showEdit = false; // use soft keyboard
@@ -94,6 +98,32 @@ class _ViewCameraPageState extends State<ViewCameraPage>
       isSharedPassword: widget.isSharedPassword,
       forceRelay: widget.forceRelay,
     );
+    // 从点聊“视频电话”拨入时：连接建立后自动发起语音请求（一键拨打）。
+    // 点聊"视频电话/语音"建立会话后，若始终无画面(对端未共享/摄像头未开)，
+    // 通话结束(connected/waiting -> notStarted)时自动退出黑屏页面。
+    _voiceCallSub = gFFI.chatModel.voiceCallStatus.listen((VoiceCallStatus status) {
+      final wasInCall = _lastVoiceCallStatus == VoiceCallStatus.connected ||
+          _lastVoiceCallStatus == VoiceCallStatus.waitingForResponse;
+      _lastVoiceCallStatus = status;
+      if (!wasInCall) return;
+      if (status != VoiceCallStatus.notStarted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (_voiceCallFromChat && gFFI.ffiModel.waitForFirstImage.isTrue) {
+          debugPrint('[ViewCameraPage] voice call ended with no video frame; auto exit');
+          if (Navigator.of(context).canPop()) {
+            Navigator.of(context).pop();
+          } else {
+            closeConnection();
+          }
+        }
+      });
+    });        _piSub = gFFI.ffiModel.pi.isSet.listen((bool ready) {
+      if (ready) _consumePendingCall();
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (gFFI.ffiModel.pi.isSet.isTrue) _consumePendingCall();
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: []);
       gFFI.dialogManager
@@ -123,6 +153,12 @@ class _ViewCameraPageState extends State<ViewCameraPage>
     WidgetsBinding.instance.removeObserver(this);
     // https://github.com/flutter/flutter/issues/64935
     super.dispose();
+    _piSub?.cancel();
+    _piSub = null;
+    _voiceCallSub?.cancel();
+    _voiceCallSub = null;
+    gFFI.pendingCallMode = null;
+    gFFI.chatModel.pauseKeepAlive = false;
     gFFI.dialogManager.hideMobileActionsOverlay(store: false);
     gFFI.inputModel.listenToMouse(false);
     gFFI.imageModel.disposeImage();
@@ -184,7 +220,23 @@ class _ViewCameraPageState extends State<ViewCameraPage>
       ? getBottomAppBar()
       : Offstage());
 
-  @override
+    /// 消费从点聊“视频电话”设置的 pendingCallMode：连接就绪后自动请求语音。
+  void _consumePendingCall() {
+    final mode = gFFI.pendingCallMode;
+    if (mode == null) return;
+    final connType = gFFI.connType;
+    if (connType != ConnType.defaultConn && connType != ConnType.viewCamera) {
+      return;
+    }
+    if (gFFI.closed) return;
+    gFFI.pendingCallMode = null;
+    _voiceCallFromChat = mode == 'voice' || mode == 'video';
+    debugPrint('[ViewCameraPage] consume pendingCallMode=$mode connType='
+        '$connType -> requestVoiceCall');
+    bind.sessionRequestVoiceCall(sessionId: gFFI.sessionId);
+  }
+
+@override
   Widget build(BuildContext context) {
     final keyboardIsVisible =
         keyboardVisibilityController.isVisible && _showEdit;
@@ -192,7 +244,18 @@ class _ViewCameraPageState extends State<ViewCameraPage>
 
     return WillPopScope(
       onWillPop: () async {
+                // 会话已断开/无活动会话：直接退出页面（返回聊天窗/主页）。
+        if (gFFI.closed) {
+          if (Navigator.of(context).canPop()) {
+            Navigator.of(context).pop();
+          } else {
+            closeConnection();
+          }
+          return false;
+        }
         clientClose(sessionId, gFFI);
+        // 客户端断开/确认流程内会通过 closeConnection 收尾；此处先拦截
+        // 返回键避免页面在确认前被 pop。
         return false;
       },
       child: Scaffold(
@@ -494,7 +557,7 @@ class _ViewCameraPageState extends State<ViewCameraPage>
 
   showChatOptions(String id) async {
     onPressVoiceCall() => bind.sessionRequestVoiceCall(sessionId: sessionId);
-    onPressEndVoiceCall() => bind.sessionCloseVoiceCall(sessionId: sessionId);
+    onPressEndVoiceCall() => gFFI.chatModel.closeVoiceCall();
 
     makeTextMenu(String label, Widget icon, VoidCallback onPressed,
             {TextStyle? labelStyle}) =>

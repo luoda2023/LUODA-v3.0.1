@@ -184,6 +184,20 @@ class AudioRecordHandle(private var context: Context, private var isVideoStart: 
         audioThread = null
     }
 
+    /**
+     * Stop whatever audio capture is running (mic / playback) without
+     * touching the capture/recording state flags. Voice calls on mobile use
+     * Dart VoiceCallAudio for the mic, so the Rust AUDIO_RAW path must stay
+     * off during a call; otherwise two mic paths run at once (echo / noise).
+     * Playback capture can be resumed later via switchOutVoiceCall() when the
+     * call ends and remote-assist screen recording is still active.
+     */
+    fun forceStopCapture() {
+        audioRecordStat = false
+        audioThread?.join()
+        audioThread = null
+    }
+
     fun destroy() {
         Log.d(logTag, "destroy audio record handle")
 

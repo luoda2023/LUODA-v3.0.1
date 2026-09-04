@@ -1442,6 +1442,11 @@ Future<String> mainGetHardwareId({dynamic hint}) {
     throw UnimplementedError("cmSendChat");
   }
 
+  Future<void> cmSendVoiceCallAudio(
+      {required int connId, required Uint8List data, dynamic hint}) {
+    throw UnimplementedError("cmSendVoiceCallAudio");
+  }
+
   Future<void> cmLoginRes(
       {required int connId, required bool res, dynamic hint}) {
     throw UnimplementedError("cmLoginRes");

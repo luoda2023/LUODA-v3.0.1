@@ -3067,6 +3067,21 @@ if !platform_additions.is_empty() {
                             | Some(misc::Union::CloseReason(_))
                     ),
                     Some(message::Union::TestDelay(_)) => true,
+                    // LUODA: 点聊 P2P 之上的语音/视频电话独立于远程协助，
+                    // 不要求被叫开启录屏/远程协助服务。放行：
+                    //  - VoiceCallRequest：主叫发起的来电(is_connect)与挂断通知；
+                    //  - AudioFrame：Dart 侧 VoiceCallAudio 采集/编码的 Opus 语音帧
+                    //    （仅 voice_calling 期间转发，避免普通点聊被塞音频）。
+                    Some(message::Union::VoiceCallRequest(_)) => true,
+                    // Accept-race: after the caller accepts, its Dart audio may
+                    // arrive BEFORE this (callee) connection finishes
+                    // handle_voice_call() and flips voice_calling=true. During
+                    // that window the request timestamp is still set, so gate
+                    // AudioFrame on "voice call in progress OR pending request".
+                    Some(message::Union::AudioFrame(_)) => {
+                        self.voice_calling
+                            || self.voice_call_request_timestamp.is_some()
+                    }
                     _ => false,
                 };
                 if !allowed {
@@ -3974,12 +3989,41 @@ if !platform_additions.is_empty() {
                 },
                 Some(message::Union::AudioFrame(frame)) => {
                     if !self.disable_audio {
-                        if let Some(sender) = &self.audio_sender {
+                        // Mobile (Android/iOS): the Rust Opus decoder is a stub and there is
+                        // no cpal output device, so incoming voice-call audio (Opus bytes from
+                        // the caller's Dart encoder) is pushed straight to the in-process
+                        // Flutter UI, which decodes with opus_dart and plays it. The caller
+                        // never sends Misc::AudioFormat, so `audio_sender` stays None and the
+                        // bytes would otherwise be dropped here (no audible sound at all).
+                        #[cfg(any(target_os = "android", target_os = "ios"))]
+                        if self.voice_calling {
+                            use hbb_common::base64::{engine::general_purpose::STANDARD, Engine as _};
+                            let b64 = STANDARD.encode(&frame.data);
+                            let event = serde_json::json!({
+                                "name": "voice_call_audio_frame",
+                                "data": b64,
+                            })
+                            .to_string();
+                            crate::flutter::push_global_event(
+                                crate::flutter::APP_TYPE_MAIN,
+                                event,
+                            );
+                        } else if let Some(sender) = &self.audio_sender {
                             allow_err!(sender.send(MediaData::AudioFrame(Box::new(frame))));
                         } else {
                             log::warn!(
                                 "Processing audio frame without the voice call audio sender."
                             );
+                        }
+                        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+                        {
+                            if let Some(sender) = &self.audio_sender {
+                                allow_err!(sender.send(MediaData::AudioFrame(Box::new(frame))));
+                            } else {
+                                log::warn!(
+                                    "Processing audio frame without the voice call audio sender."
+                                );
+                            }
                         }
                     }
                 }
@@ -3989,6 +4033,19 @@ if !platform_additions.is_empty() {
                             NonZeroI64::new(request.req_timestamp)
                                 .unwrap_or(NonZeroI64::new(get_time()).unwrap()),
                         );
+                        // 来电未接听前：若本会话此前因远程协助订阅了系统音频
+                        // （playback capture 会把铃声/媒体声推给主叫，造成
+                        // “没确认接收就有声音/杂音”），先取消订阅。待用户
+                        // 接受后 handle_voice_call 才会按 voice_calling 重新订阅。
+                        if !self.voice_calling {
+                            if let Some(s) = self.server.upgrade() {
+                                s.write().unwrap().subscribe(
+                                    super::audio_service::NAME,
+                                    self.inner.clone(),
+                                    false,
+                                );
+                            }
+                        }
                         // Notify the connection manager.
                         self.send_to_cm(Data::VoiceCallIncoming);
                     } else {
@@ -4527,6 +4584,10 @@ if !platform_additions.is_empty() {
             // Subscribe the host microphone to the voice call for any authed
             // session (not only ViewCamera), gated by explicit acceptance and
             // the audio option. This enables PC VoIP for normal desktop control.
+            // NOTE: Android/iOS 的移动端语音通话由 Dart 侧 VoiceCallAudio 独立
+            // 采集麦克风（record 库 + Opus），若这里再订阅 audio_service 会与
+            // Dart 采集同时运行 -> 双路音频叠加/回声/杂音。因此移动端跳过。
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
             if let Some(s) = self.server.upgrade() {
                 s.write().unwrap().subscribe(
                     super::audio_service::NAME,
@@ -5583,8 +5644,14 @@ async fn start_ipc(
             user = Some((uid, username));
             args = vec!["--cm-no-ui"];
         }
+        // 单例保护：若已有 --cm 进程在运行，则不再重复拉起，
+        // 直接进入下方等待 IPC 连接的循环，避免累积多个“点聊”窗口。
+        let cm_already_running = crate::check_process("--cm", true);
         let run_done;
-        if crate::platform::is_root() {
+        if cm_already_running {
+            log::debug!("Connection manager (--cm) already running, skip spawn");
+            run_done = true;
+        } else if crate::platform::is_root() {
             let mut res = Ok(None);
             for _ in 0..10 {
                 #[cfg(not(any(target_os = "linux")))]
@@ -5614,7 +5681,7 @@ async fn start_ipc(
         } else {
             run_done = false;
         }
-        if !run_done {
+        if !run_done && !cm_already_running {
             log::debug!("Start cm");
             super::CHILD_PROCESS
                 .lock()

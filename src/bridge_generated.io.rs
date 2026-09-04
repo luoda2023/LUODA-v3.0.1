@@ -1798,6 +1798,15 @@ pub extern "C" fn wire_cm_send_chat(port_: i64, conn_id: i32, msg: *mut wire_uin
 }
 
 #[no_mangle]
+pub extern "C" fn wire_cm_send_voice_call_audio(
+    port_: i64,
+    conn_id: i32,
+    data: *mut wire_uint_8_list,
+) {
+    wire_cm_send_voice_call_audio_impl(port_, conn_id, data)
+}
+
+#[no_mangle]
 pub extern "C" fn wire_cm_login_res(port_: i64, conn_id: i32, res: bool) {
     wire_cm_login_res_impl(port_, conn_id, res)
 }

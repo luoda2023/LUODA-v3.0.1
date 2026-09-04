@@ -16,6 +16,7 @@ import '../join_meeting_session.dart';
 import '../../models/meeting_group_model.dart';
 import '../../models/peer_model.dart';
 import 'friend_picker_dialog.dart';
+import 'meeting_minutes_card.dart';
 
 /// Full management panel for a single meeting group.
 class MeetingGroupPanel extends StatefulWidget {
@@ -689,6 +690,8 @@ class _MeetingGroupPanelState extends State<MeetingGroupPanel> {
                     if (isHost) ...[
                       const SizedBox(height: 10),
                       _buildPresentationCard(context, surface, border),
+                      const SizedBox(height: 10),
+                      MeetingMinutesCard(group: _group),
                       const SizedBox(height: 10),
                       _buildInviteCard(context, surface, border),
                     ],

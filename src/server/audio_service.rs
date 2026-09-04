@@ -468,6 +468,14 @@ fn create_format_msg(sample_rate: u32, channels: u16) -> Message {
 const MAX_AUDIO_ZERO_COUNT: u16 = 800;
 static mut AUDIO_ZERO_COUNT: u16 = 0;
 
+#[cfg(target_os = "android")]
+thread_local! {
+    // Android Java AudioRecord delivers arbitrary PCM chunk sizes (e.g. 122880 B
+    // on OPPO = 30720 samples, 131072 B on LDPlayer = 32768 samples). 960-sample
+    // batches are required, so carry the <960-sample tail across calls.
+    static ANDROID_AUDIO_TAIL: std::cell::RefCell<Vec<f32>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
 fn send_f32(data: &[f32], encoder: &mut Encoder, sp: &GenericService) {
     if data.iter().filter(|x| **x != 0.).next().is_some() {
         unsafe {
@@ -487,21 +495,38 @@ fn send_f32(data: &[f32], encoder: &mut Encoder, sp: &GenericService) {
     }
     #[cfg(target_os = "android")]
     {
-        // the permitted opus data size are 120, 240, 480, 960, 1920, and 2880
-        // if data size is bigger than BATCH_SIZE, AND is an integer multiple of BATCH_SIZE
-        // then upload in batches
+        // Android Java AudioRecord delivers arbitrary PCM chunk sizes, and a
+        // single chunk (e.g. 131072 B on LDPlayer = 32768 samples) is usually
+        // NOT an integer multiple of 960.  Opus only accepts the standard frame
+        // sizes (120/240/480/960/1920/2880), so accumulate the incoming samples
+        // into a thread-local tail buffer and emit whole 960-sample batches.
+        // This fixes voice calls being completely silent when the server side
+        // runs on an emulator/device whose AudioRecord minBufferSize is not a
+        // multiple of 960 samples.
         const BATCH_SIZE: usize = 960;
-        let input_size = data.len();
-        if input_size > BATCH_SIZE && input_size % BATCH_SIZE == 0 {
-            let n = input_size / BATCH_SIZE;
+        ANDROID_AUDIO_TAIL.with(|tail_cell| {
+            let mut tail = tail_cell.borrow_mut();
+            tail.extend_from_slice(data);
+            let mut n = tail.len() / BATCH_SIZE;
+            if n == 0 {
+                // Not enough samples for one 960 batch yet (frame sizes are
+                // ~10ms so this is rare); keep buffering, but avoid an
+                // unbounded grow if audio stalls for a long time.
+                if tail.len() > BATCH_SIZE * 8 {
+                    tail.clear();
+                }
+                return;
+            }
+            // Drain complete batches from the front of the tail buffer.
             for i in 0..n {
-                match encoder
-                    .encode_vec_float(&data[i * BATCH_SIZE..(i + 1) * BATCH_SIZE], BATCH_SIZE)
-                {
-                    Ok(data) => {
+                let start = i * BATCH_SIZE;
+                let end = start + BATCH_SIZE;
+                let chunk: Vec<f32> = tail[start..end].to_vec();
+                match encoder.encode_vec_float(&chunk, BATCH_SIZE) {
+                    Ok(encoded) => {
                         let mut msg_out = Message::new();
                         msg_out.set_audio_frame(AudioFrame {
-                            data: data.into(),
+                            data: encoded.into(),
                             ..Default::default()
                         });
                         sp.send(msg_out);
@@ -509,10 +534,15 @@ fn send_f32(data: &[f32], encoder: &mut Encoder, sp: &GenericService) {
                     Err(_) => {}
                 }
             }
-        } else {
-            log::debug!("invalid audio data size:{} ", input_size);
-            return;
-        }
+            let remaining = tail.len() - n * BATCH_SIZE;
+            if remaining > 0 {
+                let keep = tail.split_off(n * BATCH_SIZE);
+                *tail = keep;
+            } else {
+                tail.clear();
+            }
+            n = 0;
+        });
     }
 
     #[cfg(not(target_os = "android"))]
@@ -528,3 +558,4 @@ fn send_f32(data: &[f32], encoder: &mut Encoder, sp: &GenericService) {
         Err(_) => {}
     }
 }
+

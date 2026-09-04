@@ -2951,6 +2951,17 @@ pub fn cm_send_chat(conn_id: i32, msg: String) {
     }
 }
 
+/// Host/callee side voice-call audio uplink.
+/// When this device is the CALLEE of a voice/video call, its incoming chat
+/// connection is hosted by the Rust `Connection` (no FlutterSession exists),
+/// so the Dart `sessionSendVoiceCallAudio` path silently no-ops and the
+/// callee's microphone never reaches the caller. This function routes the
+/// Dart-encoded Opus bytes back over the live incoming connection [conn_id].
+pub fn cm_send_voice_call_audio(conn_id: i32, data: Vec<u8>) {
+    #[cfg(not(any(target_os = "ios")))]
+    crate::ui_cm_interface::send_voice_call_audio(conn_id, data);
+}
+
 pub fn cm_login_res(conn_id: i32, res: bool) {
     #[cfg(not(any(target_os = "ios")))]
     if res {

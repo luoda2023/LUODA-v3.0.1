@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:luoda_flutter/mobile/pages/bt_chat_page.dart';
 import 'package:luoda_flutter/mobile/pages/scan_page.dart';
+import 'package:luoda_flutter/mobile/pages/voice_call_page.dart';
 import 'package:luoda_flutter/mobile/pages/server_page.dart';
 import 'package:luoda_flutter/mobile/pages/settings_page.dart';
 import 'package:luoda_flutter/web/settings_page.dart';
@@ -40,6 +41,7 @@ import '../../models/model.dart';
 import '../../models/peer_model.dart';
 import '../../models/platform_model.dart';
 import '../../models/state_model.dart';
+import '../../models/server_model.dart';
 import 'connection_page.dart';
 import 'remote_meeting_page.dart';
 import 'announcement_page.dart';
@@ -312,6 +314,8 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// 维护聊天保活。
   Future<void> _maintainChatKeepAlive() async {
     if (!mounted) return;
+    // 通话/远程会话拨号中：暂停保活，避免抢占单例 FFI。
+    if (gFFI.chatModel.pauseKeepAlive) return;
     // 未连接、非默认连接或尚未初始化时无需保活，直接返回。
 
     if (!gFFI.closed &&
@@ -534,6 +538,7 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
         onTakePhoto: _takePhoto,
         onSendLocation: _sendLocation,
         onVoiceCall: _startVoiceCallFromChat,
+        onVideoCall: _startVideoCallFromChat,
       );
       await Navigator.of(context).push<void>(
         MaterialPageRoute<void>(
@@ -584,21 +589,7 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           mainAxisSize: MainAxisSize.min,
                           children: <Widget>[
                             if (!isMeetingChat) ...<Widget>[
-                              // 微信风格：小圆形头像（Botchat 默认头像）。
-                              ClipOval(
-                                child: SizedBox(
-                                  width: 26,
-                                  height: 26,
-                                  child: Image.asset(
-                                    'assets/avatar.png',
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) =>
-                                        const Icon(Icons.person_rounded,
-                                            size: 20),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
+                              // 顶部标题栏不放头像图标，仅保留在线状态点。
                               _buildChatOnlineDot(currentKey.peerId),
                               const SizedBox(width: 6),
                             ],
@@ -677,7 +668,11 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     IconButton(
                       icon: const Icon(Icons.phone_in_talk_rounded),
                       tooltip: translate('Voice call'),
-                      onPressed: () => _startVoiceCallFromChat(),
+                      onPressed: () {
+                        debugPrint('[VoiceCallTopBar] tap phone_in_talk peer='
+                            '${gFFI.chatModel.currentKey.peerId}');
+                        _startVoiceCallFromChat();
+                      },
                     ),
                     PopupMenuButton<String>(
                       tooltip: translate('More'),
@@ -990,16 +985,40 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   void _startRemoteFromChat() {
+    debugPrint('[RemoteFromChat] >>> enter peer='
+        '${gFFI.chatModel.currentKey.peerId} session=${gFFI.sessionId} '
+        'pi=${gFFI.ffiModel.pi.isSet.isTrue}');
     final peerId = gFFI.chatModel.currentKey.peerId.trim();
     if (peerId.isEmpty) return;
-    final endpoint = DirectPairingStore.resolveConnectionTarget(peerId);
-    if (endpoint == null) {
-      showToast(translate(
-        'Direct endpoint required. Scan the PC QR code or enter IP:port.',
-      ));
+    // 已有活动【远程控制】会话（connType=defaultConn）时直接复用，
+    // 而不是重复 push RemotePage；纯聊天/文件会话不算。
+    final isActiveRemote = !gFFI.closed &&
+        gFFI.connType == ConnType.defaultConn &&
+        gFFI.ffiModel.pi.isSet.isTrue &&
+        (gFFI.id == peerId || gFFI.id.isEmpty);
+    if (isActiveRemote) {
+      showToast(translate('Already connected'));
       return;
     }
-    connect(context, endpoint, forceRelay: false);
+    // 手机/平板等移动设备之间：若已保存可用的直连端点（IP:port 配对），
+    // 优先直连；否则回退为按设备 ID 拨号——由 rendezvous/中继解析对端当前
+    // 地址，使手机↔手机、手机↔电脑跨网段也能建立远程协助/语音/视频会话。
+    final endpoint = DirectPairingStore.resolveConnectionTarget(peerId);
+    debugPrint('[RemoteFromChat] resolved endpoint for $peerId -> '
+        '${endpoint ?? "<null>"}');
+    // endpoint 形如 "peerId@IP:port?key=..." 或纯 ID/空。判断依据是
+    // "包含 @ 且有非空主机" 即可视为可直连端点，不能用 startsWith 排除
+    // （endpoint 总是以 peerId 开头，那样会把所有直连都误判为纯 ID 拨号）。
+    final directEndpoint =
+        endpoint != null && endpoint.contains('@') ? endpoint : null;
+    if (directEndpoint != null) {
+      debugPrint('[RemoteFromChat] dial direct endpoint=$directEndpoint');
+      connect(context, directEndpoint, forceRelay: false);
+      return;
+    }
+    debugPrint('[RemoteFromChat] dial by pure ID=$peerId '
+        '(endpoint=${endpoint ?? "null"})');
+    connect(context, peerId, forceRelay: false);
   }
 
   /// 聊天窗口 ⋯ 菜单“推荐给联系人”：选一位好友，把当前会话的名片发给他。
@@ -1025,6 +1044,8 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final target = picked.first;
     final currentName = _resolveConversationName(
       peerId,
+      contactName:
+          _resolveContactDisplayName(_findContactByPeerId(peerId)),
       idFallback: peerId,
     );
     final card = DirectChatContact(
@@ -1133,18 +1154,226 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// 若没有活动会话，则先建立远程连接（与“远程桌面”一致），
   /// 会话建立后远程页会自动出现语音通话按钮。
   void _startVoiceCallFromChat() {
+    debugPrint('[VoiceCallFromChat] >>> enter peer='
+        '${gFFI.chatModel.currentKey.peerId} session=${gFFI.sessionId} '
+        'pi=${gFFI.ffiModel.pi.isSet.isTrue} '
+        'status=${gFFI.chatModel.voiceCallStatus.value}');
     final peerId = gFFI.chatModel.currentKey.peerId.trim();
     if (peerId.isEmpty) return;
-    // 已有活动远程会话：直接请求语音。
-    if (gFFI.sessionId != 0 && gFFI.ffiModel.pi.isSet.isTrue) {
+    // 会议群聊：加入会议实时会话（与“进入演示/观看”一致）。
+    if (peerId.startsWith('meeting:')) {
+      final group = MeetingGroupStore.find(
+        peerId.substring('meeting:'.length),
+      );
+      if (group != null) _joinMeetingSessionFromChat(group);
+      return;
+    }
+    // 已有活动【远程控制/摄像头】会话：直接请求语音。
+    // 不能用 pi.isSet 判断——聊天保活连接收到 peer_info 也会置 isSet=true，
+    // 必须确认 connType 是 defaultConn(远程控制)/viewCamera(视频电话)。
+    final isActiveRemote = !gFFI.closed &&
+        (gFFI.connType == ConnType.defaultConn ||
+            gFFI.connType == ConnType.viewCamera) &&
+        gFFI.ffiModel.pi.isSet.isTrue;
+    if (isActiveRemote) {
+      gFFI.chatModel.onVoiceCallWaiting(); // main caller enters "calling" state; exit driven by on_voice_call_started/closed callbacks
       bind.sessionRequestVoiceCall(sessionId: gFFI.sessionId);
       return;
     }
-    // 无会话：先建立远程连接。
-    _startRemoteFromChat();
-    showToast(translate(
-      'Remote session connecting... Tap the voice button once connected.',
-    ));
+    // ★ 语音电话不依赖远程协助：若已与该对端建立点聊 P2P 保活连接
+    // (connType==chat)，直接复用这条连接协商语音——音频帧走同一 P2P
+    // 通道双向传输，被叫无需开启录屏/远程协助服务即可接听。
+    final hasChatP2P = !gFFI.closed &&
+        gFFI.connType == ConnType.chat &&
+        gFFI.ffiModel.pi.isSet.isTrue &&
+        gFFI.chatModel.currentKey.peerId == peerId;
+    if (hasChatP2P) {
+      debugPrint('[VoiceCallFromChat] reuse live chat P2P conn -> '
+          'requestVoiceCall (no remote-assist needed)');
+      unawaited(_ensureChatAndDialVoice(peerId, video: false));
+      return;
+    }
+    // 无活动远程会话：以“语音通话”模式建立远程会话。
+    // 移动端单会话：先关掉占用 gFFI 的纯聊天保活会话，再拨号 defaultConn，
+    // 连接建立后 RemotePage 会自动发起语音（见 remote_page 的 pendingCallMode）。
+    unawaited(_dialCallSession(peerId, video: false));
+  }
+
+  /// 聊天窗口 "+" 面板“视频电话”：类似语音通话，但以查看对方摄像头
+  /// （isViewCamera）方式建立连接——对端接受后即进入视频通话画面。
+  /// 已有活动远程会话时直接请求语音；否则以摄像头模式发起连接。
+  void _startVideoCallFromChat() {
+    debugPrint('[VideoCallFromChat] >>> enter peer='
+        '${gFFI.chatModel.currentKey.peerId} session=${gFFI.sessionId} '
+        'pi=${gFFI.ffiModel.pi.isSet.isTrue} '
+        'status=${gFFI.chatModel.voiceCallStatus.value}');
+    final peerId = gFFI.chatModel.currentKey.peerId.trim();
+    if (peerId.isEmpty) return;
+    // 会议群聊：“视频电话”即进入实时会议画面（演示人=演示，成员=观看）。
+    if (peerId.startsWith('meeting:')) {
+      final group = MeetingGroupStore.find(
+        peerId.substring('meeting:'.length),
+      );
+      if (group != null) _joinMeetingSessionFromChat(group);
+      return;
+    }
+    // 已有活动远程会话：直接复用并请求语音。
+    final isActiveRemote = !gFFI.closed &&
+        (gFFI.connType == ConnType.defaultConn ||
+            gFFI.connType == ConnType.viewCamera) &&
+        gFFI.ffiModel.pi.isSet.isTrue;
+    if (isActiveRemote) {
+      if (gFFI.connType == ConnType.viewCamera) {
+        gFFI.chatModel.onVoiceCallWaiting(); // main caller enters "calling" state; exit driven by on_voice_call_started/closed callbacks
+        bind.sessionRequestVoiceCall(sessionId: gFFI.sessionId);
+      } else {
+        // defaultConn 已建立：直接请求语音（无需再开摄像头）。
+        gFFI.chatModel.onVoiceCallWaiting(); // main caller enters "calling" state; exit driven by on_voice_call_started/closed callbacks
+        bind.sessionRequestVoiceCall(sessionId: gFFI.sessionId);
+      }
+      return;
+    }
+    // ★ 视频电话同样不依赖远程协助：若已与该对端建立点聊 P2P 保活连接，
+    // 直接复用。视频通话（对端摄像头画面）在会话建立后由 ViewCamera/
+    // 摄像头共享路径提供；此处先发语音请求建立通话。
+    final hasChatP2P = !gFFI.closed &&
+        gFFI.connType == ConnType.chat &&
+        gFFI.ffiModel.pi.isSet.isTrue &&
+        gFFI.chatModel.currentKey.peerId == peerId;
+    if (hasChatP2P) {
+      debugPrint('[VideoCallFromChat] reuse live chat P2P conn -> '
+          'requestVoiceCall (no remote-assist needed)');
+      unawaited(_ensureChatAndDialVoice(peerId, video: true));
+      return;
+    }
+    // 视频电话 = 查看对方摄像头 + 双向语音。移动设备之间无 IP:port 绑定时，
+    // 直接用设备 ID 拨号（rendezvous/中继解析），对端接受摄像头共享即可通话。
+    // 以“视频”模式建立 viewCamera 会话，连接建立后自动请求语音。
+    unawaited(_dialCallSession(peerId, video: true));
+  }
+
+  /// 复用点聊 P2P 发起语音/视频通话前的“确保连接”步骤。
+  ///
+  /// 背景：移动端 Dart 层 connType==chat / pi.isSet 只能说明本端曾建立过
+  /// 聊天会话，但 Rust 侧的实际连接可能已因保活超时/网络抖动断开（Dart
+  /// 状态滞后），此时直接 sessionRequestVoiceCall 会发给一个已不存在的
+  /// session 而静默失败——表现为“呼叫中”直到超时、对端毫无来电。
+  ///
+  /// 因此在真正拨语音前，先调用 [_ensureChatConnection]（有 live incoming
+  /// chat client 就直接复用；否则走强制重拨重建 chat P2P），再短暂等待
+  /// 连接建立完成后才发起 VoiceCallRequest。若仍无法建立连接，提示用户
+  /// 并回退到远程会话拨号（defaultConn/viewCamera）兜底。
+  Future<void> _ensureChatAndDialVoice(String peerId,
+      {required bool video}) async {
+    if (!mounted) return;
+    // ① 若当前 gFFI 已被远程/摄像头会话占用，直接请求语音即可。
+    if (!gFFI.closed &&
+        (gFFI.connType == ConnType.defaultConn ||
+            gFFI.connType == ConnType.viewCamera) &&
+        gFFI.ffiModel.pi.isSet.isTrue) {
+      gFFI.chatModel.onVoiceCallWaiting(); // main caller enters "calling" state; exit driven by on_voice_call_started/closed callbacks
+      _enterVoiceCallUi(peerId, video: video);
+      bind.sessionRequestVoiceCall(sessionId: gFFI.sessionId);
+      return;
+    }
+    // ② Rust 会话存活探测：sessionGetCommonSync 在 session 不存在时返回
+    // null。Dart 层 connType==chat 不代表 Rust 连接还活着（保活超时/网络
+    // 抖动后 Dart 状态滞后），必须据此决定是否需要强制重拨。
+    bool rustSessionAlive = false;
+    try {
+      final probe = bind.sessionGetCommonSync(
+        sessionId: gFFI.sessionId,
+        key: 'is_screenshot_supported',
+        param: '',
+      );
+      rustSessionAlive = probe != null;
+    } catch (_) {
+      rustSessionAlive = false;
+    }
+    final ensure = gFFI.chatModel.ensureChatConnection;
+    if (ensure != null) {
+      // Rust 会话已死才强制重拨；活着则靠 ensure 内部判断（live incoming
+      // client / live conversation 直接复用，不打断连接）。
+      await ensure(peerId, force: !rustSessionAlive);
+    }
+    // 等待连接建立/稳定（拨号 + 握手）。
+    await Future<void>.delayed(const Duration(milliseconds: 900));
+    if (!mounted) return;
+    final connected = !gFFI.closed &&
+        gFFI.connType == ConnType.chat &&
+        gFFI.ffiModel.pi.isSet.isTrue &&
+        gFFI.chatModel.currentKey.peerId == peerId;
+    if (connected) {
+      debugPrint('[VoiceCall] chat P2P live after ensure -> request '
+          'video=$video');
+      gFFI.chatModel.onVoiceCallWaiting(); // main caller enters "calling" state; exit driven by on_voice_call_started/closed callbacks
+      _enterVoiceCallUi(peerId, video: video);
+      bind.sessionRequestVoiceCall(sessionId: gFFI.sessionId);
+      return;
+    }
+    // 连接未能建立：回退到远程会话拨号（保留原兜底路径）。
+    debugPrint('[VoiceCall] chat P2P unavailable after ensure; '
+        'fallback dial video=$video');
+    unawaited(_dialCallSession(peerId, video: video));
+  }
+  /// 关闭当前占用单例 FFI 的纯聊天保活会话（若有），再按 [video] 决定
+  /// 以 defaultConn（语音）或 viewCamera（视频）拨号建立通话会话。
+  /// 拨号前设置 [pendingCallMode]，RemotePage/ViewCameraPage 连上后自动
+  /// 发起语音请求，实现从点聊 “一键拨打”。
+  /// 复用已有点聊 P2P 连接发起语音/视频通话时，进入纯通话页（非远程协助黑屏页）。
+  void _enterVoiceCallUi(String peerId, {required bool video}) {
+    if (!mounted) return;
+    debugPrint('[VoiceCall] enter VoiceCallPage peer=$peerId video=$video');
+    // 页面自身监听 voiceCallStatus：connected 后由 VoiceCallAudio 采集/播放，
+    // notStarted(对方拒/挂断/超时) 自动退出。
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => VoiceCallPage(
+          peerId: peerId,
+          video: video,
+          displayName: _resolveConversationName(
+            peerId,
+            contactName: _resolveContactDisplayName(
+                _findContactByPeerId(peerId)),
+            chatName: gFFI.chatModel.currentUser?.firstName ?? "",
+            idFallback: peerId,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _dialCallSession(String peerId, {required bool video}) async {
+    // 移动端单 FFI/单 sessionId：若当前被纯聊天保活会话占用，必须彻底
+    // 关闭后再拨号，否则 session_add 检测到同 id 不同 conn_type 会失败，
+    // 表现为永远“正在连接...”且无法返回。
+    // 注意：必须先置 pauseKeepAlive 再 await close()，否则 close 的
+    // await 间隙内 keep-alive / relay-cutback tick 会抢先把会话拨回 chat，
+    // 导致刚发起的语音/视频拨号被切断。
+    gFFI.chatModel.pauseKeepAlive = true;
+    gFFI.pendingCallMode = video ? 'video' : 'voice';
+    if (!gFFI.closed &&
+        gFFI.connType == ConnType.chat &&
+        gFFI.ffiModel.pi.isSet.isTrue) {
+      debugPrint('[DialCall] closing live chat session before '
+          '${video ? 'video' : 'voice'} dial');
+      await gFFI.close();
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    }
+    // 通话会话建立期间暂停点聊 keep-alive 重拨（防止又占回 gFFI）。
+    final endpoint = DirectPairingStore.resolveConnectionTarget(peerId);
+    debugPrint('[DialCall] ${video ? "video" : "voice"} resolved endpoint '
+        'for $peerId -> ${endpoint ?? "<null>"}');
+    final directEndpoint =
+        endpoint != null && endpoint.contains('@') ? endpoint : null;
+    if (directEndpoint != null) {
+      debugPrint('[DialCall] dial direct endpoint=$directEndpoint');
+      await connect(context, directEndpoint,
+          forceRelay: false, isViewCamera: video);
+      return;
+    }
+    debugPrint('[DialCall] dial by pure ID=$peerId (viewCamera=$video)');
+    await connect(context, peerId, forceRelay: false, isViewCamera: video);
   }
 
   void connectByInput(String value) {
@@ -2125,7 +2354,7 @@ Future<void> _takePhoto() async {
                                 onClose: () => _mobilePanel.value = null,
                               ),
                   ),
-                ],
+],
               );
             },
           ),
@@ -4205,4 +4434,298 @@ class _ImagePreviewPageState extends State<_ImagePreviewPage> {
  ),
  );
  }
+}
+
+
+/// 手机主界面(聊天/联系人/会议等任意 tab)顶层挂载的来电层。
+/// 之前在 remote_page(远程协助/会话页)里才有 VoiceCallOverlay，导致手机停留在
+/// 主页/聊天页时收到语音/视频来电没有任何 UI 可接听——这就是"被叫无来电弹窗"根因。
+/// 本层监听 chatModel.voiceCallStatus，incoming 时显示全屏来电卡(接听/拒绝)，
+/// 接听后进入 VoiceCallPage(纯通话界面)，拒绝则通知 Rust 关闭。
+class MobileIncomingCallLayer extends StatefulWidget {
+  const MobileIncomingCallLayer({Key? key}) : super(key: key);
+
+  @override
+  State<MobileIncomingCallLayer> createState() =>
+      MobileIncomingCallLayerState();
+}
+
+class MobileIncomingCallLayerState extends State<MobileIncomingCallLayer>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulse = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  Client? _caller() {
+    try {
+      return gFFI.serverModel.clients.firstWhereOrNull(
+          (c) => c.incomingVoiceCall && !c.disconnected);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _callerName(Client c) {
+    final n = (c.name ?? '').trim();
+    if (n.isNotEmpty && n != 'unknown') return n;
+    final paired = DirectPairingStore.findForConversation(c.peerId);
+    if (paired != null && paired.deviceName.trim().isNotEmpty) {
+      return paired.deviceName.trim();
+    }
+    if (paired != null && paired.displayName.trim().isNotEmpty) {
+      return paired.displayName.trim();
+    }
+    return c.peerId.isEmpty ? translate('Unknown peer') : c.peerId;
+  }
+
+  void _accept(Client caller) {
+    debugPrint('[MobileIncomingCall] accept caller=${caller.name} id=${caller.id}');
+    try {
+      gFFI.serverModel.handleVoiceCall(caller, true);
+    } catch (e) {
+      debugPrint('[MobileIncomingCall] accept err: $e');
+      bind.cmHandleIncomingVoiceCall(id: caller.id, accept: true);
+    }
+    // 进入通话界面：页面监听 voiceCallStatus，connected 后音频由
+    // ChatModel.onVoiceCallStarted() 自动启动(VoiceCallAudio)。
+    if (!mounted) return;
+    // Use the app-global navigator key: handleVoiceCall above can synchronously
+    // mutate serverModel/clients, detaching this overlay's context before we
+    // push, which would throw "Null check operator used on a null value" at
+    // Navigator.of(context). The root navigator is always alive.
+    final nav = globalKey.currentState;
+    if (nav == null) {
+      debugPrint('[MobileIncomingCall] accept: global navigator not ready');
+      return;
+    }
+    nav.push(
+      MaterialPageRoute<void>(
+        builder: (_) => VoiceCallPage(
+          peerId: caller.peerId,
+          video: false,
+          displayName: _callerName(caller),
+        ),
+      ),
+    );
+  }
+
+  void _reject(Client caller) {
+    debugPrint('[MobileIncomingCall] reject caller=${caller.name} id=${caller.id}');
+    try {
+      bind.cmCloseVoiceCall(id: caller.id);
+    } catch (e) {
+      debugPrint('[MobileIncomingCall] reject err: $e');
+    }
+    try {
+      gFFI.chatModel.onVoiceCallClosed('Rejected by callee');
+    } catch (e) {
+      debugPrint('[MobileIncomingCall] reset err: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Obx(() {
+      final status = gFFI.chatModel.voiceCallStatus.value;
+      if (status != VoiceCallStatus.incoming) return const SizedBox.shrink();
+      final caller = _caller();
+      if (caller == null) {
+        // 有状态但无 client 记录（异常态）——避免永久黑屏，自动复位。
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          try {
+            gFFI.chatModel.onVoiceCallClosed('incoming no client');
+          } catch (_) {}
+        });
+        return const SizedBox.shrink();
+      }
+      final dark = Theme.of(context).brightness == Brightness.dark;
+      final name = _callerName(caller);
+      // Full-screen scrim. Stack gives non-positioned children the same
+      // loose constraints as the first child by default; SizedBox.expand
+      // forces this scrim to cover the whole Navigator area regardless.
+      return SizedBox.expand(
+        child: Container(
+          color: Colors.black87,
+          alignment: Alignment.center,
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 36),
+              padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 32),
+              decoration: BoxDecoration(
+                color: dark ? const Color(0xFF23262B) : Colors.white,
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.35),
+                    blurRadius: 48,
+                    offset: const Offset(0, 16),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  // 脉冲光环 + 电话图标
+                  AnimatedBuilder(
+                    animation: _pulse,
+                    builder: (_, child) {
+                      final s = 1.0 + _pulse.value * 0.15;
+                      final o = 1.0 - _pulse.value * 0.6;
+                      return SizedBox(
+                        width: 96,
+                        height: 96,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: <Widget>[
+                            Transform.scale(
+                              scale: s * 1.5,
+                              child: Container(
+                                width: 64,
+                                height: 64,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF4CAF50)
+                                      .withOpacity(o * 0.3),
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                            ),
+                            Transform.scale(
+                              scale: s * 1.2,
+                              child: Container(
+                                width: 64,
+                                height: 64,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF4CAF50)
+                                      .withOpacity(o * 0.18),
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                            ),
+                            Container(
+                              width: 72,
+                              height: 72,
+                              decoration: const BoxDecoration(
+                                color: Color(0xFF4CAF50),
+                                shape: BoxShape.circle,
+                              ),
+                              alignment: Alignment.center,
+                              child: const Icon(Icons.call_rounded,
+                                  size: 34, color: Colors.white),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 22),
+                  Text(
+                    translate('Incoming voice call'),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 19,
+                      fontWeight: FontWeight.w600,
+                      color: dark ? Colors.white : Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    name,
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 15,
+                      color: dark ? Colors.white60 : Colors.black45,
+                    ),
+                  ),
+                  const SizedBox(height: 30),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: <Widget>[
+                      _CallActionBtn(
+                        icon: Icons.call_end_rounded,
+                        label: translate('Decline'),
+                        color: const Color(0xFFE53935),
+                        onTap: () => _reject(caller),
+                      ),
+                      const SizedBox(width: 44),
+                      _CallActionBtn(
+                        icon: Icons.call_rounded,
+                        label: translate('Accept'),
+                        color: const Color(0xFF4CAF50),
+                        onTap: () => _accept(caller),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    });
+  }
+}
+
+/// 来电卡底部圆形操作按钮（移动端轻点即可，无需 hover）。
+class _CallActionBtn extends StatelessWidget {
+  const _CallActionBtn({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Material(
+            color: color,
+            shape: const CircleBorder(),
+            elevation: 2,
+            child: Container(
+              width: 62,
+              height: 62,
+              alignment: Alignment.center,
+              child: Icon(icon, color: Colors.white, size: 28),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              color: Theme.of(context).brightness == Brightness.dark
+                  ? Colors.white70
+                  : Colors.black54,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

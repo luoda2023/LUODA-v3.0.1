@@ -52,10 +52,12 @@ class VoiceCallAudio {
   Future<void> startCapture() async {
     if (_capturing) return;
     _capturing = true;
+    print('[VC-DBG] VoiceCallAudio.startCapture begin');
 
     final hasPermission = await _record.hasPermission();
+    print('[VC-DBG] hasPermission=' + hasPermission.toString());
     if (!hasPermission) {
-      debugPrint('VoiceCallAudio: RECORD_AUDIO permission denied');
+      print('[VC-DBG] RECORD_AUDIO permission denied');
       _capturing = false;
       return;
     }
@@ -71,14 +73,22 @@ class VoiceCallAudio {
       ),
     );
 
+    print('[VC-DBG] startStream ok, listening...');
     _recordSub = stream.listen((data) {
+      print('[VC-DBG] pcm chunk len=' + data.length.toString());
       _handlePcmChunk(data);
     });
   }
 
   void _handlePcmChunk(Uint8List chunk) {
-    // Convert incoming bytes to Int16 samples
-    final newSamples = Int16List.sublistView(chunk);
+    // Convert incoming bytes to Int16 samples.
+    // OPPO ColorOS record stream can deliver chunks whose underlying buffer has
+    // an odd byteOffset (e.g. Offset(5)); Int16List.sublistView then throws a
+    // RangeError. Copy into a fresh, aligned buffer and drop any trailing odd byte.
+    final oddLen = chunk.length.isOdd ? chunk.length - 1 : chunk.length;
+    final copy = Uint8List(oddLen);
+    copy.setRange(0, oddLen, chunk);
+    final newSamples = Int16List.sublistView(copy);
 
     // Append to buffer
     if (_pcmBuffer.isEmpty) {
@@ -98,14 +108,26 @@ class VoiceCallAudio {
         // Int16 → Float32 (-1.0 to 1.0)
         frame[i] = _pcmBuffer[i] / 32768.0;
       }
-      _pcmBuffer = Int16List.sublistView(
-          _pcmBuffer.buffer.asUint8List(), frameSize * 2);
+      final totalSamples = _pcmBuffer.length;
+      final leftSamples = totalSamples - frameSize;
+      if (leftSamples > 0) {
+        // Slide the window based on the view's own byte offset/length so we
+        // never re-read consumed bytes or pad bytes of the underlying buffer.
+        final bytes = _pcmBuffer.buffer
+            .asUint8List(_pcmBuffer.offsetInBytes + frameSize * 2, leftSamples * 2);
+        _pcmBuffer = Int16List.sublistView(bytes);
+      } else {
+        _pcmBuffer = Int16List(0);
+      }
 
       try {
         final opus = _codec.encode(frame);
+        print('[VC-DBG] encode ok opusLen=' + opus.length.toString());
         onEncoded?.call(opus);
+        print('[VC-DBG] onEncoded done');
       } catch (e) {
         debugPrint('VoiceCallAudio: encode error: $e');
+        print('[VC-DBG] encode ERROR: $e');
       }
     }
   }

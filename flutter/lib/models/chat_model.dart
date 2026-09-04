@@ -96,6 +96,24 @@ class ChatModel with ChangeNotifier {
 
  RxString get voiceCallQualityStatus => _voiceCallQualityStatus;
 
+ /// Host/callee side: conn id of the incoming Connection carrying this voice call.
+ /// >0 -> this device is the CALLEE (host). Dart Opus MUST go via
+ /// cmSendVoiceCallAudio (CLIENTS[id].tx -> host Connection -> caller) because
+ /// no FlutterSession exists and sessionSendVoiceCallAudio would silently drop.
+ /// 0 -> caller/client: use sessionSendVoiceCallAudio(FlutterSession).
+ int _activeCallConnId = 0;
+
+ void setVoiceCallConnId(int connId) => _activeCallConnId = connId;
+ void clearVoiceCallConnId() => _activeCallConnId = 0;
+
+  /// 通话/远程会话建立期间暂停点聊 keep-alive 自动重拨，
+  /// 防止保活会话抢占移动端单例 FFI 导致通话拨号冲突。
+  bool pauseKeepAlive = false;
+
+  /// 语音“呼叫中”等待对端应答的超时定时器。
+  Timer? _voiceCallWaitingTimer;
+  static const Duration kVoiceCallWaitTimeout = Duration(seconds: 45);
+
   Rx<VoiceCallStatus> get voiceCallStatus => _voiceCallStatus;
 
   TextEditingController textController = TextEditingController();
@@ -533,6 +551,9 @@ class ChatModel with ChangeNotifier {
   }
 
   Future<void> _relayCutbackScan() async {
+    // 语音/视频通话、远程会话拨号期间：禁止中继→直连回切重拨，
+    // 否则会关闭通话会话抢占单例 FFI（表现为拨号后刚建立就被切断）。
+    if (pauseKeepAlive) return;
     final ensure = ensureChatConnection;
     if (ensure == null) return;
     // 移动端单连接：只关心最近活跃会话；桌面端可遍历最近活跃的一批。
@@ -4249,18 +4270,33 @@ String _notificationBody(DirectChatRecord record) {
 
   void onVoiceCallWaiting() {
     _voiceCallStatus.value = VoiceCallStatus.waitingForResponse;
+    // 对端不应答时自动放弃，避免“呼叫中”永久占屏/无法退出。
+    _voiceCallWaitingTimer?.cancel();
+    _voiceCallWaitingTimer = Timer(kVoiceCallWaitTimeout, () {
+      debugPrint('[VoiceCall] waiting timeout, auto hang up');
+      closeVoiceCall();
+    });
   }
 
 void onVoiceCallStarted() {
+ _voiceCallWaitingTimer?.cancel();
  _voiceCallStatus.value = VoiceCallStatus.connected;
  if (isAndroid || isIOS) {
  _startMobileVoiceCallAudio();
- parent.target?.invokeMethod("on_voice_call_started");
+ // NOTE: do NOT invoke Kotlin on_voice_call_started on mobile. That call
+ // makes AudioRecordHandle.switchToVoiceCall() restart the Rust audio
+ // service (playback/mic capture into AUDIO_RAW), which would run a SECOND
+ // mic path alongside Dart VoiceCallAudio -> echo / doubled voice / noise.
+ // Mobile voice media is fully handled by Dart VoiceCallAudio (opus).
  }
  _startQualityMonitor();
  }
 
  void onVoiceCallClosed(String reason) {
+ _voiceCallWaitingTimer?.cancel();
+ _voiceCallStatus.value = VoiceCallStatus.notStarted;
+ _activeCallConnId = 0;
+ _voiceCallQuality.stop(); _voiceCallWaitingTimer?.cancel();
  _voiceCallStatus.value = VoiceCallStatus.notStarted;
  _voiceCallQuality.stop();
  _voiceCallQualityStatus.value = '';
@@ -4295,11 +4331,28 @@ void onVoiceCallStarted() {
  _voiceCallAudio = VoiceCallAudio();
  await _voiceCallAudio!.init();
  _voiceCallAudio!.onEncoded = (opus) {
+ print('[VC-DBG] onEncoded opusLen=' + opus.length.toString());
+ // Callee/host: no FlutterSession -> send via host Connection (cm path).
+ // Caller/client: send via FlutterSession (session path).
+ final cmConn = _activeCallConnId;
+ if (cmConn > 0) {
+ bind.cmSendVoiceCallAudio(connId: cmConn, data: opus);
+ print('[VC-DBG] cmSendVoiceCallAudio called conn=' + cmConn.toString());
+ } else {
+ bind.sessionSendVoiceCallAudio(
+ sessionId: sessionId,
+ data: opus,
+ );
+ print('[VC-DBG] sessionSendVoiceCallAudio called sid=' + sessionId.toString());
+ }
+ }; _voiceCallAudio!.onEncoded = (opus) {
+ print('[VC-DBG] onEncoded opusLen=' + opus.length.toString());
  // Send encoded Opus bytes to peer via Rust transport.
  bind.sessionSendVoiceCallAudio(
  sessionId: sessionId,
  data: opus,
  );
+ print('[VC-DBG] sessionSendVoiceCallAudio called sid=' + sessionId.toString());
  };
  await _voiceCallAudio!.startCapture();
  }
@@ -4313,23 +4366,51 @@ void onVoiceCallStarted() {
 
  /// Handle incoming Opus audio frame from peer (mobile-only path).
  void onVoiceCallAudioFrame(String b64) {
- if (_voiceCallAudio == null || _voiceCallStatus.value != VoiceCallStatus.connected) return;
+ if (_voiceCallAudio == null || _voiceCallStatus.value != VoiceCallStatus.connected) {
+   print('[VC-DBG] recv drop: audio=' + (_voiceCallAudio != null).toString() + ' status=' + _voiceCallStatus.value.toString());
+   return;
+ }
  try {
  final opus = base64Decode(b64);
+ print('[VC-DBG] recv audio frame len=' + opus.length.toString() + ' status=' + _voiceCallStatus.value.toString());
  _voiceCallAudio!.feedIncomingOpus(opus);
  } catch (e) {
- debugPrint('onVoiceCallAudioFrame: decode error: $e');
+ print('[VC-DBG] onVoiceCallAudioFrame decode error: $e');
  }
  }
 
   void onVoiceCallIncoming() {
-    if (isConnManager) {
-      _voiceCallStatus.value = VoiceCallStatus.incoming;
-    }
+    _voiceCallStatus.value = VoiceCallStatus.incoming;
   }
 
   void closeVoiceCall() {
-    bind.sessionCloseVoiceCall(sessionId: sessionId);
+    // Always notify the Rust session (best-effort). The Rust side forwards
+    // CloseVoiceCall to the peer/CM, but if the session is already gone or
+    // the peer is unreachable it silently does nothing. To guarantee the UI
+    // can always hang up, reset local state + stop audio immediately and
+    // idempotently; the later Rust `on_voice_call_closed` callback (if any)
+    // is harmless because onVoiceCallClosed() is idempotent.
+    final cmConn = _activeCallConnId;
+    if (cmConn > 0) {
+      try {
+        bind.cmCloseVoiceCall(id: cmConn);
+      } catch (e) {
+        debugPrint('closeVoiceCall(cm): bind error: $e');
+      }
+    } else {
+      try {
+        bind.sessionCloseVoiceCall(sessionId: sessionId);
+      } catch (e) {
+        debugPrint('closeVoiceCall: bind error: $e');
+      }
+    }    try {
+      bind.sessionCloseVoiceCall(sessionId: sessionId);
+    } catch (e) {
+      debugPrint('closeVoiceCall: bind error: $e');
+    }
+    if (_voiceCallStatus.value != VoiceCallStatus.notStarted) {
+      onVoiceCallClosed('Closed by local user');
+    }
   }
 }
 

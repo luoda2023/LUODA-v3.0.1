@@ -974,18 +974,33 @@ class ServerModel with ChangeNotifier {
       if (index != -1) {
         _clients[index].inVoiceCall = client.inVoiceCall;
         _clients[index].incomingVoiceCall = client.incomingVoiceCall;
-        if (client.incomingVoiceCall) {
-          if (isAndroid) {
-            showVoiceCallDialog(client);
-          } else {
-            // Has incoming phone call, let's set the window on top.
-            Future.delayed(Duration.zero, () {
-              windowOnTop(null);
-            });
-          }
-        }
-        notifyListeners();
+      } else if (client.incomingVoiceCall || client.inVoiceCall) {
+        _clients.add(client);
       }
+      final chat = parent.target?.chatModel;
+      if (client.incomingVoiceCall) {
+        chat?.onVoiceCallIncoming();
+        if (!isAndroid) {
+          // Mobile: the incoming-call full-screen layer (home/remote/chat
+          // page) listens to voiceCallStatus==incoming and renders
+          // Accept/Reject, so no dialog here. Desktop: raise window.
+          Future.delayed(Duration.zero, () {
+            windowOnTop(null);
+          });
+        }
+      } else if (client.inVoiceCall) {
+        // Callee/host accept: remember the incoming Connection conn id so
+        // chatModel._startMobileVoiceCallAudio.onEncoded routes Dart Opus via
+        // cmSendVoiceCallAudio (host Connection uplink), not the silent
+        // sessionSendVoiceCallAudio (no FlutterSession on the callee).
+        chat?.setVoiceCallConnId(client.id);
+        chat?.onVoiceCallStarted();
+      } else if (client.inVoiceCall) {
+        chat?.onVoiceCallStarted();
+      } else {
+        chat?.onVoiceCallClosed('');
+      }
+      notifyListeners();
     } catch (e) {
       debugPrint("updateVoiceCallState failed: $e");
     }

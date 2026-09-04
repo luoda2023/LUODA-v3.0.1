@@ -56,7 +56,7 @@ pub type NotifyMessageBox = fn(String, String, String, String) -> dyn Future<Out
 
 // the executable name of the portable version
 pub const PORTABLE_APPNAME_RUNTIME_ENV_KEY: &str = "LUODA_APPNAME";
-pub const DEFAULT_PRODUCT_DISPLAY_NAME: &str = "LUODA";
+pub const DEFAULT_PRODUCT_DISPLAY_NAME: &str = "DotChat";
 
 pub const PLATFORM_WINDOWS: &str = "Windows";
 pub const PLATFORM_LINUX: &str = "Linux";
@@ -1028,7 +1028,7 @@ users see in window titles, tray tooltips and dialogs. */
 pub fn get_display_name() -> String {
     let configured = hbb_common::config::APP_NAME.read().unwrap().clone();
     match configured.as_str() {
-        "LUODA" | "LUODA31" | "LDesk" => "点聊".to_owned(),
+        "LUODA" | "LUODA31" | "LDesk" | "点聊" | "DotChat" => DEFAULT_PRODUCT_DISPLAY_NAME.to_owned(),
         _ => configured,
     }
 }
@@ -1036,7 +1036,7 @@ pub fn get_display_name() -> String {
 #[inline]
 pub fn get_app_name() -> String {
  let configured = hbb_common::config::APP_NAME.read().unwrap().clone();
- if configured == "LUODA" || configured == "LUODA31" {
+ if configured == "LUODA" || configured == "LUODA31" || configured == "LDesk" {
  DEFAULT_PRODUCT_DISPLAY_NAME.to_owned()
  } else {
  configured

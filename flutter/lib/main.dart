@@ -448,6 +448,12 @@ void runConnectionManagerScreen() async {
 
 bool _isCmReadyToShow = false;
 
+// CM 窗口启动隐藏锁：主进程刚拉起 --cm 子进程的 20 秒内，任何
+// showCmWindow()（非启动分支）都不允许把窗口显示出来，避免出现第二个
+// 可见的“点聊”窗口。有非聊天远程连接时，hideCmWindow 会正常清除该锁。
+DateTime _cmStartupHideLockUntil = DateTime.now();
+Timer? _cmStartupHideTimer;
+
 showCmWindow({bool isStartup = false}) async {
   if (isStartup) {
     WindowOptions windowOptions = getHiddenTitleBarWindowOptions(
@@ -464,6 +470,11 @@ showCmWindow({bool isStartup = false}) async {
         kConnectionManagerWindowSizeClosedChat, Alignment.topRight);
     _isCmReadyToShow = true;
   } else if (_isCmReadyToShow) {
+    // 启动早期（主进程刚拉起 --cm 子进程）强制忽略显示请求，防止第二个
+    // 可见窗口短暂闪现；20 秒后若确实有非聊天连接再显示。
+    if (DateTime.now().isBefore(_cmStartupHideLockUntil)) {
+      return;
+    }
     if (await windowManager.getOpacity() != 1) {
       await windowManager.setOpacity(1);
       await windowManager.focus();
@@ -479,19 +490,39 @@ hideCmWindow({bool isStartup = false}) async {
   if (isStartup) {
     WindowOptions windowOptions = getHiddenTitleBarWindowOptions(
         size: kConnectionManagerWindowSizeClosedChat);
-    windowManager.setOpacity(0);
+    await windowManager.setOpacity(0);
     await windowManager.waitUntilReadyToShow(windowOptions, null);
     bind.mainHideDock();
-    await windowManager.minimize();
     await windowManager.hide();
+    // 启动早期 waitUntilReadyToShow() 内部可能把窗口重新显示出来，
+    // 这里再补一次隐藏，确保 CM 窗口不会以第二个“点聊”窗口出现。
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    await windowManager.hide();
+    await windowManager.setOpacity(0);
+    // 启动隐藏锁：主进程刚拉起 --cm 子进程，前 20 秒强制禁止显示；
+    // 同时每隔 500ms 轮询一次，若被 Dart 其它逻辑重新显示就立即再隐藏。
+    _cmStartupHideLockUntil =
+        DateTime.now().add(const Duration(seconds: 20));
+    _cmStartupHideTimer?.cancel();
+    _cmStartupHideTimer = Timer.periodic(
+        const Duration(milliseconds: 500), (_) async {
+      if (!DateTime.now().isBefore(_cmStartupHideLockUntil)) {
+        _cmStartupHideTimer?.cancel();
+        _cmStartupHideTimer = null;
+        return;
+      }
+      try {
+        if (await windowManager.isVisible()) {
+          await windowManager.hide();
+          await windowManager.setOpacity(0);
+        }
+      } catch (_) {}
+    });
     _isCmReadyToShow = true;
   } else if (_isCmReadyToShow) {
-    if (await windowManager.getOpacity() != 0) {
-      await windowManager.setOpacity(0);
-      bind.mainHideDock();
-      await windowManager.minimize();
-      await windowManager.hide();
-    }
+    await windowManager.setOpacity(0);
+    bind.mainHideDock();
+    await windowManager.hide();
   }
 }
 
@@ -690,7 +721,16 @@ class _AppState extends State<App> with WidgetsBindingObserver {
                       data: MediaQuery.of(context).copyWith(
                         textScaler: TextScaler.linear(1.0),
                       ),
-                      child: child ?? Container(),
+                      // Incoming voice/video call layer sits ABOVE every
+                      // Navigator route (chat page, home, remote page), so a
+                      // call rings even while the user is inside a chat.
+                      child: Stack(
+                        textDirection: TextDirection.ltr,
+                        children: <Widget>[
+                          child ?? Container(),
+                          const MobileIncomingCallLayer(),
+                        ],
+                      ),
                     ),
                   )
               : (context, child) {
@@ -786,6 +826,62 @@ _registerEventHandler() {
  }
  },
  );
+ // LUODA FIX: voice/video incoming call events. These used to reach Dart
+ // only via _eventCallback, which serverModel.startService() installs —
+ // so a phone sitting on Home/Chat (service not started) silently dropped
+ // incoming voice/video calls (Rust logged the incoming call + pushed the
+ // event, but no handler consumed it). Register global handlers for the
+ // whole event family so any foreground state receives calls.
+ platformFFI.registerEventHandler(
+ 'update_voice_call_state',
+ 'main_voice_call_state',
+ (evt) async {
+ try {
+ gFFI.serverModel.updateVoiceCallState(evt);
+ } catch (e) {
+ debugPrint('voice_call_state handler err: $e');
+ }
+ },
+ );
+ platformFFI.registerEventHandler(
+ 'on_voice_call_waiting',
+ 'main_voice_waiting',
+ (_) async {
+ gFFI.chatModel.onVoiceCallWaiting();
+ },
+ );
+ platformFFI.registerEventHandler(
+ 'on_voice_call_started',
+ 'main_voice_started',
+ (_) async {
+ gFFI.chatModel.onVoiceCallStarted();
+ },
+ );
+ platformFFI.registerEventHandler(
+ 'on_voice_call_closed',
+ 'main_voice_closed',
+ (evt) async {
+ final reason = (evt['reason'] ?? '').toString();
+ gFFI.chatModel.onVoiceCallClosed(reason);
+ },
+ );
+ platformFFI.registerEventHandler(
+ 'on_voice_call_incoming',
+ 'main_voice_incoming',
+ (_) async {
+ gFFI.chatModel.onVoiceCallIncoming();
+ },
+ );
+ platformFFI.registerEventHandler(
+ 'voice_call_audio_frame',
+ 'main_voice_audio',
+ (evt) async {
+ final b64 = (evt['data'] ?? '').toString();
+ if (b64.isNotEmpty) {
+ gFFI.chatModel.onVoiceCallAudioFrame(b64);
+ }
+ },
+ );
  }
 }
 
@@ -814,21 +910,41 @@ Future<void> applyStableAndroidDeviceId() async {
     const channel = MethodChannel('mChannel');
     final stable = await channel.invokeMethod<String>('get_stable_device_id');
     if (stable == null || stable.trim().isEmpty) return;
+    final stableId = stable.trim();
     if (bind.mainGetLocalOption(key: 'direct-chat-stable-id-applied') == 'Y') {
       return;
     }
-    final history =
-        await DirectChatRepository.instance.latestConversations();
-    if (history.isNotEmpty) return;
     final current = await bind.mainGetMyId();
-    if (current.trim() == stable.trim()) {
+    final currentId = current.trim();
+    debugPrint('CHAT-ID: current=' + currentId + ' stable=' + stableId);
+    if (currentId == stableId) {
       bind.mainSetLocalOption(
           key: 'direct-chat-stable-id-applied', value: 'Y');
       return;
     }
-    await bind.mainChangeId(newId: stable.trim());
-    bind.mainSetLocalOption(key: 'direct-chat-stable-id-applied', value: 'Y');
-    debugPrint('CHAT-ID: applied stable android device id=' + stable);
+    // 只有当当前 ID 是纯数字（v3.1 自动生成 31xxxxxx 或更早版本遗留的
+    // 数字 ID）时才替换为稳定 ID；用户手动设置的字母 ID 永不覆盖。
+    final isNumericId = RegExp(r'^[0-9]{6,10}$').hasMatch(currentId);
+    if (!isNumericId) {
+      bind.mainSetLocalOption(
+          key: 'direct-chat-stable-id-applied', value: 'Y');
+      return;
+    }
+    await bind.mainChangeId(newId: stableId);
+    var status = await bind.mainGetAsyncStatus();
+    var guard = 0;
+    while (status == ' ' && guard < 100) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      status = await bind.mainGetAsyncStatus();
+      guard++;
+    }
+    if (status.isEmpty) {
+      bind.mainSetLocalOption(
+          key: 'direct-chat-stable-id-applied', value: 'Y');
+      debugPrint('CHAT-ID: applied stable android device id=' + stableId);
+    } else {
+      debugPrint('CHAT-ID: stable id apply failed: ' + status);
+    }
   } catch (error) {
     debugPrint('CHAT-ID: stable id apply failed: ' + error.toString());
   }

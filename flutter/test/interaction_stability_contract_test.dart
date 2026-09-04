@@ -13,7 +13,7 @@ String methodBody(String source, String start, String end) {
 void main() {
   test('remote first-frame waiting state does not animate indefinitely', () {
     final source =
-        File('lib/desktop/pages/remote_page.dart').readAsStringSync();
+        File('lib/desktop/pages/remote_page.dart').readAsStringSync().replaceAll('\r\n', '\n');
     final start = source.indexOf('class RemoteConnectionProgress');
     final end = source.indexOf('class _RemoteSessionStatusBar', start);
     expect(start, greaterThanOrEqualTo(0));
@@ -24,56 +24,56 @@ void main() {
   });
 
   final serverModelSource =
-      File('lib/models/server_model.dart').readAsStringSync();
+      File('lib/models/server_model.dart').readAsStringSync().replaceAll('\r\n', '\n');
   final desktopHomeSource =
-      File('lib/desktop/pages/desktop_home_page.dart').readAsStringSync();
+      File('lib/desktop/pages/desktop_home_page.dart').readAsStringSync().replaceAll('\r\n', '\n');
   final desktopTabSource =
-      File('lib/desktop/pages/desktop_tab_page.dart').readAsStringSync();
+      File('lib/desktop/pages/desktop_tab_page.dart').readAsStringSync().replaceAll('\r\n', '\n');
   final win32WindowSource =
-      File('windows/runner/win32_window.cpp').readAsStringSync();
+      File('windows/runner/win32_window.cpp').readAsStringSync().replaceAll('\r\n', '\n');
   final mobileConnectionSource =
-      File('lib/mobile/pages/connection_page.dart').readAsStringSync();
+      File('lib/mobile/pages/connection_page.dart').readAsStringSync().replaceAll('\r\n', '\n');
   final mobileHomeSource =
-      File('lib/mobile/pages/home_page.dart').readAsStringSync();
-  final scanSource = File('lib/mobile/pages/scan_page.dart').readAsStringSync();
-  final modelSource = File('lib/models/model.dart').readAsStringSync();
-  final chatModelSource = File('lib/models/chat_model.dart').readAsStringSync();
+      File('lib/mobile/pages/home_page.dart').readAsStringSync().replaceAll('\r\n', '\n');
+  final scanSource = File('lib/mobile/pages/scan_page.dart').readAsStringSync().replaceAll('\r\n', '\n');
+  final modelSource = File('lib/models/model.dart').readAsStringSync().replaceAll('\r\n', '\n');
+  final chatModelSource = File('lib/models/chat_model.dart').readAsStringSync().replaceAll('\r\n', '\n');
   final nativeModelSource =
-      File('lib/models/native_model.dart').readAsStringSync();
+      File('lib/models/native_model.dart').readAsStringSync().replaceAll('\r\n', '\n');
   final chatPageSource =
-      File('lib/common/widgets/chat_page.dart').readAsStringSync();
+      File('lib/common/widgets/chat_page.dart').readAsStringSync().replaceAll('\r\n', '\n');
   final overlaySource =
-      File('lib/common/widgets/overlay.dart').readAsStringSync();
+      File('lib/common/widgets/overlay.dart').readAsStringSync().replaceAll('\r\n', '\n');
   final peersViewSource =
-      File('lib/common/widgets/peers_view.dart').readAsStringSync();
+      File('lib/common/widgets/peers_view.dart').readAsStringSync().replaceAll('\r\n', '\n');
   final sharedStateSource =
-      File('lib/common/shared_state.dart').readAsStringSync();
-  final flutterFfiSource = File('../src/flutter_ffi.rs').readAsStringSync();
-  final rustFlutterSource = File('../src/flutter.rs').readAsStringSync();
+      File('lib/common/shared_state.dart').readAsStringSync().replaceAll('\r\n', '\n');
+  final flutterFfiSource = File('../src/flutter_ffi.rs').readAsStringSync().replaceAll('\r\n', '\n');
+  final rustFlutterSource = File('../src/flutter.rs').readAsStringSync().replaceAll('\r\n', '\n');
   final hbbCommonLibSource =
-      File('../libs/hbb_common/src/lib.rs').readAsStringSync();
+      File('../libs/hbb_common/src/lib.rs').readAsStringSync().replaceAll('\r\n', '\n');
   final remotePageSource =
-      File('lib/desktop/pages/remote_page.dart').readAsStringSync();
+      File('lib/desktop/pages/remote_page.dart').readAsStringSync().replaceAll('\r\n', '\n');
   final viewCameraPageSource =
-      File('lib/desktop/pages/view_camera_page.dart').readAsStringSync();
+      File('lib/desktop/pages/view_camera_page.dart').readAsStringSync().replaceAll('\r\n', '\n');
   final multiWindowSource =
-      File('lib/utils/multi_window_manager.dart').readAsStringSync();
+      File('lib/utils/multi_window_manager.dart').readAsStringSync().replaceAll('\r\n', '\n');
   final androidBuildSource =
-      File('android/app/build.gradle.kts').readAsStringSync();
-  final androidBuildScriptSource = File('build_android.ps1').readAsStringSync();
-  final rustBuildScriptSource = File('../build.rs').readAsStringSync();
+      File('android/app/build.gradle.kts').readAsStringSync().replaceAll('\r\n', '\n');
+  final androidBuildScriptSource = File('build_android.ps1').readAsStringSync().replaceAll('\r\n', '\n');
+  final rustBuildScriptSource = File('../build.rs').readAsStringSync().replaceAll('\r\n', '\n');
   final androidAomPortSource =
-      File('../res/vcpkg/aom/portfile.cmake').readAsStringSync();
+      File('../res/vcpkg/aom/portfile.cmake').readAsStringSync().replaceAll('\r\n', '\n');
   final androidFfmpegPortSource =
-      File('../res/vcpkg/ffmpeg/portfile.cmake').readAsStringSync();
+      File('../res/vcpkg/ffmpeg/portfile.cmake').readAsStringSync().replaceAll('\r\n', '\n');
   final androidManifestSource =
-      File('android/app/src/main/AndroidManifest.xml').readAsStringSync();
+      File('android/app/src/main/AndroidManifest.xml').readAsStringSync().replaceAll('\r\n', '\n');
   final adaptiveIconSource = File(
     'android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final androidIconScriptSource =
-      File('../res/resize_for_apk.py').readAsStringSync();
-  final pubspecSource = File('pubspec.yaml').readAsStringSync();
+      File('../res/resize_for_apk.py').readAsStringSync().replaceAll('\r\n', '\n');
+  final pubspecSource = File('pubspec.yaml').readAsStringSync().replaceAll('\r\n', '\n');
 
   test('server status polling clears stale remote-control blocking state', () {
     expect(serverModelSource,
@@ -82,7 +82,7 @@ void main() {
   });
 
   test('periodic callbacks cannot overlap', () {
-    final common = File('lib/common.dart').readAsStringSync();
+    final common = File('lib/common.dart').readAsStringSync().replaceAll('\r\n', '\n');
 
     expect(common, contains('if (running) return;'));
     expect(common, contains('running = true;'));
@@ -410,9 +410,9 @@ void main() {
 
   test('conversation switching reuses loaded messages and stable identity', () {
     final chatModelSource =
-        File('lib/models/chat_model.dart').readAsStringSync();
+        File('lib/models/chat_model.dart').readAsStringSync().replaceAll('\r\n', '\n');
     final directChatSource =
-        File('lib/common/direct_chat.dart').readAsStringSync();
+        File('lib/common/direct_chat.dart').readAsStringSync().replaceAll('\r\n', '\n');
     final changeKey = methodBody(
       chatModelSource,
       'changeCurrentKey(MessageKey key)',

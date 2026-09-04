@@ -12,9 +12,7 @@ import 'package:luoda_flutter/common/direct_chat.dart';
 import 'package:luoda_flutter/common/direct_pairing.dart';
 import 'package:luoda_flutter/common/favorite_picker.dart';
 import 'package:luoda_flutter/common/favorites_model.dart';
-import 'package:luoda_flutter/common/favorites_send.dart';
 import 'package:luoda_flutter/common/widgets/direct_connection_details.dart';
-import 'package:luoda_flutter/common/widgets/friend_picker_dialog.dart';
 import 'package:luoda_flutter/common/widgets/location_detail_page.dart';
 import 'package:luoda_flutter/models/chat_model.dart';
 import 'package:luoda_flutter/models/platform_model.dart';
@@ -23,6 +21,7 @@ import 'package:provider/provider.dart';
 
 import '../../mobile/pages/home_page.dart';
 import '../join_meeting_session.dart';
+import '../widgets/meeting_group_panel.dart';
 import '../../models/meeting_group_model.dart';
 import 'package:luoda_flutter/common/direct_viewer_invite.dart';
 import 'package:url_launcher/url_launcher_string.dart';
@@ -260,6 +259,7 @@ class ChatPage extends StatelessWidget implements PageShape {
   final VoidCallback? onTakePhoto;
   final VoidCallback? onSendLocation;
   final VoidCallback? onVoiceCall;
+  final VoidCallback? onVideoCall;
   final VoidCallback? onScreenshot;
   final PasteImageCallback? onPasteImage;
   final ForwardMessagesCallback? onForwardMessages;
@@ -289,6 +289,7 @@ class ChatPage extends StatelessWidget implements PageShape {
     this.onTakePhoto,
     this.onSendLocation,
     this.onVoiceCall,
+    this.onVideoCall,
     this.onScreenshot,
     this.onPasteImage,
     this.onForwardMessages,
@@ -2683,21 +2684,57 @@ List<ChatMessage> _selectedMessagesForForward() {
               );
             }
 
+
+            /// 从邀请链接打开会议：已有记录直接进入管理面板；
+            /// 跨设备时（本机无记录）先由调用方创建本地记录再进入。
+            Future<void> _openMeetingGroup(
+                BuildContext context, MeetingGroup group) async {
+              await Navigator.of(context).push<void>(
+                MaterialPageRoute<void>(
+                  builder: (_) => MeetingGroupPanel(group: group),
+                ),
+              );
+            }
+
             Widget _buildInviteCard(
                 BuildContext context, String link, Color foreground) {
  // 会议群邀请: dotchat://meeting/{meetingId} (兼容旧版 luoda://)
  if (link.startsWith('dotchat://meeting/') || link.startsWith('luoda://meeting/')) {
- final meetingId = link.split(RegExp(r'https?://|dotchat://meeting/|luoda://meeting/')).last.trim();
+ final uri = Uri.tryParse(link);
+                final String meetingId;
+                final String query = uri != null ? uri.query : '';
+                if (uri != null && uri.pathSegments.isNotEmpty) {
+                  meetingId = uri.pathSegments.first.trim();
+                } else {
+                  meetingId = link.split(RegExp(r'https?://|dotchat://meeting/|luoda://meeting/')).last.trim();
+                }
                 final theme = Theme.of(context);
                 final dark = theme.brightness == Brightness.dark;
                 return GestureDetector(
-                  onTap: () {
+                  onTap: () async {
                     final group = MeetingGroupStore.find(meetingId);
-                    if (group != null) {
-                      // 已有此会议记录，切换到会议聊天
-                    } else {
-                      showToast(translate('Opening meeting...'));
+                    if (group == null) {
+                      // 跨设备邀请：本机无此会议记录。用链接参数创建本地记录后进入。
+                      final params = Uri.splitQueryString(query);
+                      final hostPeerId = params['host']?.trim() ?? '';
+                      final code = params['code']?.trim() ?? '';
+                      if (hostPeerId.isEmpty) {
+                        showToast(translate('Meeting not found'));
+                        return;
+                      }
+                      final created = MeetingGroupStore.create(
+                        title: translate('Meeting'),
+                        hostPeerId: hostPeerId,
+                        hostDisplayName: hostPeerId,
+                      );
+                      if (code.isNotEmpty) {
+                        created.inviteShortCode = code;
+                        await MeetingGroupStore.save();
+                      }
+                      await _openMeetingGroup(context, created);
+                      return;
                     }
+                    await _openMeetingGroup(context, group);
                   },
                   child: Container(
                     width: 240,
@@ -3927,6 +3964,7 @@ List<ChatMessage> _selectedMessagesForForward() {
                           onTakePhoto: onTakePhoto,
                           onSendLocation: onSendLocation,
                           onVoiceCall: onVoiceCall,
+                          onVideoCall: onVideoCall,
                         ),
                       ],
                     );
@@ -3957,6 +3995,7 @@ List<ChatMessage> _selectedMessagesForForward() {
                         onPasteImage: onPasteImage,
                         onSendPendingImage: onSendPendingImage,
                         onVoiceCall: onVoiceCall,
+                        onVideoCall: onVideoCall,
                       ),
                     ],
                   );
@@ -4313,6 +4352,7 @@ class _MobileChatComposer extends StatefulWidget {
     this.onTakePhoto,
     this.onSendLocation,
     this.onVoiceCall,
+    this.onVideoCall,
   });
 
   final ChatModel chatModel;
@@ -4324,6 +4364,7 @@ class _MobileChatComposer extends StatefulWidget {
   final VoidCallback? onTakePhoto;
   final VoidCallback? onSendLocation;
   final VoidCallback? onVoiceCall;
+  final VoidCallback? onVideoCall;
 
   @override
   State<_MobileChatComposer> createState() => _MobileChatComposerState();
@@ -4609,6 +4650,12 @@ void _send() {
           translate('Voice call'),
           () => _runTool(widget.onVoiceCall!),
         ),
+      if (widget.onVideoCall != null)
+        (
+          Icons.videocam_rounded,
+          translate('Video call'),
+          () => _runTool(widget.onVideoCall!),
+        ),
       if (widget.onRemoteAssist != null)
         (
           widget.chatModel.currentKey.peerId.startsWith('meeting:')
@@ -4835,6 +4882,7 @@ class _DesktopChatComposer extends StatefulWidget {
     this.onPasteImage,
     this.onSendPendingImage,
     this.onVoiceCall,
+    this.onVideoCall,
   });
 
   final ChatModel chatModel;
@@ -4847,6 +4895,7 @@ class _DesktopChatComposer extends StatefulWidget {
   final VoidCallback? onScreenshot;
   final PasteImageCallback? onPasteImage;
   final VoidCallback? onVoiceCall;
+  final VoidCallback? onVideoCall;
 
   /// 发送输入框内“待发送图片”的回调（PC 端由 desktop_home_page 提供）。
   final Future<void> Function(String path)? onSendPendingImage;
@@ -4866,6 +4915,8 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
   final ScrollController _inputScrollController = ScrollController();
   bool _inputFocused = false;
   bool _showEmojiPicker = false;
+  bool _showMoreMenu = false;
+  final GlobalKey _moreMenuButtonKey = GlobalKey();
   bool _inputExpanded = false;
 
   /// 微信风格“按住说话”模式：true 时输入框区域显示按住说话大按钮。
@@ -4882,6 +4933,7 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
   VoidCallback? get onSendImage => widget.onSendImage;
   VoidCallback? get onScreenshot => widget.onScreenshot;
   VoidCallback? get onVoiceCall => widget.onVoiceCall;
+  VoidCallback? get onVideoCall => widget.onVideoCall;
   PasteImageCallback? get onPasteImage => widget.onPasteImage;
 
   void _insertEmoji(String emoji) {
@@ -4899,6 +4951,107 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
 
   /// 截图时是否隐藏本窗口（剪刀右侧下拉箭头可切换，持久化存储）。
   bool _screenshotHideWindow = true;
+
+  /// 切换“更多”弹出菜单（图标 + 文字说明）。
+  void _toggleMoreMenu() {
+    setState(() {
+      _showMoreMenu = !_showMoreMenu;
+      _showEmojiPicker = false;
+      _atOverlayVisible = false;
+    });
+    if (_showMoreMenu) {
+      chatModel.inputNode.unfocus();
+    } else {
+      chatModel.inputNode.requestFocus();
+    }
+  }
+
+  /// “更多”按钮下方的弹出面板：功能图标 + 文字说明。
+  Widget _buildMorePanel() {
+    final items = _moreMenuItems();
+    if (items.isEmpty) return const SizedBox.shrink();
+    final bg = dark ? const Color(0xFF1E2024) : const Color(0xFFF5F5F5);
+    final border = dark ? const Color(0xFF3A3D43) : const Color(0xFFE2E2E2);
+    final labelColor = dark ? const Color(0xFFB8BBC2) : const Color(0xFF555555);
+    final textColor = dark ? const Color(0xFF999CA2) : const Color(0xFF777777);
+    // 整块面板：与表情面板同款背景/圆角/边框，左右贴边、上下按行数铺满，
+    // 宽度自适应列数（每格约 96px），图标 + 文字说明，可随功能增加自动扩展。
+    return Container(
+      margin: const EdgeInsets.fromLTRB(8, 0, 8, 2),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
+        border: Border.all(color: border),
+      ),
+      child: LayoutBuilder(
+        builder: (context, c) {
+          final cols = (c.maxWidth / 96).floor().clamp(3, 10);
+          // 末行不满时补空占位格，保证面板始终“左右上下充满”，
+          // 同时为将来新增功能模块预留位置。
+          final remainder = items.length % cols;
+          final placeholders = remainder == 0 ? 0 : cols - remainder;
+          final rows = ((items.length + placeholders) / cols).ceil();
+          // 期望每行高约 84（图标 48 + 间距 + 文字），面板总高 = 行数*行高 + 上下内边距。
+          final tileHeight = 84.0;
+          final gridHeight = rows * tileHeight + 12.0;
+          return SizedBox(
+            height: gridHeight,
+            child: GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(6, 6, 6, 6),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: cols,
+                mainAxisSpacing: 0,
+                crossAxisSpacing: 0,
+              ),
+              itemCount: items.length + placeholders,
+              itemBuilder: (_, i) {
+                if (i < items.length) {
+                  return _moreMenuTile(items[i].$1, items[i].$2, items[i].$3,
+                      labelColor, textColor);
+                }
+                return const SizedBox.shrink();
+              },
+            ),
+          );
+        },
+      ),
+    );
+  }
+  Widget _moreMenuTile(IconData icon, String label, VoidCallback onTap,
+      Color iconColor, Color textColor) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: onTap,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: <Widget>[
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: dark ? const Color(0xFF25272C) : Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: dark ? const Color(0xFF3A3D43) : const Color(0xFFE2E2E2),
+                width: 0.5,
+              ),
+            ),
+            child: Icon(icon, size: 27, color: iconColor),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12, color: textColor),
+          ),
+        ],
+      ),
+    );
+  }
 
   /// 剪刀右侧下拉箭头的 key，用于在按钮正上方定位菜单。
   final GlobalKey _screenshotArrowKey = GlobalKey();
@@ -4971,9 +5124,10 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
   }
 
   void _closeTransientPanels() {
-    if (!_showEmojiPicker && !_atOverlayVisible) return;
+    if (!_showEmojiPicker && !_showMoreMenu && !_atOverlayVisible) return;
     setState(() {
       _showEmojiPicker = false;
+      _showMoreMenu = false;
       _atOverlayVisible = false;
     });
   }
@@ -4982,6 +5136,59 @@ class _DesktopChatComposerState extends State<_DesktopChatComposer> {
     _closeTransientPanels();
     action();
   }
+
+  /// “更多”弹出菜单：返回当前会话可用的功能（图标 + 文字说明）。
+  /// 空列表表示没有可放入菜单的功能，此时调用方应隐藏“更多”按钮。
+  List<(IconData, String, VoidCallback)> _moreMenuItems() {
+    final meeting = chatModel.currentKey.peerId.startsWith('meeting:');
+    return <(IconData, String, VoidCallback)>[
+      if (onAttachFile != null)
+        (Icons.folder_outlined, translate('File Transfer'),
+         () => _runToolAction(onAttachFile!)),
+      if (onSendImage != null)
+        (Icons.image_outlined, translate('Send Image'),
+         () => _runToolAction(onSendImage!)),
+      if (onVoiceCall != null)
+        (Icons.phone_in_talk_outlined, translate('Voice call'),
+         () => _runToolAction(onVoiceCall!)),
+      if (onVideoCall != null)
+        (Icons.videocam_rounded, translate('Video call'),
+         () => _runToolAction(onVideoCall!)),
+      if (onRemoteAssist != null)
+        (meeting ? Icons.visibility_rounded : Icons.desktop_windows_outlined,
+         meeting
+             ? (meetingPresenterForChatModel(chatModel)
+                 ? translate('Enter to Present')
+                 : translate('Enter to Watch'))
+             : translate('Remote Desktop'),
+         () => _runToolAction(onRemoteAssist!)),
+      (Icons.star_rounded, translate('Favorites'),
+       () => _runToolAction(() =>
+           unawaited(pickFavoriteToSend(context, chatModel, dark: dark)))),
+      (Icons.badge_outlined, translate('Send Contact Card'),
+       () => _runToolAction(() =>
+           unawaited(pickContactToSend(context, chatModel)))),
+      if (AiConfig.current.profiles.any((p) =>
+          p.enabled && p.profileType == AiProfileType.text))
+        (Icons.auto_awesome_rounded, translate('AI Models'),
+         () => _runToolAction(_openAiModelConfig)),
+      (Icons.emoji_emotions_outlined, translate('Emoji'), () {
+        setState(() {
+          _showMoreMenu = false;
+          _showEmojiPicker = true;
+          _atOverlayVisible = false;
+        });
+        chatModel.inputNode.unfocus();
+      }),
+    ];
+  }
+
+  /// 打开 AI 设置页（“更多”菜单内模型/智能助手入口）。
+  void _openAiModelConfig() {
+    Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => const AiConfigPage()));
+  }
+
 
   /// 剪刀右侧下拉箭头：微信式下拉菜单，紧贴箭头正下方弹出。
   /// 菜单项：隐藏窗口截图（勾选）+ 设置。
@@ -5505,8 +5712,7 @@ void _send() {
                 child: Row(
                   children: <Widget>[
                     if (onScreenshot != null)
-                      // 剪刀 + 下拉箭头组合成一体（微信截图风格），紧凑排列：
-                      // 剪刀 32px + 箭头 22px，无多余空白。
+                      // 截图 + 下拉箭头（保持原组合）……
                       Row(
                         mainAxisSize: MainAxisSize.min,
                         children: <Widget>[
@@ -5517,9 +5723,6 @@ void _send() {
                             enabled: enabled,
                             onPressed: () => _runToolAction(onScreenshot!),
                           ),
-                          // 剪刀右侧下拉箭头：选择截图时是否隐藏本窗口。
-                          // 用 showMenu 在按钮正上方弹出（输入栏位于窗口底部，
-                          // 默认向下展开会被窗口底边裁剪导致菜单显示不全）。
                           _ComposerToolButton(
                             key: _screenshotArrowKey,
                             icon: Icons.arrow_drop_down_rounded,
@@ -5529,74 +5732,13 @@ void _send() {
                           ),
                         ],
                       ),
-                    if (onAttachFile != null)
+                    if (_moreMenuItems().isNotEmpty)
                       _ComposerToolButton(
-                        icon: Icons.folder_outlined,
-                        tooltip: translate('File Transfer'),
+                        key: _moreMenuButtonKey,
+                        icon: Icons.more_horiz_rounded,
+                        tooltip: translate('More'),
                         enabled: enabled,
-                        onPressed: () => _runToolAction(onAttachFile!),
-                      ),
-                    if (onSendImage != null)
-                      _ComposerToolButton(
-                        icon: Icons.image_outlined,
-                        tooltip: translate('Send Image'),
-                        enabled: enabled,
-                        onPressed: () => _runToolAction(onSendImage!),
-                      ),
-                    if (onRemoteAssist != null)
-                      _ComposerToolButton(
-                        icon: chatModel.currentKey.peerId
-                                .startsWith('meeting:')
-                            ? Icons.visibility_rounded
-                            : Icons.desktop_windows_outlined,
-                        tooltip: chatModel.currentKey.peerId
-                                .startsWith('meeting:')
-                            ? (meetingPresenterForChatModel(chatModel)
-                                ? translate('Enter to Present')
-                                : translate('Enter to Watch'))
-                            : translate('Remote Desktop'),
-                        enabled: enabled,
-                        onPressed: () => _runToolAction(onRemoteAssist!),
-                      ),
-                    if (onVoiceCall != null)
-                      _ComposerToolButton(
-                        icon: Icons.phone_in_talk_outlined,
-                        tooltip: translate('Voice call'),
-                        enabled: enabled,
-                        onPressed: () => _runToolAction(onVoiceCall!),
-                      ),
-                    _ComposerToolButton(
-                      icon: Icons.star_rounded,
-                      tooltip: translate('Favorites'),
-                      enabled: enabled,
-                      onPressed: () => _runToolAction(
-                        () => unawaited(
-                          pickFavoriteToSend(context, chatModel, dark: dark),
-                        ),
-                      ),
-                    ),
-                    _ComposerToolButton(
-                      icon: Icons.badge_outlined,
-                      tooltip: translate('Send Contact Card'),
-                      enabled: enabled,
-                      onPressed: () => _runToolAction(
-                        () => unawaited(pickContactToSend(context, chatModel)),
-                      ),
-                    ),
-                    _ComposerToolButton(
-                      icon: Icons.emoji_emotions_outlined,
-                      tooltip: translate('Emoji'),
-                      enabled: enabled,
-                      onPressed: () => setState(() {
-                        _showEmojiPicker = !_showEmojiPicker;
-                        _atOverlayVisible = false;
-                      }),
-                    ),
-                    if (AiConfig.current.profiles.isNotEmpty)
-                      _AiModelSelector(
-                        dark: dark,
-                        chatModel: chatModel,
-                        onOpen: _closeTransientPanels,
+                        onPressed: _toggleMoreMenu,
                       ),
                     const Spacer(),
                     ValueListenableBuilder<TextEditingValue>(
@@ -5652,6 +5794,7 @@ void _send() {
     final withEmoji = Column(
       mainAxisSize: MainAxisSize.min,
       children: [
+        if (_showMoreMenu) _buildMorePanel(),
         if (_showEmojiPicker) _buildEmojiPanel(),
         composer,
       ],
@@ -5930,239 +6073,6 @@ class _ActionChip extends StatelessWidget {
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-/// AI model selector badge — shows current model below the chat input.
-/// Tap to switch to another configured model.
-class _AiModelSelector extends StatefulWidget {
-  final bool dark;
-  final ChatModel chatModel;
-  final VoidCallback? onOpen;
-
-  const _AiModelSelector({
-    required this.dark,
-    required this.chatModel,
-    this.onOpen,
-  });
-
-  @override
-  State<_AiModelSelector> createState() => _AiModelSelectorState();
-}
-
-class _AiModelSelectorState extends State<_AiModelSelector> {
-  bool _updating = false;
-
-  ChatModel get chatModel => widget.chatModel;
-  bool get dark => widget.dark;
-
-  @override
-  void initState() {
-    super.initState();
-    AiConfig.onChange = () {
-      if (mounted) setState(() {});
-    };
-  }
-
-  @override
-  void dispose() {
-    AiConfig.clearOnChange();
-    super.dispose();
-  }
-
-  void _showModelPicker() {
-    final profiles = AiConfig.current.profiles
-        .asMap()
-        .entries
-        .where(
-          (entry) =>
-              entry.value.enabled &&
-              entry.value.profileType == AiProfileType.text,
-        )
-        .toList(growable: false);
-    if (profiles.length <= 1) return;
-    widget.onOpen?.call();
-
-    final active = AiConfig.current.getProfileByType(AiProfileType.text);
-    final activeIdx = profiles.indexWhere((entry) => entry.value == active);
-    final renderBox = context.findRenderObject() as RenderBox;
-    final position = renderBox.localToGlobal(Offset.zero);
-
-    showMenu<String>(
-      context: context,
-      position: RelativeRect.fromLTRB(
-        position.dx,
-        position.dy - profiles.length * 44.0 - 16,
-        position.dx + 240,
-        position.dy,
-      ),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      elevation: 4,
-      items: List.generate(profiles.length, (i) {
-        final entry = profiles[i];
-        final p = entry.value;
-        final isActive = i == activeIdx;
-        return PopupMenuItem<String>(
-          enabled: !isActive && !_updating,
-          height: 44,
-          child: Row(
-            children: [
-              Icon(
-                isActive ? Icons.check_circle : Icons.circle_outlined,
-                size: 18,
-                color: isActive ? kWeChatPrimaryColor : null,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      p.displayLabel,
-                      style: const TextStyle(fontSize: 14),
-                    ),
-                    Text(
-                      p.model,
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: dark ? Colors.white38 : Colors.black38,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (isActive)
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: kWeChatPrimaryColor.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    translate('Active'),
-                    style: const TextStyle(
-                      fontSize: 10,
-                      color: kWeChatPrimaryColor,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          onTap: () async {
-            setState(() => _updating = true);
-            await AiConfig.setActiveProfile(entry.key);
-            if (mounted) {
-              setState(() => _updating = false);
-            }
-          },
-        );
-      }),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final profiles = AiConfig.current.profiles
-        .where(
-          (profile) =>
-              profile.enabled && profile.profileType == AiProfileType.text,
-        )
-        .toList(growable: false);
-    if (profiles.isEmpty) return const SizedBox.shrink();
-
-    final active = AiConfig.current.getProfileByType(AiProfileType.text);
-    final multiple = profiles.length > 1;
-    final foreground = dark ? const Color(0xFF888B91) : const Color(0xFF888888);
-    final remaining = AiConfig.current.remainingFor(active);
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
-      child: GestureDetector(
-        onTap: multiple ? _showModelPicker : null,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.auto_awesome_rounded,
-              size: 13,
-              color: active.enabled
-                  ? kWeChatPrimaryColor
-                  : foreground.withOpacity(0.5),
-            ),
-            const SizedBox(width: 4),
-            Text(
-              active.displayLabel,
-              style: TextStyle(
-                fontSize: 12,
-                color: foreground,
-                fontWeight: FontWeight.w400,
-              ),
-            ),
-            if (remaining >= 0) ...[
-              const SizedBox(width: 4),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                decoration: BoxDecoration(
-                  color: remaining == 0
-                      ? Colors.red.withOpacity(0.15)
-                      : kWeChatPrimaryColor.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(
-                  remaining == 0 ? '已用完' : '剩余 $remaining',
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: remaining == 0 ? Colors.red : kWeChatPrimaryColor,
-                  ),
-                ),
-              ),
-            ],
-            const SizedBox(width: 3),
-            IconButton(
-              icon: Icon(
-                Icons.settings_outlined,
-                size: 15,
-                color: foreground,
-              ),
-              constraints: const BoxConstraints.tightFor(
-                width: 20,
-                height: 20,
-              ),
-              padding: EdgeInsets.zero,
-              splashRadius: 10,
-              splashColor: Colors.transparent,
-              tooltip: translate('AI Settings'),
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const AiConfigPage()),
-                );
-              },
-            ),
-            if (multiple) ...[
-              const SizedBox(width: 3),
-              Icon(
-                Icons.arrow_drop_down,
-                size: 16,
-                color: foreground,
-              ),
-            ],
-            if (_updating) ...[
-              const SizedBox(width: 6),
-              SizedBox(
-                width: 12,
-                height: 12,
-                child: CircularProgressIndicator(
-                  strokeWidth: 1.5,
-                  color: foreground,
-                ),
-              ),
-            ],
-          ],
         ),
       ),
     );

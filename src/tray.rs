@@ -196,7 +196,7 @@ fn make_tray() -> hbb_common::ResultType<()> {
         let class_name = crate::platform::wide_string(
             crate::platform::FLUTTER_RUNNER_WIN32_WINDOW_CLASS,
         );
-        let window_name = crate::platform::wide_string(&crate::get_app_name());
+        let window_name = crate::platform::wide_string(&crate::get_display_name());
         let window = unsafe {
             FindWindowW(
                 PCWSTR(class_name.as_ptr()),

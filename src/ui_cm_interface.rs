@@ -342,10 +342,14 @@ impl<T: InvokeUiCM> ConnectionManager<T> {
 
     #[cfg(not(target_os = "ios"))]
     fn voice_call_incoming(&self, id: i32) {
+        log::debug!("[VC-DBG] voice_call_incoming id={} clients={:?}", id, CLIENTS.read().unwrap().keys().collect::<Vec<_>>());
         if let Some(client) = CLIENTS.write().unwrap().get_mut(&id) {
             client.incoming_voice_call = true;
             client.in_voice_call = false;
+            log::debug!("[VC-DBG] incoming set, calling update_voice_call_state peer={}", client.peer_id);
             self.ui_handler.update_voice_call_state(client);
+        } else {
+            log::debug!("[VC-DBG] incoming: client {} NOT in CLIENTS", id);
         }
     }
 
@@ -404,6 +408,32 @@ pub fn send_chat(id: i32, text: String) -> bool {
         return true;
     }
     false
+}
+
+/// Host/callee voice-call audio uplink over a live incoming Connection.
+/// The Opus bytes were encoded in Dart (VoiceCallAudio). Wrapping them in an
+/// AudioFrame proto and sending `RawMessage` lets the host Connection deliver
+/// them to the caller (whose io_loop pushes them to Dart when voice_call_active).
+#[cfg(any(target_os = "android", target_os = "ios", feature = "flutter"))]
+pub fn send_voice_call_audio(id: i32, data: Vec<u8>) -> bool {
+    use hbb_common::message_proto::{AudioFrame, Message};
+    use hbb_common::protobuf::Message as _;
+    let clients = CLIENTS.read().unwrap();
+    if let Some(client) = clients.get(&id) {
+        let mut frame = AudioFrame::new();
+        frame.data = data.into();
+        let mut msg = Message::new();
+        msg.set_audio_frame(frame);
+        match msg.write_to_bytes() {
+            Ok(bytes) => {
+                allow_err!(client.tx.send(Data::RawMessage(bytes)));
+                true
+            }
+            Err(_) => false,
+        }
+    } else {
+        false
+    }
 }
 
 #[inline]

@@ -17,298 +17,298 @@ double _contrastRatio(Color foreground, Color background) {
 void main() {
   final mainSource = File(
     'lib/main.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final peerCardSource = File(
     'lib/common/widgets/peer_card.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final homePageSource = File(
     'lib/desktop/pages/desktop_home_page.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final commonSource = File(
     'lib/common.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final emailDraftSource = File(
     'lib/common/email_draft_service.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final desktopConnectionSource = File(
     'lib/desktop/pages/connection_page.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final clipboardImageProbeSource = File(
     'lib/desktop/clipboard_image_probe.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final clipboardImageProbeNativeSource = File(
     'lib/desktop/clipboard_image_probe_native.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final remotePageSource = File(
     'lib/desktop/pages/remote_page.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final remoteTabSource = File(
     'lib/desktop/pages/remote_tab_page.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final desktopTabSource = File(
     'lib/desktop/pages/desktop_tab_page.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final desktopMainTitleBarSource = File(
     'lib/desktop/widgets/desktop_main_title_bar.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final multiWindowManagerSource = File(
     'lib/utils/multi_window_manager.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final addressBookSource = File(
     'lib/common/widgets/address_book.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final settingsSource = File(
     'lib/desktop/pages/desktop_setting_page.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final settingsGeneralSource = File(
     'lib/desktop/pages/desktop_setting_general.part.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final settingsHelpersSource = File(
     'lib/desktop/pages/desktop_setting_helpers.part.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final settingsAboutSource = File(
     'lib/desktop/pages/desktop_setting_about.part.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final desktopNetworkSettingsSource = File(
     'lib/desktop/pages/desktop_setting_network.part.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final remoteToolbarSource = File(
     'lib/desktop/widgets/remote_toolbar.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final viewerCollaborationSource = File(
     'lib/desktop/widgets/viewer_collaboration_panel.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final viewerListSource = File(
     'lib/common/widgets/viewer_list_panel.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final sharedChatSource = File(
     'lib/common/widgets/shared_chat_panel.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final inviteViewerSource = File(
     'lib/desktop/widgets/invite_viewer_dialog.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final joinViewerSource = File(
     'lib/common/widgets/join_viewer_page.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final desktopRailSource = File(
     'lib/desktop/widgets/desktop_primary_rail.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final modelSource = File(
     'lib/models/model.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final serverModelSource = File(
     'lib/models/server_model.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final mobileHomeSource = File(
     'lib/mobile/pages/home_page.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final mobileConnectionSource = File(
     'lib/mobile/pages/connection_page.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final localContactsSource = File(
     'lib/common/widgets/local_contacts_view.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final peerTabStripSource = File(
     'lib/common/widgets/peer_tab_strip.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final desktopServerSource = File(
     'lib/desktop/pages/server_page.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final mobileSettingsSource = File(
     'lib/mobile/pages/settings_page.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final mobileServerSource = File(
     'lib/mobile/pages/server_page.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final mobileRemoteSource = File(
     'lib/mobile/pages/remote_page.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final mobileScanSource = File(
     'lib/mobile/pages/scan_page.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final bluetoothChatSource = File(
     'lib/mobile/pages/bt_chat_page.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final androidManifestSource = File(
     'android/app/src/main/AndroidManifest.xml',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final chatPageSource = File(
     'lib/common/widgets/chat_page.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final richTextEmojiSource = File(
     'lib/common/widgets/rich_text_builder.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final meetingGroupPanelSource = File(
     'lib/common/widgets/meeting_group_panel.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final pluginSettingsSource = File(
     'lib/plugin/widgets/desktop_settings.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final fileViewerSource = File(
     'lib/common/widgets/file_viewer.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final filePreviewPageSource = File(
     'lib/desktop/pages/file_preview_page.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final weChatTokensSource = File(
     'lib/common/wechat_ui_tokens.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final voiceMessageControlsSource = File(
     'lib/common/widgets/voice_message_controls.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final directVoiceStorageSource = File(
     'lib/common/direct_voice_storage_io.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final directChatSource = File(
     'lib/common/direct_chat.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final directChatPolicySource = File(
     'lib/common/direct_chat_policy.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final directChatStorageSource = File(
     'lib/common/direct_chat_storage_io.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final chatModelSource = File(
     'lib/models/chat_model.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final chatSettingsModelSource = File(
     'lib/models/chat_settings_model.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final directPairingSource = File(
     'lib/common/direct_pairing.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final directConnectionDetailsSource = File(
     'lib/common/widgets/direct_connection_details.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final androidPermissionSource = File(
     'android/app/src/main/kotlin/com/dotchat/remote31/common.kt',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final androidStringsSource = File(
     'android/app/src/main/res/values/strings.xml',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final androidDirectChatServiceSource = File(
     'android/app/src/main/kotlin/com/dotchat/remote31/DirectChatService.kt',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final androidMainServiceSource = File(
     'android/app/src/main/kotlin/com/dotchat/remote31/MainService.kt',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final androidAppGradleSource = File(
     'android/app/build.gradle.kts',
-  ).readAsStringSync();
-  final commonRustSource = File('../src/common.rs').readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
+  final commonRustSource = File('../src/common.rs').readAsStringSync().replaceAll('\r\n', '\n');
   final configRustSource = File(
     '../libs/hbb_common/src/config.rs',
-  ).readAsStringSync();
-  final clientRustSource = File('../src/client.rs').readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
+  final clientRustSource = File('../src/client.rs').readAsStringSync().replaceAll('\r\n', '\n');
   final rendezvousRustSource =
-      File('../src/rendezvous_mediator.rs').readAsStringSync();
-  final coreMainSource = File('../src/core_main.rs').readAsStringSync();
+      File('../src/rendezvous_mediator.rs').readAsStringSync().replaceAll('\r\n', '\n');
+  final coreMainSource = File('../src/core_main.rs').readAsStringSync().replaceAll('\r\n', '\n');
   final platformWindowsSource = File(
     '../src/platform/windows.rs',
-  ).readAsStringSync();
-  final flutterFfiSource = File('../src/flutter_ffi.rs').readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
+  final flutterFfiSource = File('../src/flutter_ffi.rs').readAsStringSync().replaceAll('\r\n', '\n');
   final portablePackerSource = File(
     '../libs/portable/src/main.rs',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final portablePackerUiSource = File(
     '../libs/portable/src/ui.rs',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final portablePackerCargoSource = File(
     '../libs/portable/Cargo.toml',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final displayServiceSource = File(
     '../src/server/display_service.rs',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final videoServiceSource = File(
     '../src/server/video_service.rs',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final virtualDisplaySource = File(
     '../src/virtual_display_manager.rs',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final portableServiceSource = File(
     '../src/server/portable_service.rs',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final remotePrinterSource = File(
     '../libs/remote_printer/src/lib.rs',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final flutterCommonSource = File(
     'lib/common.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final flutterMainSource = File(
     'lib/main.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final windowsRunnerMainSource = File(
     'windows/runner/main.cpp',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final runtimeLoggerSource = File(
     'lib/runtime_logger.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final rustLanguageSource = File(
     '../src/lang.rs',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final webBridgeSource = File(
     'lib/web/bridge.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final clientWorkflowSource = File(
     '../.github/workflows/build-client-exe.yml',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final windowsWorkflowSource = File(
     '../.github/workflows/build-exe.yml',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final iosWorkflowSource = File(
     '../.github/workflows/build-ios.yml',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final macosWorkflowSource = File(
     '../.github/workflows/build-dmg.yml',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final macosPodfileSource = File(
     'macos/Podfile',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final macosProjectSource = File(
     'macos/Runner.xcodeproj/project.pbxproj',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final msiWorkflowSource = File(
     '../.github/workflows/build-msi.yml',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final msiProjectSource = File(
     '../res/msi/Package/Package.wixproj',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final msiPackageSource = File(
     '../res/msi/Package/Components/LUODA.wxs',
-  ).readAsStringSync();
-  final cargoSource = File('../Cargo.toml').readAsStringSync();
-  final pubspecSource = File('pubspec.yaml').readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
+  final cargoSource = File('../Cargo.toml').readAsStringSync().replaceAll('\r\n', '\n');
+  final pubspecSource = File('pubspec.yaml').readAsStringSync().replaceAll('\r\n', '\n');
   final peerModelSource = File(
     'lib/models/peer_model.dart',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final protocolSource = File(
     '../libs/hbb_common/protos/message.proto',
-  ).readAsStringSync();
-  final clientSource = File('../src/client.rs').readAsStringSync();
-  final chineseLangSource = File('../src/lang/cn.rs').readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
+  final clientSource = File('../src/client.rs').readAsStringSync().replaceAll('\r\n', '\n');
+  final chineseLangSource = File('../src/lang/cn.rs').readAsStringSync().replaceAll('\r\n', '\n');
   final clientIoLoopSource = File(
     '../src/client/io_loop.rs',
-  ).readAsStringSync();
-  final traySource = File('../src/tray.rs').readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
+  final traySource = File('../src/tray.rs').readAsStringSync().replaceAll('\r\n', '\n');
   final serverConnectionSource = File(
     '../src/server/connection.rs',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
   final directListenerSource = File(
     '../src/rendezvous_mediator.rs',
-  ).readAsStringSync();
-  final serverSource = File('../src/server.rs').readAsStringSync();
-  final flutterBridgeSource = File('../src/flutter.rs').readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
+  final serverSource = File('../src/server.rs').readAsStringSync().replaceAll('\r\n', '\n');
+  final flutterBridgeSource = File('../src/flutter.rs').readAsStringSync().replaceAll('\r\n', '\n');
   final serverConnectionViewerSource = File(
     '../src/server/connection.rs',
-  ).readAsStringSync();
-  final ipcSource = File('../src/ipc.rs').readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
+  final ipcSource = File('../src/ipc.rs').readAsStringSync().replaceAll('\r\n', '\n');
   final uiCmSource = File(
     '../src/ui_cm_interface.rs',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
 
   final uiSessionSource = File(
     '../src/ui_session_interface.rs',
-  ).readAsStringSync();
+  ).readAsStringSync().replaceAll('\r\n', '\n');
 
   test('viewer control events are intercepted before ordinary chat', () {
     final guards = RegExp(
@@ -596,7 +596,7 @@ void main() {
         .split('Peers _contactModelFor(String section)')[0];
     final mobileAvatar = mobileHomeSource
         .split('Widget _avatar(MapEntry<MessageKey, MessageBody> entry)')[1]
-        .split('Widget _buildAudienceSelector(')[0];
+        .split('String _formatMeetingTimeMobile(DateTime time)')[0];
 
     for (final avatar in <String>[desktopAvatar, mobileAvatar]) {
       expect(avatar, contains('chatSettingsModel.isMuted'));
@@ -1301,8 +1301,9 @@ void main() {
   test('LDesk branding preserves existing identity and URI compatibility', () {
     expect(
       commonRustSource,
-      contains('DEFAULT_PRODUCT_DISPLAY_NAME: &str = "点聊"'),
+      contains('"LUODA" | "LUODA31" | "LDesk" => "点聊".to_owned()'),
     );
+    expect(commonRustSource, contains('pub fn get_display_name()'));
     expect(commonRustSource, contains('if configured == "LUODA"'));
     expect(commonRustSource, contains('"luoda://".to_owned()'));
     expect(
@@ -1552,7 +1553,7 @@ contains('WindowController.fromWindowId(widget.windowId)'),
   });
 
   test('chat typography has multilingual symbol and emoji fallbacks', () {
-    final pubspecSource = File('pubspec.yaml').readAsStringSync();
+    final pubspecSource = File('pubspec.yaml').readAsStringSync().replaceAll('\r\n', '\n');
     expect(pubspecSource, contains('family: LDeskNotoSansCJKSC'));
     expect(pubspecSource, contains('assets/NotoSansCJKsc-Regular.otf'));
     expect(pubspecSource, contains('family: LDeskNotoSansSymbols2'));
@@ -1614,16 +1615,14 @@ contains('WindowController.fromWindowId(widget.windowId)'),
     expect(chatPageSource, contains('void _closeTransientPanels()'));
     expect(
         chatPageSource, contains('void _runToolAction(VoidCallback action)'));
-    expect(
-        chatPageSource, contains('onInteractionStart: _closeTransientPanels'));
-    expect(chatPageSource, contains('onOpen: _closeTransientPanels'));
-  });
-
-  test('settings title bar omits the redundant back button', () {
-    expect(
-      desktopTabSource,
-      isNot(contains('onBack: key == kTabLabelSettingPage')),
-    );
+    expect(chatPageSource,
+        contains('onInteractionStart: _closeTransientPanels'));
+    // AI 模型入口已并入“更多”整块面板，原 _AiModelSelector 徽章（含
+    // onOpen: _closeTransientPanels）已删除；互斥逻辑改由 _toggleMoreMenu
+    // 与 _closeTransientPanels 共同保证（更多面板与表情/@ 候选互斥）。
+    expect(chatPageSource, contains('void _toggleMoreMenu()'));
+    expect(chatPageSource, contains('_showMoreMenu = !_showMoreMenu;'));
+    expect(chatPageSource, contains('_showEmojiPicker = false;'));
   });
 
   test('remembered passwords persist for direct endpoints and peer IDs', () {
@@ -2866,7 +2865,7 @@ expect(chatModelSource, contains('destroyMessage('));
     final usedKeys = <String>{};
     for (final entity in Directory('lib').listSync(recursive: true)) {
       if (entity is! File || !entity.path.endsWith('.dart')) continue;
-      final source = entity.readAsStringSync();
+      final source = entity.readAsStringSync().replaceAll('\r\n', '\n');
       for (final match in translatePattern.allMatches(source)) {
         final key =
             match.group(2)!.replaceAll(r"\'", "'").replaceAll(r'\"', '"');
@@ -2883,7 +2882,7 @@ expect(chatModelSource, contains('destroyMessage('));
     });
     // Symbols that are identical in all languages must not be flagged.
     usedKeys.removeWhere((key) => key.length <= 2 && RegExp(r'^[^a-zA-Z]+$').hasMatch(key));
-    final cnSource = File('../src/lang/cn.rs').readAsStringSync();
+    final cnSource = File('../src/lang/cn.rs').readAsStringSync().replaceAll('\r\n', '\n');
     final translations = <String, String>{
       for (final match in tuplePattern.allMatches(cnSource))
         match.group(1)!: match.group(2)!,
@@ -2938,7 +2937,7 @@ expect(chatModelSource, contains('destroyMessage('));
         if (!key.contains(r'$')) usedKeys.add(key);
       }
     }
-    final enSource = File('../src/lang/en.rs').readAsStringSync();
+    final enSource = File('../src/lang/en.rs').readAsStringSync().replaceAll('\r\n', '\n');
     final translations = <String, String>{
       for (final match in tuplePattern.allMatches(enSource))
         match.group(1)!: match.group(2)!,

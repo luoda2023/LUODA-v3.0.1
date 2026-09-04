@@ -1361,6 +1361,13 @@ abstract class Luoda {
 
   FlutterRustBridgeTaskConstMeta get kCmSendChatConstMeta;
 
+  /// Host/callee voice-call audio uplink over a live incoming Connection.
+  /// Opus bytes encoded in Dart are routed to the Rust Connection [connId].
+  Future<void> cmSendVoiceCallAudio(
+      {required int connId, required Uint8List data, dynamic hint});
+
+  FlutterRustBridgeTaskConstMeta get kCmSendVoiceCallAudioConstMeta;
+
   Future<void> cmLoginRes(
       {required int connId, required bool res, dynamic hint});
 
@@ -6589,6 +6596,26 @@ class LuodaImpl implements Luoda {
       const FlutterRustBridgeTaskConstMeta(
         debugName: "cm_send_chat",
         argNames: ["connId", "msg"],
+      );
+
+  Future<void> cmSendVoiceCallAudio(
+      {required int connId, required Uint8List data, dynamic hint}) {
+    var arg0 = api2wire_i32(connId);
+    var arg1 = _platform.api2wire_uint_8_list(data);
+    return _platform.executeNormal(FlutterRustBridgeTask(
+      callFfi: (port_) =>
+          _platform.inner.wire_cm_send_voice_call_audio(port_, arg0, arg1),
+      parseSuccessData: _wire2api_unit,
+      constMeta: kCmSendVoiceCallAudioConstMeta,
+      argValues: [connId, data],
+      hint: hint,
+    ));
+  }
+
+  FlutterRustBridgeTaskConstMeta get kCmSendVoiceCallAudioConstMeta =>
+      const FlutterRustBridgeTaskConstMeta(
+        debugName: "cm_send_voice_call_audio",
+        argNames: ["connId", "data"],
       );
 
   Future<void> cmLoginRes(
@@ -13144,6 +13171,27 @@ class LuodaWire implements FlutterRustBridgeWireBase {
               ffi.Pointer<wire_uint_8_list>)>>('wire_cm_send_chat');
   late final _wire_cm_send_chat = _wire_cm_send_chatPtr
       .asFunction<void Function(int, int, ffi.Pointer<wire_uint_8_list>)>();
+
+  void wire_cm_send_voice_call_audio(
+    int port_,
+    int conn_id,
+    ffi.Pointer<wire_uint_8_list> data,
+  ) {
+    return _wire_cm_send_voice_call_audio(
+      port_,
+      conn_id,
+      data,
+    );
+  }
+
+  late final _wire_cm_send_voice_call_audioPtr = _lookup<
+          ffi.NativeFunction<
+              ffi.Void Function(ffi.Int64, ffi.Int32,
+                  ffi.Pointer<wire_uint_8_list>)>>(
+      'wire_cm_send_voice_call_audio');
+  late final _wire_cm_send_voice_call_audio =
+      _wire_cm_send_voice_call_audioPtr.asFunction<
+          void Function(int, int, ffi.Pointer<wire_uint_8_list>)>();
 
   void wire_cm_login_res(
     int port_,

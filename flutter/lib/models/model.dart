@@ -3947,6 +3947,11 @@ class FFI {
   var closed = false;
   var suppressConnectionDialogs = false;
 
+  /// 从点聊/联系人发起的通话意图：'voice' 或 'video'。
+  /// 移动端在关闭纯聊天会话并拨号前设置，RemotePage/ViewCameraPage
+  /// 连接建立(peer_info 就绪)后消费并自动发起语音，实现一键通话。
+  String? pendingCallMode;
+
   /// dialogManager use late to ensure init after main page binding [globalKey]
   late final dialogManager = OverlayDialogManager();
 

@@ -79,6 +79,10 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
 
   final keyboardVisibilityController = KeyboardVisibilityController();
   late final StreamSubscription<bool> keyboardSubscription;
+  StreamSubscription<bool>? _piSub;
+  StreamSubscription<VoiceCallStatus>? _voiceCallSub;
+  VoiceCallStatus _lastVoiceCallStatus = VoiceCallStatus.notStarted;
+  bool _voiceCallFromChat = false;
   final FocusNode _mobileFocusNode = FocusNode();
   final FocusNode _physicalFocusNode = FocusNode();
   var _showEdit = false; // use soft keyboard
@@ -108,6 +112,36 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
       viewerId: widget.viewerId,
       viewerDisplayName: widget.viewerDisplayName,
     );
+    // 从点聊“语音通话/视频电话”拨入时：连接建立(peer_info 就绪)后自动
+    // 发起语音请求，实现一键拨打（无需再手动点语音按钮）。
+    _piSub = gFFI.ffiModel.pi.isSet.listen((bool ready) {
+      if (ready) _consumePendingCall();
+    });
+    // 语音通话结束（connected/waiting -> notStarted）后，若本页始终未收到
+    // 任何画面（点聊“语音通话”纯语音场景，RemotePage 会一直黑屏），自动
+    // 退出返回聊天页，避免“挂不掉/黑屏卡死”。
+    _voiceCallSub = gFFI.chatModel.voiceCallStatus.listen((VoiceCallStatus status) {
+      final wasInCall = _lastVoiceCallStatus == VoiceCallStatus.connected ||
+          _lastVoiceCallStatus == VoiceCallStatus.waitingForResponse;
+      _lastVoiceCallStatus = status;
+      if (!wasInCall) return;
+      if (status != VoiceCallStatus.notStarted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (_voiceCallFromChat && gFFI.ffiModel.waitForFirstImage.isTrue) {
+          debugPrint('[RemotePage] voice call ended with no video frame; auto exit');
+          if (Navigator.of(context).canPop()) {
+            Navigator.of(context).pop();
+          } else {
+            closeConnection();
+          }
+        }
+      });
+    });
+        // 若连接已就绪（例如复用已有会话），立即消费。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (gFFI.ffiModel.pi.isSet.isTrue) _consumePendingCall();
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: []);
       gFFI.dialogManager
@@ -139,6 +173,12 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     // https://github.com/flutter/flutter/issues/64935
     super.dispose();
+    _piSub?.cancel();
+    _piSub = null;
+    _voiceCallSub?.cancel();
+    _voiceCallSub = null;
+    gFFI.pendingCallMode = null;
+    gFFI.chatModel.pauseKeepAlive = false;
     gFFI.dialogManager.hideMobileActionsOverlay(store: false);
     gFFI.inputModel.listenToMouse(false);
     gFFI.imageModel.disposeImage();
@@ -357,6 +397,23 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
  ? getGestureHelp()
  : Offstage();
 
+  /// 消费从点聊/联系人发起通话时设置的 pendingCallMode：一旦本远程会话
+  /// 就绪（peer_info 已到达、授权成功），自动向对端发起语音请求。
+  void _consumePendingCall() {
+    final mode = gFFI.pendingCallMode;
+    if (mode == null) return;
+    final connType = gFFI.connType;
+    if (connType != ConnType.defaultConn && connType != ConnType.viewCamera) {
+      return;
+    }
+    if (gFFI.closed) return;
+    gFFI.pendingCallMode = null;
+    _voiceCallFromChat = mode == 'voice' || mode == 'video';
+    debugPrint('[RemotePage] consume pendingCallMode=$mode connType=$connType '
+        '-> requestVoiceCall');
+    bind.sessionRequestVoiceCall(sessionId: gFFI.sessionId);
+  }
+
 @override
 Widget build(BuildContext context) {
 final keyboardIsVisible =
@@ -364,8 +421,19 @@ keyboardVisibilityController.isVisible && _showEdit;
 
 return WillPopScope(
 onWillPop: () async {
-clientClose(sessionId, gFFI);
-return false;
+        // 会话已断开/无活动会话：直接退出页面（返回聊天窗/主页）。
+        if (gFFI.closed) {
+          if (Navigator.of(context).canPop()) {
+            Navigator.of(context).pop();
+          } else {
+            closeConnection();
+          }
+          return false;
+        }
+        clientClose(sessionId, gFFI);
+        // 客户端断开/确认流程内会通过 closeConnection 收尾；此处先拦截
+        // 返回键避免页面在确认前被 pop。
+        return false;
 },
 child: Scaffold(
 // FloatingToolbar replaces the old bottom app bar + FAB.
@@ -776,7 +844,7 @@ FloatingToolbar(
 
   showChatOptions(String id) async {
     onPressVoiceCall() => bind.sessionRequestVoiceCall(sessionId: sessionId);
-    onPressEndVoiceCall() => bind.sessionCloseVoiceCall(sessionId: sessionId);
+    onPressEndVoiceCall() => gFFI.chatModel.closeVoiceCall();
 
     makeTextMenu(String label, Widget icon, VoidCallback onPressed,
             {TextStyle? labelStyle}) =>

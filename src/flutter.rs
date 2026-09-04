@@ -192,7 +192,7 @@ pub unsafe extern "C" fn free_c_args(ptr: *mut *mut c_char, len: c_int) {
 #[cfg(windows)]
 #[no_mangle]
 pub unsafe extern "C" fn get_luoda_app_name(buffer: *mut u16, length: i32) -> i32 {
-    let name = crate::platform::wide_string(&crate::get_app_name());
+    let name = crate::platform::wide_string(&crate::get_display_name());
     if length > name.len() as i32 {
         std::ptr::copy_nonoverlapping(name.as_ptr(), buffer, name.len());
         return 0;
@@ -1677,9 +1677,10 @@ pub mod connection_manager {
             let payload = serde_json::ser::to_string(&h).unwrap_or("".to_owned());
             let streams = GLOBAL_EVENT_STREAM.read().unwrap();
             if streams.is_empty() {
-                println!("Push event {} failed. No event stream found.", name);
+                println!("[PUSHDBG] event {} failed: no stream. keys={:?}", name, GLOBAL_EVENT_STREAM.read().unwrap().keys().collect::<Vec<_>>());
                 return;
             }
+            println!("[PUSHDBG] event {} -> {} stream(s), keys={:?}", name, streams.len(), streams.keys().collect::<Vec<_>>());
             // Broadcast to every registered UI (desktop main window + CM page,
             // or the single mobile stream). The desktop main window must receive
             // chat/client events too, otherwise new messages do not refresh.

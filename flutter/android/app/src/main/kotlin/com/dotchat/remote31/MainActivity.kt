@@ -388,7 +388,10 @@ class MainActivity : FlutterActivity() {
                         contentResolver, Settings.Secure.ANDROID_ID) ?: ""
                     val seed = if (androidId.isNotEmpty()) androidId else Build.SERIAL ?: ""
                     val hash = seed.hashCode() and 0x7fffffff
-                    result.success((100000 + hash % 900000).toString())
+                    // 生成与自动 ID 相同格式的 8 位数字（31_000_000..31_999_999），
+                    // 这样稳定 ID 能被 change_id 接受（纯数字、长度 <= 8），
+                    // 重装后依然派生出同一个 ID，绑定关系得以恢复。
+                    result.success((31_000_000 + hash % 1_000_000).toString())
                 }
                 GET_START_ON_BOOT_OPT -> {
                     val prefs = getSharedPreferences(KEY_SHARED_PREFERENCES, MODE_PRIVATE)
@@ -532,8 +535,8 @@ class MainActivity : FlutterActivity() {
             Log.e(logTag, "onVoiceCallStarted fail")
             flutterMethodChannel?.invokeMethod("msgbox", mapOf(
                 "type" to "custom-nook-nocancel-hasclose-error",
-                "title" to "Voice call",
-                "text" to "Failed to start voice call."))
+                "title" to translate("Voice call"),
+                "text" to translate("Failed to start voice call.")))
         } else {
             Log.d(logTag, "onVoiceCallStarted success")
         }
@@ -552,8 +555,8 @@ class MainActivity : FlutterActivity() {
             Log.e(logTag, "onVoiceCallClosed fail")
             flutterMethodChannel?.invokeMethod("msgbox", mapOf(
                 "type" to "custom-nook-nocancel-hasclose-error",
-                "title" to "Voice call",
-                "text" to "Failed to stop voice call."))
+                "title" to translate("Voice call"),
+                "text" to translate("Failed to stop voice call.")))
         } else {
             Log.d(logTag, "onVoiceCallClosed success")
         }

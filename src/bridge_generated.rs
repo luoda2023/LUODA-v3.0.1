@@ -4066,6 +4066,24 @@ fn wire_cm_send_chat_impl(
         },
     )
 }
+fn wire_cm_send_voice_call_audio_impl(
+    port_: MessagePort,
+    conn_id: impl Wire2Api<i32> + UnwindSafe,
+    data: impl Wire2Api<Vec<u8>> + UnwindSafe,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap::<_, _, _, ()>(
+        WrapInfo {
+            debug_name: "cm_send_voice_call_audio",
+            port: Some(port_),
+            mode: FfiCallMode::Normal,
+        },
+        move || {
+            let api_conn_id = conn_id.wire2api();
+            let api_data = data.wire2api();
+            move |task_callback| Ok(cm_send_voice_call_audio(api_conn_id, api_data))
+        },
+    )
+}
 fn wire_cm_login_res_impl(
     port_: MessagePort,
     conn_id: impl Wire2Api<i32> + UnwindSafe,

@@ -102,7 +102,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
  // existing window or starts a fresh instance as needed.
  std::vector<std::string> early_args = GetCommandLineArguments();
  for (auto& a : early_args) {
- a.erase(a.find_last_not_of(" \n\r\t"));
+    auto pos = a.find_last_not_of(" \n\r\t");
+    if (pos != std::string::npos) {
+      a.erase(pos + 1);
+    } else {
+      a.clear();
+    }
  }
  if (early_args.empty()) {
  HANDLE hMutex = ::CreateMutexW(nullptr, FALSE, kSingleInstanceMutexName);
@@ -147,7 +152,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
  std::move(early_args);
  // Remove possible trailing whitespace from command line arguments
  for (auto& argument : command_line_arguments) {
- argument.erase(argument.find_last_not_of(" \n\r\t"));
+    auto pos = argument.find_last_not_of(" \n\r\t");
+    if (pos != std::string::npos) {
+      argument.erase(pos + 1);
+    } else {
+      argument.clear();
+    }
  }
 
   int args_len = 0;
@@ -304,6 +314,47 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   }
   if (!window.CreateAndShow(window_title, origin, size, !is_cm_page)) {
       return EXIT_FAILURE;
+  }
+  // CM 页面窗口创建后立即隐藏，避免出现第二个可见的“点聊”窗口。
+  // Flutter 层只会在有非聊天远程连接时调用 showCmWindow() 显示它。
+  if (is_cm_page) {
+      const HWND cm_hwnd = window.GetHandle();
+      ::ShowWindow(cm_hwnd, SW_HIDE);
+      // 彻底移除 WS_VISIBLE 样式位，从根本上阻止窗口在启动早期被显示。
+      LONG_PTR cm_style = ::GetWindowLongPtrW(cm_hwnd, GWL_STYLE);
+      cm_style &= ~WS_VISIBLE;
+      ::SetWindowLongPtrW(cm_hwnd, GWL_STYLE, cm_style);
+      ::SetWindowPos(cm_hwnd, nullptr, 0, 0, 0, 0,
+                     SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOMOVE |
+                     SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+      // 守护线程：枚举本进程所有 FLUTTER 顶层窗口，启动后 20 秒内每 100ms
+      // 强制隐藏，杜绝 Dart 层在启动早期把 CM 窗口重新显示成第二个可见窗口。
+      const DWORD cm_pid = ::GetCurrentProcessId();
+      std::thread([cm_pid]() {
+        for (int i = 0; i < 200; ++i) {
+          std::this_thread::sleep_for(std::chrono::milliseconds(100));
+          struct Ctx { DWORD pid; } ctx{cm_pid};
+          ::EnumWindows([](HWND hwnd, LPARAM lp) -> BOOL {
+            auto* c = reinterpret_cast<Ctx*>(lp);
+            DWORD wp = 0;
+            ::GetWindowThreadProcessId(hwnd, &wp);
+            if (wp != c->pid) return TRUE;
+            wchar_t cls[64] = {0};
+            ::GetClassNameW(hwnd, cls, 63);
+            if (wcsstr(cls, L"FLUTTER") == nullptr) return TRUE;
+            if (::IsWindowVisible(hwnd)) {
+              ::ShowWindow(hwnd, SW_HIDE);
+              LONG_PTR st = ::GetWindowLongPtrW(hwnd, GWL_STYLE);
+              st &= ~WS_VISIBLE;
+              ::SetWindowLongPtrW(hwnd, GWL_STYLE, st);
+              ::SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                             SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOMOVE |
+                             SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+            }
+            return TRUE;
+          }, reinterpret_cast<LPARAM>(&ctx));
+        }
+      }).detach();
   }
   // The Flutter engine and plugin DLLs are loaded during CreateAndShow.
   // Several of these DLLs are Console-subsystem and may re-attach a
