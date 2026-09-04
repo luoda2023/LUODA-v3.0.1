@@ -4271,6 +4271,7 @@ String _notificationBody(DirectChatRecord record) {
   void onVoiceCallWaiting() {
     _voiceCallStatus.value = VoiceCallStatus.waitingForResponse;
     // 对端不应答时自动放弃，避免“呼叫中”永久占屏/无法退出。
+    _setVoiceCallScreenOn(true); // 呼叫中保持亮屏，避免息屏看不到拨打状态
     _voiceCallWaitingTimer?.cancel();
     _voiceCallWaitingTimer = Timer(kVoiceCallWaitTimeout, () {
       debugPrint('[VoiceCall] waiting timeout, auto hang up');
@@ -4278,9 +4279,22 @@ String _notificationBody(DirectChatRecord record) {
     });
   }
 
+  /// 通话期间保持屏幕常亮（原生 FLAG_KEEP_SCREEN_ON，不经插件通道）。
+  /// 解决 OPPO/ColorOS/华为等强省电 ROM 在通话/来电中自动息屏，用户
+  /// 无法看到界面或挂断的问题。iOS 无此 API，忽略即可。
+  void _setVoiceCallScreenOn(bool on) {
+    if (!isAndroid) return;
+    try {
+      parent.target?.invokeMethod(on ? 'keep_screen_on' : 'keep_screen_off');
+    } catch (e) {
+      debugPrint('[VoiceCall] keep_screen_${on ? 'on' : 'off'} err: $e');
+    }
+  }
+
 void onVoiceCallStarted() {
  _voiceCallWaitingTimer?.cancel();
  _voiceCallStatus.value = VoiceCallStatus.connected;
+ _setVoiceCallScreenOn(true); // 接通后保持亮屏，通话中不熄屏
  if (isAndroid || isIOS) {
  _startMobileVoiceCallAudio();
  // NOTE: do NOT invoke Kotlin on_voice_call_started on mobile. That call
@@ -4295,6 +4309,7 @@ void onVoiceCallStarted() {
  void onVoiceCallClosed(String reason) {
  _voiceCallWaitingTimer?.cancel();
  _voiceCallStatus.value = VoiceCallStatus.notStarted;
+ _setVoiceCallScreenOn(false); // 通话结束释放屏幕常亮
  _activeCallConnId = 0;
  _voiceCallQuality.stop(); _voiceCallWaitingTimer?.cancel();
  _voiceCallStatus.value = VoiceCallStatus.notStarted;
@@ -4373,6 +4388,7 @@ await _voiceCallAudio!.startCapture();
 
   void onVoiceCallIncoming() {
     _voiceCallStatus.value = VoiceCallStatus.incoming;
+    _setVoiceCallScreenOn(true); // 来电时点亮并保持屏幕，防止息屏漏接
   }
 
   void closeVoiceCall() {

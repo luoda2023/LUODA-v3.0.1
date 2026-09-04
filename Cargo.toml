@@ -1,6 +1,6 @@
 [package]
 name = "luoda"
-version = "3.1.23"
+version = "3.1.25"
 authors = ["LUODA <https://dicad.cn>"]
 edition = "2021"
 build= "build.rs"
@@ -250,4 +250,3 @@ strip = true
 rpath = true
 
 # CI trigger: retry after stuck runs (2026-05-17)
-

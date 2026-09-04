@@ -141,3 +141,39 @@
 - OPPO logcat 无 flutter debugPrint(进程20945) - ColorOS 节流或 release 树摇, 需用 Rust log:: 侧确认。
 - push_event 已加 log::debug [PUSHDBG](Android logcat 可见), 重编后确认 OPPO stream 是否注册。
 - accept 后未进 VoiceCallPage/通话未连通: 待顶层层修复后完整重测 语音 accept->connected->音频。
+
+## [09-05 06:0x] 语音通话主叫卡Calling + 复用已死点聊连接 修复（APK v3.1.24 ece955f）
+### 代码修复
+1. voice_call_page.dart 全量重写：Obx(依赖构建偶发不重建) -> 显式 voiceCallStatus.listen 订阅 + setState 驱动；
+   加每秒 Timer 兜底同步 + PopScope(canPop:false, onPopInvoked -> hangUp) + popUntil 兜底退出（页面可能压在多层路由上）。
+   实测日志: initState waitingForResponse -> status -> connected (订阅触发刷新) -> 计时；hang up -> notStarted -> 自动退出。
+2. home_page.dart _ensureChatAndDialVoice 重写：拨语音前若走 chat P2P 复用路径一律 force:true 强制重拨(打破半开死连)；
+   固定900ms等待 -> 4s轮询就绪(200ms间隔)；超时才回退 _dialCallSession。
+### 实测(方向A 模拟器主叫 -> OPPO被叫, 两机同APK)
+- OPPO 在聊天窗被叫收到来电层(拒绝/接受)正常。
+- OPPO accept -> 模拟器主叫 [VoiceCallPage] status->connected（修复前卡 Calling 不再复现）。
+- 双向音频: OPPO 被叫 cmSendVoiceCallAudio called conn=425 上行；模拟器主叫 recv audio frame len=125~130 status=connected 下行。
+- OPPO 通话页计时正常；模拟器主叫计时正常(截图确认 Voice call - 00:xx)。
+- 模拟器主叫点挂断 -> [hang up] -> 两端均自动回主页(来电层/通话页清理干净)。
+### 遗留
+- 方向B(OPPO主叫->模拟器被叫) 受 OPPO ColorOS 熄屏策略限制(需组合键 MENU+APP_SWITCH+HOME+WAKEUP 偶发点亮) 未能完整跑通；
+  历史 bugs 记录该方向打洞不稳(真机NAT方向)。
+- OPPO 屏幕点亮依赖真实物理操作, adb 无法稳定保持。
+## [09-05 06:2x] 模拟器端会议/远程协助功能验证(新APK ece955f)
+- Meeting tab: Start meeting 创建成功(TestMeeting0905, 主持人31046892) -> 自动出现在点聊列表(Group chat) -> 群聊页工具栏 Enter to Watch/Add member/Voice call/More 齐全。
+- 会议页: Start presentation 成功(出现 End presentation) -> 演示/观看入口正常。
+- Assist tab: Start service -> MediaProjection 授权(系统 START NOW) -> 远程协助服务在线(控制面板 Copy/Disconnect 出现)。
+- 单实例无法测"他端加入观看/远程协助连入"，需第二设备(OPPO)。
+
+## [09-05 07:3x] 语音通话双端验证(v3.1.25 ece955f+屏常亮) - 方向A/B均通
+### 代码变更(ece955f 之后的 v3.1.25)
+1. MainActivity.kt: 新增 mChannel 方法 keep_screen_on/keep_screen_off = FLAG_KEEP_SCREEN_ON + PowerManager WakeLock(SCREEN_BRIGHT_WAKE_LOCK|ACQUIRE_CAUSES_WAKEUP|ON_AFTER_RELEASE, tag voicecall, 10min上限) 双保险。
+2. chat_model.dart: 新增 _setVoiceCallScreenOn(bool), 在 onVoiceCallWaiting/Started(通话中)、onVoiceCallIncoming(来电)、onVoiceCallClosed(结束释放) 处调用。目的: OPPO/ColorOS/华为强省电ROM通话/来电不熄屏。
+### 实测(模拟器31046892 <-> OPPO 31979354, 同APK v3.1.25)
+- 会话重建: 模拟器重装APK后 current ID 不变(UI My QR 显示 31 046892, info1-id 839168671 是内部临时id非点聊id)。OPPO 端 Add friend(31046892) 成功 -> 模拟器陌生人组出现 OPPO-PFUM10。
+- 方向A(模拟器主叫->OPPO被叫): OPPO 来电层(拒绝/接受)正常; accept -> 模拟器 status connected; 双向音频 OPPO cmSendVoiceCallAudio conn=630 上行, 模拟器 recv audio 128-129 下行; 计时正常; 挂断后两端自动回主页。
+- 方向B(OPPO主叫->模拟器被叫): OPPO 聊天窗语音 -> 短暂"正在连接..." -> 模拟器来电层弹出 -> accept -> 模拟器 setVoiceCallConnId=743 + status connected + recv OPPO 上行(128-129); OPPO sessionSendVoiceCallAudio 上行。模拟器被叫 startCapture begin 但无 pcm chunk(=无头模拟器虚拟mic无数据, 环境限制非代码bug; 被叫cmSend路径在方向A的OPPO被叫已验证)。
+- WakeLock: OPPO 发起语音时 logcat 确认 OplusAONSmartDim: onWakeLockAcquireLocked flags=0x3000000a tag=voicecall 获取成功。
+### 遗留
+- OPPO ColorOS 即使在通话中(前台Activity+FLAG+WakeLock) 长时静置仍可能息屏(AON智能调光), 需前台服务/通知或用户允许后台才可靠; 建议后续加"通话中保持屏幕"设置并引导用户允许自启动。
+- 方向B模拟器被叫上行受模拟器无头mic限制无法实测(同代码路径方向A已验证)。

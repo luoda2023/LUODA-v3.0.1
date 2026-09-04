@@ -36,6 +36,7 @@ import com.hjq.permissions.XXPermissions
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import android.os.PowerManager
 import kotlin.concurrent.thread
 
 
@@ -53,6 +54,10 @@ class MainActivity : FlutterActivity() {
 
     private var isAudioStart = false
     private val audioRecordHandle = AudioRecordHandle(this, { false }, { isAudioStart })
+    // 通话/来电期间保持屏幕常亮（FLAG + WakeLock 双保险）。
+    // ColorOS/华为等强省电 ROM 仅 FLAG_KEEP_SCREEN_ON 可能仍被系统
+    // 屏保策略覆盖，叠加 SCREEN_BRIGHT_WAKE_LOCK 确保来电/通话不熄屏。
+    private var callWakeLock: PowerManager.WakeLock? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -435,6 +440,45 @@ class MainActivity : FlutterActivity() {
                 }
                 "on_voice_call_closed" -> {
                     onVoiceCallClosed()
+                }
+                "keep_screen_on" -> {
+                    // 通话/来电期间保持屏幕常亮（FLAG + WakeLock 双保险），
+                    // 解决 OPPO/ColorOS/华为等强省电 ROM 通话/来电中自动息屏
+                    // 或息屏后无法看到界面/挂断的问题。
+                    runOnUiThread {
+                        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    }
+                    try {
+                        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+                        if (callWakeLock == null) {
+                            callWakeLock = pm.newWakeLock(
+                                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
+                                    PowerManager.ACQUIRE_CAUSES_WAKEUP or
+                                    PowerManager.ON_AFTER_RELEASE,
+                                "com.dotchat.remote31:voicecall"
+                            )
+                        }
+                        if (callWakeLock?.isHeld != true) {
+                            callWakeLock?.acquire(10 * 60 * 1000L) // 上限 10 分钟防泄漏
+                        }
+                    } catch (e: Exception) {
+                        Log.e(logTag, "keep_screen_on wakelock err: ${e.message}")
+                    }
+                    result.success(true)
+                }
+                "keep_screen_off" -> {
+                    runOnUiThread {
+                        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    }
+                    try {
+                        if (callWakeLock?.isHeld == true) {
+                            callWakeLock?.release()
+                        }
+                        callWakeLock = null
+                    } catch (e: Exception) {
+                        Log.e(logTag, "keep_screen_off wakelock err: ${e.message}")
+                    }
+                    result.success(true)
                 }
                 else -> {
                     result.error("-1", "No such method", null)
