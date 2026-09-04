@@ -1271,42 +1271,49 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
         (gFFI.connType == ConnType.defaultConn ||
             gFFI.connType == ConnType.viewCamera) &&
         gFFI.ffiModel.pi.isSet.isTrue) {
-      gFFI.chatModel.onVoiceCallWaiting(); // main caller enters "calling" state; exit driven by on_voice_call_started/closed callbacks
+      gFFI.chatModel.onVoiceCallWaiting();
       _enterVoiceCallUi(peerId, video: video);
       bind.sessionRequestVoiceCall(sessionId: gFFI.sessionId);
       return;
     }
-    // ② Rust 会话存活探测：sessionGetCommonSync 在 session 不存在时返回
-    // null。Dart 层 connType==chat 不代表 Rust 连接还活着（保活超时/网络
-    // 抖动后 Dart 状态滞后），必须据此决定是否需要强制重拨。
-    bool rustSessionAlive = false;
-    try {
-      final probe = bind.sessionGetCommonSync(
-        sessionId: gFFI.sessionId,
-        key: 'is_screenshot_supported',
-        param: '',
-      );
-      rustSessionAlive = probe != null;
-    } catch (_) {
-      rustSessionAlive = false;
-    }
+    // ② 半开连接打破：本端 connType==chat 仅说明曾建立过点聊
+    // P2P，但对端 app 被 force-stop/断网后 TCP 未及时拆除时，
+    // Rust/Dart 可能仍认为连接“活着”（半开），语音请求会发往
+    // 死连接而静默失败。用户点“语音/视频电话”是明确的
+    // 通话意图，这里强制重拨以打破半开，不把语音发到
+    // 可能已死的连接；同时清除防重入标记，避免被后台
+    // 保活的拨号卡住本次用户主动拨号。
+    final localChatToReuse = !gFFI.closed &&
+        gFFI.connType == ConnType.chat &&
+        gFFI.ffiModel.pi.isSet.isTrue;
     final ensure = gFFI.chatModel.ensureChatConnection;
     if (ensure != null) {
-      // Rust 会话已死才强制重拨；活着则靠 ensure 内部判断（live incoming
-      // client / live conversation 直接复用，不打断连接）。
-      await ensure(peerId, force: !rustSessionAlive);
+      if (localChatToReuse) {
+        ChatModel.clearDialing(peerId);
+        debugPrint('[VoiceCall] force redial chat P2P for $peerId '
+            '(break half-open before voice)');
+      }
+      await ensure(peerId, force: localChatToReuse);
     }
-    // 等待连接建立/稳定（拨号 + 握手）。
-    await Future<void>.delayed(const Duration(milliseconds: 900));
+    // ③ 轮询等待 chat P2P 就绪（拨号+握手）：建立好立即
+    // 发语音请求；超时则回退到远程会话拨号兜底。
+    final deadline = DateTime.now().add(const Duration(seconds: 4));
+    var ready = false;
+    while (!ready && DateTime.now().isBefore(deadline)) {
+      if (!mounted) return;
+      ready = !gFFI.closed &&
+          gFFI.connType == ConnType.chat &&
+          gFFI.ffiModel.pi.isSet.isTrue &&
+          gFFI.chatModel.currentKey.peerId == peerId;
+      if (!ready) {
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      }
+    }
     if (!mounted) return;
-    final connected = !gFFI.closed &&
-        gFFI.connType == ConnType.chat &&
-        gFFI.ffiModel.pi.isSet.isTrue &&
-        gFFI.chatModel.currentKey.peerId == peerId;
-    if (connected) {
+    if (ready) {
       debugPrint('[VoiceCall] chat P2P live after ensure -> request '
           'video=$video');
-      gFFI.chatModel.onVoiceCallWaiting(); // main caller enters "calling" state; exit driven by on_voice_call_started/closed callbacks
+      gFFI.chatModel.onVoiceCallWaiting();
       _enterVoiceCallUi(peerId, video: video);
       bind.sessionRequestVoiceCall(sessionId: gFFI.sessionId);
       return;
@@ -1316,6 +1323,7 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
         'fallback dial video=$video');
     unawaited(_dialCallSession(peerId, video: video));
   }
+
   /// 关闭当前占用单例 FFI 的纯聊天保活会话（若有），再按 [video] 决定
   /// 以 defaultConn（语音）或 viewCamera（视频）拨号建立通话会话。
   /// 拨号前设置 [pendingCallMode]，RemotePage/ViewCameraPage 连上后自动
