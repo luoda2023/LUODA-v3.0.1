@@ -4344,17 +4344,9 @@ void onVoiceCallStarted() {
  data: opus,
  );
  print('[VC-DBG] sessionSendVoiceCallAudio called sid=' + sessionId.toString());
- }
- }; _voiceCallAudio!.onEncoded = (opus) {
- print('[VC-DBG] onEncoded opusLen=' + opus.length.toString());
- // Send encoded Opus bytes to peer via Rust transport.
- bind.sessionSendVoiceCallAudio(
- sessionId: sessionId,
- data: opus,
- );
- print('[VC-DBG] sessionSendVoiceCallAudio called sid=' + sessionId.toString());
- };
- await _voiceCallAudio!.startCapture();
+}
+};
+await _voiceCallAudio!.startCapture();
  }
 
  /// Stop and dispose mobile voice call audio.

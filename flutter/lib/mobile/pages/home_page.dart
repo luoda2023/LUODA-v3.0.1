@@ -4493,6 +4493,18 @@ class MobileIncomingCallLayerState extends State<MobileIncomingCallLayer>
 
   void _accept(Client caller) {
     debugPrint('[MobileIncomingCall] accept caller=${caller.name} id=${caller.id}');
+    // LUODA FIX: remember the incoming Connection conn id BEFORE the call
+    // state flips to connected. The callee/host has no FlutterSession, so Dart
+    // mic Opus must be uplinked via cmSendVoiceCallAudio(connId). Relying on the
+    // Rust update_voice_call_state (inVoiceCall) event alone is racy/absent on
+    // some accept paths, which left _activeCallConnId=0 and silently dropped the
+    // callee->caller audio.
+    try {
+      gFFI.chatModel.setVoiceCallConnId(caller.id);
+      debugPrint('[MobileIncomingCall] setVoiceCallConnId=${caller.id}');
+    } catch (e) {
+      debugPrint('[MobileIncomingCall] setVoiceCallConnId err: $e');
+    }
     try {
       gFFI.serverModel.handleVoiceCall(caller, true);
     } catch (e) {
