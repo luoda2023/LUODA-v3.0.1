@@ -13,64 +13,88 @@ class VoiceCallCodec {
   static const int frameSizeMs = 20;
   static const int samplesPerFrame = (sampleRate ~/ 1000) * frameSizeMs; // 960
 
-SimpleOpusEncoder? _encoder;
-SimpleOpusDecoder? _decoder;
+  // opus_dart's `opus` global is `late final` — it can only be initialized
+  // ONCE per process. A second `initOpus()` call throws
+  // `LateInitializationError: Field 'opus' has already been initialized`,
+  // which previously broke the second voice call in the same app session
+  // (first call succeeded, second call failed to start mic capture).
+  // Therefore the native library load is guarded by a process-level flag:
+  // after the first successful init we never call initOpus() again — we only
+  // recreate the encoder/decoder objects (which is safe and re-entrant).
+  static bool _opusLibLoaded = false;
+  static Future<void>? _opusLoadFuture;
 
-int _bitrate = 24000; // target bitrate in bps (informational; maps to maxOutputSizeBytes)
-int _maxOutputSizeBytes = 960; // 24kbps → ~60 bytes per 20ms frame, generous default
+  SimpleOpusEncoder? _encoder;
+  SimpleOpusDecoder? _decoder;
 
-bool _initialized = false;
+  int _bitrate = 24000; // target bitrate in bps (informational; maps to maxOutputSizeBytes)
+  int _maxOutputSizeBytes = 960; // 24kbps → ~60 bytes per 20ms frame, generous default
 
-/// Initialize opus library and create encoder/decoder.
-Future<void> init() async {
-if (_initialized) return;
-initOpus(await load());
-_createEncoder();
-_createDecoder();
-_initialized = true;
-}
+  bool _initialized = false;
 
-void _createEncoder() {
-_encoder?.destroy();
-_encoder = SimpleOpusEncoder(
-sampleRate: sampleRate,
-channels: channels,
-application: Application.voip,
-);
-}
+  /// Initialize opus library (once per process) and create encoder/decoder.
+  Future<void> init() async {
+    if (_initialized) return;
+    await _ensureOpusLib();
+    _createEncoder();
+    _createDecoder();
+    _initialized = true;
+  }
 
-void _createDecoder() {
-_decoder?.destroy();
-_decoder = SimpleOpusDecoder(
-sampleRate: sampleRate,
-channels: channels,
-);
-}
+  /// Load the native libopus exactly once per process. Concurrent callers
+  /// share the same in-flight future.
+  static Future<void> _ensureOpusLib() async {
+    if (_opusLibLoaded) return;
+    _opusLoadFuture ??= _doLoadOpus();
+    await _opusLoadFuture;
+  }
 
-/// Change the target bitrate. opus_dart's SimpleOpusEncoder is immutable after
-/// construction and has no bitrate setter, so we approximate the bitrate
-/// change by clamping the encoder's maxOutputSizeBytes: lower bitrate →
-/// smaller output buffer → Opus internally reduces the bitrate.
-set bitrate(int bps) {
-if (_bitrate == bps) return;
-_bitrate = bps;
-// 20ms frame at bitrate bps → bytes = bps * 20 / 8
-// e.g. 24kbps → 60 bytes, 16kbps → 40 bytes, 8kbps → 20 bytes
-// Use 4× the theoretical value as headroom (Opus may overshoot).
-_maxOutputSizeBytes = (bps * 20 ~/ 8 * 4).clamp(20, 4000);
-}
+  static Future<void> _doLoadOpus() async {
+    initOpus(await load());
+    _opusLibLoaded = true;
+  }
 
-int get bitrate => _bitrate;
+  void _createEncoder() {
+    _encoder?.destroy();
+    _encoder = SimpleOpusEncoder(
+      sampleRate: sampleRate,
+      channels: channels,
+      application: Application.voip,
+    );
+  }
 
-/// Encode Float32 PCM to Opus bytes.
-///
-/// [pcm] must contain exactly [samplesPerFrame] samples (960 for 20ms@48kHz).
-Uint8List encode(Float32List pcm) {
-if (!_initialized || _encoder == null) {
-throw StateError('VoiceCallCodec not initialized');
-}
-return _encoder!.encodeFloat(input: pcm, maxOutputSizeBytes: _maxOutputSizeBytes);
-}
+  void _createDecoder() {
+    _decoder?.destroy();
+    _decoder = SimpleOpusDecoder(
+      sampleRate: sampleRate,
+      channels: channels,
+    );
+  }
+
+  /// Change the target bitrate. opus_dart's SimpleOpusEncoder is immutable after
+  /// construction and has no bitrate setter, so we approximate the bitrate
+  /// change by clamping the encoder's maxOutputSizeBytes: lower bitrate →
+  /// smaller output buffer → Opus internally reduces the bitrate.
+  set bitrate(int bps) {
+    if (_bitrate == bps) return;
+    _bitrate = bps;
+    // 20ms frame at bitrate bps → bytes = bps * 20 / 8
+    // e.g. 24kbps → 60 bytes, 16kbps → 40 bytes, 8kbps → 20 bytes
+    // Use 4× the theoretical value as headroom (Opus may overshoot).
+    _maxOutputSizeBytes = (bps * 20 ~/ 8 * 4).clamp(20, 4000);
+  }
+
+  int get bitrate => _bitrate;
+
+  /// Encode Float32 PCM to Opus bytes.
+  ///
+  /// [pcm] must contain exactly [samplesPerFrame] samples (960 for 20ms@48kHz).
+  Uint8List encode(Float32List pcm) {
+    if (!_initialized || _encoder == null) {
+      throw StateError('VoiceCallCodec not initialized');
+    }
+    return _encoder!.encodeFloat(input: pcm, maxOutputSizeBytes: _maxOutputSizeBytes);
+  }
 
   /// Decode Opus bytes to Float32 PCM.
   ///
@@ -86,7 +110,10 @@ return _encoder!.encodeFloat(input: pcm, maxOutputSizeBytes: _maxOutputSizeBytes
     return _decoder!.decodeFloat(input: opus);
   }
 
-  /// Release native resources.
+  /// Release native encoder/decoder resources.
+  ///
+  /// The process-level opus library stays loaded (it cannot be unloaded);
+  /// the next [init] simply recreates the encoder/decoder objects.
   void dispose() {
     _encoder?.destroy();
     _decoder?.destroy();
