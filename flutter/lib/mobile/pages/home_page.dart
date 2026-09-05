@@ -1266,6 +1266,22 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _ensureChatAndDialVoice(String peerId,
       {required bool video}) async {
     if (!mounted) return;
+    // ★ 视频电话必须有对端画面：chat P2P 复用只能承载语音（VoiceCallPage
+    // 无视频渲染），视频画面由 viewCamera 会话提供（ViewCameraPage 渲染
+    // 对端摄像头 + 自动请求语音）。因此 video==true 时不复用 chat P2P，
+    // 直接关闭聊天保活会话并以 viewCamera 重拨，否则会退化成纯语音通话
+    // （无画面），表现为“视频电话只能听到声音看不到对方”。
+    if (video) {
+      final isActiveCamera = !gFFI.closed &&
+          gFFI.connType == ConnType.viewCamera &&
+          gFFI.ffiModel.pi.isSet.isTrue;
+      if (!isActiveCamera) {
+        debugPrint('[VoiceCall] video call needs camera view; '
+            'dial viewCamera session instead of reusing chat P2P');
+        unawaited(_dialCallSession(peerId, video: true));
+        return;
+      }
+    }
     // ① 若当前 gFFI 已被远程/摄像头会话占用，直接请求语音即可。
     if (!gFFI.closed &&
         (gFFI.connType == ConnType.defaultConn ||
@@ -4535,7 +4551,10 @@ class MobileIncomingCallLayerState extends State<MobileIncomingCallLayer>
       MaterialPageRoute<void>(
         builder: (_) => VoiceCallPage(
           peerId: caller.peerId,
-          video: false,
+          // 视频电话（来电方以 viewCamera 连接请求）接听后也进入视频通话页：
+          // 若来电是查看本机摄像头的视频电话，本端需显示本地相机预览并回传
+          // 视频帧；纯语音来电则 video=false。将来电类型透传给通话页。
+          video: caller.isViewCamera,
           displayName: _callerName(caller),
         ),
       ),

@@ -245,6 +245,15 @@ class MainService : Service() {
     override fun onCreate() {
         super.onCreate()
         Log.d(logTag,"MainService onCreate, sdk int:${Build.VERSION.SDK_INT} reuseVirtualDisplay:$reuseVirtualDisplay")
+        // ANR FIX: promote to foreground BEFORE any slow native work. This
+        // service is started via startForegroundService(); Android 8+ kills
+        // the process if startForeground() is not called within ~5s of the
+        // request. FFI.init / FFI.startServer below (native lib load,
+        // rendezvous registration) can exceed that on cold start and used to
+        // kill the callee before an incoming voice/video call or
+        // remote-assist session could be answered.
+        initNotification()
+        createForegroundNotification()
         FFI.init(this)
         HandlerThread("Service", Process.THREAD_PRIORITY_BACKGROUND).apply {
             start()
@@ -252,13 +261,11 @@ class MainService : Service() {
             serviceHandler = Handler(looper)
         }
         updateScreenInfo(resources.configuration.orientation)
-        initNotification()
 
         // keep the config dir same with flutter
         val configPath = resolveAppDirConfigPath(applicationContext)
         FFI.startServer(configPath, "")
 
-        createForegroundNotification()
     }
 
     override fun onDestroy() {

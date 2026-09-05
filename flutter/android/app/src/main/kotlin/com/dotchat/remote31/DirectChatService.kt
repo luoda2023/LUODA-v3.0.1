@@ -43,14 +43,25 @@ class DirectChatService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        FFI.initDirectChatService(this)
+        // ANR FIX: when launched via startForegroundService() (Android 8+)
+        // the service has a hard ~5s window to call startForeground(), else
+        // the system throws ANR and kills the process. FFI native init below
+        // (loadLibrary/startServer) can exceed that on cold start, which made
+        // incoming voice/video calls and remote-assist sessions silently die.
+        // Move the foreground notification FIRST so the service is always
+        // promoted before any slow native work runs.
         startForeground(NOTIFICATION_ID, buildNotification())
+        FFI.initDirectChatService(this)
         val configPath = resolveAppDirConfigPath(applicationContext)
         FFI.startServer(configPath, "")
         FFI.startService()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Defensive re-assert of foreground state on every start command; a
+        // no-op when already foreground but protects against OEMs that drop
+        // the notification on restart.
+        runCatching { startForeground(NOTIFICATION_ID, buildNotification()) }
         return START_STICKY
     }
 

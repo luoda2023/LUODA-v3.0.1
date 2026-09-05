@@ -996,7 +996,6 @@ class ServerModel with ChangeNotifier {
         chat?.setVoiceCallConnId(client.id);
         chat?.onVoiceCallStarted();
       } else if (client.inVoiceCall) {
-        chat?.onVoiceCallStarted();
       } else {
         chat?.onVoiceCallClosed('');
       }
