@@ -4,7 +4,8 @@ use crate::clipboard::{update_clipboard, ClipboardSide};
 use crate::{audio_service, clipboard::CLIPBOARD_INTERVAL, ConnInner, CLIENT_SERVER};
 use crate::{
     client::{
-        self, new_voice_call_request, Client, Data, Interface, MediaData, MediaSender,
+        self, new_voice_call_audio_format, new_voice_call_request, Client, Data, Interface,
+        MediaData, MediaSender,
         QualityStatus, MILLI1, SEC30,
     },
     common::get_default_sound_input,
@@ -32,6 +33,7 @@ use hbb_common::{
     message_proto::{permission_info::Permission, *},
     protobuf::Message as _,
     rendezvous_proto::ConnType,
+    sodiumoxide::crypto::secretbox,
     timeout,
     tokio::{
         self,
@@ -54,6 +56,75 @@ use std::{
     },
 };
 
+// 会议语音控制信令（Desktop 成员侧）：由纯函数驱动的采集生命周期决策。
+// 这些判定与 io_loop 中的 match 分支一一对应，便于单元测试覆盖 join/leave/end。
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn meeting_voice_should_start_capture(
+    action: &str,
+    has_active_capture: bool,
+    member_id: &str,
+) -> bool {
+    action == "join"
+        && !has_active_capture
+        && !member_id.trim().is_empty()
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn meeting_voice_should_stop_capture(action: &str) -> bool {
+    action == "leave" || action == "end"
+}
+
+// 会议语音 E2EE 密钥派生判定（桌面/移动一致）。
+// joined + media_e2ee=true 且未派生过密钥时，才从会话密钥与 join seed 派生。
+fn meeting_voice_should_derive_key(
+    action: &str,
+    media_e2ee: bool,
+    seed: i64,
+    has_media_key: bool,
+) -> bool {
+    action == "joined" && media_e2ee && seed > 0 && !has_media_key
+}
+
+#[cfg(test)]
+mod meeting_voice_control_tests {
+    use super::*;
+
+    #[test]
+    fn meeting_voice_join_starts_capture_once() {
+        assert!(meeting_voice_should_start_capture("join", false, "member-1"));
+        // 已启动采集时再次 join：幂等，不再启动第二次
+        assert!(!meeting_voice_should_start_capture("join", true, "member-1"));
+        // member_id 为空或仅空白：不启动采集
+        assert!(!meeting_voice_should_start_capture("join", false, ""));
+        assert!(!meeting_voice_should_start_capture("join", false, "   "));
+        // 非 join 动作不启动采集
+        assert!(!meeting_voice_should_start_capture("leave", false, "member-1"));
+        assert!(!meeting_voice_should_start_capture("end", false, "member-1"));
+    }
+
+    #[test]
+    fn meeting_voice_leave_and_end_stop_capture() {
+        assert!(meeting_voice_should_stop_capture("leave"));
+        assert!(meeting_voice_should_stop_capture("end"));
+        assert!(!meeting_voice_should_stop_capture("join"));
+        assert!(!meeting_voice_should_stop_capture("joined"));
+        assert!(!meeting_voice_should_stop_capture("unknown"));
+    }
+
+    #[test]
+    fn meeting_voice_derive_key_only_for_joined_with_e2ee() {
+        assert!(meeting_voice_should_derive_key("joined", true, 12345, false));
+        // 未启用 E2EE：不派生密钥
+        assert!(!meeting_voice_should_derive_key("joined", false, 12345, false));
+        // seed=0（未加入/未启用）：不派生密钥
+        assert!(!meeting_voice_should_derive_key("joined", true, 0, false));
+        // 已派生过密钥：幂等，不再重复派生
+        assert!(!meeting_voice_should_derive_key("joined", true, 12345, true));
+        // 非 joined 动作不派生密钥
+        assert!(!meeting_voice_should_derive_key("join", true, 12345, false));
+    }
+}
+
 pub struct Remote<T: InvokeUiSession> {
     handler: Session<T>,
     audio_sender: MediaSender,
@@ -61,7 +132,23 @@ pub struct Remote<T: InvokeUiSession> {
     sender: mpsc::UnboundedSender<Data>,
     // Stop sending local audio to remote client.
     stop_voice_call_sender: Option<std::sync::mpsc::Sender<()>>,
+    /// 会议语音（桌面成员）：本端麦克风采集线程的停止信号。
+    meeting_voice_capture_tx: Option<std::sync::mpsc::Sender<()>>,
+    /// 会议语音（桌面成员）：本机点聊 ID（join 时保存，采集帧携带）。
+    meeting_voice_member_id: String,
+    /// 会议语音（桌面成员）：独立下行音频线程（与远程协助 audio_sender 隔离，
+    /// 各自独立 cpal 播放流；帧按 member_id 分路解码混音）。
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    meeting_audio_sender: MediaSender,
     voice_call_request_timestamp: Option<NonZeroI64>,
+    /// 媒体 E2EE：accept 协商成功后从会话密钥派生的媒体帧密钥（主叫侧）。
+    voice_call_media_key: Option<secretbox::Key>,
+    /// 媒体 E2EE：对端（被叫）宣告的协议版本（选 v1/v2 帧格式）。
+    voice_call_peer_e2ee: i64,
+    /// PFS 升级（v3）：主叫侧 Noise NN 握手状态（发起时建，收到 msg2 完成）。
+    voice_noise_session: Option<crate::voice_call_e2ee::NoiseSession>,
+    /// 会议语音本端↔主持人链路媒体密钥（joined 确认 e2ee=true 时派生）。
+    meeting_voice_media_key: Option<secretbox::Key>,
  #[cfg(any(target_os = "android", target_os = "ios"))]
  voice_call_active: bool,
     read_jobs: Vec<fs::TransferJob>,
@@ -109,6 +196,8 @@ impl<T: InvokeUiSession> Remote<T> {
         Self {
             handler,
             audio_sender: crate::client::start_audio_thread(),
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            meeting_audio_sender: crate::client::start_meeting_audio_thread(),
             receiver,
             sender,
             read_jobs: Vec::new(),
@@ -121,9 +210,14 @@ impl<T: InvokeUiSession> Remote<T> {
             #[cfg(any(target_os = "windows", feature = "unix-file-copy-paste"))]
             client_conn_id: 0,
             data_count: Arc::new(AtomicUsize::new(0)),
-            video_format: CodecFormat::Unknown,
- stop_voice_call_sender: None,
+            video_format: CodecFormat::Unknown,            stop_voice_call_sender: None,
+ meeting_voice_capture_tx: None,
+ meeting_voice_member_id: String::new(),
  voice_call_request_timestamp: None,
+ voice_call_media_key: None,
+ voice_call_peer_e2ee: 0,
+ voice_noise_session: None,
+ meeting_voice_media_key: None,
  #[cfg(any(target_os = "android", target_os = "ios"))]
  voice_call_active: false,
             elevation_requested: false,
@@ -307,6 +401,19 @@ impl<T: InvokeUiSession> Remote<T> {
                             }
                         }
                         _ = status_timer.tick() => {
+                            // LUODA: 主叫端后端兜底 —— 呼出后 45s 内未收到对端应答
+                            // （被叫被杀/断网/来电 UI 丢失）则自动挂断，退出“呼叫中”，
+                            // 不再只依赖前端 Dart 45s 计时器。
+                            if let Some(ts) = self.voice_call_request_timestamp.as_ref() {
+                                if get_time() - ts.get() > 45_000 {
+                                    self.voice_call_request_timestamp = None;
+                                    log::debug!(
+                                        "Voice call request timed out without peer answer; auto hangup"
+                                    );
+                                    self.stop_voice_call();
+                                    self.handler.on_voice_call_closed("No answer");
+                                }
+                            }
                             let elapsed = fps_instant.elapsed().as_millis();
                             if elapsed < 1000 {
                                 continue;
@@ -349,6 +456,10 @@ impl<T: InvokeUiSession> Remote<T> {
                 log::debug!("Exit io_loop of id={}", self.handler.get_id());
                 // Stop client audio server.
                 if let Some(s) = self.stop_voice_call_sender.take() {
+                    s.send(()).ok();
+                }
+                // 停止会议语音采集（桌面成员）。
+                if let Some(s) = self.meeting_voice_capture_tx.take() {
                     s.send(()).ok();
                 }
                 if kcp.is_some() {
@@ -491,8 +602,17 @@ fn stop_voice_call(&mut self) {
         {
             return None;
         }
-        // iOS does not have this server.
-        #[cfg(not(any(target_os = "ios")))]
+        // Mobile voice media is captured by Dart VoiceCallAudio. Subscribing
+        // Rust audio here creates a second mic path and injects duplicate
+        // frames/echo on the caller side.
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        {
+            let (tx, _rx) = std::sync::mpsc::channel();
+            self.voice_call_active = true;
+            return Some(tx);
+        }
+
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
             // NOTE:
             // The client server and --server both use the same sound input device.
@@ -554,16 +674,8 @@ fn stop_voice_call(&mut self) {
                         }
                     }
                 }
- });
- #[cfg(any(target_os = "android", target_os = "ios"))]
- {
- self.voice_call_active = true;
- }
- return Some(tx);
-        }
-        #[cfg(target_os = "ios")]
-        {
-            None
+            });
+            return Some(tx);
         }
     }
 
@@ -594,7 +706,7 @@ fn stop_voice_call(&mut self) {
             Data::ToggleClipboardFile => {
                 self.check_clipboard_file_context();
             }
-            Data::Message(msg) => {
+            Data::Message(mut msg) => {
                 match &msg.union {
                     Some(message::Union::Misc(misc)) => match misc.union {
                         Some(misc::Union::RefreshVideo(_)) => {
@@ -610,6 +722,25 @@ fn stop_voice_call(&mut self) {
                         _ => {}
                     },
                     _ => {}
+                }
+                // 媒体 E2EE（主叫上行）：通话中的 AudioFrame 用协商密钥加密。
+                if let (Some(message::Union::AudioFrame(frame)), Some(key)) =
+                    (&mut msg.union, self.voice_call_media_key.as_ref())
+                {
+                    let encrypted = crate::voice_call_e2ee::encrypt_frame(
+                        key,
+                        &frame.data,
+                        self.voice_call_peer_e2ee,
+                    );
+                    frame.data = encrypted.into();
+                }
+                // 媒体 E2EE（会议语音成员上行）：MeetingAudioFrame 用本端↔
+                // 主持人链路密钥加密（主持人侧解密后按各目标链路重加密）。
+                if let (Some(message::Union::MeetingAudioFrame(frame)), Some(key)) =
+                    (&mut msg.union, self.meeting_voice_media_key.as_ref())
+                {
+                    let encrypted = crate::voice_call_e2ee::encrypt_frame(key, &frame.data, 2);
+                    frame.data = encrypted.into();
                 }
                 allow_err!(peer.send(&msg).await);
             }
@@ -1008,7 +1139,22 @@ fn stop_voice_call(&mut self) {
                 self.elevation_requested = true;
             }
             Data::NewVoiceCall => {
-                let msg = new_voice_call_request(true);
+                // PFS 升级（v3）：主叫生成 Noise NN msg1 随请求发出，
+                // 被叫支持则回 msg2，完成握手后媒体密钥改为 PFS 密钥。
+                // 握手失败（旧端/异常）自动回退 v2 派生，不阻塞通话。
+                self.voice_noise_session = None;
+                let noise_msg1 = match crate::voice_call_e2ee::NoiseSession::initiator_start() {
+                    Ok((session, msg1)) => {
+                        self.voice_noise_session = Some(session);
+                        log::info!("[E2EE] noise msg1 prepared (PFS)");
+                        Some(msg1)
+                    }
+                    Err(e) => {
+                        log::warn!("[E2EE] noise initiator failed: {}, fallback v2", e);
+                        None
+                    }
+                };
+                let msg = new_voice_call_request(true, noise_msg1);
                 // Save the voice call request timestamp for the further validation.
                 self.voice_call_request_timestamp = Some(
                     NonZeroI64::new(msg.voice_call_request().req_timestamp)
@@ -1018,8 +1164,12 @@ fn stop_voice_call(&mut self) {
                 self.handler.on_voice_call_waiting();
             }
  Data::CloseVoiceCall => {
+ self.voice_call_request_timestamp = None;
+ self.voice_call_media_key = None;
+ self.voice_call_peer_e2ee = 0;
+ self.voice_noise_session = None;
  self.stop_voice_call();
- let msg = new_voice_call_request(false);
+ let msg = new_voice_call_request(false, None);
  self.handler
  .on_voice_call_closed("Closed manually by the peer");
  allow_err!(peer.send(&msg).await);
@@ -1783,7 +1933,16 @@ fn stop_voice_call(&mut self) {
                 }
                 Some(message::Union::Misc(misc)) => match misc.union {
                     Some(misc::Union::AudioFormat(f)) => {
+                        // LUODA: 移动端没有 cpal 输出；语音播放由 Dart(opus_dart)
+                        // 完成，Rust 侧初始化 audio_sender 无意义且可能尝试 cpal。
+                        // 桌面端才需要该格式初始化解码器/声卡。
+                        #[cfg(not(any(target_os = "android", target_os = "ios")))]
                         self.audio_sender.send(MediaData::AudioFormat(f)).ok();
+                        #[cfg(any(target_os = "android", target_os = "ios"))]
+                        {
+                            let _ = f;
+                            log::debug!("Ignore Misc::AudioFormat on mobile io_loop (Dart audio path)");
+                        }
                     }
  Some(misc::Union::ChatMessage(c)) => {
  self.handler.new_message(c.text.clone());
@@ -2139,7 +2298,13 @@ fn stop_voice_call(&mut self) {
                 Some(message::Union::TestDelay(t)) => {
                     self.handler.handle_test_delay(t, peer).await;
                 }
- Some(message::Union::AudioFrame(frame)) => {
+ Some(message::Union::AudioFrame(mut frame)) => {
+ // 媒体 E2EE（主叫下行）：通话中接收的帧先解密（明文帧透传）。
+ if let Some(key) = self.voice_call_media_key.as_ref() {
+ if let Some(pt) = crate::voice_call_e2ee::decrypt_frame(key, &frame.data) {
+ frame.data = pt.into();
+ }
+ }
  // On mobile, Opus decoding happens in Dart (opus_dart) since the
  // Rust Opus stub cannot decode. When a voice call is active, push
  // raw Opus bytes to Flutter and skip the normal audio path.
@@ -2216,15 +2381,199 @@ fn stop_voice_call(&mut self) {
                     self.handler
                         .msgbox(&msgbox.msgtype, &msgbox.title, &msgbox.text, &link);
                 }
+                Some(message::Union::MeetingAudioFrame(frame)) => {
+                    // 会议语音（成员视角）：主持人转发来的其他成员 Opus 帧。
+                    // 本端↔主持人链路 E2EE：解密后按明文分路播放；带加密
+                    // 前缀但解密失败（篡改/密钥失配）丢弃防杂音。
+                    let mut data = frame.data.to_vec();
+                    if let Some(key) = self.meeting_voice_media_key.as_ref() {
+                        if let Some(pt) = crate::voice_call_e2ee::decrypt_frame(key, &data) {
+                            data = pt;
+                        } else if data.first().map(|b| *b == 0x01 || *b == 0x02).unwrap_or(false)
+                        {
+                            log::warn!(
+                                "[MEETING] member decrypt failed member={}",
+                                frame.member_id
+                            );
+                            data.clear();
+                        }
+                    }
+                    if data.is_empty() {
+                        return true;
+                    }
+                    // 移动端交给 Dart 按 member_id 分路解码混音播放。
+                    #[cfg(any(target_os = "android", target_os = "ios"))]
+                    self.handler.on_meeting_audio_frame(&frame.member_id, &data);
+                    // 桌面端：独立会议音频线程（不与远程协助 audio_sender 共用
+                    // 播放流）；帧按 member_id 分路解码、混音后播放。
+                    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+                    {
+                        let mut dec = hbb_common::message_proto::MeetingAudioFrame::new();
+                        dec.member_id = frame.member_id.clone();
+                        dec.data = data.into();
+                        allow_err!(self
+                            .meeting_audio_sender
+                            .send(MediaData::MeetingAudio(Box::new(dec))));
+                    }
+                }
+                Some(message::Union::MeetingVoiceControl(ctrl)) => {
+                    // 会议语音 E2EE：joined 确认（member_id = 本端且 e2ee=true）
+                    // 时，用 (会话密钥, join seed) 派生本端↔主持人媒体密钥；
+                    // 后续上行帧据此加密、下行帧据此解密。
+                    // 本端已 join（seed>0）且主持人回发/广播的 joined 确认链路
+                    // 加密时，用 (会话密钥, seed) 派生本端媒体密钥。幂等：首次
+                    // 派生后即存在，后续广播不再重复（密钥与 1:1 通话同源）。
+                    let seed = self.handler.lc.read().unwrap().meeting_voice_e2ee_seed;
+                        if meeting_voice_should_derive_key(
+                            &ctrl.action, ctrl.media_e2ee, seed, self.meeting_voice_media_key.is_some(),
+                        ) {
+                            if let Some(session_key) = peer.encryption_key() {
+                                let media_key = crate::voice_call_e2ee::derive_media_key(
+                                    &session_key, seed,
+                                );
+                                log::info!(
+                                    "[MEETING] member e2ee enabled seed={}",
+                                    seed
+                                );
+                                self.meeting_voice_media_key = Some(media_key);
+                            }
+                        }
+                    // 移动端：主持人广播的参会状态交给 Dart 同步。
+                    #[cfg(any(target_os = "android", target_os = "ios"))]
+                    self.handler.on_meeting_voice_control(
+                        &ctrl.action,
+                        &ctrl.meeting_id,
+                        &ctrl.member_id,
+                        &ctrl.member_name,
+                        ctrl.media_e2ee,
+                    );
+                    // 桌面端：join 启动本机麦克风采集（帧 → MeetingAudioFrame 上行），
+                    // leave/end 停止采集；同时把控制事件交给 Dart 同步参会列表/退出。
+                    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+                    {
+                        match ctrl.action.as_str() {
+                            "join" => {
+                                if meeting_voice_should_start_capture(
+                                    &ctrl.action, self.meeting_voice_capture_tx.is_some(), &ctrl.member_id,
+                                ) {
+                                    self.meeting_voice_member_id =
+                                        ctrl.member_id.trim().to_string();
+                                    let member_id = self.meeting_voice_member_id.clone();
+                                    let tx_audio = self.sender.clone();
+                                    let stop = crate::meeting_audio::start_capture(
+                                        move |data| {
+                                            let mut frame = MeetingAudioFrame::new();
+                                            frame.member_id = member_id.clone();
+                                            frame.data = data.into();
+                                            let mut msg = Message::new();
+                                            msg.set_meeting_audio_frame(frame);
+                                            tx_audio.send(Data::Message(msg)).ok();
+                                        },
+                                    );
+                                    self.meeting_voice_capture_tx = Some(stop);
+                                    log::info!(
+                                        "[MEETING] desktop member capture started id={}",
+                                        ctrl.member_id
+                                    );
+                                }
+                            }
+                            "leave" | "end" => {
+                                if meeting_voice_should_stop_capture(&ctrl.action) {
+                                    if let Some(s) = self.meeting_voice_capture_tx.take() {
+                                        s.send(()).ok();
+                                        log::info!(
+                                            "[MEETING] desktop member capture stopped ({})",
+                                            ctrl.action
+                                        );
+                                    }
+                                }
+                                // 清除媒体密钥，下次 join 时需重新派生（新会话/新 seed）。
+                                self.meeting_voice_media_key = None;
+                            }
+                            _ => {}
+                        }
+                        self.handler.on_meeting_voice_control(
+                            &ctrl.action,
+                            &ctrl.meeting_id,
+                            &ctrl.member_id,
+                            &ctrl.member_name,
+                            ctrl.media_e2ee,
+                        );
+                    }
+                }
                 Some(message::Union::VoiceCallRequest(request)) => {
                     if request.is_connect {
-                        // TODO: maybe we will do a voice call from the peer in the future.
+                        // P2P 直连场景的来电：直连时信令不经过服务器，这里与
+                        // 服务器推送（connection.rs）保持一致，带完整 client
+                        // 信息（peer_id/name/…）推送 update_voice_call_state，
+                        // 否则被叫端 Flutter 收不到来电（或匹配不上主叫会话）。
+                        #[cfg(any(target_os = "android", target_os = "ios"))]
+                        {
+                            let (peer_id, name) = {
+                                let lc = self.handler.lc.read().unwrap();
+                                (
+                                    lc.peer_info
+                                        .as_ref()
+                                        .map(|p| p.peer_id.clone())
+                                        .unwrap_or_default(),
+                                    lc.peer_info
+                                        .as_ref()
+                                        .map(|p| p.username.clone())
+                                        .unwrap_or_default(),
+                                )
+                            };
+                            let session_id = self.handler.lc.read().unwrap().session_id;
+                            let client_map = serde_json::json!({
+                                "id": session_id,
+                                "authorized": true,
+                                "disconnected": false,
+                                "is_file_transfer": false,
+                                "is_chat": true,
+                                "is_view_camera": false,
+                                "is_terminal": false,
+                                "port_forward": "",
+                                "name": name,
+                                "avatar": "",
+                                "peer_id": peer_id,
+                                "keyboard": false,
+                                "clipboard": false,
+                                "audio": false,
+                                "file": false,
+                                "restart": false,
+                                "recording": false,
+                                "block_input": false,
+                                "viewer": false,
+                                "from_switch": false,
+                                "in_voice_call": false,
+                                "incoming_voice_call": true,
+                                "media_e2ee": false,
+                                "chat_message_revision": 0,
+                            });
+                            let client_json = serde_json::ser::to_string(&client_map)
+                                .unwrap_or_default();
+                            let evt = serde_json::json!({
+                                "name": "update_voice_call_state",
+                                "client": client_json,
+                            })
+                            .to_string();
+                            crate::flutter::push_global_event(
+                                crate::flutter::APP_TYPE_MAIN,
+                                evt,
+                            );
+                        }
+                        // 兼容旧客户端：无参来电事件兜底（驱动铃声）。
+                        self.handler.on_voice_call_incoming();
                     } else {
                         log::debug!("The remote has requested to close the voice call");
+                        self.voice_call_media_key = None;
+ self.voice_call_peer_e2ee = 0;
                         if let Some(sender) = self.stop_voice_call_sender.take() {
                             allow_err!(sender.send(()));
-                            self.handler.on_voice_call_closed("");
                         }
+                        // 无论 Rust 音频路径是否占用（移动端 Dart VoiceCallAudio
+                        // 不走 stop_voice_call_sender），收到对端挂断都必须复位
+                        // UI 通话状态，否则被叫方永远卡在通话界面无法退出。
+                        self.handler.on_voice_call_closed("");
                     }
                 }
                 Some(message::Union::VoiceCallResponse(response)) => {
@@ -2234,11 +2583,75 @@ fn stop_voice_call(&mut self) {
                             log::debug!("Possible encountering a voice call attack.");
                         } else {
                             if response.accepted {
+                                // 媒体 E2EE 协商。优先 PFS 升级（v3）：被叫回了
+                                // noise_msg（msg2）则完成 Noise NN 握手，媒体
+                                // 密钥从 handshake hash 派生（前向保密，与传输
+                                // 层会话密钥解耦）。握手失败/旧端自动回退 v2。
+                                let mut pfs = false;
+                                if !response.noise_msg.is_empty() {
+                                    if let Some(session) = self.voice_noise_session.as_mut() {
+                                        match session.initiator_finish(&response.noise_msg, ts.get()) {
+                                            Ok(key) => {
+                                                log::info!(
+                                                    "[E2EE] noise handshake complete (PFS caller) peer_v={}",
+                                                    response.media_e2ee_version
+                                                );
+                                                self.voice_call_media_key = Some(key);
+                                                pfs = true;
+                                            }
+                                            Err(e) => {
+                                                log::warn!("[E2EE] noise finish failed: {}, fallback v2", e);
+                                            }
+                                        }
+                                    } else {
+                                        log::warn!("[E2EE] noise msg2 but no session state, fallback v2");
+                                    }
+                                }
+                                if !pfs && response.media_e2ee_version > 0 {
+                                    if let Some(session_key) = peer.encryption_key() {
+                                        let media_key = crate::voice_call_e2ee::derive_media_key(
+                                            &session_key,
+                                            ts.get(),
+                                        );
+                                        log::info!(
+                                            "[E2EE] media e2ee enabled (caller v2) peer_v={}",
+                                            response.media_e2ee_version
+                                        );
+                                        self.voice_call_media_key = Some(media_key);
+                                    } else {
+                                        log::warn!(
+                                            "[E2EE] no session key on caller stream, fallback plaintext"
+                                        );
+                                        self.voice_call_media_key = None;
+ self.voice_call_peer_e2ee = 0;
+                                    }
+                                } else if !pfs {
+                                    log::debug!(
+                                        "[E2EE] callee v0, media e2ee not enabled (caller)"
+                                    );
+                                    self.voice_call_media_key = None;
+ self.voice_call_peer_e2ee = 0;
+                                }
+                                self.voice_noise_session = None;
+                                self.voice_call_peer_e2ee = response.media_e2ee_version;
                                 // The peer accepted the voice call.
-                                self.handler.on_voice_call_started();
+                                // E2EE 状态随事件带给 Dart（通话 UI 加密标识）。
+                                self.handler
+                                    .on_voice_call_started(self.voice_call_media_key.is_some());
                                 self.stop_voice_call_sender = self.start_voice_call();
+                                // LUODA: 移动端主叫的上行音频是 Dart Opus 48kHz
+                                // 单声道且只携带 AudioFrame。桌面被叫的 Rust 解码器
+                                // 须先收到 Misc::AudioFormat 才能初始化声卡输出，
+                                // 否则 PC 听不到手机声音。桌面主叫不需要，因为其
+                                // audio_service 上行自带 AudioFormat。
+                                #[cfg(any(target_os = "android", target_os = "ios"))]
+                                {
+                                    let fmt_msg = new_voice_call_audio_format();
+                                    allow_err!(peer.send(&fmt_msg).await);
+                                }
                             } else {
                                 // The peer refused the voice call.
+                                self.voice_noise_session = None;
                                 self.handler.on_voice_call_closed("");
                             }
                         }

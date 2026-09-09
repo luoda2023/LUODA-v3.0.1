@@ -77,6 +77,12 @@ mod ui_cm_interface;
 mod ui_interface;
 mod ui_session_interface;
 
+/// 语音/视频通话媒体帧端到端加密（务实 E2EE v1）。
+mod voice_call_e2ee;
+
+/// 会议语音（star 汇聚）hub：主持人转发各成员 Opus 帧。
+mod meeting_audio;
+
 mod hbbs_http;
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]

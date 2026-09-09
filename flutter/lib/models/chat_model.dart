@@ -1,47 +1,85 @@
 import 'dart:async';
+
 import 'dart:convert';
+
 import 'dart:io';
+
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+
 import 'package:dash_chat_2/dash_chat_2.dart';
+
 import 'package:desktop_multi_window/desktop_multi_window.dart';
+
 import 'package:draggable_float_widget/draggable_float_widget.dart';
+
 import 'package:flutter/material.dart';
+
 import 'package:flutter/services.dart';
+
 import 'package:luoda_flutter/common/shared_state.dart';
+
 import 'package:luoda_flutter/desktop/widgets/tabbar_widget.dart';
+
 import 'package:luoda_flutter/mobile/pages/home_page.dart';
+
 import 'package:luoda_flutter/models/platform_model.dart';
+
 import 'package:luoda_flutter/models/ai_config_model.dart';
+
 import 'package:luoda_flutter/models/server_model.dart';
+
 import 'package:luoda_flutter/models/state_model.dart';
+
 import 'package:get/get.dart';
+
 import 'package:uuid/uuid.dart';
+
 import 'package:window_manager/window_manager.dart';
+
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../consts.dart';
+
 import 'package:luoda_flutter/common/voice_call_audio.dart';
+
 import 'package:luoda_flutter/common/voice_call_quality.dart';
+
 import '../common.dart';
+
 import '../runtime_logger.dart';
+
 import '../common/direct_chat.dart';
+
 import '../common/relay_bridge.dart';
+
 import '../common/email_draft_service.dart';
+
 import 'meeting_group_model.dart';
+
 import '../common/string_utils.dart';
+import '../common/formatter/call_duration.dart';
+
 import '../common/direct_pairing.dart';
+
 import '../common/direct_chat_policy.dart';
+
 import '../common/backup_restore.dart';
+
 import '../common/direct_voice_storage.dart';
+
 import '../common/chat_notifier.dart';
+
 import '../common/widgets/overlay.dart';
+
 import 'model.dart';
 
 class MessageKey {
   final String peerId;
+
   final int connId;
+
   bool get isOut => connId == ChatModel.clientModeID;
 
   MessageKey(this.peerId, this.connId);
@@ -57,7 +95,9 @@ class MessageKey {
 
 class MessageBody {
   ChatUser chatUser;
+
   List<ChatMessage> chatMessages;
+
   MessageBody(this.chatUser, this.chatMessages);
 
   void insert(ChatMessage cm) {
@@ -69,76 +109,189 @@ class MessageBody {
   }
 }
 
+/// 会议语音参会成员（含说话状态）。
+
+class MeetingVoiceMember {
+  final String id;
+
+  final String name;
+
+  /// 最近一次音频帧到达时间（说话检测用）。
+
+  DateTime lastFrameAt;
+
+  bool speaking;
+
+  /// 该成员↔主持人链路的媒体 E2EE 状态（hub 广播携带，锁图标显示）。
+
+  bool e2ee;
+
+  MeetingVoiceMember({required this.id, required this.name, this.e2ee = false})
+      : lastFrameAt = DateTime.now(),
+        speaking = false;
+}
+
 class ChatModel with ChangeNotifier {
   static final clientModeID = -1;
 
   // 直连聊天保活策略：
+
   // - 空闲（未收发消息）超过 [kChatKeepAlive] 后允许断开连接，节省资源。
+
   // - 断开后按 [kChatReconnectInterval] 周期自动重连，用于拉取对方可能发来的消息。
+
   static const Duration kChatKeepAlive = Duration(minutes: 10);
+
   static const Duration kChatReconnectInterval = Duration(seconds: 10);
 
   OverlayEntry? chatIconOverlayEntry;
+
   OverlayEntry? chatWindowOverlayEntry;
 
   bool isConnManager = false;
 
   RxBool isWindowFocus = true.obs;
+
   BlockableOverlayState _blockableOverlayState = BlockableOverlayState();
+
   final Rx<VoiceCallStatus> _voiceCallStatus = Rx(VoiceCallStatus.notStarted);
- /// Mobile-only: manages Opus encode/decode and PCM capture/playback.
- /// Null on desktop (desktop uses Rust cpal + magnum_opus path).
- VoiceCallAudio? _voiceCallAudio;
- /// Network quality monitor for active voice calls.
- final VoiceCallQuality _voiceCallQuality = VoiceCallQuality();
- /// Rx string for UI to show network quality status (empty = good).
- final RxString _voiceCallQualityStatus = ''.obs;
 
- RxString get voiceCallQualityStatus => _voiceCallQualityStatus;
+  /// Mobile-only: manages Opus encode/decode and PCM capture/playback.
 
- /// Host/callee side: conn id of the incoming Connection carrying this voice call.
- /// >0 -> this device is the CALLEE (host). Dart Opus MUST go via
- /// cmSendVoiceCallAudio (CLIENTS[id].tx -> host Connection -> caller) because
- /// no FlutterSession exists and sessionSendVoiceCallAudio would silently drop.
- /// 0 -> caller/client: use sessionSendVoiceCallAudio(FlutterSession).
- int _activeCallConnId = 0;
+  /// Null on desktop (desktop uses Rust cpal + magnum_opus path).
 
- void setVoiceCallConnId(int connId) => _activeCallConnId = connId;
- void clearVoiceCallConnId() => _activeCallConnId = 0;
+  VoiceCallAudio? _voiceCallAudio;
+
+  /// 提示音播放中的状态标记，防止同一事件重复到达时闪断/重响。
+
+  String _activeTone = ''; // '' | 'ring' | 'ringback'
+
+  /// 当前通话是否端到端加密（媒体帧 secretbox）：主叫由
+
+  /// on_voice_call_started 事件参数写入；被叫查 serverModel client.media_e2ee。
+
+  bool _voiceCallMediaE2ee = false;
+
+  /// Network quality monitor for active voice calls.
+
+  final VoiceCallQuality _voiceCallQuality = VoiceCallQuality();
+
+  /// Rx string for UI to show network quality status (empty = good).
+
+  final RxString _voiceCallQualityStatus = ''.obs;
+
+  RxString get voiceCallQualityStatus => _voiceCallQualityStatus;
+
+  /// 通话是否端到端加密（UI 加密标识）。主叫标记优先；
+
+  /// 被叫由 update_voice_call_state 的 client.media_e2ee 同步。
+
+  bool get voiceCallMediaE2ee {
+    if (_voiceCallMediaE2ee) return true;
+
+    try {
+      for (final c in gFFI.serverModel.clients) {
+        if ((c.inVoiceCall || c.incomingVoiceCall) && c.mediaE2ee) {
+          return true;
+        }
+      }
+    } catch (_) {}
+
+    return false;
+  }
+
+  /// Host/callee side: conn id of the incoming Connection carrying this voice call.
+
+  /// >0 -> this device is the CALLEE (host). Dart Opus MUST go via
+
+  /// cmSendVoiceCallAudio (CLIENTS[id].tx -> host Connection -> caller) because
+
+  /// no FlutterSession exists and sessionSendVoiceCallAudio would silently drop.
+
+  /// 0 -> caller/client: use sessionSendVoiceCallAudio(FlutterSession).
+
+  int _activeCallConnId = 0;
+
+  void setVoiceCallConnId(int connId) => _activeCallConnId = connId;
+
+  void clearVoiceCallConnId() => _activeCallConnId = 0;
+
+  /// 当前/最近一次通话的对端 peer id（通话结束灰气泡落库用）。
+
+  String _voiceCallPeerId = '';
+
+  /// 通话接通时刻；null = 本次呼叫未接通（不上报通话记录）。
+
+  DateTime? _voiceCallStartedAt;
+
+  /// 本次通话是否为视频通话（接通时从 serverModel 推断）。
+
+  bool _voiceCallWasVideo = false;
+
+  /// 本端是否处于“来电方”（被叫）视角：未接/拒绝时用于落“未接来电”灰气泡。
+
+  bool _voiceCallWasIncoming = false;
+
+  void setVoiceCallPeerId(String peerId) {
+    if (peerId != null && peerId.isNotEmpty) _voiceCallPeerId = peerId;
+  }
+
+  /// >0 表示本端是通话被叫/被控端（host）：没有 FlutterSession，音频
+
+  /// 需经 cmSendVoiceCallAudio(host Connection) 上行。
+
+  int get activeCallConnId => _activeCallConnId;
 
   /// 通话/远程会话建立期间暂停点聊 keep-alive 自动重拨，
+
   /// 防止保活会话抢占移动端单例 FFI 导致通话拨号冲突。
+
   bool pauseKeepAlive = false;
 
   /// 语音“呼叫中”等待对端应答的超时定时器。
+
   Timer? _voiceCallWaitingTimer;
+
   static const Duration kVoiceCallWaitTimeout = Duration(seconds: 45);
 
   Rx<VoiceCallStatus> get voiceCallStatus => _voiceCallStatus;
 
   TextEditingController textController = TextEditingController();
+
   RxInt mobileUnreadSum = 0.obs;
+
   MessageKey? latestReceivedKey;
 
   // Conversation-level search state
+
   String chatSearchText = '';
+
   bool chatSearchVisible = false;
+
   final TextEditingController chatSearchController = TextEditingController();
+
   final FocusNode chatSearchFocusNode = FocusNode(debugLabel: 'chat-search');
+
   int _chatSearchMatchIndex = 0;
+
   final Map<String, GlobalKey> _chatSearchMessageKeys = <String, GlobalKey>{};
 
   List<ChatMessage> get chatSearchMatches {
     if (chatSearchText.trim().isEmpty) return const <ChatMessage>[];
+
     final messages = _messages[_currentKey]?.chatMessages ?? <ChatMessage>[];
+
     return messages.where(isChatSearchMatch).toList(growable: false);
   }
 
   bool isChatSearchMatch(ChatMessage message) {
     final query = chatSearchText.trim().toLowerCase();
+
     if (query.isEmpty) return false;
+
     final fileName =
         (message.customProperties?['ldesk_file_name'] ?? '').toString();
+
     return message.text.toLowerCase().contains(query) ||
         fileName.toLowerCase().contains(query);
   }
@@ -147,8 +300,11 @@ class ChatModel with ChangeNotifier {
 
   ChatMessage? get currentChatSearchMatch {
     final matches = chatSearchMatches;
+
     if (matches.isEmpty) return null;
+
     final index = _chatSearchMatchIndex.clamp(0, matches.length - 1);
+
     return matches[index];
   }
 
@@ -157,32 +313,48 @@ class ChatModel with ChangeNotifier {
 
   bool get canSelectNextChatSearchResult {
     final matches = chatSearchMatches;
+
     return matches.isNotEmpty && _chatSearchMatchIndex < matches.length - 1;
   }
 
   // Draft management: per-conversation unsent text
+
   final Map<String, String> _drafts = {};
 
   // Quote reply state
+
   ChatMessage? _replyToMessage;
+
   ChatMessage? get replyToMessage => _replyToMessage;
 
   // Reconnect status
+
   bool _isReconnecting = false;
+
   String _reconnectPeerId = '';
+
   bool get isReconnecting => _isReconnecting;
+
   String get reconnectPeerId => _reconnectPeerId;
 
   // Multi-select mode
+
   bool _multiSelectMode = false;
+
   final Set<String> _selectedMessageIds = {};
+
   // Shift+点击连续多选的锚点（上一次点击/选中的消息 id）。
+
   String? _anchorMessageId;
+
   bool get isMultiSelectMode => _multiSelectMode;
+
   Set<String> get selectedMessageIds => _selectedMessageIds;
 
   static const int _maxCachedTranslations = 500;
+
   final Map<String, String> _messageTranslations = <String, String>{};
+
   final Set<String> _pendingMessageTranslations = <String>{};
 
   String? messageTranslation(String messageId) =>
@@ -195,19 +367,25 @@ class ChatModel with ChangeNotifier {
     if (messageId.isEmpty || !_pendingMessageTranslations.add(messageId)) {
       return false;
     }
+
     notifyListeners();
+
     return true;
   }
 
   void completeMessageTranslation(String messageId, String translated) {
     _pendingMessageTranslations.remove(messageId);
+
     final value = sanitizeInvalidUtf16(translated).trim();
+
     if (messageId.isNotEmpty && value.isNotEmpty) {
       _messageTranslations[messageId] = value;
+
       while (_messageTranslations.length > _maxCachedTranslations) {
         _messageTranslations.remove(_messageTranslations.keys.first);
       }
     }
+
     notifyListeners();
   }
 
@@ -216,33 +394,52 @@ class ChatModel with ChangeNotifier {
   }
 
   // Typing indicator state (peer → us)
+
   final Map<String, DateTime> _peerTypingTimestamps = {};
+
   DateTime _lastTypingSent = DateTime.fromMillisecondsSinceEpoch(0);
+
   static const _typingThrottle = Duration(seconds: 2);
+
   static const _typingExpire = Duration(seconds: 5);
 
   void openChatSearch() {
     if (chatSearchVisible) {
       _requestChatSearchFocus();
+
       return;
     }
+
     chatSearchVisible = true;
+
     chatSearchText = '';
+
     _chatSearchMatchIndex = 0;
+
     _chatSearchMessageKeys.clear();
+
     chatSearchController.clear();
+
     notifyListeners();
+
     _requestChatSearchFocus();
   }
 
   void closeChatSearch() {
     if (!chatSearchVisible) return;
+
     chatSearchVisible = false;
+
     chatSearchText = '';
+
     _chatSearchMatchIndex = 0;
+
     _chatSearchMessageKeys.clear();
+
     chatSearchController.clear();
+
     chatSearchFocusNode.unfocus();
+
     notifyListeners();
   }
 
@@ -264,15 +461,21 @@ class ChatModel with ChangeNotifier {
 
   void selectPreviousChatSearchResult() {
     if (!canSelectPreviousChatSearchResult) return;
+
     _chatSearchMatchIndex -= 1;
+
     notifyListeners();
+
     _focusCurrentChatSearchResult();
   }
 
   void selectNextChatSearchResult() {
     if (!canSelectNextChatSearchResult) return;
+
     _chatSearchMatchIndex += 1;
+
     notifyListeners();
+
     _focusCurrentChatSearchResult();
   }
 
@@ -285,6 +488,7 @@ class ChatModel with ChangeNotifier {
 
   bool isCurrentChatSearchResult(ChatMessage message) {
     final current = currentChatSearchMatch;
+
     return current != null &&
         _chatSearchIdentity(current) == _chatSearchIdentity(message);
   }
@@ -292,17 +496,23 @@ class ChatModel with ChangeNotifier {
   String _chatSearchIdentity(ChatMessage message) {
     final storedId =
         (message.customProperties?['ldesk_id'] ?? '').toString().trim();
+
     if (storedId.isNotEmpty) return storedId;
+
     return '${message.createdAt.microsecondsSinceEpoch}:${message.user.id}:${message.text.hashCode}';
   }
 
   void _focusCurrentChatSearchResult() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final message = currentChatSearchMatch;
+
       if (message == null) return;
+
       final targetContext =
           _chatSearchMessageKeys[_chatSearchIdentity(message)]?.currentContext;
+
       if (targetContext == null) return;
+
       Scrollable.ensureVisible(
         targetContext,
         alignment: 0.5,
@@ -313,38 +523,54 @@ class ChatModel with ChangeNotifier {
   }
 
   /// Whether the given peer is currently typing (within expiry window).
+
   bool isPeerTyping(String peerId) {
     final ts = _peerTypingTimestamps[peerId];
+
     if (ts == null) return false;
+
     return DateTime.now().difference(ts) < _typingExpire;
   }
 
   /// Called by the text input onChange to signal that we are typing.
+
   Future<void> signalTyping() async {
     final now = DateTime.now();
+
     if (now.difference(_lastTypingSent) < _typingThrottle) return;
+
     _lastTypingSent = now;
+
     final key = _currentKey;
+
     if (key.peerId.isEmpty) return;
+
     _sendWire(key, DirectChatEnvelope.typing().encode());
   }
 
   /// Handle incoming typing indicator from a peer.
+
   void _onPeerTyping(String peerId) {
     _peerTypingTimestamps[peerId] = DateTime.now();
+
     notifyListeners();
   }
 
   void updateChatSearch(String text) {
     chatSearchText = text;
+
     _chatSearchMatchIndex = 0;
+
     if (chatSearchController.text != text) {
       chatSearchController.text = text;
+
       chatSearchController.selection = TextSelection.fromPosition(
         TextPosition(offset: text.length),
       );
     }
+
     notifyListeners();
+
     _focusCurrentChatSearchResult();
   }
 
@@ -352,22 +578,32 @@ class ChatModel with ChangeNotifier {
 
   void setChatWindowPosition(Offset position) {
     chatWindowPosition = position;
+
     notifyListeners();
   }
 
   @override
   void dispose() {
     DirectChatRepository.instance.revision.removeListener(_onStoreRevision);
+
     _storeRevisionTimer?.cancel();
+
     _externalChatPollTimer?.cancel();
+
     _relayCutbackTimer?.cancel();
+
     for (final timer in _selfDestructTimers.values) {
       timer.cancel();
     }
+
     _selfDestructTimers.clear();
+
     textController.dispose();
+
     chatSearchController.dispose();
+
     chatSearchFocusNode.dispose();
+
     super.dispose();
   }
 
@@ -376,88 +612,134 @@ class ChatModel with ChangeNotifier {
   late final Map<MessageKey, MessageBody> _messages = {};
 
   /// Max messages to display per conversation. Older messages can be loaded
+
   /// on demand when the user scrolls to the top.
+
   static const int _kInitialMessageLimit = 100;
+
   static const int _kPageSize = 50;
 
   /// Caches full record lists per conversation for "load older" pagination.
+
   final Map<String, List<DirectChatRecord>> _conversationRecords = {};
+
   final Map<int, String> _activeCompanionSecrets = <int, String>{};
+
   final Map<String, _IncomingVoiceTransfer> _incomingVoiceTransfers =
       <String, _IncomingVoiceTransfer>{};
+
   final Map<String, Timer> _selfDestructTimers = <String, Timer>{};
+
   // 送达看门狗：发出后一段时间未收到回执则强制重建连接并重发。
+
   final Map<String, Timer> _deliveryWatchdogs = <String, Timer>{};
+
   final Map<String, int> _deliveryWatchdogRetries = <String, int>{};
+
   /// 中继→直连自动回切定时器（P2P 优先：能直连绝不长期占用中继）。
+
   Timer? _relayCutbackTimer;
+
   /// 已发起回切尝试的 peer 冷却（避免每次 tick 都重拨）。
+
   final Map<String, DateTime> _relayCutbackCooldown = <String, DateTime>{};
+
   final Set<String> _flushingPeers = <String>{};
 
   /// 拨号中防重入：短时间内对同一会话只允许一次建连操作，
+
   /// 避免保活 / 看门狗互相打断正在建立的会话。
+
   static final Map<String, DateTime> _dialingAt = <String, DateTime>{};
 
   static bool isDialing(String peerId) {
     final at = _dialingAt[peerId];
+
     if (at == null) return false;
+
     if (DateTime.now().difference(at) > const Duration(seconds: 25)) {
       _dialingAt.remove(peerId);
+
       return false;
     }
+
     return true;
   }
 
   static void markDialing(String peerId) => _dialingAt[peerId] = DateTime.now();
 
   static void clearDialing(String peerId) => _dialingAt.remove(peerId);
+
   bool _activeCompanionSyncInProgress = false;
+
   Future<void>? _recentRestoreTask;
+
   bool _recentRestoreQueued = false;
 
   // 每个会话最后收发消息的时间，用于保活 / 空闲超时判断。
+
   final Map<String, DateTime> _lastChatActivity = {};
+
   // 发送消息但当前无可用连接时，由页面层提供一个“建立直连会话”的回调，
+
   // 确保消息能尽快送达（连上后 onDirectSessionReady 会自动重发 pending）。
+
   Future<void> Function(String peerId, {bool force})? ensureChatConnection;
+
   /// Returns a direct chat session FFI instance for [peerId], if one is live.
+
   dynamic Function(String peerId)? findDirectSession;
 
   // Cached live incoming chat client (hosted by the connection-manager
+
   // process on Windows) that can carry replies to [peerId]. Refreshed before
+
   // every send so a reply to an incoming message is routed over the peer's
+
   // existing connection instead of staying queued forever.
+
   String _cmLiveChatPeerId = '';
+
   int _cmLiveChatConnId = 0;
 
   void _touchChatActivity(String peerId) {
     final id = peerId.trim();
+
     if (id.isEmpty) return;
+
     _lastChatActivity[id] = DateTime.now();
   }
 
   /// 会话在保活时间窗口内（最近收发过消息）返回 true。
+
   bool isChatActive(String peerId) {
     final last = _lastChatActivity[peerId.trim()];
+
     if (last == null) return false;
+
     return DateTime.now().difference(last) < kChatKeepAlive;
   }
 
   /// 返回活动时间最近（最可能需要保持/恢复连接）的会话 peerId，移动端单连接场景使用。
+
   String? get lastActiveChatPeerId {
     String? best;
+
     DateTime? bestTime;
+
     for (final entry in _lastChatActivity.entries) {
       if (bestTime == null || entry.value.isAfter(bestTime)) {
         bestTime = entry.value;
+
         best = entry.key;
       }
     }
+
     return best;
   }
 
   MessageKey _currentKey = MessageKey('', -2); // -2 is invalid value
+
   late bool _isShowCMSidePage = false;
 
   Map<MessageKey, MessageBody> get messages => _messages;
@@ -472,6 +754,7 @@ class ChatModel with ChangeNotifier {
     _blockableOverlayState.addMiddleBlockedListener((v) {
       if (!v) {
         isWindowFocus.value = false;
+
         if (isWindowFocus.value) {
           isWindowFocus.toggle();
         }
@@ -482,6 +765,7 @@ class ChatModel with ChangeNotifier {
   final WeakReference<FFI> parent;
 
   late final SessionID sessionId;
+
   late FocusNode inputNode;
 
   ChatModel(this.parent) {
@@ -489,32 +773,49 @@ class ChatModel with ChangeNotifier {
       id: const Uuid().v4(),
       firstName: translate("Me"),
     );
+
     DirectChatRepository.instance.revision.addListener(_onStoreRevision);
+
     // Restore contacts + chat history from the public backup folder after a
+
     // reinstall (app-private data is wiped on uninstall).
+
     unawaited(DotChatBackup.tryRestore());
+
     unawaited(DirectChatRepository.instance.deviceId.then((deviceId) {
       me.id = deviceId;
+
       // Let the pairing store know our own account so it can refuse to
+
       // resolve other devices into the self conversation (person-devices
+
       // pollution guard).
+
       DirectPairingStore.myId = deviceId;
+
       notifyListeners();
     }));
+
     _scheduleRecentConversationRestore();
+
     refreshLocalIdentity();
+
     textController.addListener(() {
       if (textController.text.isNotEmpty) {
         unawaited(signalTyping());
       }
     });
+
     sessionId = parent.target!.sessionId;
+
     inputNode = FocusNode(
       onKey: (_, event) {
         bool isShiftPressed = event.isKeyPressed(LogicalKeyboardKey.shiftLeft);
+
         bool isEnterPressed = event.isKeyPressed(LogicalKeyboardKey.enter);
 
         // don't send empty messages
+
         if (isEnterPressed && !isShiftPressed && textController.text.isEmpty) {
           return KeyEventResult.handled;
         }
@@ -525,26 +826,38 @@ class ChatModel with ChangeNotifier {
             user: me,
             createdAt: DateTime.now(),
           );
+
           send(message);
+
           textController.clear();
+
           return KeyEventResult.handled;
         }
 
         return KeyEventResult.ignored;
       },
     );
+
     _startExternalChatPolling();
+
     _startRelayCutbackWatcher();
   }
 
   /// 中继→直连自动回切（P2P 优先原则）：定期扫描活跃会话，若发现某会话
+
   /// 当前走中继（connection_ready 上报 direct=false）而本地存有该好友的
+
   /// 直连端点，则强制重拨一次——重走「直连端点→打洞→中继兑底」的完整
+
   /// 链路，让连接在 NAT 条件允许时自动升级为点到点直连，减少中继占用。
+
   /// 仅在存在直连端点且非拨号中/无待发送消息时触发，避免无谓重连。
+
   void _startRelayCutbackWatcher() {
     if (!isMobile && !(isDesktop && desktopType == DesktopType.main)) return;
+
     _relayCutbackTimer?.cancel();
+
     _relayCutbackTimer = Timer.periodic(const Duration(seconds: 45), (_) {
       unawaited(_relayCutbackScan());
     });
@@ -552,79 +865,124 @@ class ChatModel with ChangeNotifier {
 
   Future<void> _relayCutbackScan() async {
     // 语音/视频通话、远程会话拨号期间：禁止中继→直连回切重拨，
+
     // 否则会关闭通话会话抢占单例 FFI（表现为拨号后刚建立就被切断）。
+
     if (pauseKeepAlive) return;
+
     final ensure = ensureChatConnection;
+
     if (ensure == null) return;
+
     // 移动端单连接：只关心最近活跃会话；桌面端可遍历最近活跃的一批。
+
     final active = <String>[];
+
     final last = lastActiveChatPeerId;
+
     if (last != null && last.isNotEmpty) active.add(last);
+
     if (active.isEmpty) return;
+
     final now = DateTime.now();
+
     for (final peerId in active) {
       if (ChatModel.isDialing(peerId)) continue;
+
       // 中继状态判断：connection_ready 事件把 direct 写入 ConnectionTypeState。
+
       bool onRelay = false;
+
       try {
         onRelay = ConnectionTypeState.find(peerId).direct.value ==
             ConnectionType.strIndirect;
       } catch (_) {
         // 状态未注册（从未连接成功），跳过。
       }
+
       if (!onRelay) continue;
+
       // 有直连端点才值得回切；纯 ID 会话（无端点）重拨只会再走中继。
+
       final endpoint = DirectPairingStore.resolveConnectionTarget(peerId);
+
       if (endpoint == null || endpoint.isEmpty) continue;
+
       // 冷却 2 分钟，避免反复重拨。
+
       final lastTry = _relayCutbackCooldown[peerId];
-      if (lastTry != null &&
-          now.difference(lastTry).inSeconds < 120) {
+
+      if (lastTry != null && now.difference(lastTry).inSeconds < 120) {
         continue;
       }
+
       // 有待发送消息时先让看门狗处理，不打断正在重试的投递。
+
       final pending = await firstPendingPeerId();
+
       if (pending == peerId) continue;
+
       _relayCutbackCooldown[peerId] = now;
+
       debugPrint('[P2P] relay->direct cutback for $peerId');
+
       unawaited(ensure(peerId, force: true));
     }
   }
 
   /// Host-side incoming messages are written by the connection-manager
+
   /// process into the shared chat store; the main window has no in-memory
+
   /// notification for those writes. Poll the store file mtime every few
+
   /// seconds (a cheap stat) and refresh the conversation UI when a change is
+
   /// detected, so incoming messages appear without a manual tab switch.
+
   void _startExternalChatPolling() {
     final desktopMain = isDesktop && desktopType == DesktopType.main;
+
     if (!desktopMain && !isMobile) return;
+
     _externalChatPollTimer?.cancel();
+
     // Mobile has no separate writer process (the store is only touched by
+
     // this isolate, which bumps `revision`), so the file poll is just a cheap
+
     // safety net — 8s is plenty and the mtime fast-path keeps it to a stat.
+
     _externalChatPollTimer = Timer.periodic(
       isMobile ? const Duration(seconds: 8) : const Duration(seconds: 4),
       (_) async {
         try {
           // 低频清理阅后即焚到期消息（每 60 秒最多一次），防止历史
+
           // 存储无限累积过期垃圾。O(n) 扫描仅发生在轮询节拍上。
+
           final now = DateTime.now();
+
           if (_lastExpiredPurge == null ||
-              now.difference(_lastExpiredPurge!) >
-                  const Duration(minutes: 1)) {
+              now.difference(_lastExpiredPurge!) > const Duration(minutes: 1)) {
             _lastExpiredPurge = now;
+
             unawaited(DirectChatRepository.instance.purgeExpired());
           }
+
           if (!await DirectChatRepository.instance
               .hasExternalStorageChanges()) {
             return;
           }
+
           _scheduleRecentConversationRestore();
+
           final peerId = _currentKey.peerId;
+
           if (peerId.isNotEmpty) {
             await _restoreConversation(_currentKey);
           }
+
           notifyListeners();
         } catch (_) {}
       },
@@ -633,14 +991,22 @@ class ChatModel with ChangeNotifier {
 
   void _onStoreRevision() {
     // Keep a recent copy of contacts + chat history in the public folder so
+
     // a reinstall can restore them.
+
     DotChatBackup.schedule();
+
     // Debounce: store revisions can fire rapidly during batch operations.
+
     // Cancel any pending timer and restart — only the last revision in a
+
     // 300ms window triggers a restore. This prevents cascading full rebuilds.
+
     _storeRevisionTimer?.cancel();
+
     _storeRevisionTimer = Timer(const Duration(milliseconds: 300), () {
       _storeRevisionTimer = null;
+
       if (_currentKey.peerId.isNotEmpty) {
         unawaited(_restoreConversation(_currentKey));
       }
@@ -648,19 +1014,26 @@ class ChatModel with ChangeNotifier {
   }
 
   Timer? _storeRevisionTimer;
+
   Timer? _externalChatPollTimer;
+
   /// 上次执行阅后即焚过期清理的时间（60 秒节流）。
+
   DateTime? _lastExpiredPurge;
 
   void _scheduleRecentConversationRestore() {
     if (_recentRestoreTask != null) {
       _recentRestoreQueued = true;
+
       return;
     }
+
     _recentRestoreTask = _restoreRecentConversations().whenComplete(() {
       _recentRestoreTask = null;
+
       if (_recentRestoreQueued) {
         _recentRestoreQueued = false;
+
         _scheduleRecentConversationRestore();
       }
     });
@@ -668,18 +1041,28 @@ class ChatModel with ChangeNotifier {
 
   Future<void> _restoreRecentConversations() async {
     ensureFileHelperEntry();
+
     // Merge conversations that belong to the same person before building the
+
     // list so a reinstalled phone never appears as several entries.
+
     try {
       await DirectChatRepository.instance.mergeSamePersonConversations();
     } catch (_) {}
+
     final latest = await DirectChatRepository.instance.latestConversations();
+
     final pairings = DirectPairingStore.load();
+
     for (final entry in latest.entries) {
       final peerId = entry.key;
+
       final record = entry.value;
+
       final pairing = pairings[peerId];
+
       final key = MessageKey(peerId, clientModeID);
+
       final body = _messages.putIfAbsent(
         key,
         () => MessageBody(
@@ -695,60 +1078,79 @@ class ChatModel with ChangeNotifier {
           <ChatMessage>[],
         ),
       );
+
       if (!record.isOutgoing) {
         final restoredName = normalizeDirectPeerName(
           record.senderName,
           fallback: body.chatUser.firstName ?? peerId,
         );
+
         // LUODA FIX: never let a corrupted/self-like sender name (e.g. the
+
         // local username "LUODA") become the conversation title.
+
         body.chatUser.firstName = _isSelfLikePeerName(restoredName)
             ? (body.chatUser.firstName ?? peerId)
             : restoredName;
+
         if (record.senderAvatar.isNotEmpty) {
           body.chatUser.profileImage = record.senderAvatar;
         }
       }
+
       final chatMessage =
           _taggedChatMessage(record, record.isOutgoing ? me : body.chatUser);
+
       final messageId = chatMessage.customProperties?['ldesk_id']?.toString();
+
       final existingIndex = messageId == null
           ? -1
           : body.chatMessages.indexWhere(
               (item) =>
                   item.customProperties?['ldesk_id']?.toString() == messageId,
             );
+
       if (existingIndex < 0) {
         body.chatMessages.add(chatMessage);
+
         body.chatMessages.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       }
+
       _scheduleSelfDestruct(
         key,
         record,
         record.isOutgoing ? me : body.chatUser,
       );
     }
+
     if (latest.isNotEmpty) notifyListeners();
   }
 
   ChatUser? get currentUser => _messages[_currentKey]?.chatUser;
 
   /// Built-in 文件助手 conversation key (like WeChat's file helper).
+
   MessageKey get fileHelperKey => MessageKey(kFileHelperId, clientModeID);
 
   bool get isFileHelperConversation => _currentKey.peerId == kFileHelperId;
 
   String _messageSourceTarget(MessageKey key) {
     if (key.peerId.toLowerCase().startsWith('bt:')) return key.peerId;
+
     final sessionTarget = parent.target?.id.trim() ?? '';
+
     if (sessionTarget.isNotEmpty) return sessionTarget;
+
     return DirectPairingStore.resolveConnectionTarget(key.peerId) ?? key.peerId;
   }
 
   /// Ensures the built-in File Transfer Assistant always exists so it can be
+
   /// pinned at the top of the conversation list even before the first send.
+
   void ensureFileHelperEntry() {
     final key = fileHelperKey;
+
     _messages.putIfAbsent(
       key,
       () => MessageBody(
@@ -762,7 +1164,9 @@ class ChatModel with ChangeNotifier {
   }
 
   /// Local-only send used by the built-in File Transfer Assistant: messages
+
   /// are persisted and shown in the conversation but never transmitted.
+
   Future<void> _sendToFileHelper(
     DirectChatKind kind, {
     String text = '',
@@ -773,8 +1177,11 @@ class ChatModel with ChangeNotifier {
     String inlineBytes = '',
   }) async {
     final key = _currentKey;
+
     if (key.peerId != kFileHelperId) return;
+
     _touchChatActivity(kFileHelperId);
+
     try {
       final record = await DirectChatRepository.instance.createOutgoing(
         conversationId: kFileHelperId,
@@ -792,159 +1199,230 @@ class ChatModel with ChangeNotifier {
         localPath: localPath,
         inlineBytes: inlineBytes,
       );
+
       if (record == null) return;
+
       // 文件助手是本地会话：写入即视为“已送达”，避免一直显示“待发送”。
+
       await DirectChatRepository.instance
           .markDelivery(record.id, DirectChatDelivery.delivered);
+
       final delivered = record.copyWith(delivery: DirectChatDelivery.delivered);
-ensureFileHelperEntry();
-insertMessage(fileHelperKey, _taggedChatMessage(delivered, me));
-_scheduleSelfDestruct(fileHelperKey, delivered, me);
-notifyListeners();
+
+      ensureFileHelperEntry();
+
+      insertMessage(fileHelperKey, _taggedChatMessage(delivered, me));
+
+      _scheduleSelfDestruct(fileHelperKey, delivered, me);
+
+      notifyListeners();
+
 // LUODA: 把文件助手消息同步到已绑定的伴生设备（如手机<->PC），
+
 // 让对端的文件助手会话也能收到。
+
 // syncActiveCompanionSessions 发送 replicaRequest 让对方来拉取，
+
 // 但如果 companion session 尚未建立（_activeCompanionSecrets 为空）
+
 // 该函数直接 return，消息就不会同步。这里额外直接推送一条
+
 // replicaMessage 给已绑定的 companion 设备，确保消息即时到达。
-unawaited(_pushFileHelperToCompanion(delivered));
-unawaited(syncActiveCompanionSessions());
-} catch (e, st) {
- debugPrint('Failed to persist file-helper message: $e\n$st');
- }
-}
 
-/// Push a file-helper record to the bound companion device via a direct
-/// replicaMessage envelope.  This complements syncActiveCompanionSessions
-/// (which sends a pull-based replicaRequest that does nothing when no
-/// inbound companion session is registered yet).  By pushing directly we
-/// ensure the message reaches the other side even on the first send after
-/// binding, before the companion has initiated a replica_request cycle.
-Future<void> _pushFileHelperToCompanion(DirectChatRecord record) async {
- try {
- final ffi = parent.target;
- if (ffi == null || ffi.closed) return;
- // Find the bound companion: PC uses boundPhone(), mobile uses
- // companionDevice().
- final boundPhone = DirectPairingStore.boundPhone();
- var companionPeerId = (boundPhone['peerId'] ?? '').trim();
- if (companionPeerId.isEmpty) {
- companionPeerId =
- DirectPairingStore.companionDevice()?.peerId.trim() ?? '';
- }
- final secret = await DirectPairingStore.getCompanionSyncSecret();
- if (companionPeerId.isEmpty || secret.isEmpty) return;
+      unawaited(_pushFileHelperToCompanion(delivered));
 
- /// 尝试通过已有连接或新拨号推送消息；返回 true 表示已发出。
- Future<bool> tryPush() async {
-   // Find an active chat connection to the companion.
-   final client = ffi.serverModel.clients.firstWhereOrNull(
-     (c) =>
-         c.peerId.trim() == companionPeerId &&
-         c.authorized &&
-         c.isChat &&
-         !c.disconnected,
-   );
-   if (client == null) return false; // no live connection yet
+      unawaited(syncActiveCompanionSessions());
+    } catch (e, st) {
+      debugPrint('Failed to persist file-helper message: $e\n$st');
+    }
+  }
 
-   // Re-read file bytes for small file records (same logic as
-   // replica_request handler).
-   var toSend = record;
-   if (record.kind == DirectChatKind.file &&
-       record.inlineBytes.isEmpty &&
-       record.localPath.isNotEmpty &&
-       canInlineDirectChatFile(record.fileSize)) {
-     try {
-       final bytes = await File(record.localPath).readAsBytes();
-       if (bytes.length <= kMaxInlineChatFileBytes) {
-         toSend = record.copyWith(inlineBytes: base64Encode(bytes));
-       }
-     } catch (_) {}
-   }
-   return _sendWire(
-     MessageKey(companionPeerId, client.id),
-     DirectChatEnvelope.replicaMessage(toSend, secret).encode(),
-   );
- }
+  /// Push a file-helper record to the bound companion device via a direct
 
- // 1) 先尝试通过已有连接直接推送。
- if (await tryPush()) return;
+  /// replicaMessage envelope.  This complements syncActiveCompanionSessions
 
- // 2) 没有活跃连接时，通过 VPS 信令服务器发起 P2P 拨号。
- //    VPS 只是联系服务器，拨号成功后 PC 与手机之间用直连地址
- //    建立 P2P 连接，流量不经过服务器。拨号完成后重试推送。
- final ensure = ensureChatConnection;
- if (ensure != null) {
-   await ensure(companionPeerId, force: true);
-   if (await tryPush()) return;
- }
+  /// (which sends a pull-based replicaRequest that does nothing when no
 
- // 3) 拨号后可能仍需要一小段时间连接才建立。启动看门狗定时重试，
- //    与普通消息的 delivery watchdog 机制一致（10s 间隔，最多 36 次）。
- _scheduleFileHelperPushWatchdog(companionPeerId, record, secret);
- } catch (_) {}
-}
+  /// inbound companion session is registered yet).  By pushing directly we
 
-/// 文件助手推送看门狗：当即时拨号未能建立连接时，定时重试 P2P 拨号
-/// 并推送消息，直到成功或重试耗尽。
-Timer? _fileHelperPushTimer;
-final Set<String> _fileHelperPushing = {};
+  /// ensure the message reaches the other side even on the first send after
 
-void _scheduleFileHelperPushWatchdog(
-  String companionPeerId,
-  DirectChatRecord record,
-  String secret,
-) {
- if (!_fileHelperPushing.add(record.id)) return; // already retrying
- var retries = 0;
- void retry() {
-   final ffi = parent.target;
-   if (ffi == null || ffi.closed) {
-     _fileHelperPushing.remove(record.id);
-     return;
-   }
-   final client = ffi.serverModel.clients.firstWhereOrNull(
-     (c) =>
-         c.peerId.trim() == companionPeerId &&
-         c.authorized &&
-         c.isChat &&
-         !c.disconnected,
-   );
-   if (client != null) {
-     // 连接已建立，立即推送。
-     _sendWire(
-       MessageKey(companionPeerId, client.id),
-       DirectChatEnvelope.replicaMessage(record, secret).encode(),
-     );
-     _fileHelperPushing.remove(record.id);
-     return;
-   }
-   retries++;
-   if (retries >= 36) {
-     _fileHelperPushing.remove(record.id);
-     return;
-   }
-   // 重新拨号（VPS 信令→P2P 直连）然后等下一轮检查。
-   ensureChatConnection?.call(companionPeerId, force: true);
-   _fileHelperPushTimer?.cancel();
-   _fileHelperPushTimer = Timer(const Duration(seconds: 10), retry);
- }
+  /// binding, before the companion has initiated a replica_request cycle.
 
- _fileHelperPushTimer?.cancel();
- _fileHelperPushTimer = Timer(const Duration(seconds: 10), retry);
-}
+  Future<void> _pushFileHelperToCompanion(DirectChatRecord record) async {
+    try {
+      final ffi = parent.target;
 
-void refreshLocalIdentity({bool notify = false}) {
+      if (ffi == null || ffi.closed) return;
+
+      // Find the bound companion: PC uses boundPhone(), mobile uses
+
+      // companionDevice().
+
+      final boundPhone = DirectPairingStore.boundPhone();
+
+      var companionPeerId = (boundPhone['peerId'] ?? '').trim();
+
+      if (companionPeerId.isEmpty) {
+        companionPeerId =
+            DirectPairingStore.companionDevice()?.peerId.trim() ?? '';
+      }
+
+      final secret = await DirectPairingStore.getCompanionSyncSecret();
+
+      if (companionPeerId.isEmpty || secret.isEmpty) return;
+
+      /// 尝试通过已有连接或新拨号推送消息；返回 true 表示已发出。
+
+      Future<bool> tryPush() async {
+        // Find an active chat connection to the companion.
+
+        final client = ffi.serverModel.clients.firstWhereOrNull(
+          (c) =>
+              c.peerId.trim() == companionPeerId &&
+              c.authorized &&
+              c.isChat &&
+              !c.disconnected,
+        );
+
+        if (client == null) return false; // no live connection yet
+
+        // Re-read file bytes for small file records (same logic as
+
+        // replica_request handler).
+
+        var toSend = record;
+
+        if (record.kind == DirectChatKind.file &&
+            record.inlineBytes.isEmpty &&
+            record.localPath.isNotEmpty &&
+            canInlineDirectChatFile(record.fileSize)) {
+          try {
+            final bytes = await File(record.localPath).readAsBytes();
+
+            if (bytes.length <= kMaxInlineChatFileBytes) {
+              toSend = record.copyWith(inlineBytes: base64Encode(bytes));
+            }
+          } catch (_) {}
+        }
+
+        return _sendWire(
+          MessageKey(companionPeerId, client.id),
+          DirectChatEnvelope.replicaMessage(toSend, secret).encode(),
+        );
+      }
+
+      // 1) 先尝试通过已有连接直接推送。
+
+      if (await tryPush()) return;
+
+      // 2) 没有活跃连接时，通过 VPS 信令服务器发起 P2P 拨号。
+
+      //    VPS 只是联系服务器，拨号成功后 PC 与手机之间用直连地址
+
+      //    建立 P2P 连接，流量不经过服务器。拨号完成后重试推送。
+
+      final ensure = ensureChatConnection;
+
+      if (ensure != null) {
+        await ensure(companionPeerId, force: true);
+
+        if (await tryPush()) return;
+      }
+
+      // 3) 拨号后可能仍需要一小段时间连接才建立。启动看门狗定时重试，
+
+      //    与普通消息的 delivery watchdog 机制一致（10s 间隔，最多 36 次）。
+
+      _scheduleFileHelperPushWatchdog(companionPeerId, record, secret);
+    } catch (_) {}
+  }
+
+  /// 文件助手推送看门狗：当即时拨号未能建立连接时，定时重试 P2P 拨号
+
+  /// 并推送消息，直到成功或重试耗尽。
+
+  Timer? _fileHelperPushTimer;
+
+  final Set<String> _fileHelperPushing = {};
+
+  void _scheduleFileHelperPushWatchdog(
+    String companionPeerId,
+    DirectChatRecord record,
+    String secret,
+  ) {
+    if (!_fileHelperPushing.add(record.id)) return; // already retrying
+
+    var retries = 0;
+
+    void retry() {
+      final ffi = parent.target;
+
+      if (ffi == null || ffi.closed) {
+        _fileHelperPushing.remove(record.id);
+
+        return;
+      }
+
+      final client = ffi.serverModel.clients.firstWhereOrNull(
+        (c) =>
+            c.peerId.trim() == companionPeerId &&
+            c.authorized &&
+            c.isChat &&
+            !c.disconnected,
+      );
+
+      if (client != null) {
+        // 连接已建立，立即推送。
+
+        _sendWire(
+          MessageKey(companionPeerId, client.id),
+          DirectChatEnvelope.replicaMessage(record, secret).encode(),
+        );
+
+        _fileHelperPushing.remove(record.id);
+
+        return;
+      }
+
+      retries++;
+
+      if (retries >= 36) {
+        _fileHelperPushing.remove(record.id);
+
+        return;
+      }
+
+      // 重新拨号（VPS 信令→P2P 直连）然后等下一轮检查。
+
+      ensureChatConnection?.call(companionPeerId, force: true);
+
+      _fileHelperPushTimer?.cancel();
+
+      _fileHelperPushTimer = Timer(const Duration(seconds: 10), retry);
+    }
+
+    _fileHelperPushTimer?.cancel();
+
+    _fileHelperPushTimer = Timer(const Duration(seconds: 10), retry);
+  }
+
+  void refreshLocalIdentity({bool notify = false}) {
     try {
       final profile = jsonDecode(
         bind.mainGetLocalOption(key: 'user_info'),
       ) as Map<String, dynamic>;
+
       final name =
           (profile['display_name'] ?? profile['name'] ?? '').toString().trim();
+
       if (name.isNotEmpty) me.firstName = name;
+
       final avatar = (profile['avatar'] ?? '').toString().trim();
+
       me.profileImage = avatar.isEmpty ? null : avatar;
     } catch (_) {}
+
     if (notify) notifyListeners();
   }
 
@@ -954,19 +1432,34 @@ void refreshLocalIdentity({bool notify = false}) {
     required String avatar,
   }) {
     final normalizedName = sanitizeInvalidUtf16(displayName).trim();
+
     final normalizedAvatar = sanitizeInvalidUtf16(avatar).trim();
+
     // LUODA FIX: a self-like name (the local username or default "LUODA")
+
     // must never overwrite a peer's identity.
-    final usableName = _isSelfLikePeerName(normalizedName) ? '' : normalizedName;
+
+    final usableName =
+        _isSelfLikePeerName(normalizedName) ? '' : normalizedName;
+
     final pairing = DirectPairingStore.find(peerId);
+
     // LUODA FIX: the persisted DirectPairingStore displayName is the
+
     // canonical, database-backed conversation name. Runtime identity
+
     // events fire repeatedly with different values (device hostname vs
+
     // account nickname depending on which side reported first), and
+
     // overwriting the store each time made list names drift. Only
+
     // capture the FIRST non-empty value; after that the store changes
+
     // only through an explicit user rename. In-memory bodies below are
+
     // still refreshed so the UI never goes stale.
+
     if (pairing != null && pairing.displayName.trim().isEmpty) {
       if (usableName.isNotEmpty || normalizedAvatar.isNotEmpty) {
         unawaited(DirectPairingStore.updateIdentity(
@@ -976,49 +1469,71 @@ void refreshLocalIdentity({bool notify = false}) {
         ));
       }
     }
- var changed = false;
- // LUODA FIX: update *every* MessageBody for this peer, not only the
- // clientModeID one. The desktop header title reads
- // _messages[_currentKey].chatUser.firstName, and _currentKey's connId
- // can differ from clientModeID (e.g. an incoming connection id).
- // Updating all keys keeps the header in sync with the conversation list,
- // which reads from the primary (newest) body.
- for (final entry in _messages.entries) {
- if (entry.key.peerId != peerId) continue;
- final body = entry.value;
- if (usableName.isNotEmpty && body.chatUser.firstName != usableName) {
- body.chatUser.firstName = usableName;
- changed = true;
- }
- final nextProfileImage = normalizedAvatar.isEmpty
- ? body.chatUser.profileImage
- : normalizedAvatar;
- if (body.chatUser.profileImage != nextProfileImage) {
- body.chatUser.profileImage = nextProfileImage;
- changed = true;
- }
- for (final message in body.chatMessages) {
- if (message.user.id != peerId) continue;
- if (usableName.isNotEmpty &&
- message.user.firstName != usableName) {
- message.user.firstName = usableName;
- changed = true;
- }
- if (message.user.profileImage != nextProfileImage) {
- message.user.profileImage = nextProfileImage;
- changed = true;
- }
- }
- }
- if (changed) notifyListeners();
+
+    var changed = false;
+
+    // LUODA FIX: update *every* MessageBody for this peer, not only the
+
+    // clientModeID one. The desktop header title reads
+
+    // _messages[_currentKey].chatUser.firstName, and _currentKey's connId
+
+    // can differ from clientModeID (e.g. an incoming connection id).
+
+    // Updating all keys keeps the header in sync with the conversation list,
+
+    // which reads from the primary (newest) body.
+
+    for (final entry in _messages.entries) {
+      if (entry.key.peerId != peerId) continue;
+
+      final body = entry.value;
+
+      if (usableName.isNotEmpty && body.chatUser.firstName != usableName) {
+        body.chatUser.firstName = usableName;
+
+        changed = true;
+      }
+
+      final nextProfileImage = normalizedAvatar.isEmpty
+          ? body.chatUser.profileImage
+          : normalizedAvatar;
+
+      if (body.chatUser.profileImage != nextProfileImage) {
+        body.chatUser.profileImage = nextProfileImage;
+
+        changed = true;
+      }
+
+      for (final message in body.chatMessages) {
+        if (message.user.id != peerId) continue;
+
+        if (usableName.isNotEmpty && message.user.firstName != usableName) {
+          message.user.firstName = usableName;
+
+          changed = true;
+        }
+
+        if (message.user.profileImage != nextProfileImage) {
+          message.user.profileImage = nextProfileImage;
+
+          changed = true;
+        }
+      }
+    }
+
+    if (changed) notifyListeners();
   }
 
   showChatIconOverlay({Offset offset = const Offset(200, 50)}) {
     if (chatIconOverlayEntry != null) {
       chatIconOverlayEntry!.remove();
     }
+
     // mobile check navigationBar
+
     final bar = navigationBarKey.currentWidget;
+
     if (bar != null) {
       if ((bar as BottomNavigationBar).currentIndex == 1) {
         return;
@@ -1026,6 +1541,7 @@ void refreshLocalIdentity({bool notify = false}) {
     }
 
     final overlayState = _blockableOverlayState.state;
+
     if (overlayState == null) return;
 
     final overlay = OverlayEntry(builder: (context) {
@@ -1048,35 +1564,46 @@ void refreshLocalIdentity({bool notify = false}) {
         ),
       );
     });
+
     overlayState.insert(overlay);
+
     chatIconOverlayEntry = overlay;
   }
 
   hideChatIconOverlay() {
     if (chatIconOverlayEntry != null) {
       chatIconOverlayEntry!.remove();
+
       chatIconOverlayEntry = null;
     }
   }
 
   showChatWindowOverlay({Offset? chatInitPos}) {
     if (chatWindowOverlayEntry != null) return;
+
     isWindowFocus.value = true;
+
     _blockableOverlayState.setMiddleBlocked(true);
 
     final overlayState = _blockableOverlayState.state;
+
     if (overlayState == null) return;
+
     if (isMobile &&
         !gFFI.chatModel.currentKey.isOut && // not in remote page
+
         gFFI.chatModel.latestReceivedKey != null) {
       gFFI.chatModel.changeCurrentKey(gFFI.chatModel.latestReceivedKey!);
+
       gFFI.chatModel.mobileClearClientUnread(gFFI.chatModel.currentKey.connId);
     }
+
     final overlay = OverlayEntry(builder: (context) {
       return Listener(
           onPointerDown: (_) {
             if (!isWindowFocus.value) {
               isWindowFocus.value = true;
+
               _blockableOverlayState.setMiddleBlocked(true);
             }
           },
@@ -1086,16 +1613,22 @@ void refreshLocalIdentity({bool notify = false}) {
               height: 350,
               chatModel: this));
     });
+
     overlayState.insert(overlay);
+
     chatWindowOverlayEntry = overlay;
+
     requestChatInputFocus();
   }
 
   hideChatWindowOverlay() {
     if (chatWindowOverlayEntry != null) {
       _blockableOverlayState.setMiddleBlocked(false);
+
       chatWindowOverlayEntry!.remove();
+
       chatWindowOverlayEntry = null;
+
       return;
     }
   }
@@ -1107,12 +1640,15 @@ void refreshLocalIdentity({bool notify = false}) {
   toggleChatOverlay({Offset? chatInitPos}) {
     if (_isChatOverlayHide()) {
       gFFI.invokeMethod("enable_soft_keyboard", true);
+
       if (!(isDesktop || isWebDesktop)) {
         showChatIconOverlay();
       }
+
       showChatWindowOverlay(chatInitPos: chatInitPos);
     } else {
       hideChatIconOverlay();
+
       hideChatWindowOverlay();
     }
   }
@@ -1120,14 +1656,18 @@ void refreshLocalIdentity({bool notify = false}) {
   hideChatOverlay() {
     if (!_isChatOverlayHide()) {
       hideChatIconOverlay();
+
       hideChatWindowOverlay();
     }
   }
 
   showChatPage(MessageKey key) async {
     // Only switch the active conversation key. Never pop up the floating chat
+
     // window automatically: incoming messages show up in the conversation list
+
     // with unread badges (mobile) or the chat side panel (desktop) instead.
+
     if (currentKey != key) {
       changeCurrentKey(key);
     }
@@ -1137,6 +1677,7 @@ void refreshLocalIdentity({bool notify = false}) {
     if (gFFI.chatModel.currentKey != key) {
       gFFI.chatModel.changeCurrentKey(key);
     }
+
     await toggleCMSidePage();
   }
 
@@ -1145,224 +1686,338 @@ void refreshLocalIdentity({bool notify = false}) {
   }
 
   var _togglingCMSidePage = false; // protect order for await
+
   toggleCMSidePage() async {
     if (_togglingCMSidePage) return false;
+
     _togglingCMSidePage = true;
+
     if (_isShowCMSidePage) {
       _isShowCMSidePage = !_isShowCMSidePage;
+
       notifyListeners();
+
       await windowManager.show();
+
       await windowManager.setSizeAlignment(
           kConnectionManagerWindowSizeClosedChat, Alignment.topRight);
     } else {
       final currentSelectedTab =
           gFFI.serverModel.tabController.state.value.selectedTabInfo;
+
       final client = parent.target?.serverModel.clients.firstWhereOrNull(
           (client) => client.id.toString() == currentSelectedTab.key);
+
       if (client != null) {
         client.unreadChatMessageCount.value = 0;
       }
+
       requestChatInputFocus();
+
       await windowManager.show();
+
       await windowManager.setSizeAlignment(
           kConnectionManagerWindowSizeOpenChat, Alignment.topRight);
+
       _isShowCMSidePage = !_isShowCMSidePage;
+
       notifyListeners();
     }
+
     _togglingCMSidePage = false;
   }
 
   /// Returns true when [name] is the local user's own identity or a raw ID
+
   /// string ? such a name must never be shown as a peer conversation title
+
   /// (a mis-resolved sender identity used to rename the chat to the local
+
   /// username "LUODA" after receiving messages).
+
   bool _isSelfLikePeerName(String name) {
     final trimmed = name.trim();
+
     if (trimmed.isEmpty) return true;
+
     final compact = trimmed.replaceAll(RegExp(r'[\s:\-_.]'), '');
+
     if (RegExp(r'^[0-9]{3,}$').hasMatch(compact)) return true;
+
     final localName = me.firstName?.trim() ?? '';
+
     if (localName.isNotEmpty && trimmed == localName) return true;
+
     if (trimmed.toLowerCase() == 'luoda') return true;
- return false;
- }
 
-/// Compute the latest message timestamp for a conversation body.
-/// Used by changeCurrentKey to find the primary (newest) body in the
-/// main chat model, mirroring the list-row logic in desktop_home_page.
-DateTime _conversationTimeForBody(MapEntry<MessageKey, MessageBody> entry) {
-  final messages = entry.value.chatMessages;
-  if (messages.isEmpty) return DateTime.fromMillisecondsSinceEpoch(0);
-  return messages
-      .map((message) => message.createdAt)
-      .reduce((latest, value) => value.isAfter(latest) ? value : latest);
-}
+    return false;
+  }
 
-changeCurrentKey(MessageKey key) {
+  /// Compute the latest message timestamp for a conversation body.
+
+  /// Used by changeCurrentKey to find the primary (newest) body in the
+
+  /// main chat model, mirroring the list-row logic in desktop_home_page.
+
+  DateTime _conversationTimeForBody(MapEntry<MessageKey, MessageBody> entry) {
+    final messages = entry.value.chatMessages;
+
+    if (messages.isEmpty) return DateTime.fromMillisecondsSinceEpoch(0);
+
+    return messages
+        .map((message) => message.createdAt)
+        .reduce((latest, value) => value.isAfter(latest) ? value : latest);
+  }
+
+  changeCurrentKey(MessageKey key) {
     if (key.peerId.isNotEmpty) {
       // LUODA FIX: only canonicalize keys that are not already in the
+
       // in-memory conversation map. List rows hand us the exact key their
+
       // messages are stored under (canonicalized when each message was
+
       // received). Re-canonicalizing at open time can map the peer to a
+
       // different account id after a pairing later gains an account_id
+
       // (e.g. "980031" -> "423156"), so the chat window reads an empty
+
       // body ("No messages yet") even though the list shows the preview.
+
       // Manual id/endpoint entry still canonicalizes because the key is
+
       // absent from the map (new conversation).
+
       if (!_messages.containsKey(key)) {
         final conversationId =
             DirectPairingStore.canonicalConversationId(key.peerId);
+
         if (conversationId != key.peerId) {
           key = MessageKey(conversationId, key.connId);
         }
       }
     }
+
     if (_currentKey.peerId == key.peerId && _currentKey.connId == key.connId) {
       return;
     }
+
     // Save draft for current conversation before switching
+
     if (_currentKey.peerId.isNotEmpty && textController.text.isNotEmpty) {
       _drafts[_currentKey.peerId] = textController.text;
     }
+
     _replyToMessage = null;
+
     _isReconnecting = false;
+
     _reconnectPeerId = '';
+
     chatSearchVisible = false;
+
     chatSearchText = '';
+
     _chatSearchMatchIndex = 0;
+
     _chatSearchMessageKeys.clear();
+
     chatSearchController.clear();
- updateConnIdOfKey(key);
- String? peerName;
- String? peerAvatar;
- // LUODA FIX: resolve the name from the main chat model's primary
- // (newest) body first. The conversation list and the header both
- // read the name from that body, so changeCurrentKey must use the
- // same source to avoid writing a different name (e.g. a raw device
- // hostname from client.name) into the _currentKey body.
- // This is only needed when this ChatModel is NOT the main one
- // (i.e. it's a direct-chat session model with its own _messages map).
- final isMainModel = identical(this, gFFI.chatModel);
- if (!isMainModel) {
- final mainPeerId = key.peerId;
- MapEntry<MessageKey, MessageBody>? primary;
- try {
- // Fast path: try the exact key first — if the main model already
- // has this exact MessageKey, that's the primary body, no scan needed.
- final direct = gFFI.chatModel.messages[key];
- if (direct != null) {
- primary = MapEntry(key, direct);
- } else {
- // Slow path: scan for entries with the same peerId (different
- // connId), pick the newest. This is rare — only happens when the
- // main model has the peer under a different connId.
- final candidates = gFFI.chatModel.messages.entries
- .where((e) => e.key.peerId.trim() == mainPeerId.trim())
- .toList();
- if (candidates.length == 1) {
- primary = candidates.first;
- } else if (candidates.isNotEmpty) {
- primary = candidates.reduce((a, b) =>
- _conversationTimeForBody(b).isAfter(_conversationTimeForBody(a))
- ? b
- : a);
- }
- }
- } catch (_) {}
-  if (primary != null) {
-   final mainName = (primary.value.chatUser.firstName ?? '').trim();
-   if (mainName.isNotEmpty && !_isSelfLikePeerName(mainName)) {
-    peerName = mainName;
-   }
-   final mainAvatar = primary.value.chatUser.profileImage ?? '';
-   if (mainAvatar.isNotEmpty) peerAvatar = mainAvatar;
-  }
-	 }
-	 if (key.connId == clientModeID) {
+
+    updateConnIdOfKey(key);
+
+    String? peerName;
+
+    String? peerAvatar;
+
+    // LUODA FIX: resolve the name from the main chat model's primary
+
+    // (newest) body first. The conversation list and the header both
+
+    // read the name from that body, so changeCurrentKey must use the
+
+    // same source to avoid writing a different name (e.g. a raw device
+
+    // hostname from client.name) into the _currentKey body.
+
+    // This is only needed when this ChatModel is NOT the main one
+
+    // (i.e. it's a direct-chat session model with its own _messages map).
+
+    final isMainModel = identical(this, gFFI.chatModel);
+
+    if (!isMainModel) {
+      final mainPeerId = key.peerId;
+
+      MapEntry<MessageKey, MessageBody>? primary;
+
+      try {
+        // Fast path: try the exact key first — if the main model already
+
+        // has this exact MessageKey, that's the primary body, no scan needed.
+
+        final direct = gFFI.chatModel.messages[key];
+
+        if (direct != null) {
+          primary = MapEntry(key, direct);
+        } else {
+          // Slow path: scan for entries with the same peerId (different
+
+          // connId), pick the newest. This is rare — only happens when the
+
+          // main model has the peer under a different connId.
+
+          final candidates = gFFI.chatModel.messages.entries
+              .where((e) => e.key.peerId.trim() == mainPeerId.trim())
+              .toList();
+
+          if (candidates.length == 1) {
+            primary = candidates.first;
+          } else if (candidates.isNotEmpty) {
+            primary = candidates.reduce((a, b) =>
+                _conversationTimeForBody(b).isAfter(_conversationTimeForBody(a))
+                    ? b
+                    : a);
+          }
+        }
+      } catch (_) {}
+
+      if (primary != null) {
+        final mainName = (primary.value.chatUser.firstName ?? '').trim();
+
+        if (mainName.isNotEmpty && !_isSelfLikePeerName(mainName)) {
+          peerName = mainName;
+        }
+
+        final mainAvatar = primary.value.chatUser.profileImage ?? '';
+
+        if (mainAvatar.isNotEmpty) peerAvatar = mainAvatar;
+      }
+    }
+
+    if (key.connId == clientModeID) {
 // LUODA FIX: client-mode connections must never use the LOCAL profile
+
 // (pi) as the peer name. Resolve from the pairing store, then a live
+
 // client, then the existing message body before falling back to the id.
-final pairing = DirectPairingStore.findForConversation(key.peerId);
-if (peerName == null || peerName.isEmpty || _isSelfLikePeerName(peerName)) {
-peerName = pairing?.displayName.trim().isNotEmpty == true
-? pairing!.displayName.trim()
-: '';
-if (peerName.isEmpty || _isSelfLikePeerName(peerName)) {
-final client = parent.target?.serverModel.clients
-.firstWhereOrNull((client) => client.peerId == key.peerId);
-peerName = (client?.name ?? '').trim();
-if (peerName.isEmpty || _isSelfLikePeerName(peerName)) {
-peerName = _messages[key]?.chatUser.firstName ?? '';
-if (peerName.isEmpty || _isSelfLikePeerName(peerName)) {
-peerName = '';
-}
-}
-}
-}
-peerAvatar ??= pairing?.avatar.isNotEmpty == true
-? pairing!.avatar
-: _messages[key]?.chatUser.profileImage;
-} else {
- // LUODA FIX: for non-clientModeID connections (incoming sessions),
- // resolve the name from the pairing store first, then the existing
- // message body, then the live client. Using client?.name directly
- // can overwrite a correct display name with a raw device hostname.
- final pairing = DirectPairingStore.findForConversation(key.peerId);
- if (peerName == null || peerName.isEmpty || _isSelfLikePeerName(peerName)) {
-peerName = pairing?.displayName.trim().isNotEmpty == true
-? pairing!.displayName.trim()
-: '';
- if (peerName.isEmpty || _isSelfLikePeerName(peerName)) {
-final existing = _messages[key]?.chatUser.firstName ?? '';
- if (existing.isNotEmpty && !_isSelfLikePeerName(existing)) {
-peerName = existing;
-} else {
-final client = parent.target?.serverModel.clients
-.firstWhereOrNull((client) => client.peerId == key.peerId);
-peerName = (client?.name ?? '').trim();
-}
-}
-}
-peerAvatar ??= pairing?.avatar.isNotEmpty == true
-? pairing!.avatar
-: _messages[key]?.chatUser.profileImage;
-}
+
+      final pairing = DirectPairingStore.findForConversation(key.peerId);
+
+      if (peerName == null ||
+          peerName.isEmpty ||
+          _isSelfLikePeerName(peerName)) {
+        peerName = pairing?.displayName.trim().isNotEmpty == true
+            ? pairing!.displayName.trim()
+            : '';
+
+        if (peerName.isEmpty || _isSelfLikePeerName(peerName)) {
+          final client = parent.target?.serverModel.clients
+              .firstWhereOrNull((client) => client.peerId == key.peerId);
+
+          peerName = (client?.name ?? '').trim();
+
+          if (peerName.isEmpty || _isSelfLikePeerName(peerName)) {
+            peerName = _messages[key]?.chatUser.firstName ?? '';
+
+            if (peerName.isEmpty || _isSelfLikePeerName(peerName)) {
+              peerName = '';
+            }
+          }
+        }
+      }
+
+      peerAvatar ??= pairing?.avatar.isNotEmpty == true
+          ? pairing!.avatar
+          : _messages[key]?.chatUser.profileImage;
+    } else {
+      // LUODA FIX: for non-clientModeID connections (incoming sessions),
+
+      // resolve the name from the pairing store first, then the existing
+
+      // message body, then the live client. Using client?.name directly
+
+      // can overwrite a correct display name with a raw device hostname.
+
+      final pairing = DirectPairingStore.findForConversation(key.peerId);
+
+      if (peerName == null ||
+          peerName.isEmpty ||
+          _isSelfLikePeerName(peerName)) {
+        peerName = pairing?.displayName.trim().isNotEmpty == true
+            ? pairing!.displayName.trim()
+            : '';
+
+        if (peerName.isEmpty || _isSelfLikePeerName(peerName)) {
+          final existing = _messages[key]?.chatUser.firstName ?? '';
+
+          if (existing.isNotEmpty && !_isSelfLikePeerName(existing)) {
+            peerName = existing;
+          } else {
+            final client = parent.target?.serverModel.clients
+                .firstWhereOrNull((client) => client.peerId == key.peerId);
+
+            peerName = (client?.name ?? '').trim();
+          }
+        }
+      }
+
+      peerAvatar ??= pairing?.avatar.isNotEmpty == true
+          ? pairing!.avatar
+          : _messages[key]?.chatUser.profileImage;
+    }
+
     if (!_messages.containsKey(key)) {
       final chatUser = ChatUser(
         id: key.peerId,
         firstName: peerName,
         profileImage: peerAvatar,
       );
+
       _messages[key] = MessageBody(chatUser, []);
     } else {
       if (peerName?.isNotEmpty == true) {
         _messages[key]?.chatUser.firstName = peerName;
       }
+
       _messages[key]?.chatUser.profileImage = peerAvatar;
     }
- _currentKey = key;
- if (key.peerId.startsWith('meeting:') && identical(this, gFFI.chatModel)) {
- final trace = StackTrace.current.toString();
- final frames = trace.split('\n').take(5).join(' | ');
- RuntimeLogger.instance.info('CHAT', 'meeting auto-selected from=$frames');
- }
- RuntimeLogger.instance.info('CHAT',
- 'changeCurrentKey set peerId=${key.peerId} connId=${key.connId} hasBody=${_messages.containsKey(key)} isMain=${identical(this, gFFI.chatModel)}');
- // Restore draft for the new conversation
+
+    _currentKey = key;
+
+    if (key.peerId.startsWith('meeting:') && identical(this, gFFI.chatModel)) {
+      final trace = StackTrace.current.toString();
+
+      final frames = trace.split('\n').take(5).join(' | ');
+
+      RuntimeLogger.instance.info('CHAT', 'meeting auto-selected from=$frames');
+    }
+
+    RuntimeLogger.instance.info('CHAT',
+        'changeCurrentKey set peerId=${key.peerId} connId=${key.connId} hasBody=${_messages.containsKey(key)} isMain=${identical(this, gFFI.chatModel)}');
+
+    // Restore draft for the new conversation
+
     final draft = _drafts[key.peerId];
+
     if (draft != null && draft.isNotEmpty) {
       textController.text = draft;
     } else {
       textController.clear();
     }
+
     notifyListeners();
+
     mobileClearClientUnread(key.connId);
+
     if (!_conversationRecords.containsKey(key.peerId)) {
       unawaited(_restoreConversation(key));
     }
   }
 
   /// 中继桥回调用：把经蓝牙网关转发来的信封作为普通消息接收。
+
   Future<void> receiveRelayedEnvelope(
     String envelopeLine, {
     String? conversationId,
@@ -1376,10 +2031,14 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
   }
 
   /// 中继桥回调用：网关用本机网络把原信封发给目标会话。
+
   /// 返回是否成功交给发送通道。
+
   Future<bool> sendWireRelayed(String peerId, String envelopeLine) async {
     final key = MessageKey(peerId, clientModeID);
+
     // 中继转发必须走本机「非蓝牙」通道，避免再次回到蓝牙中继形成环路。
+
     return _sendWireNonBluetooth(key, envelopeLine);
   }
 
@@ -1387,24 +2046,36 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
       {String? conversationId, bool showChat = true}) async {
     RuntimeLogger.instance.info(
         'CHAT-RX', 'enter id=$id len=${rawText.length} conv=$conversationId');
+
     final session = parent.target;
+
     if (session == null) {
       debugPrint("Failed to receive msg, session state is null");
+
       return;
     }
+
     if (rawText.isEmpty) return;
+
     // 网络通道收到的 relay 信封（外网设备 → 本网关 → 蓝牙端设备）先交给
+
     // 中继桥：目标若是本机蓝牙端设备则经 RFCOMM 转交，否则按本机消息处理。
+
     if (RelayBridge.isRelayLine(rawText)) {
       final consumed = await RelayBridge.instance.handleNetworkLine(rawText);
+
       if (consumed) return;
     }
+
     // Ignore messages from self to prevent echo loops and freezes.
+
     String? peerId;
+
     final client = id == clientModeID
         ? null
         : session.serverModel.clients
             .firstWhereOrNull((client) => client.id == id);
+
     if (id == clientModeID) {
       peerId = (conversationId != null && conversationId.isNotEmpty)
           ? conversationId
@@ -1412,70 +2083,109 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
     } else {
       peerId = client?.peerId;
     }
+
     // Decode the envelope before keying the conversation: an incoming direct
+
     // message carries the origin device id, which is the correct conversation
+
     // key on this side. Relying only on the transient session id or the
+
     // current chat made incoming messages land in the wrong conversation
+
     // (invisible until the user manually switched chats).
+
     String envelopeOriginId = '';
+
     final envelope = DirectChatEnvelope.decode(rawText);
+
     RuntimeLogger.instance
         .info('CHAT-RX', 'envelope type=${envelope?.type} peerId=$peerId');
+
     // A DotChat envelope that cannot be decoded must never be persisted as
+
     // raw text: it would create a garbage conversation whose preview shows
+
     // the base64 payload instead of the real message.
+
     if (rawText.startsWith(DirectChatEnvelope.prefix) && envelope == null) {
       RuntimeLogger.instance
           .info('CHAT-RX', 'drop undecodable dotchat envelope');
+
       return;
     }
- if (envelope != null && envelope.type == 'message') {
- // Envelope data is record.toJson() (snake_case keys, see
- // DirectChatEnvelope.message). Reading the camelCase key here made
- // origin always empty and incoming messages landed under an empty
- // conversation key, invisible until the user re-opened the chat.
- envelopeOriginId = (envelope.data['origin_device_id'] ??
- envelope.data['originDeviceId'] ??
- '')
- .toString()
- .trim();
 
- // ── Meeting group routing ──
- // A group message arrives over a 1:1 channel but its
- // conversation_id is "meeting:<uuid>". Route it to the group
- // conversation, not the sender's personal 1:1 chat, so all
- // group messages appear in one thread.
- final envConvId =
- (envelope.data['conversation_id'] ?? '').toString().trim();
- if (envConvId.startsWith('meeting:')) {
- peerId = envConvId;
- }
+    if (envelope != null && envelope.type == 'message') {
+      // Envelope data is record.toJson() (snake_case keys, see
+
+      // DirectChatEnvelope.message). Reading the camelCase key here made
+
+      // origin always empty and incoming messages landed under an empty
+
+      // conversation key, invisible until the user re-opened the chat.
+
+      envelopeOriginId = (envelope.data['origin_device_id'] ??
+              envelope.data['originDeviceId'] ??
+              '')
+          .toString()
+          .trim();
+
+      // ── Meeting group routing ──
+
+      // A group message arrives over a 1:1 channel but its
+
+      // conversation_id is "meeting:<uuid>". Route it to the group
+
+      // conversation, not the sender's personal 1:1 chat, so all
+
+      // group messages appear in one thread.
+
+      final envConvId =
+          (envelope.data['conversation_id'] ?? '').toString().trim();
+
+      if (envConvId.startsWith('meeting:')) {
+        peerId = envConvId;
+      }
+
       if (envelopeOriginId.isNotEmpty) {
         // LUODA: key the conversation by the SENDER's stable identity, not
+
         // by the sender's embedded conversation_id (that id is the key on the
+
         // SENDER's device and often equals the RECEIVER's own DotChat id,
+
         // e.g. "225960", which made incoming messages land in the wrong or a
+
         // self conversation). canonicalConversationId() then merges devices
+
         // of the same person into one account conversation.
+
         final senderDialId =
             (envelope.data['sender_dial_id'] ?? '').toString().trim();
+
         final fromClientPeer = (client?.peerId ?? '').trim();
+
         final senderIdentity = senderDialId.isNotEmpty && senderDialId != me.id
             ? senderDialId
             : (fromClientPeer.isNotEmpty && fromClientPeer != me.id
                 ? fromClientPeer
                 : '');
+
         if (senderIdentity.isNotEmpty) {
           peerId = senderIdentity;
         } else {
           // Legacy senders: keep the person-account conversation they
+
           // addressed when it is not our own id, otherwise reuse the key the
+
           // first pass assigned or the sender device id.
+
           final accountConversation =
               DirectPairingStore.stableAccountConversationId(
             (envelope.data['conversation_id'] ?? '').toString(),
           );
+
           final ownDialId = (session.id ?? '').trim();
+
           if (accountConversation.isNotEmpty &&
               accountConversation != me.id &&
               accountConversation != ownDialId) {
@@ -1485,42 +2195,59 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
               client: client,
               envelope: envelope,
             );
+
             peerId = stable.isNotEmpty ? stable : envelopeOriginId;
           }
         }
       }
     }
+
     if (peerId == null || peerId == me.id) {
       RuntimeLogger.instance
           .info('CHAT-RX', 'drop self/empty peerId=$peerId me=${me.id}');
+
       return; // self-message: already displayed by send()
     }
 
     final wasIpSource =
         DirectPairingStore.extractDirectEndpoint(peerId).isNotEmpty;
+
     // A Bluetooth wire message may be the first time this side learns the
+
     // sender's real identity (sender_dial_id). Capture the bt: conversation
+
     // before it is canonicalized away so the Bluetooth pairing can be linked
+
     // to the person account below (one contact row instead of two).
+
     final btConversation = (conversationId ?? '').trim().toLowerCase();
+
     final isBtMessage = envelope != null &&
         envelope.type == 'message' &&
         btConversation.startsWith('bt:');
+
     peerId = DirectPairingStore.canonicalConversationId(peerId);
+
     // Link the sender's device and live incoming clients to the person
+
     // account so replies can be routed back even before a full pairing
+
     // record (endpoint + fingerprint) exists for this phone.
+
     if (envelope != null && envelope.type == 'message') {
       final accountConversation =
           DirectPairingStore.stableAccountConversationId(peerId);
+
       if (accountConversation.isNotEmpty) {
         final envelopeDialId =
             (envelope.data['sender_dial_id'] ?? '').toString().trim();
+
         final livePeerId = envelopeDialId.isNotEmpty
             ? envelopeDialId
             : (client != null
                 ? client.peerId
                 : (id == clientModeID ? session.id : ''));
+
         await _rememberIncomingPersonDevice(
           accountConversation: accountConversation,
           originDeviceId: envelopeOriginId,
@@ -1528,75 +2255,99 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
           senderName: (envelope.data['sender_name'] ?? '').toString(),
           srcPlatform: (envelope.data['src_platform'] ?? '').toString(),
         );
+
         if (isBtMessage) {
           // The Bluetooth peer revealed its person account: bind the bt:<mac>
+
           // pairing to it so the contact list merges the Bluetooth row with
+
           // the same device's network row (the "same customer twice" bug).
+
           unawaited(DirectPairingStore.linkBluetoothPeer(
             conversationId ?? '',
             accountConversation,
-            displayName:
-                (envelope.data['sender_name'] ?? '').toString().trim(),
+            displayName: (envelope.data['sender_name'] ?? '').toString().trim(),
           ));
         }
       }
     }
 
     final messagekey = MessageKey(peerId, id);
+
     if (envelope != null && envelope.type != 'message') {
       await _handleEnvelope(messagekey, envelope);
+
       return;
     }
+
     // A peer the user blocked ("no longer receive") must not land here:
+
     // drop its messages before they are persisted or trigger any UI.
+
     if (gFFI.chatSettingsModel.isBlocked(peerId)) {
       RuntimeLogger.instance
           .info('CHAT-RX', 'drop blocked message peerId=$peerId');
+
       return;
     }
+
     _touchChatActivity(peerId);
 
     late final ChatUser chatUser;
+
     if (id == clientModeID) {
       // LUODA FIX: never use the LOCAL profile (session.ffiModel.pi) as the
+
       // sender's name ? that renamed the conversation to the local username
+
       // ("LUODA") after receiving messages. Prefer the envelope's sender name,
+
       // then a live client matching the conversation, then the existing
+
       // message body, and only then fall back to the peer id.
+
       String? senderName;
+
       final envelopeSender =
           (envelope?.data['sender_name'] ?? '').toString().trim();
-      if (envelopeSender.isNotEmpty &&
-          !_isSelfLikePeerName(envelopeSender)) {
+
+      if (envelopeSender.isNotEmpty && !_isSelfLikePeerName(envelopeSender)) {
         senderName = envelopeSender;
       } else {
         final clientMatch = parent.target?.serverModel.clients
             .firstWhereOrNull((client) => client.peerId == peerId);
+
         final clientName = (clientMatch?.name ?? '').trim();
+
         if (clientName.isNotEmpty && !_isSelfLikePeerName(clientName)) {
           senderName = clientName;
         }
       }
+
       if (senderName == null || senderName.isEmpty) {
         final existing =
             _messages[MessageKey(peerId, id)]?.chatUser.firstName ?? '';
+
         if (existing.trim().isNotEmpty && !_isSelfLikePeerName(existing)) {
           senderName = existing.trim();
         }
       }
+
       final fallbackName =
           (senderName == null || senderName.isEmpty) ? peerId : senderName!;
+
       chatUser = ChatUser(
         firstName: fallbackName,
-        profileImage:
-            _messages[MessageKey(peerId, id)]?.chatUser.profileImage,
+        profileImage: _messages[MessageKey(peerId, id)]?.chatUser.profileImage,
         id: peerId,
       );
     } else {
       if (client == null) {
         debugPrint("Failed to receive msg, client is null");
+
         return;
       }
+
       chatUser = ChatUser(
         id: peerId,
         firstName: client.name,
@@ -1604,21 +2355,29 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
       );
     }
 
- late DirectChatRecord record;
- // True when this is a genuinely new message (first delivery). The same
- // envelope is delivered twice (chat_server_mode then chat_client_mode);
- // only the first delivery should bridge to the session model and notify.
- bool upserted = true;
- if (envelope != null) {
+    late DirectChatRecord record;
+
+    // True when this is a genuinely new message (first delivery). The same
+
+    // envelope is delivered twice (chat_server_mode then chat_client_mode);
+
+    // only the first delivery should bridge to the session model and notify.
+
+    bool upserted = true;
+
+    if (envelope != null) {
       try {
         final incoming = DirectChatRecord.fromJson(envelope.data);
+
         if (incoming.id.isEmpty ||
             incoming.originDeviceId.isEmpty ||
             incoming.originSequence <= 0) {
           RuntimeLogger.instance.info('CHAT-RX',
               'drop invalid record id=${incoming.id} origin=${incoming.originDeviceId} seq=${incoming.originSequence}');
+
           return;
         }
+
         record = incoming.copyWith(
           conversationId: peerId,
           senderName: normalizeDirectPeerName(
@@ -1634,8 +2393,11 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
               ? incoming.connPort
               : DirectPairingStore.connPortOf(peerId),
         );
+
         // LUODA FIX: persist inlined file/image bytes so preview works.
+
         final inline = envelope.data['inline_bytes'];
+
         if (inline is String &&
             inline.isNotEmpty &&
             record.kind == DirectChatKind.file) {
@@ -1644,76 +2406,112 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
               record.fileName,
               base64Decode(inline),
             );
+
             if (saved != null) record = record.copyWith(localPath: saved);
           } catch (_) {}
         }
       } catch (error) {
         RuntimeLogger.instance.info('CHAT-RX', 'fromJson failed: $error');
+
         return;
       }
+
       upserted = await DirectChatRepository.instance.upsert(record);
+
       RuntimeLogger.instance.info('CHAT-RX',
           'upserted=$upserted id=${record.id} conv=${record.conversationId}');
+
       // Merge a stale conversation keyed by the sender's device UUID (created
+
       // by older builds / the Android DirectChatService) into the DotChat-id
+
       // conversation so replies can dial the peer and one person never shows
+
       // as two conversations.
+
       final rxOrigin = (envelope.data['origin_device_id'] ??
               envelope.data['originDeviceId'] ??
               '')
           .toString()
           .trim();
+
       if (rxOrigin.isNotEmpty && rxOrigin != record.conversationId) {
         await DirectChatRepository.instance
             .remapConversation(rxOrigin, record.conversationId);
+
         // Drop the stale in-memory row so the recent list stops showing the
+
         // same person twice; its messages now live under the DotChat-id key.
+
         final staleKeys = _messages.keys
             .where((key) => key.peerId == rxOrigin)
             .toList(growable: false);
+
         for (final stale in staleKeys) {
           _messages.remove(stale);
         }
+
         if (_currentKey.peerId == rxOrigin) {
           _currentKey = MessageKey(record.conversationId, _currentKey.connId);
         }
+
         _scheduleRecentConversationRestore();
+
         notifyListeners();
       }
+
       // Same-person merge: a device that reinstalled the app gets a new id,
+
       // so this message may have landed in a conversation the user is not
+
       // looking at. Merge all same-person conversations into the primary one
+
       // and follow the remap in memory so the message is visible immediately.
+
       try {
         final personRemap =
             await DirectChatRepository.instance.mergeSamePersonConversations();
+
         if (personRemap.isNotEmpty) {
           for (final entry in personRemap.entries) {
             final oldBodyKeys = _messages.keys
                 .where((key) => key.peerId == entry.key)
                 .toList(growable: false);
+
             for (final oldKey in oldBodyKeys) {
               final oldBody = _messages.remove(oldKey);
+
               if (oldBody == null) continue;
+
               final newKey = MessageKey(entry.value, oldKey.connId);
+
               if (!_messages.containsKey(newKey)) {
                 _messages[newKey] = MessageBody(oldBody.chatUser, []);
               }
+
               _messages[newKey]!.chatMessages.addAll(oldBody.chatMessages);
             }
           }
+
           if (personRemap.containsKey(_currentKey.peerId)) {
             _currentKey = MessageKey(
                 personRemap[_currentKey.peerId]!, _currentKey.connId);
           }
+
           _scheduleRecentConversationRestore();
+
           notifyListeners();
         }
       } catch (_) {}
+
       _sendWire(messagekey, DirectChatEnvelope.receipt(record.id).encode());
+
       // Note: the same envelope is delivered twice (chat_server_mode with the
+
       // connection id, then chat_client_mode with clientModeID). The second
+
       // upsert returns false, but we must still populate the in-memory
+
       // conversation so the recent list updates without a manual refresh.
     } else {
       record = await DirectChatRepository.instance.createIncomingLegacy(
@@ -1728,26 +2526,37 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
     if (record.disposition == DirectChatDisposition.destroyed) {
       insertMessage(messagekey,
           _taggedChatMessage(record, chatUser, wasIpSource: wasIpSource));
+
       notifyListeners();
+
       return;
     }
+
     // LUODA: incoming chat stays silent — do not pop up the CM window here.
 
     // show chat page (no floating overlay on mobile)
+
     if (showChat) await showChatPage(messagekey);
+
     if (id == clientModeID) {
       if (isDesktop) {
         if (Get.isRegistered<DesktopTabController>()) {
           DesktopTabController tabController = Get.find<DesktopTabController>();
+
           var index = tabController.state.value.tabs
               .indexWhere((e) => e.key == session.id);
+
           final notSelected =
               index >= 0 && tabController.state.value.selected != index;
+
           // minisized: top and switch tab
+
           // not minisized: add count
+
           if (await WindowController.fromWindowId(stateGlobal.windowId)
               .isMinimized()) {
             windowOnTop(stateGlobal.windowId);
+
             if (notSelected) {
               tabController.jumpTo(index);
             }
@@ -1760,14 +2569,19 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
       }
     } else {
       if (client == null) return;
+
       if (isDesktop) {
         if (!client.isChat) {
           windowOnTop(null);
+
           final tabs = session.serverModel.tabController.state.value.tabs;
+
           if (tabs.isNotEmpty) {
             // Mark unread without indexing an empty connection-manager tab list.
+
             final currentSelectedTab =
                 session.serverModel.tabController.state.value.selectedTabInfo;
+
             if (currentSelectedTab.key != id.toString() && inputNode.hasFocus) {
               client.unreadChatMessageCount.value += 1;
             } else {
@@ -1779,84 +2593,121 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
         if (HomePage.homeKey.currentState?.isChatPageCurrentTab != true ||
             _currentKey != messagekey) {
           client.unreadChatMessageCount.value += 1;
+
           mobileUpdateUnreadSum();
         }
       }
     }
- insertMessage(messagekey,
- _taggedChatMessage(record, chatUser, wasIpSource: wasIpSource));
- _scheduleSelfDestruct(messagekey, record, chatUser);
- if (id == clientModeID || _currentKey.peerId.isEmpty) {
- // client or invalid
- _currentKey = messagekey;
- mobileClearClientUnread(messagekey.connId);
- }
- latestReceivedKey = messagekey;
- notifyListeners();
- // The same envelope is delivered twice (chat_server_mode then
- // chat_client_mode). Only bridge to the session model and pop a
- // notification on the FIRST (new) delivery — the second upsert
- // returns false and insertMessage dedups by ldesk_id, but we must
- // not fire the notification callback twice for the same message.
- if (upserted) {
- _bridgeToSessionModel(messagekey, record, chatUser,
- wasIpSource: wasIpSource);
- _maybeNotifyIncoming(record, messagekey.peerId);
- }
- }
 
- /// Forward an incoming message from the global model to the matching
- /// per-session ChatModel (desktop direct-chat windows). The session model
- /// owns its own `_messages` map and its UI (Consumer<ChatModel>) only
- /// listens to it — without this bridge the user has to switch tabs and
- /// back to see new messages because `_restoreConversation` re-reads the
- /// database only on `changeCurrentKey`.
- void _bridgeToSessionModel(
- MessageKey messagekey,
- DirectChatRecord record,
- ChatUser chatUser, {
- bool wasIpSource = false,
- }) {
- final lookup = findDirectSession;
- if (lookup == null) return;
- final session = lookup(messagekey.peerId);
- if (session == null) return;
- // The callback returns an FFI instance; get its chatModel.
- try {
- final ffi = session;
- final model = ffi.chatModel as ChatModel?;
- if (model == null || identical(model, this)) return;
- model.insertMessage(
- messagekey,
- _taggedChatMessage(record, chatUser, wasIpSource: wasIpSource),
- );
- model.latestReceivedKey = messagekey;
- model.notifyListeners();
- } catch (_) {}
- }
+    insertMessage(messagekey,
+        _taggedChatMessage(record, chatUser, wasIpSource: wasIpSource));
 
- void send(ChatMessage message) {
- RuntimeLogger.instance.info('CHAT',
- 'send called currentKey.peerId=${_currentKey.peerId} isFileHelper=${_currentKey.peerId == kFileHelperId}');
- unawaited(_sendMessage(message));
- }
+    _scheduleSelfDestruct(messagekey, record, chatUser);
+
+    if (id == clientModeID || _currentKey.peerId.isEmpty) {
+      // client or invalid
+
+      _currentKey = messagekey;
+
+      mobileClearClientUnread(messagekey.connId);
+    }
+
+    latestReceivedKey = messagekey;
+
+    notifyListeners();
+
+    // The same envelope is delivered twice (chat_server_mode then
+
+    // chat_client_mode). Only bridge to the session model and pop a
+
+    // notification on the FIRST (new) delivery — the second upsert
+
+    // returns false and insertMessage dedups by ldesk_id, but we must
+
+    // not fire the notification callback twice for the same message.
+
+    if (upserted) {
+      _bridgeToSessionModel(messagekey, record, chatUser,
+          wasIpSource: wasIpSource);
+
+      _maybeNotifyIncoming(record, messagekey.peerId);
+    }
+  }
+
+  /// Forward an incoming message from the global model to the matching
+
+  /// per-session ChatModel (desktop direct-chat windows). The session model
+
+  /// owns its own `_messages` map and its UI (Consumer<ChatModel>) only
+
+  /// listens to it — without this bridge the user has to switch tabs and
+
+  /// back to see new messages because `_restoreConversation` re-reads the
+
+  /// database only on `changeCurrentKey`.
+
+  void _bridgeToSessionModel(
+    MessageKey messagekey,
+    DirectChatRecord record,
+    ChatUser chatUser, {
+    bool wasIpSource = false,
+  }) {
+    final lookup = findDirectSession;
+
+    if (lookup == null) return;
+
+    final session = lookup(messagekey.peerId);
+
+    if (session == null) return;
+
+    // The callback returns an FFI instance; get its chatModel.
+
+    try {
+      final ffi = session;
+
+      final model = ffi.chatModel as ChatModel?;
+
+      if (model == null || identical(model, this)) return;
+
+      model.insertMessage(
+        messagekey,
+        _taggedChatMessage(record, chatUser, wasIpSource: wasIpSource),
+      );
+
+      model.latestReceivedKey = messagekey;
+
+      model.notifyListeners();
+    } catch (_) {}
+  }
+
+  void send(ChatMessage message) {
+    RuntimeLogger.instance.info('CHAT',
+        'send called currentKey.peerId=${_currentKey.peerId} isFileHelper=${_currentKey.peerId == kFileHelperId}');
+
+    unawaited(_sendMessage(message));
+  }
 
   /// Handle "#" image generation intent — call AI image service and send result.
+
   Future<void> _handleImageGeneration(String query) async {
     final key = _currentKey;
 
     // Step 1: show "generating..." message
+
     final step1 = ChatMessage(
       text: '🎨 ${translate("Generating image")}...',
       user: me,
       createdAt: DateTime.now(),
       customProperties: {'ldesk_ai_reply': 'true', 'ldesk_ai_system': 'true'},
     );
+
     insertMessage(key, step1);
+
     notifyListeners();
 
     try {
       // Strip trigger keywords so the image prompt is clean
+
       const imageTriggers = [
         '画',
         '图片',
@@ -1870,31 +2721,43 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
         'create',
         '生成'
       ];
+
       var cleanQuery = query;
+
       for (final kw in imageTriggers) {
         final asciiKeyword =
             RegExp(r'^[a-z]+$', caseSensitive: false).hasMatch(kw);
+
         final pattern = asciiKeyword
             ? r'\b' + RegExp.escape(kw) + r'\b'
             : RegExp.escape(kw);
+
         cleanQuery = cleanQuery.replaceAll(
           RegExp(pattern, caseSensitive: false),
           '',
         );
       }
+
       cleanQuery = cleanQuery.replaceAll(RegExp(r'\s+'), ' ').trim();
+
       if (cleanQuery.isEmpty) cleanQuery = query; // fallback
+
       final localPath = await AiImageService.generate(cleanQuery);
+
       if (localPath == null || localPath.isEmpty) {
         throw Exception('No image returned');
       }
 
       // Remove progress message
+
       _messages[key]?.chatMessages.remove(step1);
 
       // Insert generated image as a file message
+
       final fileName = 'ai_${DateTime.now().millisecondsSinceEpoch}.png';
+
       final fileSize = File(localPath).lengthSync();
+
       final record = await DirectChatRepository.instance.createOutgoing(
         conversationId: key.peerId,
         connectionTarget: _messageSourceTarget(key),
@@ -1908,26 +2771,35 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
         localPath: localPath,
         fileSha256: '',
       );
+
       insertMessage(key, _taggedChatMessage(record, me));
+
       await _transmitRecord(key, record);
+
       notifyListeners();
     } catch (e) {
       debugPrint('Image generation failed: $e');
+
       _messages[key]?.chatMessages.remove(step1);
+
       final failMsg = ChatMessage(
         text: translate('Image generation failed'),
         user: me,
         createdAt: DateTime.now(),
         customProperties: {'ldesk_ai_reply': 'true', 'ldesk_ai_system': 'true'},
       );
+
       insertMessage(key, failMsg);
+
       notifyListeners();
     }
   }
 
   /// Handle "#" email export intent by opening a real email draft.
+
   Future<void> _handleEmailExport() async {
     final email = AiConfig.current.email;
+
     final key = _currentKey;
 
     final progress = ChatMessage(
@@ -1936,7 +2808,9 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
       createdAt: DateTime.now(),
       customProperties: {'ldesk_ai_reply': 'true', 'ldesk_ai_system': 'true'},
     );
+
     insertMessage(key, progress);
+
     notifyListeners();
 
     try {
@@ -1955,16 +2829,20 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
             ),
           )
           .toList(growable: false);
+
       final content = EmailDraftService.formatMessages(
         messages,
         fileLabel: translate('File'),
       );
+
       final opened = await EmailDraftService.openDraft(
         recipient: email,
         subject: translate('Chat messages'),
         body: content,
       );
+
       _messages[key]?.chatMessages.remove(progress);
+
       final result = ChatMessage(
         text: opened
             ? '${translate("Email draft opened")}: $email'
@@ -1973,39 +2851,54 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
         createdAt: DateTime.now(),
         customProperties: {'ldesk_ai_reply': 'true', 'ldesk_ai_system': 'true'},
       );
+
       insertMessage(key, result);
+
       notifyListeners();
     } catch (e) {
       debugPrint('Email export failed: $e');
+
       _messages[key]?.chatMessages.remove(progress);
+
       final failMsg = ChatMessage(
         text: translate('Export failed'),
         user: me,
         createdAt: DateTime.now(),
         customProperties: {'ldesk_ai_reply': 'true', 'ldesk_ai_system': 'true'},
       );
+
       insertMessage(key, failMsg);
+
       notifyListeners();
     }
   }
 
   Future<void> _sendMessage(ChatMessage message) async {
     final rawText = sanitizeInvalidUtf16(message.text).trim();
+
     if (rawText.isEmpty) {
       return;
     }
- // 文件助手：文字只保存本地，不走网络。
- if (_currentKey.peerId == kFileHelperId) {
- RuntimeLogger.instance.info('CHAT', 'filehelper local send, text=$rawText');
- await _sendToFileHelper(DirectChatKind.text, text: rawText);
- return;
- }
+
+    // 文件助手：文字只保存本地，不走网络。
+
+    if (_currentKey.peerId == kFileHelperId) {
+      RuntimeLogger.instance
+          .info('CHAT', 'filehelper local send, text=$rawText');
+
+      await _sendToFileHelper(DirectChatKind.text, text: rawText);
+
+      return;
+    }
 
     // # command: AI image, email export, or normal AI chat
+
     if (rawText.startsWith('#')) {
       final aiQuery = rawText.substring(1).trim();
+
       if (aiQuery.isNotEmpty) {
         // --- AI Image generation intent ---
+
         const imageKeywords = [
           '画',
           '图片',
@@ -2018,18 +2911,25 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
           'generate',
           'create'
         ];
+
         final isImageIntent =
             imageKeywords.any((kw) => aiQuery.toLowerCase().contains(kw));
+
         if (isImageIntent) {
           unawaited(_handleImageGeneration(aiQuery));
+
           inputNode.requestFocus();
+
           return;
         }
 
         // --- Email export intent detection ---
+
         final email = AiConfig.current.email;
+
         final hasValidEmail = email.isNotEmpty &&
             RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email);
+
         const exportKeywords = [
           '邮箱',
           '邮件',
@@ -2041,17 +2941,25 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
           'export',
           'save'
         ];
+
         final isExportIntent = hasValidEmail &&
             exportKeywords.any((kw) => aiQuery.toLowerCase().contains(kw));
+
         if (isExportIntent) {
           unawaited(_handleEmailExport());
+
           inputNode.requestFocus();
+
           return;
         }
+
         // --- Normal AI chat ---
+
         if (AiConfig.current.enabled) {
           final key = _currentKey;
+
           // Show a local placeholder while AI is thinking
+
           final placeholder = ChatMessage(
             text: '${translate("AI thinking")}...',
             user: me,
@@ -2061,12 +2969,16 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
               'ldesk_ai_loading': 'true'
             },
           );
+
           insertMessage(key, placeholder);
+
           notifyListeners();
 
           final reply = await AiService.chat(aiQuery);
+
           if (reply != null && reply.isNotEmpty) {
             _messages[key]?.chatMessages.remove(placeholder);
+
             final record = await DirectChatRepository.instance.createOutgoing(
               conversationId: key.peerId,
               connectionTarget: _messageSourceTarget(key),
@@ -2076,15 +2988,23 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
               senderName: me.firstName ?? '',
               senderAvatar: '',
             );
+
             // Create chat message with AI reply marker
+
             var aiMsg = _taggedChatMessage(record, me);
+
             aiMsg.customProperties ??= <String, dynamic>{};
+
             aiMsg.customProperties!['ldesk_ai_reply'] = 'true';
+
             insertMessage(key, aiMsg);
+
             await _transmitRecord(key, record);
+
             notifyListeners();
           } else {
             _messages[key]?.chatMessages.remove(placeholder);
+
             insertMessage(
               key,
               ChatMessage(
@@ -2097,29 +3017,43 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
                 },
               ),
             );
+
             notifyListeners();
           }
+
           inputNode.requestFocus();
+
           return;
         }
+
         // If AI not configured and not export, fall through to send raw
       }
     }
 
     // Normal message send — both for non-# text AND #-prefixed
+
     // text that wasn't handled by the AI/image/export paths above.
+
     {
       final trimmedText = rawText;
+
       final key = _currentKey;
+
       if (key.peerId.isEmpty) return;
+
       _touchChatActivity(key.peerId);
+
       final replyId =
           (_replyToMessage?.customProperties?['ldesk_id'] ?? '').toString();
+
       final replySender = _replyToMessage == null
           ? ''
           : (_replyToMessage!.user.firstName ?? _replyToMessage!.user.id);
+
       final replyText = _replyToMessage?.text ?? '';
+
       DirectChatRecord? record;
+
       try {
         record = await DirectChatRepository.instance.createOutgoing(
           conversationId: key.peerId,
@@ -2138,12 +3072,18 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
       } catch (e, st) {
         debugPrint('Failed to persist outgoing chat message: $e\n$st');
       }
+
       _replyToMessage = null;
+
       // Clear draft after send
+
       _drafts.remove(key.peerId);
+
       if (record != null) {
         insertMessage(key, _taggedChatMessage(record, me));
+
         _scheduleSelfDestruct(key, record, me);
+
         try {
           await _transmitRecord(key, record);
         } catch (e, st) {
@@ -2151,8 +3091,11 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
         }
       } else {
         // Persistence failed — synthesize a transient queued record so the
+
         // message still shows up locally with a failed delivery state. The
+
         // user can then see they sent it and decide to retry.
+
         final tmp = DirectChatRecord(
           id: 'local-${DateTime.now().microsecondsSinceEpoch}',
           conversationId: key.peerId,
@@ -2179,12 +3122,16 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
               ? '${replyText.substring(0, 80)}...'
               : replyText,
         );
+
         insertMessage(key, _taggedChatMessage(tmp, me));
       }
 
       // Always notify so the UI rebuilds and shows the bubble, even on
+
       // persistence / transmission failure.
+
       notifyListeners();
+
       inputNode.requestFocus();
     }
   }
@@ -2214,17 +3161,25 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
     DirectChatDisposition disposition,
   ) async {
     final id = (message.customProperties?['ldesk_id'] ?? '').toString();
+
     final key = _currentKey;
+
     if (id.isEmpty || key.peerId.isEmpty) return false;
+
     final updated = await DirectChatRepository.instance.mutateOutgoing(
       key.peerId,
       id,
       disposition,
     );
+
     if (updated == null) return false;
+
     insertMessage(key, _taggedChatMessage(updated, me));
+
     await _transmitRecord(key, updated);
+
     notifyListeners();
+
     return true;
   }
 
@@ -2238,24 +3193,35 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
 
   Future<bool> retryMessage(ChatMessage message) async {
     final id = (message.customProperties?['ldesk_id'] ?? '').toString();
+
     final key = _currentKey;
+
     if (id.isEmpty || key.peerId.isEmpty) return false;
+
     final record = await DirectChatRepository.instance.find(id);
+
     if (record == null ||
         !record.isOutgoing ||
         record.disposition != DirectChatDisposition.active ||
         record.isExpired) {
       return false;
     }
+
     await DirectChatRepository.instance
         .markDelivery(id, DirectChatDelivery.queued);
+
     final queued = record.copyWith(delivery: DirectChatDelivery.queued);
+
     insertMessage(key, _taggedChatMessage(queued, me));
+
     await _transmitRecord(key, queued);
+
     if (queued.kind == DirectChatKind.voice) {
       await _sendStoredVoiceClip(key, queued);
     }
+
     notifyListeners();
+
     return true;
   }
 
@@ -2264,18 +3230,27 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
     Duration duration,
   ) async {
     final id = (message.customProperties?['ldesk_id'] ?? '').toString();
+
     final key = _currentKey;
+
     if (id.isEmpty || key.peerId.isEmpty) return false;
+
     final updated = await DirectChatRepository.instance.setSelfDestruct(
       key.peerId,
       id,
       duration,
     );
+
     if (updated == null) return false;
+
     insertMessage(key, _taggedChatMessage(updated, me));
+
     _scheduleSelfDestruct(key, updated, me);
+
     await _transmitRecord(key, updated);
+
     notifyListeners();
+
     return true;
   }
 
@@ -2285,29 +3260,39 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
     ChatUser user,
   ) {
     final expiresAt = record.expiresAt;
+
     if (expiresAt == null ||
         record.disposition != DirectChatDisposition.active) {
       return;
     }
+
     _selfDestructTimers.remove(record.id)?.cancel();
+
     final remaining = expiresAt.difference(DateTime.now().toUtc());
+
     _selfDestructTimers[record.id] = Timer(
       remaining > Duration.zero ? remaining : Duration.zero,
       () async {
         _selfDestructTimers.remove(record.id);
+
         final current = await DirectChatRepository.instance.find(record.id);
+
         if (current == null ||
             current.disposition != DirectChatDisposition.active) {
           return;
         }
+
         if (current.isOutgoing) {
           final destroyed = await DirectChatRepository.instance.mutateOutgoing(
             current.conversationId,
             current.id,
             DirectChatDisposition.destroyed,
           );
+
           if (destroyed == null) return;
+
           insertMessage(key, _taggedChatMessage(destroyed, user));
+
           await _transmitRecord(key, destroyed);
         } else {
           insertMessage(
@@ -2318,6 +3303,7 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
             ),
           );
         }
+
         notifyListeners();
       },
     );
@@ -2330,13 +3316,18 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
     String localPath = '',
   }) async {
     final key = _currentKey;
+
     if (key.peerId.isEmpty || fileName.isEmpty) return;
+
     // 文件助手：复制到本地专用目录后只保存记录。
+
     if (key.peerId == kFileHelperId) {
       String inlineBytes = '';
+
       if (localPath.isNotEmpty && canInlineDirectChatFile(fileSize)) {
         try {
           final bytes = await File(localPath).readAsBytes();
+
           if (bytes.length <= kMaxInlineChatFileBytes) {
             inlineBytes = base64Encode(bytes);
           }
@@ -2344,11 +3335,15 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
           inlineBytes = '';
         }
       }
+
       var helperPath = localPath;
+
       if (helperPath.isNotEmpty) {
         final copied = await saveFileHelperFile(fileName, helperPath);
+
         if (copied != null) helperPath = copied;
       }
+
       await _sendToFileHelper(
         DirectChatKind.file,
         fileName: fileName,
@@ -2357,15 +3352,22 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
         localPath: helperPath,
         inlineBytes: inlineBytes,
       );
+
       return;
     }
+
     _touchChatActivity(key.peerId);
+
     // LUODA FIX: inline small file/image bytes into the chat message so the
+
     // receiver can preview/open them without a separate file-transfer session.
+
     String inlineBytes = '';
+
     if (localPath.isNotEmpty && canInlineDirectChatFile(fileSize)) {
       try {
         final bytes = await File(localPath).readAsBytes();
+
         if (bytes.length <= kMaxInlineChatFileBytes) {
           inlineBytes = base64Encode(bytes);
         }
@@ -2373,6 +3375,7 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
         inlineBytes = '';
       }
     }
+
     final record = await DirectChatRepository.instance.createOutgoing(
       conversationId: key.peerId,
       connectionTarget: _messageSourceTarget(key),
@@ -2387,8 +3390,11 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
       localPath: localPath,
       inlineBytes: inlineBytes,
     );
+
     insertMessage(key, _taggedChatMessage(record, me));
+
     await _transmitRecord(key, record);
+
     notifyListeners();
   }
 
@@ -2397,8 +3403,11 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
     required List<DirectChatForwardItem> items,
   }) async {
     final key = _currentKey;
+
     if (key.peerId.isEmpty || items.isEmpty) return;
+
     _touchChatActivity(key.peerId);
+
     final record = await DirectChatRepository.instance.createOutgoing(
       conversationId: key.peerId,
       connectionTarget: _messageSourceTarget(key),
@@ -2410,8 +3419,11 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
       forwardTitle: title,
       forwardItems: items,
     );
+
     insertMessage(key, _taggedChatMessage(record, me));
+
     await _transmitRecord(key, record);
+
     notifyListeners();
   }
 
@@ -2421,26 +3433,36 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
   }) async {
     final rawPeerId =
         peerId?.trim().isNotEmpty == true ? peerId!.trim() : _currentKey.peerId;
+
     final resolvedPeerId =
         DirectPairingStore.canonicalConversationId(rawPeerId);
+
     if (resolvedPeerId.isEmpty) return;
+
     _touchChatActivity(resolvedPeerId);
+
     await _refreshCmLiveChatConnId(resolvedPeerId);
+
     final key = MessageKey(
       resolvedPeerId,
       connId ?? _currentKey.connId,
     );
+
     changeCurrentKey(key);
+
     for (final record
         in await DirectChatRepository.instance.pendingFor(resolvedPeerId)) {
       await _transmitRecord(key, record);
+
       if (record.kind == DirectChatKind.voice) {
         await _sendStoredVoiceClip(key, record);
       }
     }
+
     final cursor = await DirectChatRepository.instance.cursor(
       conversationId: resolvedPeerId,
     );
+
     _sendWire(key, DirectChatEnvelope.syncRequest(cursor).encode());
 
     await requestCompanionSync(
@@ -2451,19 +3473,27 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
 
   Future<void> refreshCurrentConversationFromStorage() async {
     if (_currentKey.peerId.isEmpty) return;
+
     await _restoreConversation(_currentKey);
   }
 
   /// Reload recent conversations from the persisted store and rebuild the
+
   /// UI. Called when the app returns to the foreground so messages persisted
+
   /// by the background service appear immediately (no 2-4s poll wait).
+
   Future<void> refreshRecentFromStorage() {
     _scheduleRecentConversationRestore();
+
     final peerId = _currentKey.peerId;
+
     if (peerId.isNotEmpty) {
       unawaited(_restoreConversation(_currentKey));
     }
+
     notifyListeners();
+
     return _recentRestoreTask ?? Future<void>.value();
   }
 
@@ -2472,10 +3502,14 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
     int? connId,
   }) async {
     final resolvedPeerId = peerId.trim();
+
     if (resolvedPeerId.isEmpty) return;
+
     final pairing = DirectPairingStore.find(resolvedPeerId);
+
     if (pairing?.companion == true && pairing!.syncSecret.isNotEmpty) {
       final replicaCursor = await DirectChatRepository.instance.cursor();
+
       _sendWire(
         MessageKey(resolvedPeerId, connId ?? clientModeID),
         DirectChatEnvelope.replicaRequest(
@@ -2492,11 +3526,17 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
     required int durationMs,
   }) async {
     final key = _currentKey;
+
     if (key.peerId.isEmpty || durationMs <= 0) return;
+
     _touchChatActivity(key.peerId);
+
     final bytes = await DirectVoiceStorage.instance.read(messageId);
+
     if (bytes == null) return;
+
     final digest = sha256.convert(bytes).toString();
+
     final record = await DirectChatRepository.instance.createOutgoing(
       id: messageId,
       conversationId: key.peerId,
@@ -2511,14 +3551,19 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
       fileSha256: digest,
       voiceDurationMs: durationMs,
     );
+
     insertMessage(key, _taggedChatMessage(record, me));
+
     await _transmitRecord(key, record);
+
     await _sendVoiceChunks(key, record, bytes);
+
     notifyListeners();
   }
 
   Future<void> requestVoiceClip(String messageId) async {
     if (messageId.isEmpty || _currentKey.peerId.isEmpty) return;
+
     _sendWire(
       _currentKey,
       DirectChatEnvelope.voiceRequest(messageId).encode(),
@@ -2527,23 +3572,33 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
 
   Future<void> syncActiveCompanionSessions() async {
     if (_activeCompanionSyncInProgress) return;
+
     final serverModel = parent.target?.serverModel;
+
     if (serverModel == null) return;
+
     _activeCompanionSyncInProgress = true;
+
     try {
       final clients = <int, Client>{
         for (final client in serverModel.clients)
           if (client.authorized && client.isChat && !client.disconnected)
             client.id: client,
       };
+
       _activeCompanionSecrets.removeWhere(
         (connId, _) => !clients.containsKey(connId),
       );
+
       if (_activeCompanionSecrets.isEmpty) return;
+
       final cursor = await DirectChatRepository.instance.cursor();
+
       for (final entry in _activeCompanionSecrets.entries.toList()) {
         final client = clients[entry.key];
+
         if (client == null) continue;
+
         _sendWire(
           MessageKey(client.peerId, client.id),
           DirectChatEnvelope.replicaRequest(
@@ -2560,38 +3615,50 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
 
   Future<void> markCurrentUndeliveredFailed() async {
     if (_currentKey.peerId.isEmpty) return;
+
     await DirectChatRepository.instance.markUndeliveredFailed(
       _currentKey.peerId,
     );
+
     await _restoreConversation(_currentKey);
   }
 
   Future<void> markCurrentUndeliveredQueued() async {
     if (_currentKey.peerId.isEmpty) return;
+
     await DirectChatRepository.instance.markUndeliveredQueued(
       _currentKey.peerId,
     );
+
     await _restoreConversation(_currentKey);
   }
 
   Future<void> remapCurrentPeer(String peerId) async {
     final previous = _currentKey;
+
     if (peerId.isEmpty ||
         previous.peerId.isEmpty ||
         previous.peerId == peerId) {
       return;
     }
+
     await DirectChatRepository.instance.remapConversation(
       previous.peerId,
       peerId,
     );
+
     final previousBody = _messages.remove(previous);
+
     final next = MessageKey(peerId, previous.connId);
+
     if (previousBody != null) {
       previousBody.chatUser.id = peerId;
+
       _messages[next] = previousBody;
     }
+
     _currentKey = next;
+
     await _restoreConversation(next);
   }
 
@@ -2602,65 +3669,90 @@ peerAvatar ??= pairing?.avatar.isNotEmpty == true
     switch (envelope.type) {
       case 'receipt':
         final id = (envelope.data['id'] ?? '').toString();
+
         if (id.isNotEmpty) {
           await DirectChatRepository.instance.markDelivery(
             id,
             DirectChatDelivery.delivered,
           );
+
           final record = await DirectChatRepository.instance.find(id);
+
           if (record != null) {
             insertMessage(key, _taggedChatMessage(record, me));
+
             notifyListeners();
           }
         }
+
         return;
+
       case 'sync_request':
         final cursor = _parseCursor(envelope.data['cursor']);
+
         final records = await DirectChatRepository.instance.afterCursor(
           cursor,
           conversationId: key.peerId,
           outgoingOnly: true,
         );
+
         for (final record in records) {
           await _transmitRecord(key, record);
+
           if (record.kind == DirectChatKind.voice) {
             await _sendStoredVoiceClip(key, record);
           }
         }
+
         return;
+
       case 'replica_request':
         final secret = (envelope.data['secret'] ?? '').toString();
+
         if (!DirectPairingStore.acceptsCompanionSecret(secret)) return;
+
         if (!key.isOut) {
           _activeCompanionSecrets[key.connId] = secret;
+
           _rememberCompanionDevice(key);
         }
-final cursor = _parseCursor(envelope.data['cursor']);
-final records = await DirectChatRepository.instance.afterCursor(cursor);
-for (final record in records) {
+
+        final cursor = _parseCursor(envelope.data['cursor']);
+
+        final records = await DirectChatRepository.instance.afterCursor(cursor);
+
+        for (final record in records) {
 // LUODA FIX: after a SQLite round-trip the transient inlineBytes
+
 // field is always ''. For small file/image records we re-read the
+
 // bytes from localPath so the companion can persist and preview
+
 // them without needing the original sender's filesystem path.
-var toSend = record;
-if (record.kind == DirectChatKind.file &&
-record.inlineBytes.isEmpty &&
-record.localPath.isNotEmpty &&
-canInlineDirectChatFile(record.fileSize)) {
-try {
-final bytes = await File(record.localPath).readAsBytes();
-if (bytes.length <= kMaxInlineChatFileBytes) {
-toSend = record.copyWith(
-inlineBytes: base64Encode(bytes),
-);
-}
-} catch (_) {}
-}
-_sendWire(
-key,
-DirectChatEnvelope.replicaMessage(toSend, secret).encode(),
-);
+
+          var toSend = record;
+
+          if (record.kind == DirectChatKind.file &&
+              record.inlineBytes.isEmpty &&
+              record.localPath.isNotEmpty &&
+              canInlineDirectChatFile(record.fileSize)) {
+            try {
+              final bytes = await File(record.localPath).readAsBytes();
+
+              if (bytes.length <= kMaxInlineChatFileBytes) {
+                toSend = record.copyWith(
+                  inlineBytes: base64Encode(bytes),
+                );
+              }
+            } catch (_) {}
+          }
+
+          _sendWire(
+            key,
+            DirectChatEnvelope.replicaMessage(toSend, secret).encode(),
+          );
         }
+
         _sendWire(
           key,
           DirectChatEnvelope('replica_contacts', <String, dynamic>{
@@ -2669,8 +3761,10 @@ DirectChatEnvelope.replicaMessage(toSend, secret).encode(),
             'policies': DirectChatAccessController.instance.toSyncJson(),
           }).encode(),
         );
+
         if (envelope.data['request_reply'] == true) {
           final localCursor = await DirectChatRepository.instance.cursor();
+
           _sendWire(
             key,
             DirectChatEnvelope.replicaRequest(
@@ -2680,38 +3774,54 @@ DirectChatEnvelope.replicaMessage(toSend, secret).encode(),
             ).encode(),
           );
         }
+
         return;
-case 'replica_message':
-final secret = (envelope.data['secret'] ?? '').toString();
-if (!DirectPairingStore.acceptsCompanionSecret(secret)) return;
-try {
-var record = DirectChatRecord.fromJson(
-Map<String, dynamic>.from(envelope.data['record'] as Map),
-);
+
+      case 'replica_message':
+        final secret = (envelope.data['secret'] ?? '').toString();
+
+        if (!DirectPairingStore.acceptsCompanionSecret(secret)) return;
+
+        try {
+          var record = DirectChatRecord.fromJson(
+            Map<String, dynamic>.from(envelope.data['record'] as Map),
+          );
+
 // LUODA FIX: persist inlined file/image bytes so preview works on
+
 // the companion side. This mirrors the 'message' receive path
+
 // (lines ~1480-1492). Without this, replica-synced file records
+
 // keep the sender's local_path (e.g. an Android cache path) which
+
 // does not exist on the receiver, so the image shows blank.
-final inline = envelope.data['inline_bytes'];
-if (inline is String &&
-inline.isNotEmpty &&
-record.kind == DirectChatKind.file) {
-try {
-final saved = await saveInlineChatFile(
-record.fileName,
-base64Decode(inline),
-);
-if (saved != null) record = record.copyWith(localPath: saved);
-} catch (_) {}
-} else if (record.kind == DirectChatKind.file &&
-record.localPath.isNotEmpty &&
-!File(record.localPath).existsSync()) {
+
+          final inline = envelope.data['inline_bytes'];
+
+          if (inline is String &&
+              inline.isNotEmpty &&
+              record.kind == DirectChatKind.file) {
+            try {
+              final saved = await saveInlineChatFile(
+                record.fileName,
+                base64Decode(inline),
+              );
+
+              if (saved != null) record = record.copyWith(localPath: saved);
+            } catch (_) {}
+          } else if (record.kind == DirectChatKind.file &&
+              record.localPath.isNotEmpty &&
+              !File(record.localPath).existsSync()) {
 // The sender's local_path is meaningless on this device — clear
+
 // it so the UI shows a file card instead of a broken image.
-record = record.copyWith(localPath: '');
-}
-await DirectChatRepository.instance.upsert(record);
+
+            record = record.copyWith(localPath: '');
+          }
+
+          await DirectChatRepository.instance.upsert(record);
+
           if (record.kind == DirectChatKind.voice &&
               !await DirectVoiceStorage.instance.exists(record.id)) {
             _sendWire(
@@ -2719,87 +3829,128 @@ await DirectChatRepository.instance.upsert(record);
               DirectChatEnvelope.voiceRequest(record.id).encode(),
             );
           }
+
           // LUODA: surface companion-synced records in memory right away so
+
           // the recent list / open chat refresh without waiting for the poll.
+
           final targetId = record.conversationId.trim().isNotEmpty
               ? record.conversationId
               : key.peerId;
+
           if (targetId.isNotEmpty) {
             final targetKey = targetId == kFileHelperId
                 ? fileHelperKey
                 : MessageKey(targetId, key.connId);
+
             final user = record.isOutgoing
                 ? me
                 : (_messages[targetKey]?.chatUser ??
                     ChatUser(id: targetId, firstName: record.senderName));
+
             insertMessage(targetKey, _taggedChatMessage(record, user));
+
             notifyListeners();
+
             if (!record.isOutgoing) {
               _maybeNotifyIncoming(record, targetId);
             }
           }
         } catch (_) {}
+
         return;
+
       case 'replica_contacts':
         final secret = (envelope.data['secret'] ?? '').toString();
+
         if (!DirectPairingStore.acceptsCompanionSecret(secret)) return;
+
         await DirectPairingStore.mergeContacts(
           envelope.data['contacts'] as List<dynamic>? ?? const [],
         );
+
         final policies = envelope.data['policies'];
+
         if (policies is Map) {
           await DirectChatAccessController.instance.mergeSyncData(
             Map<String, dynamic>.from(policies),
           );
         }
+
         return;
+
       case 'voice_request':
         final id = (envelope.data['id'] ?? '').toString();
+
         final record = await DirectChatRepository.instance.find(id);
+
         if (record?.kind == DirectChatKind.voice &&
             (record!.conversationId == key.peerId ||
                 _isCompanionSession(key))) {
           await _sendStoredVoiceClip(key, record!);
         }
+
         return;
+
       case 'voice_chunk':
         await _receiveVoiceChunk(key, envelope);
+
         return;
+
       case 'typing':
         _onPeerTyping(key.peerId);
+
         return;
+
       case 'reaction':
         final id = (envelope.data['id'] ?? '').toString();
+
         final emoji = (envelope.data['emoji'] ?? '').toString();
+
         final deviceId = (envelope.data['device_id'] ?? '').toString();
+
         if (id.isEmpty || emoji.isEmpty || deviceId.isEmpty) return;
+
         final reacted = await DirectChatRepository.instance.toggleReaction(
           id,
           emoji,
           deviceId,
         );
+
         if (reacted != null) {
           final user = _messages[key]?.chatUser;
+
           if (user != null) {
             insertMessage(key, _taggedChatMessage(reacted, user));
+
             notifyListeners();
           }
         }
+
         return;
+
       case 'edit':
         final editId = (envelope.data['id'] ?? '').toString();
+
         final newText = (envelope.data['text'] ?? '').toString();
+
         if (editId.isEmpty || newText.isEmpty) return;
+
         final edited = await DirectChatRepository.instance.editText(
           editId,
           newText,
         );
+
         if (edited != null) {
           final user = _messages[key]?.chatUser ?? me;
+
           insertMessage(key, _taggedChatMessage(edited, user));
+
           notifyListeners();
         }
+
         return;
+
       default:
         return;
     }
@@ -2815,83 +3966,125 @@ await DirectChatRepository.instance.upsert(record);
     }
   }
 
- Future<void> _transmitRecord(
- MessageKey key,
- DirectChatRecord record,
- ) async {
- // Meeting group conversations use a synthetic "meeting:<uuid>" ID.
- // There is no single session to establish — _sendWireMeetingGroup
- // fans out to each member's 1:1 channel individually.
- final isMeetingGroup = key.peerId.startsWith('meeting:');
+  Future<void> _transmitRecord(
+    MessageKey key,
+    DirectChatRecord record,
+  ) async {
+    // Meeting group conversations use a synthetic "meeting:<uuid>" ID.
 
- // LUODA: ensure a live chat session exists before marking the message as
- // sent. Opening a conversation from the recent list never established the
- // session, so messages were optimistically marked "sent" and silently
- // dropped (the "A rejects messages / never received" bug).
- final ensure = ensureChatConnection;
- if (!isMeetingGroup) {
- await _refreshCmLiveChatConnId(key.peerId);
- }
- if (ensure != null && !isMeetingGroup && !_hasLiveChatSession(key)) {
- await ensure(key.peerId, force: true);
- // LUODA: dialing may tear down the global session and leave the current
- // key empty; keep the sending conversation stable so the UI and any
- // follow-up writes stay on the conversation the user actually opened.
- await _refreshCmLiveChatConnId(key.peerId);
- if (_currentKey.peerId.isEmpty) {
- _currentKey = key;
- }
- } else if (isMeetingGroup) {
- // For meeting groups, keep the current key stable on the meeting
- // conversation so the UI stays on the group chat the user opened.
- if (_currentKey.peerId.isEmpty) {
- _currentKey = key;
- }
- }
+    // There is no single session to establish — _sendWireMeetingGroup
+
+    // fans out to each member's 1:1 channel individually.
+
+    final isMeetingGroup = key.peerId.startsWith('meeting:');
+
+    // LUODA: ensure a live chat session exists before marking the message as
+
+    // sent. Opening a conversation from the recent list never established the
+
+    // session, so messages were optimistically marked "sent" and silently
+
+    // dropped (the "A rejects messages / never received" bug).
+
+    final ensure = ensureChatConnection;
+
+    if (!isMeetingGroup) {
+      await _refreshCmLiveChatConnId(key.peerId);
+    }
+
+    if (ensure != null && !isMeetingGroup && !_hasLiveChatSession(key)) {
+      await ensure(key.peerId, force: true);
+
+      // LUODA: dialing may tear down the global session and leave the current
+
+      // key empty; keep the sending conversation stable so the UI and any
+
+      // follow-up writes stay on the conversation the user actually opened.
+
+      await _refreshCmLiveChatConnId(key.peerId);
+
+      if (_currentKey.peerId.isEmpty) {
+        _currentKey = key;
+      }
+    } else if (isMeetingGroup) {
+      // For meeting groups, keep the current key stable on the meeting
+
+      // conversation so the UI stays on the group chat the user opened.
+
+      if (_currentKey.peerId.isEmpty) {
+        _currentKey = key;
+      }
+    }
+
     String senderDialId = '';
+
     try {
       senderDialId = (await bind.mainGetMyId()).trim();
     } catch (_) {}
+
     final sent = _sendWire(
       key,
       DirectChatEnvelope.message(record, senderDialId: senderDialId).encode(),
     );
+
     if (sent) {
       _touchChatActivity(key.peerId);
     } else {
       unawaited(ensureChatConnection?.call(key.peerId, force: true));
     }
+
     if (sent && record.delivery != DirectChatDelivery.delivered) {
       final updated = record.copyWith(delivery: DirectChatDelivery.sent);
+
       await DirectChatRepository.instance
           .markDelivery(record.id, updated.delivery);
+
       insertMessage(key, _taggedChatMessage(updated, me));
+
       notifyListeners();
+
       _scheduleDeliveryWatchdog(key, updated);
     } else if (!sent) {
       // LUODA FIX: the wire send failed (no live session / dialing in
+
       // progress / peer offline). The record is already persisted as
+
       // "queued" by createOutgoing. Without a watchdog here the message
+
       // stayed queued forever — the dialing de-dup in ensureChatConnection
+
       // returns early while a dial is in-flight, so no retry was ever
+
       // scheduled. Start the watchdog so it periodically re-dials and
+
       // re-flushes until the message either goes out or exhausts retries
+
       // (same 10s/36-retry budget as the sent path).
+
       _scheduleDeliveryWatchdog(key, record);
     }
   }
 
   /// 补发某会话中所有尚未送达（delivered）的待发消息。
+
   /// 在会话重建 / 保活重连成功后调用，避免“对端重启或掉线期间的消息滞留”。
+
   Future<void> flushPendingOutgoing(String peerId) async {
     if (peerId.isEmpty) return;
+
     if (!_flushingPeers.add(peerId)) return;
+
     try {
       final pending = await DirectChatRepository.instance.pendingFor(peerId);
+
       if (pending.isEmpty) return;
+
       final ffi = parent.target;
+
       if (ffi == null || ffi.closed) return;
+
       await _refreshCmLiveChatConnId(peerId);
+
       final incoming = ffi.serverModel.clients.firstWhereOrNull(
         (client) =>
             client.peerId.trim() == peerId &&
@@ -2899,18 +4092,23 @@ await DirectChatRepository.instance.upsert(record);
             client.isChat &&
             !client.disconnected,
       );
+
       final cmConnId = _hasCmLiveChatClient(peerId) ? _cmLiveChatConnId : 0;
+
       final key = MessageKey(
         peerId,
         incoming != null
             ? incoming.id
             : (cmConnId > 0 ? cmConnId : ChatModel.clientModeID),
       );
+
       if ((incoming != null || cmConnId > 0) && currentKey != key) {
         changeCurrentKey(key);
       }
+
       for (final record in pending) {
         if (record.delivery == DirectChatDelivery.delivered) continue;
+
         await _transmitRecord(key, record);
       }
     } finally {
@@ -2919,57 +4117,88 @@ await DirectChatRepository.instance.upsert(record);
   }
 
   /// 发送后启动送达看门狗：若一段时间内未收到回执，说明直连已断，
+
   /// 强制重建会话并重发；重试多次仍无回执则标记为发送失败。
+
   void _scheduleDeliveryWatchdog(MessageKey key, DirectChatRecord record) {
     _deliveryWatchdogs[record.id]?.cancel();
+
     final timer = Timer(const Duration(seconds: 10), () async {
       _deliveryWatchdogs.remove(record.id);
+
       final current = await DirectChatRepository.instance.find(record.id);
+
       if (current == null ||
           !current.isOutgoing ||
           current.delivery == DirectChatDelivery.delivered) {
         _deliveryWatchdogRetries.remove(record.id);
+
         return;
       }
+
       final retries = (_deliveryWatchdogRetries[record.id] ?? 0) + 1;
+
       if (retries >= 36) {
         _deliveryWatchdogRetries.remove(record.id);
+
         await DirectChatRepository.instance
             .markDelivery(record.id, DirectChatDelivery.failed);
+
         final failed = current.copyWith(delivery: DirectChatDelivery.failed);
+
         insertMessage(key, _taggedChatMessage(failed, me));
+
         notifyListeners();
+
         return;
       }
+
       _deliveryWatchdogRetries[record.id] = retries;
+
       if (retries >= 2) {
         // The peer is not acknowledging even though the local session still
+
         // reports "live" (stale socket after the peer's connection manager
+
         // restarted or the network dropped). Tear the session down so the
+
         // next dial is a real re-dial instead of writing into a dead socket.
+
         // Otherwise messages stay stuck at "sent" until the app is restarted
+
         // (the "messages stop being delivered after a few" bug).
+
         try {
           final ffi = parent.target;
+
           if (ffi != null &&
               !ffi.closed &&
               ffi.connType == ConnType.chat &&
               ffi.chatModel.currentKey.peerId == key.peerId) {
             ffi.suppressConnectionDialogs = true;
+
             await ffi.close();
           } else {
             // Phone / main-window hosts the peer as an incoming chat client,
+
             // not as an FFI chat session. The stale client socket must be
+
             // closed too, otherwise every retry writes into the dead channel
+
             // and the message never gets re-delivered ("sent" forever).
+
             final staleClient = _liveChatClientForPeer(key.peerId);
+
             if (staleClient != null) {
               debugPrint('[SEND_WIRE] watchdog closing stale client connId=' +
                   staleClient.id.toString() +
                   ' peer=' +
                   key.peerId);
+
               // cmCloseConnection triggers the Rust on_client_remove event,
+
               // which removes the client from serverModel.clients.
+
               unawaited(bind.cmCloseConnection(connId: staleClient.id));
             }
           }
@@ -2978,30 +4207,41 @@ await DirectChatRepository.instance.upsert(record);
               'Failed to tear down stale chat session: $error\n$stackTrace');
         }
       }
+
       final hasTarget =
           DirectPairingStore.resolveConnectionTarget(key.peerId) != null;
+
       if (hasTarget) {
         // Re-dial even when the FFI is currently closed: ensureChatConnection
+
         // restarts the session from scratch and the peer may only now be back
+
         // online (e.g. it rebooted and re-registered with the rendezvous).
+
         await ensureChatConnection?.call(key.peerId, force: true);
       }
+
       await _transmitRecord(key, current);
     });
+
     _deliveryWatchdogs[record.id] = timer;
   }
 
   Future<bool> hasPendingOutgoing(String peerId) async {
     final pending = await DirectChatRepository.instance.pendingFor(peerId);
+
     return pending.isNotEmpty;
   }
 
   Future<String?> firstPendingPeerId() async {
     final ids = await DirectChatRepository.instance.conversationIds();
+
     for (final id in ids) {
       final pending = await DirectChatRepository.instance.pendingFor(id);
+
       if (pending.isNotEmpty) return id;
     }
+
     return null;
   }
 
@@ -3010,6 +4250,7 @@ await DirectChatRepository.instance.upsert(record);
     DirectChatRecord record,
   ) async {
     final bytes = await DirectVoiceStorage.instance.read(record.id);
+
     if (bytes != null) await _sendVoiceChunks(key, record, bytes);
   }
 
@@ -3019,14 +4260,21 @@ await DirectChatRepository.instance.upsert(record);
     Uint8List bytes,
   ) async {
     const chunkSize = 24 * 1024;
+
     if (bytes.isEmpty || bytes.length > DirectVoiceStorage.maxClipBytes) return;
+
     final digest = sha256.convert(bytes).toString();
+
     if (record.fileSha256.isNotEmpty && record.fileSha256 != digest) return;
+
     final total = (bytes.length + chunkSize - 1) ~/ chunkSize;
+
     for (var index = 0; index < total; index++) {
       final start = index * chunkSize;
+
       final end =
           start + chunkSize > bytes.length ? bytes.length : start + chunkSize;
+
       if (!_sendWire(
         key,
         DirectChatEnvelope.voiceChunk(
@@ -3043,14 +4291,20 @@ await DirectChatRepository.instance.upsert(record);
   }
 
   /// 本机（PC）被手机扫码绑定后，手机首次以伴生会话连入时记录绑定信息，
+
   /// 供“直连绑定手机”界面展示已绑定手机、并阻止重复绑定其它手机。
+
   void _rememberCompanionDevice(MessageKey key) {
     final serverModel = parent.target?.serverModel;
+
     if (serverModel == null) return;
+
     final client = serverModel.clients.firstWhereOrNull(
       (c) => c.peerId.trim() == key.peerId && c.authorized && c.isChat,
     );
+
     if (client == null) return;
+
     unawaited(DirectPairingStore.rememberBoundPhone(
       peerId: key.peerId,
       displayName: client.name,
@@ -3060,6 +4314,7 @@ await DirectChatRepository.instance.upsert(record);
   bool _isCompanionSession(MessageKey key) {
     if (key.isOut)
       return DirectPairingStore.find(key.peerId)?.companion == true;
+
     return _activeCompanionSecrets.containsKey(key.connId);
   }
 
@@ -3068,9 +4323,13 @@ await DirectChatRepository.instance.upsert(record);
     DirectChatEnvelope envelope,
   ) async {
     final id = (envelope.data['id'] ?? '').toString();
+
     final digest = (envelope.data['sha256'] ?? '').toString().toLowerCase();
+
     final index = int.tryParse('${envelope.data['index'] ?? -1}') ?? -1;
+
     final total = int.tryParse('${envelope.data['total'] ?? 0}') ?? 0;
+
     if (id.isEmpty ||
         !RegExp(r'^[0-9a-f]{64}$').hasMatch(digest) ||
         total <= 0 ||
@@ -3079,80 +4338,116 @@ await DirectChatRepository.instance.upsert(record);
         index >= total) {
       return;
     }
+
     final record = await DirectChatRepository.instance.find(id);
+
     if (record?.kind != DirectChatKind.voice ||
         record!.fileSha256.toLowerCase() != digest ||
         (record.conversationId != key.peerId && !_isCompanionSession(key))) {
       return;
     }
+
     Uint8List chunk;
+
     try {
       chunk = base64Decode((envelope.data['payload'] ?? '').toString());
     } catch (_) {
       return;
     }
+
     if (chunk.isEmpty || chunk.length > 24 * 1024) return;
+
     var transfer = _incomingVoiceTransfers[id];
+
     if (transfer == null ||
         transfer.total != total ||
         transfer.sha256 != digest) {
       if (_incomingVoiceTransfers.length >= 8) {
         _incomingVoiceTransfers.remove(_incomingVoiceTransfers.keys.first);
       }
+
       transfer = _IncomingVoiceTransfer(total: total, sha256: digest);
+
       _incomingVoiceTransfers[id] = transfer;
     }
+
     transfer.chunks[index] = chunk;
+
     if (transfer.chunks.length != total) return;
 
     final output = BytesBuilder(copy: false);
+
     for (var part = 0; part < total; part++) {
       final bytes = transfer.chunks[part];
+
       if (bytes == null) return;
+
       output.add(bytes);
+
       if (output.length > DirectVoiceStorage.maxClipBytes) {
         _incomingVoiceTransfers.remove(id);
+
         return;
       }
     }
+
     final clip = output.takeBytes();
+
     if (clip.length != record.fileSize ||
         sha256.convert(clip).toString() != digest) {
       _incomingVoiceTransfers.remove(id);
+
       return;
     }
+
     await DirectVoiceStorage.instance.write(id, clip);
+
     _incomingVoiceTransfers.remove(id);
   }
 
   /// Resolves the stable conversation id for an incoming DotChat envelope.
+
   /// The live connection's [Client] knows the sender's DotChat id (the key
+
   /// every reply path compares against). When the connection is already gone
+
   /// (e.g. the duplicate client-mode delivery), reuse the conversation id
+
   /// that the first pass already assigned to this record so the two
+
   /// deliveries never split the conversation.
+
   Future<String> _stablePeerIdForEnvelope({
     required Client? client,
     required DirectChatEnvelope envelope,
   }) async {
     final fromClient = (client?.peerId ?? '').trim();
+
     if (fromClient.isNotEmpty) return fromClient;
+
     final recordId = (envelope.data['id'] ?? '').toString().trim();
+
     if (recordId.isNotEmpty) {
       try {
         final existing = await DirectChatRepository.instance.find(recordId);
+
         if (existing != null && existing.conversationId.isNotEmpty) {
           return existing.conversationId;
         }
       } catch (_) {}
     }
+
     return '';
   }
 
   /// Remembers that an incoming chat came from a device of the person
+
   /// [accountConversation]. Links both the sender's device UUID and the live
+
   /// incoming chat client's DotChat id, so `conversationPeerIds(account)`
+
   /// covers every identity the reply can be routed through.
+
   Future<void> _rememberIncomingPersonDevice({
     required String accountConversation,
     required String originDeviceId,
@@ -3161,10 +4456,15 @@ await DirectChatRepository.instance.upsert(record);
     required String srcPlatform,
   }) async {
     // Never record other people's devices under OUR OWN account: a stale
+
     // {me: [device]} mapping makes canonicalConversationIdValue resolve the
+
     // device to the local profile, so the chat shows our own name as the
+
     // partner and incoming messages vanish into the self conversation.
+
     if (accountConversation == me.id) return;
+
     if (originDeviceId.isNotEmpty && originDeviceId != accountConversation) {
       await DirectPairingStore.rememberPersonDevice(
         accountConversation,
@@ -3173,12 +4473,19 @@ await DirectChatRepository.instance.upsert(record);
         platform: srcPlatform,
       );
     }
+
     // The live chat session peer id is the phone dialing id (e.g. 487878),
+
     // which is what the rendezvous server routes on. Record it so replies
+
     // to this person dial the phone even before a full pairing record
+
     // (endpoint + fingerprint) exists. Without it, offline replies stay
+
     // queued because only the device UUID was known.
+
     final peer = livePeerId.trim();
+
     if (peer.isNotEmpty &&
         peer != me.id &&
         peer != accountConversation &&
@@ -3190,19 +4497,25 @@ await DirectChatRepository.instance.upsert(record);
         platform: srcPlatform,
       );
     }
+
     final ffi = parent.target;
+
     if (ffi == null) return;
+
     for (final client in ffi.serverModel.clients) {
       final peer = client.peerId.trim();
+
       if (peer.isEmpty ||
           peer == me.id ||
           peer == accountConversation ||
           !DirectPairingStore.isDeviceId(peer)) {
         continue;
       }
+
       if (!client.authorized || !client.isChat || client.disconnected) {
         continue;
       }
+
       await DirectPairingStore.rememberPersonDevice(
         accountConversation,
         peer,
@@ -3213,14 +4526,22 @@ await DirectChatRepository.instance.upsert(record);
   }
 
   /// Finds a live incoming chat client that belongs to the same person as
+
   /// [peerId]. The stored conversation may be keyed by the sender's device
+
   /// UUID or an IP endpoint while the incoming client is keyed by the
+
   /// DotChat id; conversationPeerIds resolves both sides to the same person.
+
   Client? _liveChatClientForPeer(String peerId) {
     final ffi = parent.target;
+
     if (ffi == null) return null;
+
     final ids = DirectPairingStore.conversationPeerIds(peerId);
+
     if (ids.isEmpty) return null;
+
     return ffi.serverModel.clients.firstWhereOrNull(
       (client) =>
           client.authorized &&
@@ -3231,31 +4552,52 @@ await DirectChatRepository.instance.upsert(record);
   }
 
   /// True when there is a live chat session that can carry [key]'s messages.
- bool _hasLiveChatSession(MessageKey key) {
- final ffi = parent.target;
- if (ffi == null || ffi.closed) return false;
- // A live incoming chat connection hosted by the connection-manager
- // process counts as a live session too: replies to an incoming message
- // must not be dropped just because this window never saw the client.
- if (_hasCmLiveChatClient(key.peerId)) return true;
- // File helper is a local-only conversation (file transfer assistant).
- // It never needs a live P2P connection — messages are stored and
- // displayed locally.  Without this, _hasLiveChatSession always
- // returns false for filehelper because the main window's connType
- // is ConnType.defaultConn, not ConnType.chat.
- if (key.peerId == kFileHelperId) return true;
- if (key.connId <= clientModeID) {
+
+  bool _hasLiveChatSession(MessageKey key) {
+    final ffi = parent.target;
+
+    if (ffi == null || ffi.closed) return false;
+
+    // A live incoming chat connection hosted by the connection-manager
+
+    // process counts as a live session too: replies to an incoming message
+
+    // must not be dropped just because this window never saw the client.
+
+    if (_hasCmLiveChatClient(key.peerId)) return true;
+
+    // File helper is a local-only conversation (file transfer assistant).
+
+    // It never needs a live P2P connection — messages are stored and
+
+    // displayed locally.  Without this, _hasLiveChatSession always
+
+    // returns false for filehelper because the main window's connType
+
+    // is ConnType.defaultConn, not ConnType.chat.
+
+    if (key.peerId == kFileHelperId) return true;
+
+    if (key.connId <= clientModeID) {
       // Session-based chat: live once this FFI is an established chat session
+
       // to the same peer (the phone's global FFI or a desktop chat session).
+
       // A same-person incoming chat client also counts: the phone's global
+
       // FFI is the incoming chat session and replies must not be dropped
+
       // just because the stored conversation used the sender's device UUID.
+
       if (ffi.connType != ConnType.chat || !ffi.ffiModel.pi.isSet.isTrue) {
         return false;
       }
+
       if (ffi.chatModel.currentKey.peerId == key.peerId) return true;
+
       return _liveChatClientForPeer(key.peerId) != null;
     }
+
     return ffi.serverModel.clients.firstWhereOrNull(
           (client) =>
               client.id == key.connId &&
@@ -3266,219 +4608,362 @@ await DirectChatRepository.instance.upsert(record);
   }
 
   /// Queries the connection-manager (Windows) for the live incoming chat
+
   /// client of [peerId] and caches its conn id. The desktop main window's
+
   /// client list can lag behind the CM process, so every send refreshes this
+
   /// before deciding how to route: if the CM hosts the peer's incoming chat
+
   /// connection, replies are sent back over it via `cmSendChat` instead of
+
   /// being dropped ("PC reply to an incoming phone message never arrives").
+
   Future<void> _refreshCmLiveChatConnId(String peerId) async {
-    final ids = DirectPairingStore.conversationPeerIds(peerId);
-    if (ids.isEmpty) {
+    // Mobile has no CM process: skip the whole CM lookup so the cached
+
+    // value never latches onto a local chat client id (see _cmRoutingEnabled).
+
+    if (!_cmRoutingEnabled) {
       _cmLiveChatPeerId = '';
+
       _cmLiveChatConnId = 0;
+
       return;
     }
+
+    final ids = DirectPairingStore.conversationPeerIds(peerId);
+
+    if (ids.isEmpty) {
+      _cmLiveChatPeerId = '';
+
+      _cmLiveChatConnId = 0;
+
+      return;
+    }
+
     try {
       final raw = await bind.cmGetClientsState();
+
       if (raw.isEmpty) {
         _cmLiveChatPeerId = '';
+
         _cmLiveChatConnId = 0;
+
         return;
       }
+
       final decoded = jsonDecode(raw);
+
       if (decoded is! List) {
         _cmLiveChatPeerId = '';
+
         _cmLiveChatConnId = 0;
+
         return;
       }
+
       for (final item in decoded) {
         if (item is! Map<String, dynamic>) continue;
+
         final client = Client.fromJson(item);
+
         final clientPeer = client.peerId.trim();
+
         if (client.authorized &&
             client.isChat &&
             !client.disconnected &&
             clientPeer.isNotEmpty &&
             ids.contains(clientPeer)) {
           _cmLiveChatPeerId = peerId;
+
           _cmLiveChatConnId = client.id;
+
           return;
         }
       }
+
       _cmLiveChatPeerId = '';
+
       _cmLiveChatConnId = 0;
     } catch (error, stackTrace) {
       debugPrint('Failed to refresh CM chat client: $error\n$stackTrace');
+
       _cmLiveChatPeerId = '';
+
       _cmLiveChatConnId = 0;
     }
   }
 
   /// True when the cached CM chat client belongs to [peerId].
+
   bool _hasCmLiveChatClient(String peerId) =>
       _cmLiveChatConnId > 0 && _cmLiveChatPeerId == peerId;
+
+  /// CM routing only exists on the desktop main window (Windows connection-
+
+  /// manager). On Android/iOS there is no CM process: the local CLIENTS list
+
+  /// is authoritative and cmSendChat would send to the local incoming chat
+
+  /// client (connId 501/846 style) instead of the peer, so replies were
+
+  /// misrouted and never reached the peer. Gate the whole CM lookup path
+
+  /// behind desktop-only so mobile always routes through the local live
+
+  /// chat client / session.
+
+  bool get _cmRoutingEnabled => !isMobile && isMainDesktopWindow;
 
   bool _sendWire(MessageKey key, String value) =>
       _sendWireImpl(key, value, allowBluetooth: true);
 
   /// 中继转发专用：只用本机网络通道（跳过蓝牙路由，避免环路）。
+
   bool _sendWireNonBluetooth(MessageKey key, String value) =>
       _sendWireImpl(key, value, allowBluetooth: false);
 
- /// ── Meeting group fan-out ──
- /// For "meeting:<uuid>" conversations, iterate over all group members
- /// and deliver the envelope to each one via their 1:1 P2P channel.
- /// Returns true if at least one member received the message.
- bool _sendWireMeetingGroup(
- MessageKey key, String value, bool allowBluetooth) {
- final meetingId = key.peerId.substring('meeting:'.length);
- final group = MeetingGroupStore.find(meetingId);
- if (group == null) {
- debugPrint('[SEND_WIRE] meeting group not found: $meetingId');
- return false;
- }
- // Collect all recipient peer IDs: host + members, excluding self.
- final recipients = <String>{};
- if (group.hostPeerId.isNotEmpty && group.hostPeerId != me.id) {
- recipients.add(group.hostPeerId);
- }
- for (final m in (group.members ?? const <MeetingMember>[])) {
- if (m.peerId.isNotEmpty && m.peerId != me.id) {
- recipients.add(m.peerId);
- }
- }
- if (recipients.isEmpty) {
- debugPrint('[SEND_WIRE] meeting $meetingId has no recipients');
- return false;
- }
- int delivered = 0;
- for (final peerId in recipients) {
- final memberKey = MessageKey(peerId, key.connId);
- // Temporarily strip the meeting: prefix and deliver via the normal
- // 1:1 path. We pass allowBluetooth through so Bluetooth-connected
- // members also receive the group message.
- final ok = _sendWireImpl(memberKey, value, allowBluetooth: allowBluetooth);
- if (ok) {
- delivered++;
- } else {
- // Kick off an async dial attempt so offline members get the
- // message when they come online (the delivery watchdog will
- // retry from the pending queue).
- unawaited(ensureChatConnection?.call(peerId, force: true));
- }
- }
- debugPrint('[SEND_WIRE] meeting $meetingId fan-out: $delivered/${recipients.length} delivered');
- return delivered > 0;
- }
+  /// ── Meeting group fan-out ──
 
- /// 网络直发失败时的兜底：若本机有已连接的蓝牙网关设备，把消息封装成
- /// relay 信封经蓝牙发出，由网关用它的网络转发到目标（借流量上网）。
- /// 仅用于「无实时会话」这类可达性失败；显式拒绝（权限）不兜底。
- bool _relayViaBluetoothFallback(MessageKey key, String value) {
+  /// For "meeting:<uuid>" conversations, iterate over all group members
+
+  /// and deliver the envelope to each one via their 1:1 P2P channel.
+
+  /// Returns true if at least one member received the message.
+
+  bool _sendWireMeetingGroup(
+      MessageKey key, String value, bool allowBluetooth) {
+    final meetingId = key.peerId.substring('meeting:'.length);
+
+    final group = MeetingGroupStore.find(meetingId);
+
+    if (group == null) {
+      debugPrint('[SEND_WIRE] meeting group not found: $meetingId');
+
+      return false;
+    }
+
+    // Collect all recipient peer IDs: host + members, excluding self.
+
+    final recipients = <String>{};
+
+    if (group.hostPeerId.isNotEmpty && group.hostPeerId != me.id) {
+      recipients.add(group.hostPeerId);
+    }
+
+    for (final m in (group.members ?? const <MeetingMember>[])) {
+      if (m.peerId.isNotEmpty && m.peerId != me.id) {
+        recipients.add(m.peerId);
+      }
+    }
+
+    if (recipients.isEmpty) {
+      debugPrint('[SEND_WIRE] meeting $meetingId has no recipients');
+
+      return false;
+    }
+
+    int delivered = 0;
+
+    for (final peerId in recipients) {
+      final memberKey = MessageKey(peerId, key.connId);
+
+      // Temporarily strip the meeting: prefix and deliver via the normal
+
+      // 1:1 path. We pass allowBluetooth through so Bluetooth-connected
+
+      // members also receive the group message.
+
+      final ok =
+          _sendWireImpl(memberKey, value, allowBluetooth: allowBluetooth);
+
+      if (ok) {
+        delivered++;
+      } else {
+        // Kick off an async dial attempt so offline members get the
+
+        // message when they come online (the delivery watchdog will
+
+        // retry from the pending queue).
+
+        unawaited(ensureChatConnection?.call(peerId, force: true));
+      }
+    }
+
+    debugPrint(
+        '[SEND_WIRE] meeting $meetingId fan-out: $delivered/${recipients.length} delivered');
+
+    return delivered > 0;
+  }
+
+  /// 网络直发失败时的兜底：若本机有已连接的蓝牙网关设备，把消息封装成
+
+  /// relay 信封经蓝牙发出，由网关用它的网络转发到目标（借流量上网）。
+
+  /// 仅用于「无实时会话」这类可达性失败；显式拒绝（权限）不兜底。
+
+  bool _relayViaBluetoothFallback(MessageKey key, String value) {
     if (btWireSink == null) return false;
+
     if (key.peerId.isEmpty || key.peerId == me.id) return false;
+
     final ffi = parent.target;
+
     if (ffi == null || ffi.closed) return false;
+
     final lastError = (ffi.ffiModel.lastConnectionError ?? '').trim();
+
     if (isDirectChatPermissionDenied(lastError)) return false;
+
     return RelayBridge.instance.sendViaBluetoothRelay(
       targetConversationId: key.peerId,
       envelopeLine: value,
     );
   }
 
- bool _sendWireImpl(MessageKey key, String value,
- {required bool allowBluetooth}) {
- final ffi = parent.target;
- if (ffi == null || ffi.closed) return false;
- if (key.peerId == kFileHelperId) {
- // File helper is a local-only conversation — messages are already
- // persisted by _sendToFileHelper / _sendMessage (which early-returns
- // before calling _transmitRecord). If this path is reached (e.g. via
- // flushPendingOutgoing re-flushing queued records), the message has
- // already been written to the local store, so just return true without
- // attempting a network send that would fail and needlessly schedule
- // a delivery watchdog.
- RuntimeLogger.instance.info('SEND_WIRE',
- 'filehelper local-only, skipping network send');
- return true;
- }
- // ── Meeting group fan-out ──
- // A meeting conversation ID "meeting:<uuid>" is synthetic — it is not a
- // dialable peer. When the user sends a message into a meeting chat, we
- // must fan it out to every group member individually over their existing
- // 1:1 P2P channel. Without this the message was persisted locally and
- // shown in the sender's own bubble, but never reached any member.
- if (key.peerId.startsWith('meeting:')) {
- return _sendWireMeetingGroup(key, value, allowBluetooth);
- }
+  bool _sendWireImpl(MessageKey key, String value,
+      {required bool allowBluetooth}) {
+    final ffi = parent.target;
 
- debugPrint('[SEND_WIRE] send peer=' +
- key.peerId +
- ' connId=' +
- key.connId.toString() +
- ' me.id=' +
- me.id +
- ' closed=${ffi.closed}');
- RuntimeLogger.instance.info('SEND_WIRE',
- 'send peer=${key.peerId} connId=${key.connId} me.id=${me.id} closed=${ffi.closed}');
- // Never send messages to self — prevents deadlock and white-screen.
- if (key.peerId.isNotEmpty && key.peerId == me.id) {
- debugPrint('[SEND_WIRE] self-target blocked peer=' + key.peerId);
- RuntimeLogger.instance.info('SEND_WIRE',
- 'self-target blocked peer=${key.peerId} me.id=${me.id}');
- return false;
- }
+    if (ffi == null || ffi.closed) return false;
+
+    if (key.peerId == kFileHelperId) {
+      // File helper is a local-only conversation — messages are already
+
+      // persisted by _sendToFileHelper / _sendMessage (which early-returns
+
+      // before calling _transmitRecord). If this path is reached (e.g. via
+
+      // flushPendingOutgoing re-flushing queued records), the message has
+
+      // already been written to the local store, so just return true without
+
+      // attempting a network send that would fail and needlessly schedule
+
+      // a delivery watchdog.
+
+      RuntimeLogger.instance
+          .info('SEND_WIRE', 'filehelper local-only, skipping network send');
+
+      return true;
+    }
+
+    // ── Meeting group fan-out ──
+
+    // A meeting conversation ID "meeting:<uuid>" is synthetic — it is not a
+
+    // dialable peer. When the user sends a message into a meeting chat, we
+
+    // must fan it out to every group member individually over their existing
+
+    // 1:1 P2P channel. Without this the message was persisted locally and
+
+    // shown in the sender's own bubble, but never reached any member.
+
+    if (key.peerId.startsWith('meeting:')) {
+      return _sendWireMeetingGroup(key, value, allowBluetooth);
+    }
+
+    debugPrint('[SEND_WIRE] send peer=' +
+        key.peerId +
+        ' connId=' +
+        key.connId.toString() +
+        ' me.id=' +
+        me.id +
+        ' closed=${ffi.closed}');
+
+    RuntimeLogger.instance.info('SEND_WIRE',
+        'send peer=${key.peerId} connId=${key.connId} me.id=${me.id} closed=${ffi.closed}');
+
+    // Never send messages to self — prevents deadlock and white-screen.
+
+    if (key.peerId.isNotEmpty && key.peerId == me.id) {
+      debugPrint('[SEND_WIRE] self-target blocked peer=' + key.peerId);
+
+      RuntimeLogger.instance.info(
+          'SEND_WIRE', 'self-target blocked peer=${key.peerId} me.id=${me.id}');
+
+      return false;
+    }
+
     // Bluetooth conversations are carried over the RFCOMM link.
+
     if (allowBluetooth &&
         btWireSink != null &&
         btWireSink!(key.peerId, value)) {
       return true;
     }
+
     try {
       if (key.connId <= clientModeID) {
         // clientModeID (-1) or uninitialized (-2): send via session.
+
         // Direct-chat sessions do not depend on remote-desktop state
+
         // (`pi.isSet`) and transient connection errors must not freeze the
+
         // input; only an explicit peer rejection blocks sending.
+
         final lastError = (ffi.ffiModel.lastConnectionError ?? '').trim();
+
         if (isDirectChatPermissionDenied(lastError)) {
           return false;
         }
+
         // A same-person incoming chat connection is a live channel too:
+
         // prefer it so replies to an incoming chat (e.g. the phone hosting
+
         // the session) are sent over the client channel instead of being
+
         // dropped by the session-based check below.
- final chatClient = _liveChatClientForPeer(key.peerId);
- if (chatClient != null) {
- debugPrint('[SEND_WIRE] chatClient cmSendChat connId=' +
- chatClient.id.toString() +
- ' peer=' +
- key.peerId);
- RuntimeLogger.instance.info('SEND_WIRE',
- 'chatClient ok connId=${chatClient.id} peer=${key.peerId}');
- bind.cmSendChat(connId: chatClient.id, msg: value);
- return true;
- }
- // The live incoming chat connection may be hosted by the CM process
- // (Windows) and not yet visible in this window's client list. Route
- // the reply over it so incoming messages can always be answered.
- if (_hasCmLiveChatClient(key.peerId)) {
- debugPrint('[SEND_WIRE] cm fallback cmSendChat connId=' +
- _cmLiveChatConnId.toString() +
- ' peer=' +
- key.peerId);
- RuntimeLogger.instance.info('SEND_WIRE',
- 'cm fallback ok connId=$_cmLiveChatConnId peer=${key.peerId}');
- bind.cmSendChat(connId: _cmLiveChatConnId, msg: value);
- return true;
- }
- // Only report success over a live session; otherwise the delivery
- // watchdog reconnects and retries instead of silently dropping.
- if (!_hasLiveChatSession(key)) {
- RuntimeLogger.instance.info('SEND_WIRE',
- 'no live session peer=${key.peerId} connId=${key.connId} connType=${ffi.connType}');
- debugPrint('[SEND_WIRE] no live session for peer=' +
+
+        final chatClient = _liveChatClientForPeer(key.peerId);
+
+        if (chatClient != null) {
+          debugPrint('[SEND_WIRE] chatClient cmSendChat connId=' +
+              chatClient.id.toString() +
+              ' peer=' +
+              key.peerId);
+
+          RuntimeLogger.instance.info('SEND_WIRE',
+              'chatClient ok connId=${chatClient.id} peer=${key.peerId}');
+
+          bind.cmSendChat(connId: chatClient.id, msg: value);
+
+          return true;
+        }
+
+        // The live incoming chat connection may be hosted by the CM process
+
+        // (Windows) and not yet visible in this window's client list. Route
+
+        // the reply over it so incoming messages can always be answered.
+
+        if (_hasCmLiveChatClient(key.peerId)) {
+          debugPrint('[SEND_WIRE] cm fallback cmSendChat connId=' +
+              _cmLiveChatConnId.toString() +
+              ' peer=' +
+              key.peerId);
+
+          RuntimeLogger.instance.info('SEND_WIRE',
+              'cm fallback ok connId=$_cmLiveChatConnId peer=${key.peerId}');
+
+          bind.cmSendChat(connId: _cmLiveChatConnId, msg: value);
+
+          return true;
+        }
+
+        // Only report success over a live session; otherwise the delivery
+
+        // watchdog reconnects and retries instead of silently dropping.
+
+        if (!_hasLiveChatSession(key)) {
+          RuntimeLogger.instance.info('SEND_WIRE',
+              'no live session peer=${key.peerId} connId=${key.connId} connType=${ffi.connType}');
+
+          debugPrint('[SEND_WIRE] no live session for peer=' +
               key.peerId +
               ' connId=' +
               key.connId.toString() +
@@ -3486,23 +4971,31 @@ await DirectChatRepository.instance.upsert(record);
               (ffi.connType.toString()) +
               ' closed=' +
               ffi.closed.toString());
+
           // 无直达会话时尝试借蓝牙网关中继（仅当本机网络不可达）。
+
           if (_relayViaBluetoothFallback(key, value)) return true;
+
           return false;
         }
+
         debugPrint('[SEND_WIRE] sessionSendChat sessionId=' +
             sessionId.toString() +
             ' peer=' +
             key.peerId);
+
         bind.sessionSendChat(sessionId: sessionId, text: value);
+
         return true;
       }
+
       final client = ffi.serverModel.clients.firstWhereOrNull(
         (client) =>
             client.id == key.connId &&
             client.authorized &&
             !client.disconnected,
       );
+
       if (client == null) {
         debugPrint('[SEND_WIRE] no live client connId=' +
             key.connId.toString() +
@@ -3510,53 +5003,79 @@ await DirectChatRepository.instance.upsert(record);
             ffi.serverModel.clients
                 .map((c) => '${c.id}:${c.peerId}')
                 .join(','));
+
         // The live incoming chat connection may be hosted by the CM process
+
         // (Windows) and not yet visible in this window's client list. Route
+
         // the reply over it so incoming messages can always be answered.
+
         if (_hasCmLiveChatClient(key.peerId)) {
           debugPrint('[SEND_WIRE] cm fallback cmSendChat connId=' +
               _cmLiveChatConnId.toString() +
               ' peer=' +
               key.peerId);
+
           bind.cmSendChat(connId: _cmLiveChatConnId, msg: value);
+
           return true;
         }
+
         // No live incoming client for this conversation: let the delivery
+
         // watchdog re-establish the connection and retry. 同时尝试借蓝牙
+
         // 网关中继（无实时客户端时可能本机无网、依赖网关出口）。
+
         if (_relayViaBluetoothFallback(key, value)) return true;
+
         return false;
       }
+
       debugPrint('[SEND_WIRE] cmSendChat connId=' +
           key.connId.toString() +
           ' peer=' +
           client.peerId);
+
       bind.cmSendChat(connId: key.connId, msg: value);
+
       return true;
     } catch (error, stackTrace) {
       debugPrint('Failed to send direct chat message: $error\n$stackTrace');
+
       return false;
     }
   }
 
   Future<void> _restoreConversation(MessageKey key) async {
     if (key.peerId.isEmpty) return;
+
     late List<DirectChatRecord> records;
+
     try {
       final deviceId = await DirectChatRepository.instance.deviceId;
+
       me.id = deviceId;
+
       records = await DirectChatRepository.instance.forConversation(
         key.peerId,
+
         // Load slightly more than the initial limit to support
+
         // "load older" without another DB read on the first scroll.
+
         limit: _kInitialMessageLimit + _kPageSize,
       );
     } catch (error) {
       debugPrint('Failed to restore direct chat conversation: $error');
+
       return;
     }
+
     updateConnIdOfKey(key);
+
     final pairing = DirectPairingStore.find(key.peerId);
+
     final body = _messages.putIfAbsent(
       key,
       () => MessageBody(
@@ -3574,24 +5093,32 @@ await DirectChatRepository.instance.upsert(record);
         <ChatMessage>[],
       ),
     );
+
     // Cache full record list for "load older" pagination.
+
     _conversationRecords[key.peerId] = records;
 
     final incoming = records.firstWhereOrNull((record) => !record.isOutgoing);
+
     if (incoming != null && key.peerId != kFileHelperId) {
       body.chatUser.firstName = normalizeDirectPeerName(
         incoming.senderName,
         fallback: body.chatUser.firstName ?? key.peerId,
       );
+
       if (incoming.senderAvatar.isNotEmpty) {
         body.chatUser.profileImage = incoming.senderAvatar;
       }
     }
+
     // Only convert the latest N records to ChatMessage objects.
+
     // Older messages are loaded on demand via loadOlderMessages().
+
     final initialCount = records.length > _kInitialMessageLimit
         ? _kInitialMessageLimit
         : records.length;
+
     body.chatMessages = records
         .sublist(0, initialCount)
         .map((record) => _taggedChatMessage(
@@ -3599,6 +5126,7 @@ await DirectChatRepository.instance.upsert(record);
               record.isOutgoing ? me : body.chatUser,
             ))
         .toList(growable: true);
+
     for (final record in records) {
       _scheduleSelfDestruct(
         key,
@@ -3606,64 +5134,110 @@ await DirectChatRepository.instance.upsert(record);
         record.isOutgoing ? me : body.chatUser,
       );
     }
+
     if (_currentKey == key) notifyListeners();
   }
 
   /// Returns true if [key]'s conversation has older messages not yet loaded.
+
   bool hasOlderMessages(MessageKey key) {
     final records = _conversationRecords[key.peerId];
+
     if (records == null) return false;
+
     final body = _messages[key];
+
     if (body == null) return false;
+
     return records.length > body.chatMessages.length;
   }
 
   /// Loads the next page of older messages for [key] and prepends them
+
   /// to the existing message list. Returns the number of newly loaded messages.
+
   Future<int> loadOlderMessages(MessageKey key) async {
     final records = _conversationRecords[key.peerId];
+
     final body = _messages[key];
+
     if (records == null || body == null) return 0;
+
     final loaded = body.chatMessages.length;
+
     if (loaded >= records.length) return 0;
+
     final end = loaded + _kPageSize;
+
     final batchEnd = end > records.length ? records.length : end;
+
     final batch = records.sublist(loaded, batchEnd);
+
     if (batch.isEmpty) return 0;
+
     final newMessages = batch
         .map((record) => _taggedChatMessage(
               record,
               record.isOutgoing ? me : body.chatUser,
             ))
         .toList();
+
     // Append: older messages go after the already-loaded ones (end of list),
+
     // because DashChat displays index 0 (newest) at the bottom and
+
     // index N-1 (oldest) at the top when scrolling up.
+
     body.chatMessages.addAll(newMessages);
+
     if (_currentKey == key) notifyListeners();
+
     return newMessages.length;
   }
 
   ChatMessage _toChatMessage(DirectChatRecord record, ChatUser user) {
     final recalled = record.disposition == DirectChatDisposition.recalled;
-    final displayText = recalled
+
+    final rawText = recalled
         ? translate(record.isOutgoing
             ? 'You recalled a message'
             : 'The other party recalled a message')
         : sanitizeInvalidUtf16(record.text);
+
+    // LUODA: 通话记录灰气泡——`[call] 语音通话 · 00:12` 去前缀后即为可读
+
+    // 文本，并打上 ldesk_call 标记供 UI 识别通话记录（灰化/居中/禁转发）。
+
+    var displayText = rawText;
+
+    var isCallLog = false;
+
+    if (!recalled && displayText.startsWith('[call]')) {
+      displayText = displayText.substring('[call]'.length).trim();
+
+      isCallLog = true;
+    }
+
     MessageStatus status;
+
     switch (record.delivery) {
       case DirectChatDelivery.queued:
       case DirectChatDelivery.failed:
         status = MessageStatus.pending;
+
         break;
+
       case DirectChatDelivery.sent:
         status = MessageStatus.none;
+
         break;
+
       case DirectChatDelivery.delivered:
         status = MessageStatus.received;
+
         break;
     }
+
     return ChatMessage(
       text: displayText,
       user: user,
@@ -3675,6 +5249,7 @@ await DirectChatRepository.instance.upsert(record);
         'ldesk_kind': record.kind.name,
         'ldesk_sender_id': record.senderId,
         'ldesk_conversation_id': record.conversationId,
+        if (isCallLog) 'ldesk_call': '1',
         if (record.fileName.isNotEmpty) 'ldesk_file_name': record.fileName,
         if (record.fileSize > 0) 'ldesk_file_size': record.fileSize,
         if (record.fileSha256.isNotEmpty)
@@ -3708,18 +5283,27 @@ await DirectChatRepository.instance.upsert(record);
   }
 
   /// Same as _toChatMessage but tags the message with connection source info.
+
   /// 收到对方消息时触发手机端横幅通知（当前会话且窗口有焦点时不弹）。
+
   void _maybeNotifyIncoming(DirectChatRecord record, String targetId) {
     if (record.isOutgoing) return;
+
     // 用户正在看这个会话时，不再弹通知打扰。
+
     final isActiveConversation =
         _currentKey.peerId == targetId && isWindowFocus.value;
+
     if (isActiveConversation) return;
+
     final sender = record.senderName.trim().isNotEmpty
         ? record.senderName.trim()
         : targetId;
+
     final body = _notificationBody(record);
+
     if (body.isEmpty) return;
+
     unawaited(
       ChatNotifier.instance.showIncomingMessage(
         peerId: targetId,
@@ -3729,68 +5313,92 @@ await DirectChatRepository.instance.upsert(record);
     );
   }
 
-String _notificationBody(DirectChatRecord record) {
- switch (record.kind) {
- case DirectChatKind.file:
- return '[${translate('File')}] ${record.fileName}';
- case DirectChatKind.voice:
- return '[${translate('Voice message')}]';
- case DirectChatKind.forward:
- return '[${translate('Chat history')}]';
- case DirectChatKind.image:
- return '[${translate('Image')}]';
- case DirectChatKind.location:
- return '[${translate('Location')}]';
- case DirectChatKind.contact:
- return '[${translate('Contact')}]';
- case DirectChatKind.text:
- default:
- final t = record.text.trim();
- if (t.isEmpty) return '';
- // 通知横幅预览完整内容（锁屏/下拉可读全文，微信式）。
- return t;
- }
- }
+  String _notificationBody(DirectChatRecord record) {
+    switch (record.kind) {
+      case DirectChatKind.file:
+        return '[${translate('File')}] ${record.fileName}';
+
+      case DirectChatKind.voice:
+        return '[${translate('Voice message')}]';
+
+      case DirectChatKind.forward:
+        return '[${translate('Chat history')}]';
+
+      case DirectChatKind.image:
+        return '[${translate('Image')}]';
+
+      case DirectChatKind.location:
+        return '[${translate('Location')}]';
+
+      case DirectChatKind.contact:
+        return '[${translate('Contact')}]';
+
+      case DirectChatKind.text:
+      default:
+        final t = record.text.trim();
+
+        if (t.isEmpty) return '';
+
+        // 通知横幅预览完整内容（锁屏/下拉可读全文，微信式）。
+
+        return t;
+    }
+  }
 
   ChatMessage _taggedChatMessage(DirectChatRecord record, ChatUser user,
       {bool wasIpSource = false}) {
     final msg = _toChatMessage(record, user);
+
     msg.customProperties ??= <String, dynamic>{};
+
     if (record.connMode.isNotEmpty) {
       msg.customProperties!['ldesk_conn_mode'] = record.connMode;
+
       msg.customProperties!['ldesk_conn_endpoint'] = record.connEndpoint;
+
       msg.customProperties!['ldesk_conn_port'] = record.connPort;
     }
+
     if (wasIpSource) {
       msg.customProperties!['ldesk_conn_source'] = 'ip';
     }
+
     return msg;
   }
 
   insertMessage(MessageKey key, ChatMessage message) {
     updateConnIdOfKey(key);
+
     if (!_messages.containsKey(key)) {
       _messages[key] = MessageBody(message.user, []);
     }
+
     final messages = _messages[key]!.chatMessages;
+
     final messageId = message.customProperties?['ldesk_id']?.toString();
+
     final index = messageId == null
         ? -1
         : messages.indexWhere(
             (item) =>
                 item.customProperties?['ldesk_id']?.toString() == messageId,
           );
+
     if (message.customProperties?['ldesk_disposition'] ==
         DirectChatDisposition.destroyed.name) {
       if (messageId != null) _selfDestructTimers.remove(messageId)?.cancel();
+
       if (index >= 0) messages.removeAt(index);
+
       return;
     }
+
     if (index < 0) {
       messages.add(message);
     } else {
       messages[index] = message;
     }
+
     messages.sort((a, b) => b.createdAt.compareTo(a.createdAt));
   }
 
@@ -3800,10 +5408,12 @@ String _notificationBody(DirectChatRecord record) {
             .firstWhereOrNull((e) => e == key && e.connId != key.connId) !=
         null) {
       final value = _messages.remove(key);
+
       if (value != null) {
         _messages[key] = value;
       }
     }
+
     if (_currentKey == key || _currentKey.peerId.isEmpty) {
       _currentKey = key; // hash != assign
     }
@@ -3811,10 +5421,13 @@ String _notificationBody(DirectChatRecord record) {
 
   void mobileUpdateUnreadSum() {
     if (!isMobile) return;
+
     var sum = 0;
+
     parent.target?.serverModel.clients
         .map((e) => sum += e.unreadChatMessageCount.value)
         .toList();
+
     Future.delayed(Duration.zero, () {
       mobileUnreadSum.value = sum;
     });
@@ -3822,11 +5435,14 @@ String _notificationBody(DirectChatRecord record) {
 
   void mobileClearClientUnread(int id) {
     if (!isMobile) return;
+
     final client = parent.target?.serverModel.clients
         .firstWhereOrNull((client) => client.id == id);
+
     if (client != null) {
       Future.delayed(Duration.zero, () {
         client.unreadChatMessageCount.value = 0;
+
         mobileUpdateUnreadSum();
       });
     }
@@ -3834,69 +5450,102 @@ String _notificationBody(DirectChatRecord record) {
 
   Future<void> deleteConversations(Iterable<String> peerIds) async {
     final ids = peerIds.toSet();
+
     _messages.removeWhere((key, _) => ids.contains(key.peerId));
+
     _conversationRecords.removeWhere((peerId, _) => ids.contains(peerId));
+
     await DirectChatRepository.instance.deleteConversations(ids);
+
     if (ids.contains(_currentKey.peerId)) {
       _currentKey = MessageKey('', clientModeID);
     }
+
     notifyListeners();
   }
 
   /// Copy message text to system clipboard.
+
   Future<void> copyMessage(ChatMessage message) async {
     final text = message.text;
+
     if (text.isEmpty) return;
+
     await Clipboard.setData(ClipboardData(text: text));
   }
 
   /// Delete a message locally (from current conversation only).
+
   Future<bool> deleteLocally(ChatMessage message) async {
     final id = (message.customProperties?['ldesk_id'] ?? '').toString();
+
     final key = _currentKey;
+
     if (id.isEmpty || key.peerId.isEmpty) return false;
+
     await DirectChatRepository.instance.deleteRecord(id, key.peerId);
+
     final body = _messages[key];
+
     if (body != null) {
       body.chatMessages.removeWhere(
           (m) => (m.customProperties?['ldesk_id'] ?? '').toString() == id);
     }
+
     notifyListeners();
+
     return true;
   }
 
   /// Clear all messages in the current conversation.
+
   Future<bool> clearConversation() async {
     final key = _currentKey;
+
     if (key.peerId.isEmpty) return false;
+
     final body = _messages[key];
+
     if (body != null) {
       body.clear();
     }
+
     await DirectChatRepository.instance.deleteConversations([key.peerId]);
+
     _conversationRecords.remove(key.peerId);
+
     _drafts.remove(key.peerId);
+
     notifyListeners();
+
     return true;
   }
 
   /// Set a message as the reply target for the next sent message.
+
   void setReplyTo(ChatMessage message) {
     _replyToMessage = message;
+
     notifyListeners();
   }
 
   /// Cancel the current reply target.
+
   void cancelReply() {
     _replyToMessage = null;
+
     notifyListeners();
   }
 
   /// Save current input as draft for the active conversation.
+
   void saveDraftNow() {
     final peerId = _currentKey.peerId;
+
     if (peerId.isEmpty) return;
+
     final text = textController.text;
+
     if (text.isNotEmpty) {
       _drafts[peerId] = text;
     } else {
@@ -3905,32 +5554,46 @@ String _notificationBody(DirectChatRecord record) {
   }
 
   /// Mark the connection as reconnecting for UI feedback.
+
   void setReconnecting(String peerId) {
     _isReconnecting = true;
+
     _reconnectPeerId = peerId;
+
     notifyListeners();
   }
 
   /// Clear the reconnecting state.
+
   void clearReconnecting() {
     _isReconnecting = false;
+
     _reconnectPeerId = '';
+
     notifyListeners();
   }
 
   /// Toggle reaction on a message and sync to peer.
+
   Future<void> toggleReaction(ChatMessage message, String emoji) async {
     final id = (message.customProperties?['ldesk_id'] ?? '').toString();
+
     final key = _currentKey;
+
     if (id.isEmpty || key.peerId.isEmpty) return;
+
     final deviceId = me.id;
+
     final updated = await DirectChatRepository.instance.toggleReaction(
       id,
       emoji,
       deviceId,
     );
+
     if (updated == null) return;
+
     insertMessage(key, _taggedChatMessage(updated, me));
+
     _sendWire(
       key,
       DirectChatEnvelope.reaction(
@@ -3940,103 +5603,147 @@ String _notificationBody(DirectChatRecord record) {
         add: (updated.reactions[emoji] ?? []).contains(deviceId),
       ).encode(),
     );
+
     notifyListeners();
   }
 
   /// Edit a sent message's text.
+
   Future<bool> editMessage(ChatMessage message, String newText) async {
     final trimmed = newText.trim();
+
     if (trimmed.isEmpty) return false;
+
     final id = (message.customProperties?['ldesk_id'] ?? '').toString();
+
     final key = _currentKey;
+
     if (id.isEmpty || key.peerId.isEmpty) return false;
+
     if (message.user.id != me.id) return false;
+
     final updated = await DirectChatRepository.instance.editText(id, trimmed);
+
     if (updated == null) return false;
+
     insertMessage(key, _taggedChatMessage(updated, me));
+
     _sendWire(
         key, DirectChatEnvelope.edit(messageId: id, newText: trimmed).encode());
+
     notifyListeners();
+
     return true;
   }
 
   /// Batch delete multiple messages from the current conversation.
+
   Future<bool> batchDeleteMessages(Set<String> ids) async {
     final key = _currentKey;
+
     if (key.peerId.isEmpty || ids.isEmpty) return false;
+
     // Shallow copy to guard against concurrent modification of shared set.
+
     final idsToDelete = Set<String>.from(ids);
+
     for (final id in idsToDelete) {
       await DirectChatRepository.instance.deleteRecord(id, key.peerId);
     }
+
     final body = _messages[key];
+
     if (body != null) {
       body.chatMessages.removeWhere((m) => idsToDelete
           .contains((m.customProperties?['ldesk_id'] ?? '').toString()));
     }
+
     notifyListeners();
+
     return true;
   }
 
   /// Get all media files for current conversation.
+
   Future<List<DirectChatRecord>> mediaForConversation() async {
     final peerId = _currentKey.peerId;
+
     if (peerId.isEmpty) return [];
+
     return DirectChatRepository.instance.mediaForConversation(peerId);
   }
 
   // Cached pinned set so the conversation list can sort synchronously.
+
   Set<String> _pinnedIds = {};
+
   bool _pinnedLoaded = false;
 
   /// Synchronous pinned check (used by list sort / row render).
+
   bool isPinnedSync(String peerId) {
     _ensurePinnedLoaded();
+
     return _pinnedIds.contains(peerId);
   }
 
   void _ensurePinnedLoaded() {
     if (_pinnedLoaded) return;
+
     _pinnedLoaded = true;
+
     unawaited(_refreshPinnedIds());
   }
 
   Future<void> _refreshPinnedIds() async {
     final ids = await _loadPinnedConversations();
+
     _pinnedIds = ids;
+
     notifyListeners();
   }
 
   /// Pin or unpin a conversation.
+
   Future<void> pinConversation(String peerId, bool pinned) async {
     if (peerId.isEmpty) return;
+
     await _ensurePinnedLoadedAsync();
+
     if (pinned) {
       _pinnedIds.add(peerId);
     } else {
       _pinnedIds.remove(peerId);
     }
+
     try {
       bind.mainSetLocalOption(
         key: 'pinned_conversations',
         value: jsonEncode(_pinnedIds.toList()),
       );
     } catch (_) {}
+
     notifyListeners();
   }
 
   Future<void> _ensurePinnedLoadedAsync() async {
     if (_pinnedLoaded) return;
+
     _pinnedLoaded = true;
+
     _pinnedIds = await _loadPinnedConversations();
   }
 
   /// Get list of pinned conversation peer IDs.
+
   Future<Set<String>> _loadPinnedConversations() async {
     try {
       final raw = bind.mainGetLocalOption(key: 'pinned_conversations');
+
       if (raw.isEmpty) return {};
+
       final list = jsonDecode(raw) as List<dynamic>;
+
       return list.map((e) => e.toString()).toSet();
     } catch (_) {
       return {};
@@ -4044,54 +5751,73 @@ String _notificationBody(DirectChatRecord record) {
   }
 
   /// Check if a conversation is pinned.
+
   Future<bool> isConversationPinned(String peerId) async {
     final pinned = await _loadPinnedConversations();
+
     return pinned.contains(peerId);
   }
 
   /// Get pinned conversation list sorted.
+
   Future<List<String>> pinnedConversationIds() async {
     final pinned = await _loadPinnedConversations();
+
     final all = await DirectChatRepository.instance.conversationIds();
+
     final result = <String>[];
+
     for (final id in all) {
       if (pinned.contains(id)) result.add(id);
     }
+
     for (final id in all) {
       if (!pinned.contains(id)) result.add(id);
     }
+
     return result;
   }
 
   /// Mark a conversation as unread without a new message.
+
   Future<void> markConversationUnread(String peerId) async {
     if (peerId.isEmpty) return;
+
     try {
       final raw = bind.mainGetLocalOption(key: 'marked_unread');
 
       Set<String> unreadSet;
+
       if (raw.isNotEmpty) {
         unreadSet =
             (jsonDecode(raw) as List<dynamic>).map((e) => e.toString()).toSet();
       } else {
         unreadSet = {};
       }
+
       unreadSet.add(peerId);
+
       bind.mainSetLocalOption(
         key: 'marked_unread',
         value: jsonEncode(unreadSet.toList()),
       );
     } catch (_) {}
+
     mobileUpdateUnreadSum();
+
     notifyListeners();
   }
 
   /// Check if conversation is marked as unread.
+
   bool isConversationMarkedUnread(String peerId) {
     try {
       final raw = bind.mainGetLocalOption(key: 'marked_unread');
+
       if (raw.isEmpty) return false;
+
       final list = jsonDecode(raw) as List<dynamic>;
+
       return list.map((e) => e.toString()).contains(peerId);
     } catch (_) {
       return false;
@@ -4099,23 +5825,31 @@ String _notificationBody(DirectChatRecord record) {
   }
 
   /// Clear the marked-unread flag.
+
   void clearMarkedUnread(String peerId) {
     try {
       final raw = bind.mainGetLocalOption(key: 'marked_unread');
+
       if (raw.isEmpty) return;
+
       final list =
           (jsonDecode(raw) as List<dynamic>).map((e) => e.toString()).toList();
+
       list.remove(peerId);
+
       bind.mainSetLocalOption(
         key: 'marked_unread',
         value: jsonEncode(list),
       );
     } catch (_) {}
+
     mobileUpdateUnreadSum();
+
     notifyListeners();
   }
 
   /// Get raw option value (bridges bind for external models).
+
   String getRawOption(String key) {
     try {
       return bind.mainGetLocalOption(key: key);
@@ -4125,6 +5859,7 @@ String _notificationBody(DirectChatRecord record) {
   }
 
   /// Set raw option value (bridges bind for external models).
+
   Future<void> setRawOption(
       {required String key, required String value}) async {
     try {
@@ -4135,6 +5870,7 @@ String _notificationBody(DirectChatRecord record) {
   // ─── Chat background ─────────────────────────────────────
 
   /// 当前聊天窗口背景（default / mobile / desktop）。
+
   String get chatBackgroundKey {
     try {
       return bind.mainGetLocalOption(key: 'chat_background');
@@ -4144,10 +5880,12 @@ String _notificationBody(DirectChatRecord record) {
   }
 
   /// 设置聊天窗口背景并通知界面刷新。
+
   Future<void> setChatBackground(String key) async {
     try {
       await bind.mainSetLocalOption(key: 'chat_background', value: key);
     } catch (_) {}
+
     notifyListeners();
   }
 
@@ -4155,89 +5893,124 @@ String _notificationBody(DirectChatRecord record) {
 
   void enterMultiSelect(String firstMessageId) {
     _multiSelectMode = true;
+
     _selectedMessageIds.clear();
+
     _selectedMessageIds.add(firstMessageId);
+
     _anchorMessageId = firstMessageId;
+
     notifyListeners();
   }
 
   void toggleSelection(String messageId) {
     if (_selectedMessageIds.contains(messageId)) {
       _selectedMessageIds.remove(messageId);
+
       if (_selectedMessageIds.isEmpty) {
         _multiSelectMode = false;
+
         _anchorMessageId = null;
       }
     } else {
       _selectedMessageIds.add(messageId);
     }
+
     if (_multiSelectMode) _anchorMessageId = messageId;
+
     notifyListeners();
   }
 
   /// Ctrl+点击：切换单条消息选中状态，保持多选模式（即使清空也不退出）。
+
   void toggleSelectionKeepMode(String messageId) {
     if (_selectedMessageIds.contains(messageId)) {
       _selectedMessageIds.remove(messageId);
     } else {
       _selectedMessageIds.add(messageId);
     }
+
     _multiSelectMode = true;
+
     _anchorMessageId = messageId;
+
     notifyListeners();
   }
 
   /// Shift+点击：选中从锚点到 [targetMessageId] 之间的连续区间（含两端）。
+
   void selectRange(String targetMessageId) {
     final body = _messages[_currentKey];
+
     if (body == null) return;
+
     final ids = <String>[
       for (final msg in body.chatMessages)
         (msg.customProperties?['ldesk_id'] ?? '').toString(),
     ]..removeWhere((id) => id.isEmpty);
+
     final anchor = _anchorMessageId;
+
     if (anchor == null || !ids.contains(anchor)) {
       _selectedMessageIds.clear();
+
       _selectedMessageIds.add(targetMessageId);
     } else {
       _selectedMessageIds
         ..clear()
         ..addAll(computeRange(ids, anchor, targetMessageId));
     }
+
     _multiSelectMode = true;
+
     _anchorMessageId = targetMessageId;
+
     notifyListeners();
   }
 
   /// 计算 [anchor] 到 [target] 之间的连续消息 id 区间（含两端）。
+
   /// 锚点或目标不在列表时返回 [target]（退化单选）。纯函数便于测试。
+
   static List<String> computeRange(
     List<String> orderedIds,
     String anchor,
     String target,
   ) {
     final a = orderedIds.indexOf(anchor);
+
     final b = orderedIds.indexOf(target);
+
     if (a < 0 || b < 0) return <String>[target];
+
     final lo = a < b ? a : b;
+
     final hi = a < b ? b : a;
+
     return orderedIds.sublist(lo, hi + 1);
   }
 
   void selectAllInConversation() {
     final body = _messages[_currentKey];
+
     if (body == null) return;
+
     for (final msg in body.chatMessages) {
       final id = (msg.customProperties?['ldesk_id'] ?? '').toString();
+
       if (id.isNotEmpty) _selectedMessageIds.add(id);
     }
+
     notifyListeners();
   }
 
   void exitMultiSelect() {
     _multiSelectMode = false;
+
     _selectedMessageIds.clear();
+
     _anchorMessageId = null;
+
     notifyListeners();
   }
 
@@ -4245,14 +6018,21 @@ String _notificationBody(DirectChatRecord record) {
     for (final timer in _selfDestructTimers.values) {
       timer.cancel();
     }
+
     _selfDestructTimers.clear();
+
     for (final timer in _deliveryWatchdogs.values) {
       timer.cancel();
     }
+
     _deliveryWatchdogs.clear();
+
     _deliveryWatchdogRetries.clear();
+
     hideChatIconOverlay();
+
     hideChatWindowOverlay();
+
     notifyListeners();
   }
 
@@ -4270,20 +6050,84 @@ String _notificationBody(DirectChatRecord record) {
 
   void onVoiceCallWaiting() {
     _voiceCallStatus.value = VoiceCallStatus.waitingForResponse;
+
     // 对端不应答时自动放弃，避免“呼叫中”永久占屏/无法退出。
+
+    _voiceTone('ringback'); // 呼出回铃（循环，接通/挂断时停止）
+
     _setVoiceCallScreenOn(true); // 呼叫中保持亮屏，避免息屏看不到拨打状态
+
     _voiceCallWaitingTimer?.cancel();
+
     _voiceCallWaitingTimer = Timer(kVoiceCallWaitTimeout, () {
       debugPrint('[VoiceCall] waiting timeout, auto hang up');
+
       closeVoiceCall();
     });
   }
 
+  /// 播放通话提示音（仅 Android）：ring=来电铃声(循环)，ringback=呼出回铃(循环)，
+
+  /// connected=接通短提示，ended=停止一切提示音/震动。iOS/桌面无原生通道则忽略。
+
+  void _voiceTone(String kind) {
+    // 循环音去重：相同循环音重复触发不重响（避免事件重发导致铃声闪断）；
+
+    // 状态切换/停止一律放行，由原生端幂等停旧再播新。
+
+    if ((kind == 'ring' || kind == 'ringback') && _activeTone == kind) return;
+
+    if (!isAndroid) return;
+
+    if (kind == 'ring' || kind == 'ringback') {
+      _activeTone = kind;
+    } else if (kind == 'ended') {
+      _activeTone = '';
+    } else if (kind == 'connected') {
+      // 接通后清空循环音标记，下一次呼出/来电才能重新响铃。
+
+      _activeTone = '';
+    }
+
+    try {
+      parent.target?.invokeMethod('voice_tone_$kind');
+    } catch (e) {
+      debugPrint('[VoiceCall] voice_tone_$kind err: $e');
+    }
+  }
+
+  /// 兜底停止来电铃声/回铃与震动（UI 层 connected 时调用）。
+
+  /// 正常情况下 Rust 的 on_voice_call_started 事件会先触发 [onVoiceCallStarted]
+
+  /// 并播放 connected 提示（停循环音）。但 OPPO/ColorOS 等在接听瞬间可能把
+
+  /// app 切后台/冻结，导致该事件延迟甚至丢失——此时来电循环震动会一直响。
+
+  /// 这里在本地状态翻转为 connected 时兜底补一次停音，幂等：若无循环音在响
+
+  /// （_activeTone 为空）则不发，避免重复“叮”声。
+
+  void stopVoiceRingingTone() {
+    if (!isAndroid) return;
+
+    if (_activeTone == 'ring' || _activeTone == 'ringback') {
+      debugPrint(
+          '[VoiceCall] UI-connected fallback: stop active tone $_activeTone');
+
+      _voiceTone('connected'); // 原生端会先停循环音/震动再播一声短提示
+    }
+  }
+
   /// 通话期间保持屏幕常亮（原生 FLAG_KEEP_SCREEN_ON，不经插件通道）。
+
   /// 解决 OPPO/ColorOS/华为等强省电 ROM 在通话/来电中自动息屏，用户
+
   /// 无法看到界面或挂断的问题。iOS 无此 API，忽略即可。
+
   void _setVoiceCallScreenOn(bool on) {
     if (!isAndroid) return;
+
     try {
       parent.target?.invokeMethod(on ? 'keep_screen_on' : 'keep_screen_off');
     } catch (e) {
@@ -4291,114 +6135,946 @@ String _notificationBody(DirectChatRecord record) {
     }
   }
 
-void onVoiceCallStarted() {
- _voiceCallWaitingTimer?.cancel();
- _voiceCallStatus.value = VoiceCallStatus.connected;
- _setVoiceCallScreenOn(true); // 接通后保持亮屏，通话中不熄屏
- if (isAndroid || isIOS) {
- _startMobileVoiceCallAudio();
- // NOTE: do NOT invoke Kotlin on_voice_call_started on mobile. That call
- // makes AudioRecordHandle.switchToVoiceCall() restart the Rust audio
- // service (playback/mic capture into AUDIO_RAW), which would run a SECOND
- // mic path alongside Dart VoiceCallAudio -> echo / doubled voice / noise.
- // Mobile voice media is fully handled by Dart VoiceCallAudio (opus).
- }
- _startQualityMonitor();
- }
+  void onVoiceCallStarted({bool? mediaE2ee}) {
+    _voiceCallWaitingTimer?.cancel();
 
- void onVoiceCallClosed(String reason) {
- _voiceCallWaitingTimer?.cancel();
- _voiceCallStatus.value = VoiceCallStatus.notStarted;
- _setVoiceCallScreenOn(false); // 通话结束释放屏幕常亮
- _activeCallConnId = 0;
- _voiceCallQuality.stop(); _voiceCallWaitingTimer?.cancel();
- _voiceCallStatus.value = VoiceCallStatus.notStarted;
- _voiceCallQuality.stop();
- _voiceCallQualityStatus.value = '';
- if (isAndroid || isIOS) {
- _stopMobileVoiceCallAudio();
- // We can always invoke "on_voice_call_closed"
- // no matter if the `_voiceCallStatus` was `VoiceCallStatus.notStarted` or not.
- parent.target?.invokeMethod("on_voice_call_closed");
- }
- }
+    _voiceCallStatus.value = VoiceCallStatus.connected;
 
- /// Start network quality monitoring for active voice call.
- void _startQualityMonitor() {
- _voiceCallQuality.onBitrateChanged = (bps) {
- _voiceCallAudio?.bitrate = bps;
- };
- _voiceCallQuality.onQualityStatus = (status) {
- _voiceCallQualityStatus.value = status;
- };
- _voiceCallQuality.start(() {
- // Read current delay from QualityMonitorModel
- final ffi = parent.target;
- if (ffi == null) return 0;
- final delayStr = ffi.qualityMonitorModel.data.delay;
- return int.tryParse(delayStr ?? '') ?? 0;
- });
- }
+    if (mediaE2ee != null) _voiceCallMediaE2ee = mediaE2ee;
 
- /// Start mobile-side audio capture and playback for voice call.
- Future<void> _startMobileVoiceCallAudio() async {
- if (_voiceCallAudio != null) return;
- _voiceCallAudio = VoiceCallAudio();
- await _voiceCallAudio!.init();
- _voiceCallAudio!.onEncoded = (opus) {
- print('[VC-DBG] onEncoded opusLen=' + opus.length.toString());
- // Callee/host: no FlutterSession -> send via host Connection (cm path).
- // Caller/client: send via FlutterSession (session path).
- final cmConn = _activeCallConnId;
- if (cmConn > 0) {
- bind.cmSendVoiceCallAudio(connId: cmConn, data: opus);
- print('[VC-DBG] cmSendVoiceCallAudio called conn=' + cmConn.toString());
- } else {
- bind.sessionSendVoiceCallAudio(
- sessionId: sessionId,
- data: opus,
- );
- print('[VC-DBG] sessionSendVoiceCallAudio called sid=' + sessionId.toString());
-}
-};
-await _voiceCallAudio!.startCapture();
- }
+    // 已接通：不再是“未接来电”，正常通话记录（接通时刻与类型供灰气泡）。
+    _voiceCallWasIncoming = false;
+    _voiceCallStartedAt = DateTime.now();
 
- /// Stop and dispose mobile voice call audio.
- Future<void> _stopMobileVoiceCallAudio() async {
- await _voiceCallAudio?.stop();
- _voiceCallAudio?.dispose();
- _voiceCallAudio = null;
- }
+    try {
+      dynamic active;
 
- /// Handle incoming Opus audio frame from peer (mobile-only path).
- void onVoiceCallAudioFrame(String b64) {
- if (_voiceCallAudio == null || _voiceCallStatus.value != VoiceCallStatus.connected) {
-   print('[VC-DBG] recv drop: audio=' + (_voiceCallAudio != null).toString() + ' status=' + _voiceCallStatus.value.toString());
-   return;
- }
- try {
- final opus = base64Decode(b64);
- print('[VC-DBG] recv audio frame len=' + opus.length.toString() + ' status=' + _voiceCallStatus.value.toString());
- _voiceCallAudio!.feedIncomingOpus(opus);
- } catch (e) {
- print('[VC-DBG] onVoiceCallAudioFrame decode error: $e');
- }
- }
+      for (final c in gFFI.serverModel.clients) {
+        if ((c.inVoiceCall || c.incomingVoiceCall) && !c.disconnected) {
+          active = c;
+
+          break;
+        }
+      }
+
+      final fromClient = active?.peerId?.toString() ?? '';
+
+      _voiceCallPeerId =
+          fromClient.isNotEmpty ? fromClient.trim() : _currentKey.peerId.trim();
+
+      _voiceCallWasVideo = active?.isViewCamera == true;
+    } catch (_) {
+      _voiceCallPeerId = _currentKey.peerId.trim();
+
+      _voiceCallWasVideo = false;
+    }
+
+    _voiceTone('connected'); // 接通：停铃声/回铃并播一声短提示
+
+    _setVoiceCallScreenOn(true); // 接通后保持亮屏，通话中不熄屏
+
+    if (isAndroid || isIOS) {
+      unawaited(_startMobileVoiceCallAudio());
+
+      // NOTE: do NOT invoke Kotlin on_voice_call_started on mobile. That call
+
+      // makes AudioRecordHandle.switchToVoiceCall() restart the Rust audio
+
+      // service (playback/mic capture into AUDIO_RAW), which would run a SECOND
+
+      // mic path alongside Dart VoiceCallAudio -> echo / doubled voice / noise.
+
+      // Mobile voice media is fully handled by Dart VoiceCallAudio (opus).
+    }
+
+    _startQualityMonitor();
+  }
+
+  void onVoiceCallClosed(String reason) {
+    _voiceCallWaitingTimer?.cancel();
+    final wasActive = _voiceCallStatus.value != VoiceCallStatus.notStarted;
+    _voiceCallStatus.value = VoiceCallStatus.notStarted;
+    _setVoiceCallScreenOn(false); // 通话结束释放屏幕常亮
+    _activeCallConnId = 0;
+    // 通话记录灰气泡：只有真正接通过的呼叫才落库（未接/拒绝不产生记录）。
+    final wasConnected = _voiceCallStartedAt != null;
+    final durationSec = wasConnected
+        ? DateTime.now().difference(_voiceCallStartedAt!).inSeconds
+        : 0;
+    final callPeer = _voiceCallPeerId;
+    final callWasVideo = _voiceCallWasVideo;
+    final wasIncoming = _voiceCallWasIncoming;
+    _voiceCallStartedAt = null;
+    _voiceCallWasIncoming = false;
+    if (callPeer.isNotEmpty) {
+      if (wasConnected) {
+        // 已接通的呼叫：双向都落一条通话记录（时长 > 0）。
+        unawaited(_recordVoiceCallBubble(
+            peerId: callPeer, video: callWasVideo, durationSec: durationSec));
+      } else if (wasIncoming) {
+        // 来电未被接听（拒绝/超时/对方取消）：被叫侧落“未接来电”。
+        unawaited(_recordVoiceCallBubble(
+            peerId: callPeer,
+            video: callWasVideo,
+            durationSec: 0,
+            missed: true));
+      }
+    }
+    _voiceTone('ended'); // 挂断/拒绝/超时：停止一切铃声/回铃/震动
+    _voiceCallQuality.stop();
+    _voiceCallQualityStatus.value = '';
+    if (wasActive && (isAndroid || isIOS)) {
+      unawaited(_stopMobileVoiceCallAudio());
+      // We can always invoke "on_voice_call_closed"
+      parent.target?.invokeMethod("on_voice_call_closed");
+    }
+  }
+
+  /// 通话结束：在点聊流里落一条本地“通话记录”灰气泡（刷新后仍保留）。
+  /// 格式 `[call] 语音通话 · 00:12` / `[call] 未接来电`，老版本按普通文本显示，
+  /// 新版本特判居中灰字。已接通的呼叫由双方各自落库（时长 > 0）；未接来电
+  /// 仅被叫侧落库（missed=true，incoming 方向，避免主叫取消也生成记录）。
+  Future<void> _recordVoiceCallBubble({
+    required String peerId,
+    required bool video,
+    required int durationSec,
+    bool missed = false,
+  }) async {
+    try {
+      if (peerId.isEmpty) return;
+      final dur = durationSec > 0 ? formatCallDuration(durationSec) : '';
+      final label = missed ? '未接来电' : (video ? '视频通话' : '语音通话');
+      // 半角连字符分隔时间（勿用 U+00B7 中间点，渲染显全角宽度）。
+      final text = dur.isNotEmpty ? '[call] $label - $dur' : '[call] $label';
+      DirectChatRecord record;
+      if (missed) {
+        // 未接来电是“我收到但没接”的消息：以 incoming 方向落库（带 10s 去重，
+        // 防超时 Timer 与 closed 事件双触发重复插入）。
+        record = (await DirectChatRepository.instance.createIncomingLegacy(
+              conversationId: peerId,
+              text: text,
+              senderId: peerId,
+              senderName: peerId,
+              senderAvatar: '',
+            )) ??
+            await DirectChatRepository.instance.createOutgoing(
+              conversationId: peerId,
+              connectionTarget: _messageSourceTarget(
+                  MessageKey(peerId, ChatModel.clientModeID)),
+              kind: DirectChatKind.text,
+              text: text,
+              senderId: me.id,
+              senderName: me.firstName ?? '',
+              senderAvatar: '',
+            );
+      } else {
+        record = await DirectChatRepository.instance.createOutgoing(
+          conversationId: peerId,
+          connectionTarget:
+              _messageSourceTarget(MessageKey(peerId, ChatModel.clientModeID)),
+          kind: DirectChatKind.text,
+          text: text,
+          senderId: me.id,
+          senderName: me.firstName ?? '',
+          senderAvatar: '',
+        );
+      }
+      RuntimeLogger.instance.info('CHAT',
+          'call record bubble persisted peer=$peerId text=$text missed=$missed');
+      final key = _currentKey;
+      if (key != null && key.peerId == peerId) {
+        // 会话正开着：直接插入当前视图，避免整会话重载带来的滚动抖动。
+        insertMessage(key, _taggedChatMessage(record, me));
+        notifyListeners();
+      } else {
+        // 会话未打开：仅刷新最近会话列表（对端下次进入由 _restoreConversation 读取）。
+        await refreshRecentFromStorage();
+      }
+    } catch (e) {
+      debugPrint('[VoiceCall] record bubble failed: $e');
+    }
+  }
+
+  /// Start network quality monitoring for active voice call.
+
+  void _startQualityMonitor() {
+    _voiceCallQuality.onBitrateChanged = (bps) {
+      _voiceCallAudio?.bitrate = bps;
+    };
+
+    _voiceCallQuality.onQualityStatus = (status) {
+      _voiceCallQualityStatus.value = status;
+    };
+
+    _voiceCallQuality.start(() {
+      // Read current delay from QualityMonitorModel
+
+      final ffi = parent.target;
+
+      if (ffi == null) return 0;
+
+      final delayStr = ffi.qualityMonitorModel.data.delay;
+
+      return int.tryParse(delayStr ?? '') ?? 0;
+    });
+  }
+
+  /// Start mobile-side audio capture and playback for voice call.
+
+  Future<void> _startMobileVoiceCallAudio() async {
+    if (_voiceCallAudio != null) return;
+
+    _voiceCallAudio = VoiceCallAudio();
+
+    // Put Android in communication mode before AudioRecord is opened. On
+    // Huawei/OPPO the first AudioRecord session inherits the current mode;
+    // waiting for the page's later route callback can leave the recorder in
+    // NORMAL mode, bypassing the device AEC/NS path and producing hiss.
+    if (isAndroid) {
+      try {
+        await parent.target?.invokeMethod('set_audio_speaker', true);
+      } catch (e) {
+        debugPrint(
+            '[VoiceCall] set communication route before capture err: $e');
+      }
+    }
+
+    await _voiceCallAudio!.init();
+
+    _voiceCallAudio!.onEncoded = (opus) {
+      print('[VC-DBG] onEncoded opusLen=' + opus.length.toString());
+
+      // Callee/host: no FlutterSession -> send via host Connection (cm path).
+
+      // Caller/client: send via FlutterSession (session path).
+
+      final cmConn = _activeCallConnId;
+
+      if (cmConn > 0) {
+        bind.cmSendVoiceCallAudio(connId: cmConn, data: opus);
+
+        print('[VC-DBG] cmSendVoiceCallAudio called conn=' + cmConn.toString());
+      } else {
+        bind.sessionSendVoiceCallAudio(
+          sessionId: sessionId,
+          data: opus,
+        );
+
+        print('[VC-DBG] sessionSendVoiceCallAudio called sid=' +
+            sessionId.toString());
+      }
+    };
+
+    await _voiceCallAudio!.startCapture();
+  }
+
+  /// Stop and dispose mobile voice call audio.
+
+  Future<void> _stopMobileVoiceCallAudio() async {
+    await _voiceCallAudio?.stop();
+
+    _voiceCallAudio?.dispose();
+
+    _voiceCallAudio = null;
+  }
+
+  // ── 会议语音（多人，star 汇聚）：主持人转发各成员 Opus，本端分路混音 ──
+
+  String _meetingVoiceId = '';
+
+  bool _meetingVoiceActive = false;
+
+  /// 本端是否为主持人（主持人 leave 时广播 end；成员仅发 leave）。
+
+  bool _meetingVoiceIsHost = false;
+
+  /// 参会成员列表：member_id → 成员（含名字与说话状态）。
+
+  final Map<String, MeetingVoiceMember> _meetingVoiceMembers = {};
+
+  bool _meetingVoiceMuted = false;
+
+  /// 说话状态看门狗：周期性扫描 lastFrameAt，超时标记静音。
+
+  Timer? _meetingVoiceSpeakingTimer;
+
+  bool get meetingVoiceActive => _meetingVoiceActive;
+
+  String get meetingVoiceId => _meetingVoiceId;
+
+  /// 参会成员列表（按加入顺序），供会议面板渲染。
+
+  List<MeetingVoiceMember> get meetingVoiceMemberList =>
+      _meetingVoiceMembers.values.toList();
+
+  Set<String> get meetingVoiceMembers => _meetingVoiceMembers.keys.toSet();
+
+  bool get meetingVoiceMuted => _meetingVoiceMuted;
+
+  /// 本端↔主持人链路的媒体 E2EE 状态（面板锁标识）。
+
+  /// 成员侧：join 后主持人广播的 joined（per-target 本端链路状态）会写到自己
+
+  /// 行；主持人侧：所有在线成员链路均加密才算整体加密。
+
+  bool get meetingVoiceE2ee {
+    if (!_meetingVoiceActive) return false;
+
+    final self = me.id.trim();
+
+    if (_meetingVoiceIsHost) {
+      final others =
+          _meetingVoiceMembers.values.where((m) => m.id != self).toList();
+
+      return others.isNotEmpty && others.every((m) => m.e2ee);
+    }
+
+    return _meetingVoiceMembers[self]?.e2ee ?? false;
+  }
+
+  /// 主持人：开始会议语音（注册本机 hub，Dart 采集经 hub 广播给成员）。
+
+  Future<void> startMeetingVoice(String meetingId) async {
+    if (_meetingVoiceActive) return;
+
+    if (_voiceCallStatus.value != VoiceCallStatus.notStarted) {
+      closeVoiceCall();
+    }
+    _meetingVoiceId = meetingId;
+
+    _meetingVoiceActive = true;
+
+    _meetingVoiceIsHost = true;
+
+    _meetingVoiceMembers.clear();
+
+    _meetingVoiceMuted = false;
+
+    // 主持人自己也是参会成员（本地展示用，ID 即本机点聊 ID）。
+
+    _meetingVoiceMembers[me.id.trim()] = MeetingVoiceMember(
+      id: me.id.trim(),
+      name: me.firstName ?? '',
+    );
+
+    _startMeetingVoiceSpeakingWatchdog();
+
+    // 桌面端：重置 Rust 采集静音标记（上次会议可能残留）。
+
+    if (isDesktop) {
+      try {
+        bind.meetingVoiceSetMuted(muted: false);
+      } catch (_) {}
+    }
+
+    try {
+      bind.hostRegisterMeetingVoice(
+        meetingId: meetingId,
+        active: true,
+        hostMemberId: me.id.trim(),
+        hostMemberName: me.firstName ?? '',
+      );
+    } catch (e) {
+      debugPrint('[MeetingVoice] hostRegister err: $e');
+    }
+
+    await _startMeetingVoiceAudio(isHost: true);
+
+    notifyListeners();
+  }
+
+  /// 成员：加入主持人发起的会议语音（经当前会话的 P2P 连接发 join）。
+
+  /// 返回 false 表示被拒绝（如与主持人的连接走了中继），UI 据此提示。
+
+  Future<bool> joinMeetingVoice(String meetingId) async {
+    if (_meetingVoiceActive) return true;
+
+    if (_voiceCallStatus.value != VoiceCallStatus.notStarted) {
+      closeVoiceCall();
+    }
+
+    // ★ 音视频流量绝不走中继：会议语音成员经与主持人的 P2P 连接上行。
+
+    // 连接若走了中继（打洞失败兜底）则拒绝加入，不让会议音频灌到 VPS。
+
+    // ★ 先确保与主持人的 P2P chat 连接（成员主动拨号主持人）：join 信令
+
+    // 依赖当前 session，若本地无活动连接（例如重启后、会议面板直进），
+
+    // join 会发往死 session 而静默丢失（主持人永远看不到成员加入）。
+
+    final group = MeetingGroupStore.find(meetingId);
+
+    final hostId = (group?.hostPeerId ?? '').trim();
+
+    if (hostId.isNotEmpty) {
+      final ensure = ensureChatConnection;
+
+      if (ensure != null) {
+        await ensure(hostId, force: true);
+
+        // 轮询等待 P2P 连接**真正就绪**（拨号握手 + peer_info 到达）。
+
+        // ★ 必须等到 direct=true 才允许发 join：sessionGetConnectionInfo
+
+        // 在 session 尚未注册/连接未建立时返回 null，mediaDirectGateAllows
+
+        // 对 null 放行——若在这里就 break，join 会发到未就绪的 session
+
+        // 而静默丢失（主持人永远看不到成员，成员侧却显示"1 人参与中"）。
+
+        final deadline = DateTime.now().add(const Duration(seconds: 8));
+
+        var ready = false;
+
+        while (DateTime.now().isBefore(deadline)) {
+          // ★ direct=true 在 TCP 建立时即置位，但 secure_connection 授权
+
+          // 握手可能尚未完成——此时发 join 会被对端（chat-only 未授权连接）
+
+          // 丢弃。必须等到 Dart 侧连接真正就绪：connType=chat + peer_info
+
+          // 到达（pi.isSet）+ direct=true 三者齐备才发 join。
+
+          final connReady =
+              gFFI.connType == ConnType.chat && gFFI.ffiModel.pi.isSet.isTrue;
+
+          if (connReady) {
+            try {
+              final info =
+                  await bind.sessionGetConnectionInfo(sessionId: sessionId);
+
+              if (info != null &&
+                  info.isNotEmpty &&
+                  mediaDirectGateAllows(info)) {
+                ready = true;
+
+                break;
+              }
+            } catch (_) {}
+          }
+
+          await Future<void>.delayed(const Duration(milliseconds: 200));
+        }
+
+        if (!ready) {
+          debugPrint('[MeetingVoice] join aborted: chat P2P not ready in 8s');
+
+          return false;
+        }
+
+        debugPrint('[MeetingVoice] join: chat P2P ready, sending join');
+      }
+    }
+
+    final mediaOk = await _ensureMeetingVoiceDirect();
+
+    if (!mediaOk) return false;
+
+    _meetingVoiceId = meetingId;
+
+    _meetingVoiceActive = true;
+
+    _meetingVoiceIsHost = false;
+
+    _meetingVoiceMembers.clear();
+
+    _meetingVoiceMuted = false;
+
+    // 成员自己也在参会列表里（本地展示用）。
+
+    _meetingVoiceMembers[me.id.trim()] = MeetingVoiceMember(
+      id: me.id.trim(),
+      name: me.firstName ?? '',
+    );
+
+    _startMeetingVoiceSpeakingWatchdog();
+
+    // 桌面端：重置 Rust 采集静音标记（上次会议可能残留）。
+
+    if (isDesktop) {
+      try {
+        bind.meetingVoiceSetMuted(muted: false);
+      } catch (_) {}
+    }
+
+    try {
+      bind.sessionSendMeetingVoiceControl(
+        sessionId: sessionId,
+        meetingId: meetingId,
+        action: 'join',
+        memberId: me.id.trim(),
+        memberName: me.firstName ?? '',
+      );
+    } catch (e) {
+      debugPrint('[MeetingVoice] join ctrl err: $e');
+    }
+
+    // ★ join 确认-重发兜底：主持人收到 join 会回发 joined（含主持人自己），
+
+    // 成员列表应出现 >1 人。若 2s 内未见主持人回发（例如 join 落在连接
+
+    // 建立窗口的边界而丢失），重发一次 join。
+
+    for (var attempt = 0; attempt < 2; attempt++) {
+      final deadline = DateTime.now().add(const Duration(seconds: 2));
+
+      while (DateTime.now().isBefore(deadline)) {
+        if (_meetingVoiceMembers.length > 1) break;
+
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      }
+
+      if (_meetingVoiceMembers.length > 1) break;
+
+      debugPrint('[MeetingVoice] join ack missing, resend #${attempt + 1}');
+
+      try {
+        bind.sessionSendMeetingVoiceControl(
+          sessionId: sessionId,
+          meetingId: meetingId,
+          action: 'join',
+          memberId: me.id.trim(),
+          memberName: me.firstName ?? '',
+        );
+      } catch (e) {
+        debugPrint('[MeetingVoice] join resend err: $e');
+      }
+    }
+
+    await _startMeetingVoiceAudio(isHost: false);
+
+    notifyListeners();
+
+    return true;
+  }
+
+  Future<void> _startMeetingVoiceAudio({required bool isHost}) async {
+    // 桌面端：麦克风由 Rust cpal + magnum_opus 采集（主持人经 hub 广播，
+
+    // 成员经 P2P 上行），播放走 audio_sender，Dart 不参与音频。
+
+    if (isDesktop) return;
+
+    if (_voiceCallAudio == null) {
+      _voiceCallAudio = VoiceCallAudio();
+
+      // Meeting voice also uses the single mobile VoiceCallAudio owner. Set
+      // communication mode before the recorder session is created so the
+      // platform AEC/NS effects attach to the correct session on EMUI/ColorOS.
+      if (isAndroid) {
+        try {
+          await parent.target?.invokeMethod('set_audio_speaker', true);
+        } catch (e) {
+          debugPrint('[MeetingVoice] set communication route err: $e');
+        }
+      }
+
+      await _voiceCallAudio!.init();
+    }
+
+    _voiceCallAudio!.startMeetingMix();
+
+    _voiceCallAudio!.onEncoded = (opus) {
+      if (isHost) {
+        bind.hostSendMeetingAudio(
+          meetingId: _meetingVoiceId,
+          memberId: me.id.trim(),
+          data: opus,
+        );
+      } else {
+        bind.sessionSendMeetingAudio(
+          sessionId: sessionId,
+          memberId: me.id.trim(),
+          data: opus,
+        );
+      }
+    };
+
+    if (!_meetingVoiceMuted) {
+      await _voiceCallAudio!.startCapture();
+    }
+  }
+
+  /// 会议语音音频帧（主持人转发的其他成员 Opus）→ 分路解码混音播放。
+
+  void onMeetingAudioFrame(String memberId, String b64) {
+    if (!_meetingVoiceActive || _voiceCallAudio == null) return;
+
+    if (memberId.isNotEmpty) {
+      // 帧到达 = 正在说话（主持人转发的帧已排除自己）。
+
+      final m = _meetingVoiceMembers[memberId];
+
+      if (m != null) {
+        m.lastFrameAt = DateTime.now();
+
+        if (!m.speaking) {
+          m.speaking = true;
+
+          notifyListeners();
+        }
+      }
+    }
+
+    try {
+      _voiceCallAudio!.feedMeetingOpus(memberId, base64Decode(b64));
+    } catch (e) {
+      debugPrint('[MeetingVoice] frame err: $e');
+    }
+  }
+
+  /// 桌面端会议语音全局输出音量（0.0~1.0）。
+  ///
+  /// 桌面端走 Rust FFI（整数百分比 0~100）；移动端直接改本地混音系数。
+  void setMeetingAudioOutputVolume(double volume) {
+    final normalized = volume.clamp(0.0, 1.0);
+    if (!isDesktop) {
+      _voiceCallAudio?.setMeetingOutputVolume(normalized);
+      return;
+    }
+    try {
+      bind.setMeetingAudioOutputVolume(volume: (normalized * 100).round());
+    } catch (e) {
+      debugPrint('[MeetingVoice] setOutputVolume err: $e');
+    }
+  }
+
+  /// 桌面端会议语音某成员独立音量（0.0~1.0）。
+  ///
+  /// 桌面端走 Rust FFI（整数百分比 0~100）；移动端直接改本地混音系数。
+  void setMeetingAudioMemberVolume(String memberId, double volume) {
+    final normalized = volume.clamp(0.0, 1.0);
+    if (!isDesktop) {
+      _voiceCallAudio?.setMeetingMemberVolume(memberId, normalized);
+      return;
+    }
+    try {
+      bind.setMeetingAudioMemberVolume(
+        memberId: memberId,
+        volume: (normalized * 100).round(),
+      );
+    } catch (e) {
+      debugPrint('[MeetingVoice] setMemberVolume err: $e');
+    }
+  }
+
+  /// 静音/取消静音（本端麦克风）。
+
+  Future<void> toggleMeetingVoiceMute() async {
+    _meetingVoiceMuted = !_meetingVoiceMuted;
+
+    if (isDesktop) {
+      // 桌面端：Rust 采集线程发送前检查静音标记。
+
+      try {
+        bind.meetingVoiceSetMuted(muted: _meetingVoiceMuted);
+      } catch (e) {
+        debugPrint('[MeetingVoice] mute err: $e');
+      }
+    } else if (_voiceCallAudio != null) {
+      if (_meetingVoiceMuted) {
+        await _voiceCallAudio!.stopCapture();
+      } else {
+        await _voiceCallAudio!.startCapture();
+      }
+    }
+
+    notifyListeners();
+  }
+
+  /// 结束/退出会议语音（主持人停止广播，成员发 leave）。
+
+  Future<void> leaveMeetingVoice() async {
+    if (!_meetingVoiceActive) return;
+
+    final meetingId = _meetingVoiceId;
+
+    // 本端退出：先清本地状态（列表/音频/timer）。
+
+    await _exitMeetingVoiceLocal();
+    if (meetingId.isNotEmpty) {
+      // 仅主持人广播 end；成员只发 leave（避免成员误触 host_end）。
+
+      if (_meetingVoiceIsHost) {
+        try {
+          bind.hostRegisterMeetingVoice(
+            meetingId: meetingId,
+            active: false,
+            hostMemberId: me.id.trim(),
+            hostMemberName: me.firstName ?? '',
+          );
+        } catch (_) {}
+      }
+
+      try {
+        bind.sessionSendMeetingVoiceControl(
+          sessionId: sessionId,
+          meetingId: meetingId,
+          action: 'leave',
+          memberId: me.id.trim(),
+          memberName: me.firstName ?? '',
+        );
+      } catch (_) {}
+    }
+
+    notifyListeners();
+  }
+
+  /// ★ 会议语音直连闸门：加入前确认与主持人的会话是点对点直连。
+
+  /// 查不到连接信息（老版本/异常）时放行，避免误伤。
+
+  Future<bool> _ensureMeetingVoiceDirect() async {
+    try {
+      final info = await bind.sessionGetConnectionInfo(sessionId: sessionId);
+
+      if (!mediaDirectGateAllows(info)) {
+        debugPrint(
+            '[MeetingVoice] join refused: session is RELAY (must be p2p)');
+
+        return false;
+      }
+
+      return true;
+    } catch (e) {
+      debugPrint('[MeetingVoice] check direct err: $e');
+
+      return true;
+    }
+  }
+
+  /// ★ 直连闸门判定（禁中继契约，纯函数）：会话连接信息 JSON → 是否允许
+
+  /// 发起媒体（语音通话/会议语音）。
+
+  /// - null/空（老版本或查询异常）：放行，避免误伤；
+
+  /// - direct=true（P2P 直连：局域网直连 / UDP·TCP 打洞成功）：放行；
+
+  /// - direct=false（中继）：拒绝——音视频/会议语音绝不走中继服务器
+
+  ///   （VPS 只做信令、配置低，媒体流量只走对端直连）。
+
+  @visibleForTesting
+  static bool mediaDirectGateAllows(String? infoJson) {
+    if (infoJson == null || infoJson.isEmpty) return true;
+
+    try {
+      return (jsonDecode(infoJson)['direct'] as bool?) ?? false;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /// 退出会议语音（仅本地清理，不发信令）：end 广播到达或本端主动离开时用。
+
+  Future<void> _exitMeetingVoiceLocal() async {
+    _meetingVoiceActive = false;
+
+    _meetingVoiceIsHost = false;
+
+    _meetingVoiceId = '';
+
+    _meetingVoiceMembers.clear();
+
+    _meetingVoiceMuted = false;
+
+    _meetingVoiceSpeakingTimer?.cancel();
+
+    _meetingVoiceSpeakingTimer = null;
+
+    if (_voiceCallAudio != null) {
+      _voiceCallAudio!.stopMeetingMix();
+
+      await _voiceCallAudio!.stop();
+
+      _voiceCallAudio!.dispose();
+
+      _voiceCallAudio = null;
+    }
+
+    notifyListeners();
+  }
+
+  /// 说话状态看门狗：600ms 扫描一次，超过 800ms 无帧 → 标记静音。
+
+  void _startMeetingVoiceSpeakingWatchdog() {
+    _meetingVoiceSpeakingTimer?.cancel();
+
+    _meetingVoiceSpeakingTimer =
+        Timer.periodic(const Duration(milliseconds: 600), (_) {
+      final now = DateTime.now();
+
+      var changed = false;
+
+      _meetingVoiceMembers.forEach((_, m) {
+        if (m.speaking && now.difference(m.lastFrameAt).inMilliseconds > 800) {
+          m.speaking = false;
+
+          changed = true;
+        }
+      });
+
+      if (changed) notifyListeners();
+    });
+  }
+
+  /// 主持人广播的参会状态（joined/left/end/speaking/silent）→ 同步本地列表。
+
+  void onMeetingVoiceControl(
+      String action, String meetingId, String memberId, String memberName,
+      [bool mediaE2ee = false]) {
+    // 非当前会议的广播忽略（end 除外：残留广播也清理）。
+
+    if (meetingId.isNotEmpty &&
+        meetingId != _meetingVoiceId &&
+        action != 'end') {
+      return;
+    }
+
+    switch (action) {
+      case 'joined':
+        final existing = _meetingVoiceMembers[memberId];
+
+        if (existing != null) {
+          // 刷新链路加密状态（DHCP/重连后可能变化）。
+
+          if (existing.e2ee != mediaE2ee) {
+            existing.e2ee = mediaE2ee;
+
+            notifyListeners();
+          }
+        } else if (memberId.isNotEmpty) {
+          _meetingVoiceMembers[memberId] = MeetingVoiceMember(
+            id: memberId,
+            name: memberName,
+            e2ee: mediaE2ee,
+          );
+
+          notifyListeners();
+        }
+
+        break;
+
+      case 'left':
+        if (_meetingVoiceMembers.remove(memberId) != null) {
+          notifyListeners();
+        }
+
+        break;
+
+      case 'end':
+
+        // 主持人结束会议：自动退出（会议已不存在，不发 leave）。
+
+        _exitMeetingVoiceLocal();
+
+        break;
+
+      case 'speaking':
+        final sm = _meetingVoiceMembers[memberId];
+
+        if (sm != null) {
+          sm.lastFrameAt = DateTime.now();
+
+          if (!sm.speaking) {
+            sm.speaking = true;
+
+            notifyListeners();
+          }
+        }
+
+        break;
+
+      case 'silent':
+        final sm2 = _meetingVoiceMembers[memberId];
+
+        if (sm2 != null && sm2.speaking) {
+          sm2.speaking = false;
+
+          notifyListeners();
+        }
+
+        break;
+    }
+  }
+
+  /// Handle incoming Opus audio frame from peer (mobile-only path).
+
+  void onVoiceCallAudioFrame(String b64) {
+    if (_voiceCallAudio == null ||
+        _voiceCallStatus.value != VoiceCallStatus.connected) {
+      print('[VC-DBG] recv drop: audio=' +
+          (_voiceCallAudio != null).toString() +
+          ' status=' +
+          _voiceCallStatus.value.toString());
+
+      return;
+    }
+
+    try {
+      final opus = base64Decode(b64);
+
+      print('[VC-DBG] recv audio frame len=' +
+          opus.length.toString() +
+          ' status=' +
+          _voiceCallStatus.value.toString());
+
+      _voiceCallAudio!.feedIncomingOpus(opus);
+    } catch (e) {
+      print('[VC-DBG] onVoiceCallAudioFrame decode error: $e');
+    }
+  }
 
   void onVoiceCallIncoming() {
     _voiceCallStatus.value = VoiceCallStatus.incoming;
+
+    // 来电方向标记：若最终未接通（拒绝/超时/对方取消），落“未接来电”灰气泡。
+    // 来电事件本身不带 peerId（Rust 侧仅发无参事件），若同时到达的
+    // update_voice_call_state 被系统杀进程/网络抖动丢失，仍需在超时关闭时
+    // 保留本会话 peerId，否则未接来电记录会缺失。
+    if (_currentKey != null && _currentKey!.peerId.trim().isNotEmpty) {
+      _voiceCallPeerId = _currentKey!.peerId.trim();
+    }
+
+    _voiceCallWasIncoming = true;
+
+    _voiceTone('ring'); // 来电铃声（循环，接听/拒绝时停止）
+
     _setVoiceCallScreenOn(true); // 来电时点亮并保持屏幕，防止息屏漏接
+
+    // 来电超时自动复位：对端发起请求后若静默放弃/网络中断且未收到
+
+    // closed 通知，UI 会永远卡在来电(灰层/铃声)。与呼出 waiting 对称地
+
+    // 在 45s 后自动清理为 notStarted，保证桌面/手机来电层能自行退出。
+
+    _voiceCallWaitingTimer?.cancel();
+
+    _voiceCallWaitingTimer = Timer(kVoiceCallWaitTimeout, () {
+      debugPrint('[VoiceCall] incoming timeout, auto reset');
+
+      onVoiceCallClosed('Incoming call timeout');
+    });
   }
 
   void closeVoiceCall() {
     // Always notify the Rust session (best-effort). The Rust side forwards
+
     // CloseVoiceCall to the peer/CM, but if the session is already gone or
+
     // the peer is unreachable it silently does nothing. To guarantee the UI
+
     // can always hang up, reset local state + stop audio immediately and
+
     // idempotently; the later Rust `on_voice_call_closed` callback (if any)
+
     // is harmless because onVoiceCallClosed() is idempotent.
+
     final cmConn = _activeCallConnId;
+
     if (cmConn > 0) {
       try {
         bind.cmCloseVoiceCall(id: cmConn);
@@ -4411,11 +7087,8 @@ await _voiceCallAudio!.startCapture();
       } catch (e) {
         debugPrint('closeVoiceCall: bind error: $e');
       }
-    }    try {
-      bind.sessionCloseVoiceCall(sessionId: sessionId);
-    } catch (e) {
-      debugPrint('closeVoiceCall: bind error: $e');
     }
+
     if (_voiceCallStatus.value != VoiceCallStatus.notStarted) {
       onVoiceCallClosed('Closed by local user');
     }
@@ -4431,14 +7104,20 @@ class _IncomingVoiceTransfer {
   });
 
   final int total;
+
   final String sha256;
+
   final Map<int, Uint8List> chunks = <int, Uint8List>{};
 }
 
 enum VoiceCallStatus {
   notStarted,
+
   waitingForResponse,
+
   connected,
+
   // Connection manager only.
+
   incoming
 }
